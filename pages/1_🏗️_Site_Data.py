@@ -230,7 +230,9 @@ def add_record_dialog():
                 p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
                 po_nos.append(p_n)
             with c18:
-                p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
+                # Format changed to DD/MM/YYYY representation
+                raw_p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
+                p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
             with c19:
                 p_s = st.selectbox("PO STATUS", get_opts("PO Status", all_dd), key=f"po_status_{i}")
@@ -432,8 +434,8 @@ def edit_record_dialog(row_data):
                 p_n = st.text_input("PO NO.", value=val, key=f"e_po_no_{i}")
                 po_nos.append(p_n)
             with c18:
-                val = po_date_list[i] if i < len(po_date_list) else None
-                p_d = st.text_input("PO DATE (YYYY-MM-DD)", value=val if val else "", key=f"e_po_date_{i}")
+                val = po_date_list[i] if i < len(po_date_list) else ""
+                p_d = st.text_input("PO DATE (DD/MM/YYYY)", value=val if val else "", key=f"e_po_date_{i}")
                 po_dates.append(p_d)
             with c19:
                 val = po_status_list[i] if i < len(po_status_list) else "Select"
@@ -540,7 +542,6 @@ def material_movement_dialog(row_data):
 
         st.markdown('<div class="modal-section-title">📦 TRANSACTION & ASSET ITEMS</div>', unsafe_allow_html=True)
         
-        # 2nd Step: Dynamic Multiple Material Items Loop
         trans_types = get_opts("Transaction Type", all_dd)
         item_code_opts = get_opts("Item Code", all_dd)
         mat_status_opts = get_opts("Material Status", all_dd)
@@ -575,7 +576,8 @@ def material_movement_dialog(row_data):
                 m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"m_mstat_{i}")
                 mat_statuses.append(m_stat)
             with mc7:
-                d_date = st.date_input("DISPATCH DATE", value=None, key=f"m_ddate_{i}")
+                raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"m_ddate_{i}")
+                d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 mat_dates.append(d_date)
             with mc8:
                 stn_stat = st.selectbox("STN STATUS", stn_status_opts, key=f"m_stn_{i}")
@@ -606,7 +608,6 @@ def material_movement_dialog(row_data):
                     
             if not has_m_err:
                 try:
-                    # Save logic to warehouse table or update site
                     st.success("✅ Warehouse Material Successfully Saved!")
                     st.rerun()
                 except Exception as e:
@@ -736,7 +737,6 @@ edited_df = st.data_editor(
 selected_rows = edited_df[edited_df["🎯 Select"] == True]
 if not selected_rows.empty:
     st.markdown("---")
-    # 3 Buttons layout: Edit Selected, Delete Selected, Material (Conditional)
     col_ed1, col_ed2, col_mat, col_ed3 = st.columns([1, 1, 1.2, 5.8])
     
     row_to_edit = selected_rows.iloc[0].to_dict()
@@ -758,7 +758,6 @@ if not selected_rows.empty:
                 st.error(f"❌ Error Deleting Record: {e}")
                 
     with col_mat:
-        # Active only if WH Material is Required
         if st.button("📦 Material", type="primary", use_container_width=True, disabled=not is_wh_required):
             if 'mat_count' in st.session_state:
                 st.session_state.mat_count = 1
