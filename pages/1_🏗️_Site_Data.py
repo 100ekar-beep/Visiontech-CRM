@@ -39,7 +39,7 @@ st.markdown("""
         border-radius: 16px;
     }
     
-    /* NEW: FIX FOR DIALOG TITLE AND CAPTION COLOR */
+    /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
     div[data-testid="stDialog"] h1, 
     div[data-testid="stDialog"] h2, 
     div[data-testid="stDialog"] h3 {
@@ -85,10 +85,25 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- 3.1 NEW: HELPER FOR DYNAMIC DROPDOWNS ---
+def get_all_dropdowns():
+    try:
+        res = supabase.table("dropdown_master").select("*").execute()
+        return res.data if res.data else []
+    except Exception:
+        return []
+
+def get_opts(category, all_data):
+    opts = [row["option_value"] for row in all_data if row["category"] == category]
+    return ["Select"] + opts
+
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
     st.caption("Configure comprehensive site metrics and procurement status")
+    
+    # Supabase master table se saare options dynamically fetch kar rahe hain
+    all_dd = get_all_dropdowns() 
     
     with st.form("add_new_site_form", border=False):
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
@@ -96,11 +111,11 @@ def add_record_dialog():
         # Row 1
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            dept = st.selectbox("DEPARTMENT", ["Select Dept", "Civil", "Electrical", "Telecom", "Acquisition"])
+            dept = st.selectbox("DEPARTMENT", get_opts("Department", all_dd))
         with c2:
-            operator = st.selectbox("OPERATOR", ["Select Op", "Airtel", "Jio", "VIL", "BSNL"])
+            operator = st.selectbox("OPERATOR", get_opts("Operator", all_dd))
         with c3:
-            proj_name = st.text_input("PROJECT NAME", placeholder="Enter Project Name")
+            proj_name = st.selectbox("PROJECT NAME", get_opts("Project Name", all_dd))
         with c4:
             proj_id = st.text_input("PROJECT ID * (REQUIRED)", placeholder="Project ID")
             
@@ -113,44 +128,44 @@ def add_record_dialog():
         with c7:
             cluster = st.text_input("CLUSTER", placeholder="Enter Cluster")
         with c8:
-            site_status = st.selectbox("SITE STATUS", ["Status", "WIP", "Completed", "On Hold"])
+            site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
             
         st.markdown('<div class="modal-section-title">📦 MATERIAL, PO & RFAI DETAILS</div>', unsafe_allow_html=True)
         
         # Row 3
         c9, c10, c11, c12 = st.columns(4)
         with c9:
-            product = st.selectbox("PRODUCT", ["Product", "Tower", "Pole", "Rooftop", "Tenancy"])
+            product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
         with c10:
             po_no = st.text_input("PO NO.", placeholder="11 digits")
         with c11:
             po_date = st.date_input("PO DATE", value=None)
         with c12:
-            po_status = st.selectbox("PO STATUS", ["Status", "Released", "Pending", "Cancelled"])
+            po_status = st.selectbox("PO STATUS", get_opts("PO Status", all_dd))
             
         # Row 4
         c13, c14, c15, c16 = st.columns(4)
         with c13:
-            rfai_status = st.selectbox("RFAI STATUS", ["RFAI", "Declared", "Pending"])
+            rfai_status = st.selectbox("RFAI STATUS", get_opts("RFAI Status", all_dd))
         with c14:
-            wh_material = st.selectbox("WH MATERIAL *", ["Not Required", "Requested", "Delivered"])
+            wh_material = st.selectbox("WH MATERIAL *", get_opts("WH Material", all_dd))
         with c15:
-            team_name = st.selectbox("TEAM NAME", ["Select Team", "Team Alpha", "Team Beta", "Vendor A"])
+            team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
         with c16:
-            extra_approval = st.selectbox("EXTRA APPROVAL", ["Not Available", "Required", "Approved"])
+            extra_approval = st.selectbox("EXTRA APPROVAL", get_opts("Extra Approval", all_dd))
 
         st.markdown('<div class="modal-section-title">💰 BILLING & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
         # Row 5
         c17, c18, c19, c20 = st.columns(4)
         with c17:
-            team_billing = st.selectbox("TEAM BILLING STATUS", ["Pending", "In Process", "Billed", "Paid"])
+            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
         with c18:
-            vision_billing = st.selectbox("VISION BILLING STATUS", ["Status", "Pending", "Submitted", "Cleared"])
+            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
         with c19:
-            wcc_num = st.text_input("WCC NUMBER", placeholder="Enter WCC No.")
+            wcc_num = st.text_input("WCC NUMBER", placeholder="11 digits")
         with c20:
-            wcc_status = st.selectbox("WCC STATUS", ["Status", "Pending", "Approved", "Rejected"])
+            wcc_status = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd))
             
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -160,37 +175,61 @@ def add_record_dialog():
             submitted = st.form_submit_button("➕ Add Data", use_container_width=True)
             
         if submitted:
+            has_error = False
+            
+            # 1. Project ID & Site ID Required
             if not proj_id or not site_id:
                 st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
-            else:
-                # Prepare data dictionary exactly matching the columns
+                has_error = True
+            
+            # 2. PO No 11 Digit Check
+            if po_no and (not po_no.isdigit() or len(po_no) != 11):
+                st.error("⚠️ PO NO. strict 11 digit ka number hona chahiye!")
+                has_error = True
+                
+            # 3. WCC No 11 Digit Check
+            if wcc_num and (not wcc_num.isdigit() or len(wcc_num) != 11):
+                st.error("⚠️ WCC NUMBER strict 11 digit ka number hona chahiye!")
+                has_error = True
+            
+            # 4. Project ID Duplicate Check (Sirf tab chalega jab baaki errors na ho)
+            if not has_error:
+                try:
+                    dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).execute()
+                    if len(dup_check.data) > 0:
+                        st.error("❌ Project ID already exist")
+                        has_error = True
+                except Exception:
+                    pass
+                    
+            if not has_error:
                 insert_data = {
-                    "Department": dept if dept != "Select Dept" else "",
-                    "Operator": operator if operator != "Select Op" else "",
-                    "Project Name": proj_name,
+                    "Department": dept if dept != "Select" else "",
+                    "Operator": operator if operator != "Select" else "",
+                    "Project Name": proj_name if proj_name != "Select" else "",
                     "Project ID": proj_id,
                     "Site ID": site_id,
                     "Site Name": site_name,
                     "Cluster": cluster,
-                    "Site Status": site_status if site_status != "Status" else "",
-                    "Product": product if product != "Product" else "",
+                    "Site Status": site_status if site_status != "Select" else "",
+                    "Product": product if product != "Select" else "",
                     "PO No.": po_no,
                     "PO Date": str(po_date) if po_date else "",
-                    "PO Status": po_status if po_status != "Status" else "",
-                    "RFAI Status": rfai_status if rfai_status != "RFAI" else "",
-                    "WH Material": wh_material if wh_material != "Not Required" else "",
-                    "Team Name": team_name if team_name != "Select Team" else "",
-                    "Team Billing Status": team_billing if team_billing != "Pending" else "",
-                    "Extra Approval": extra_approval if extra_approval != "Not Available" else "",
-                    "Vision Billing Status": vision_billing if vision_billing != "Status" else "",
+                    "PO Status": po_status if po_status != "Select" else "",
+                    "RFAI Status": rfai_status if rfai_status != "Select" else "",
+                    "WH Material": wh_material if wh_material != "Select" else "",
+                    "Team Name": team_name if team_name != "Select" else "",
+                    "Team Billing Status": team_billing if team_billing != "Select" else "",
+                    "Extra Approval": extra_approval if extra_approval != "Select" else "",
+                    "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     "WCC Number": wcc_num,
-                    "WCC Status": wcc_status if wcc_status != "Status" else ""
+                    "WCC Status": wcc_status if wcc_status != "Select" else ""
                 }
                 
                 try:
                     supabase.table("site_data").insert(insert_data).execute()
                     st.success("✅ Record Successfully Added!")
-                    st.rerun() # Refresh to show new data in table
+                    st.rerun() 
                 except Exception as e:
                     st.error(f"❌ Error Saving Data: {e}")
 
