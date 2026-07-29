@@ -122,7 +122,6 @@ def get_opts(category, all_data):
 # --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
 def get_item_master_details():
     mapping = {}
-    # Naye Database Table "Item Code" (ya "item_code") se data lene ke liye
     table_names_to_try = ["Item Code", "item_code"]
     
     for t_name in table_names_to_try:
@@ -130,7 +129,6 @@ def get_item_master_details():
             res = supabase.table(t_name).select("*").execute()
             if res.data:
                 for item in res.data:
-                    # Yahan naye table ka column name 'item_code' use kiya gaya hai
                     code = str(item.get("item_code", "")).strip()
                     if code:
                         mapping[code] = {
@@ -139,7 +137,7 @@ def get_item_master_details():
                             "material_of": str(item.get("material_of", "Indus") or "Indus"),
                             "rate": item.get("rate")
                         }
-                return mapping # Ek baar data mil gaya toh aage try karne ki zarurat nahi
+                return mapping 
         except Exception as e:
             continue
             
@@ -549,7 +547,6 @@ def edit_record_dialog(row_data):
 def material_movement_dialog(row_data):
     st.caption("Manage transaction items and asset movements for selected site")
     all_dd = get_all_dropdowns()
-    item_master_dict = get_item_master_details()
     
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
@@ -593,19 +590,25 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                # UPDATED: Item Code is STRICTLY A TEXT BOX now
+                # UPDATED: Item Code is STRICTLY A TEXT BOX
                 i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # Auto-fetch Description & STN Status based on entered item code from new "Item Code" table
+            # --- LIVE SUPABASE QUERY: Same logic as Site ID Auto-Fetch ---
             auto_desc = ""
             auto_stn = "Select"
             code_val = i_code.strip()
-            if code_val and code_val in item_master_dict:
-                auto_desc = item_master_dict[code_val]["description"]
-                stn_val_from_db = item_master_dict[code_val]["stn_status"]
-                if stn_val_from_db in stn_status_opts:
-                    auto_stn = stn_val_from_db
+            
+            if code_val:
+                try:
+                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
+                    if item_res.data:
+                        auto_desc = str(item_res.data[0].get("item_description", ""))
+                        stn_val_from_db = str(item_res.data[0].get("stn_status", "Required"))
+                        if stn_val_from_db in stn_status_opts:
+                            auto_stn = stn_val_from_db
+                except Exception as e:
+                    pass
 
             with mc4:
                 i_desc = st.text_input("ITEM DESCRIPTION", value=auto_desc, placeholder="Description", key=f"m_idesc_{i}")
