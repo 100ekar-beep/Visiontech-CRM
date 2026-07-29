@@ -119,30 +119,6 @@ def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
 
-# --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
-def get_item_master_details():
-    mapping = {}
-    table_names_to_try = ["Item Code", "item_code"]
-    
-    for t_name in table_names_to_try:
-        try:
-            res = supabase.table(t_name).select("*").execute()
-            if res.data:
-                for item in res.data:
-                    code = str(item.get("item_code", "")).strip()
-                    if code:
-                        mapping[code] = {
-                            "description": str(item.get("item_description", "") or ""),
-                            "stn_status": str(item.get("stn_status", "Required") or "Required"),
-                            "material_of": str(item.get("material_of", "Indus") or "Indus"),
-                            "rate": item.get("rate")
-                        }
-                return mapping 
-        except Exception as e:
-            continue
-            
-    return mapping
-
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
@@ -192,7 +168,7 @@ def add_record_dialog():
                     tech_val = master_res.data[0].get("Technician Detail", "N/A")
                     fse_val = master_res.data[0].get("FSE Detail", "N/A")
                     aom_val = master_res.data[0].get("AOM Detail", "N/A")
-                    st.toast("Data Auto-Fetched Successfully! ✅", icon="✅")
+                    st.toast("Site Data Auto-Fetched Successfully! ✅", icon="✅")
                 else:
                     st.toast("Site ID not found in Excalation Matrix table ⚠️", icon="⚠️")
             except Exception as e:
@@ -590,25 +566,33 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                # UPDATED: Item Code is STRICTLY A TEXT BOX
+                # UPDATED: Item Code is strictly a TEXT INPUT
                 i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # --- LIVE SUPABASE QUERY: Same logic as Site ID Auto-Fetch ---
+            # --- LIVE SUPABASE QUERY FOR ITEM CODE (Same Logic as Site ID) ---
             auto_desc = ""
             auto_stn = "Select"
             code_val = i_code.strip()
             
             if code_val:
                 try:
+                    # 1. Try with Exact Name "Item Code"
                     item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
+                    if not item_res.data:
+                        # 2. Try with lowercase name "item_code"
+                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
+                        
                     if item_res.data:
                         auto_desc = str(item_res.data[0].get("item_description", ""))
                         stn_val_from_db = str(item_res.data[0].get("stn_status", "Required"))
                         if stn_val_from_db in stn_status_opts:
                             auto_stn = stn_val_from_db
+                        st.toast(f"Item Details Auto-Fetched! ✅", icon="✅")
+                    else:
+                        st.toast(f"Item Code Not Found! ⚠️", icon="⚠️")
                 except Exception as e:
-                    pass
+                    st.toast(f"Error fetching Item: {e} ❌", icon="❌")
 
             with mc4:
                 i_desc = st.text_input("ITEM DESCRIPTION", value=auto_desc, placeholder="Description", key=f"m_idesc_{i}")
