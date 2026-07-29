@@ -126,7 +126,7 @@ def add_record_dialog():
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
         # ------------------------------------------------------------------
-        # NAYA LOGIC: SITE ID DALNE PAR AUTO-FETCH
+        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated to Excalation Matrix)
         # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
@@ -137,8 +137,8 @@ def add_record_dialog():
         
         if site_id:
             try:
-                # Yeh aapke master 'site_master' table se data dhoondhega
-                master_res = supabase.table("site_master").select("*").eq("Site ID", site_id).execute()
+                # Ab data 'Excalation Matrix' table se fetch hoga
+                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id).execute()
                 if master_res.data:
                     site_name_val = master_res.data[0].get("Site Name", "")
                     cluster_val = master_res.data[0].get("Cluster", "")
@@ -146,7 +146,7 @@ def add_record_dialog():
                     tech_val = master_res.data[0].get("Technician Detail", "N/A")
                     fse_val = master_res.data[0].get("FSE Detail", "N/A")
                     aom_val = master_res.data[0].get("AOM Detail", "N/A")
-            except Exception:
+            except Exception as e:
                 pass
 
         with c6:
@@ -157,7 +157,7 @@ def add_record_dialog():
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
         # ------------------------------------------------------------------
-        # NAYA LOGIC: 1 LINE MEIN WHITE COLOR DETAILS
+        # LOGIC: 1 LINE MEIN WHITE COLOR DETAILS
         # ------------------------------------------------------------------
         st.markdown(f"""
             <div style="background: rgba(255,255,255,0.05); padding: 12px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; display: flex; justify-content: space-between; border: 1px solid rgba(255,255,255,0.1);">
