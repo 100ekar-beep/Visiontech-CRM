@@ -92,7 +92,9 @@ categories = [
     "Department", "Operator", "Project Name", "Site Status", 
     "Product", "PO Status", "RFAI Status", "WH Material", 
     "Team Name", "Team Billing Status", "Extra Approval", 
-    "Vision Billing Status", "WCC Status"
+    "Vision Billing Status", "WCC Status",
+    "SRN Status", "Transaction Type", "Item Code", 
+    "Item Description", "Material Status", "STN Status"
 ]
 
 # --- NEW: EDIT DIALOG POPUP ---
