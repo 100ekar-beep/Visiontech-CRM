@@ -128,7 +128,7 @@ def add_record_dialog():
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
         # ------------------------------------------------------------------
-        # SITE ID DALNE PAR AUTO-FETCH (Area, KM, Lat Long)
+        # SITE ID DALNE PAR AUTO-FETCH
         # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
@@ -217,16 +217,11 @@ def add_record_dialog():
             def_vis = vision_opts.index("Pending") if "Pending" in vision_opts else 0
             vision_billing = st.selectbox("VISION BILLING STATUS", vision_opts, index=def_vis)
 
-        # --- DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
+        # --- DYNAMIC MULTIPLE PO SECTION ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
-        po_nos = []
-        po_dates = []
-        po_statuses = []
-        wcc_nums = []
-        wcc_statuses = []
+        po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
         
-        # Loop to generate dynamic PO Rows (5 boxes per row)
         for i in range(st.session_state.po_count):
             if i > 0:
                 st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
@@ -264,25 +259,18 @@ def add_record_dialog():
             
         if submitted:
             has_error = False
-            
-            # 1. Project ID & Site ID Required
             if not proj_id or not site_id:
                 st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
                 has_error = True
-            
-            # 2. Dynamic PO No 11 Digit Check
             for p in po_nos:
                 if p and (not p.isdigit() or len(p) != 11):
                     st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
                     has_error = True
-                
-            # 3. Dynamic WCC No 11 Digit Check
             for w in wcc_nums:
                 if w and (not w.isdigit() or len(w) != 11):
                     st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka number hona chahiye!")
                     has_error = True
             
-            # 4. Project ID Duplicate Check
             if not has_error:
                 try:
                     dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).execute()
@@ -305,7 +293,6 @@ def add_record_dialog():
                     "Work Description": work_desc,
                     "Product": product if product != "Select" else "",
                     
-                    # COMMA SEPARATED JOIN FOR MULTIPLE POs
                     "PO No.": ", ".join([p for p in po_nos if p]),
                     "PO Date": ", ".join([str(d) for d in po_dates if d]),
                     "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
@@ -317,7 +304,6 @@ def add_record_dialog():
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     
-                    # COMMA SEPARATED JOIN FOR MULTIPLE WCCs
                     "WCC Number": ", ".join([w for w in wcc_nums if w]),
                     "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
                 }
@@ -329,6 +315,208 @@ def add_record_dialog():
                 except Exception as e:
                     st.error(f"❌ Error Saving Data: {e}")
 
+# --- 3.6 NEW: EDIT RECORD DIALOG FUNCTION ---
+@st.dialog("✏️ Edit Site Data", width="large")
+def edit_record_dialog(row_data):
+    st.caption("Update comprehensive site metrics and procurement status")
+    all_dd = get_all_dropdowns() 
+    
+    def get_idx(val, opt_list):
+        return opt_list.index(val) if val in opt_list else 0
+
+    with st.container():
+        st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
+        
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            dept_opts = get_opts("Department", all_dd)
+            dept = st.selectbox("DEPARTMENT", dept_opts, index=get_idx(row_data.get('Department'), dept_opts), key="ed_dept")
+        with c2:
+            op_opts = get_opts("Operator", all_dd)
+            operator = st.selectbox("OPERATOR", op_opts, index=get_idx(row_data.get('Operator'), op_opts), key="ed_op")
+        with c3:
+            pn_opts = get_opts("Project Name", all_dd)
+            proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key="ed_pn")
+        with c4:
+            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), disabled=True, key="ed_pid") # Disabled for safety
+            
+        c5, c6, c7, c8 = st.columns(4)
+        with c5:
+            site_id = st.text_input("Site ID * (REQUIRED)", value=row_data.get('Site ID', ''), key="ed_sid")
+            
+        # Refetch logic in Edit
+        area_val, km_val, lat_val, long_val, tech_val, fse_val, aom_val = "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
+        if site_id:
+            try:
+                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id.strip()).execute()
+                if master_res.data:
+                    area_val = master_res.data[0].get("Area", "N/A")
+                    km_val = master_res.data[0].get("KM", "N/A")
+                    lat_val = master_res.data[0].get("Lat", "N/A")
+                    long_val = master_res.data[0].get("Long", "N/A")
+                    tech_val = master_res.data[0].get("Technician Detail", "N/A")
+                    fse_val = master_res.data[0].get("FSE Detail", "N/A")
+                    aom_val = master_res.data[0].get("AOM Detail", "N/A")
+            except:
+                pass
+
+        with c6:
+            site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''), key="ed_sname")
+        with c7:
+            cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''), key="ed_clu")
+        with c8:
+            ss_opts = get_opts("Site Status", all_dd)
+            site_status = st.selectbox("SITE STATUS", ss_opts, index=get_idx(row_data.get('Site Status'), ss_opts), key="ed_ss")
+
+        st.markdown(f"""
+            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #3b82f6;">{area_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #3b82f6; white-space: pre;">{lat_val}  {long_val}</span></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 12px;">
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+            
+        st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
+        
+        work_desc = st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), key="ed_wd")
+        
+        c9, c10, c11, c12 = st.columns(4)
+        with c9:
+            prod_opts = get_opts("Product", all_dd)
+            product = st.selectbox("PRODUCT", prod_opts, index=get_idx(row_data.get('Product'), prod_opts), key="ed_prod")
+        with c10:
+            rfai_opts = get_opts("RFAI Status", all_dd)
+            rfai_status = st.selectbox("RFAI STATUS", rfai_opts, index=get_idx(row_data.get('RFAI Status'), rfai_opts), key="ed_rfai")
+        with c11:
+            wh_opts = get_opts("WH Material", all_dd)
+            wh_material = st.selectbox("WH MATERIAL", wh_opts, index=get_idx(row_data.get('WH Material'), wh_opts), key="ed_wh")
+        with c12:
+            team_opts = get_opts("Team Name", all_dd)
+            team_name = st.selectbox("TEAM NAME", team_opts, index=get_idx(row_data.get('Team Name'), team_opts), key="ed_team")
+            
+        c13, c14, c15 = st.columns(3)
+        with c13:
+            ex_opts = get_opts("Extra Approval", all_dd)
+            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=get_idx(row_data.get('Extra Approval'), ex_opts), key="ed_ex")
+        with c14:
+            tb_opts = get_opts("Team Billing Status", all_dd)
+            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=get_idx(row_data.get('Team Billing Status'), tb_opts), key="ed_tb")
+        with c15:
+            vb_opts = get_opts("Vision Billing Status", all_dd)
+            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=get_idx(row_data.get('Vision Billing Status'), vb_opts), key="ed_vb")
+
+        st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
+        
+        # Splitting logic for multiple POs
+        po_no_list = [x.strip() for x in str(row_data.get("PO No.", "")).split(",") if x.strip()]
+        po_date_list = [x.strip() for x in str(row_data.get("PO Date", "")).split(",") if x.strip()]
+        po_status_list = [x.strip() for x in str(row_data.get("PO Status", "")).split(",") if x.strip()]
+        wcc_num_list = [x.strip() for x in str(row_data.get("WCC Number", "")).split(",") if x.strip()]
+        wcc_status_list = [x.strip() for x in str(row_data.get("WCC Status", "")).split(",") if x.strip()]
+        
+        max_boxes = max(1, len(po_no_list), len(wcc_num_list))
+        if 'edit_po_count' not in st.session_state:
+            st.session_state.edit_po_count = max_boxes
+            
+        po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
+        
+        for i in range(st.session_state.edit_po_count):
+            if i > 0:
+                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
+            
+            c17, c18, c19, c20, c21 = st.columns(5)
+            with c17:
+                val = po_no_list[i] if i < len(po_no_list) else ""
+                p_n = st.text_input("PO NO.", value=val, key=f"e_po_no_{i}")
+                po_nos.append(p_n)
+            with c18:
+                val = po_date_list[i] if i < len(po_date_list) else None
+                # Basic string to date parse bypass (let user type if complex)
+                p_d = st.text_input("PO DATE (YYYY-MM-DD)", value=val if val else "", key=f"e_po_date_{i}")
+                po_dates.append(p_d)
+            with c19:
+                val = po_status_list[i] if i < len(po_status_list) else "Select"
+                ps_opts = get_opts("PO Status", all_dd)
+                p_s = st.selectbox("PO STATUS", ps_opts, index=get_idx(val, ps_opts), key=f"e_po_status_{i}")
+                po_statuses.append(p_s)
+            with c20:
+                val = wcc_num_list[i] if i < len(wcc_num_list) else ""
+                w_n = st.text_input("WCC NUMBER", value=val, key=f"e_wcc_num_{i}")
+                wcc_nums.append(w_n)
+            with c21:
+                val = wcc_status_list[i] if i < len(wcc_status_list) else "Select"
+                ws_opts = get_opts("WCC Status", all_dd)
+                w_s = st.selectbox("WCC STATUS", ws_opts, index=get_idx(val, ws_opts), key=f"e_wcc_status_{i}")
+                wcc_statuses.append(w_s)
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_btn_add, _ = st.columns([3, 7])
+        with col_btn_add:
+            if st.button("➕ Add Additional PO", key="e_add_po", use_container_width=True):
+                st.session_state.edit_po_count += 1
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2 = st.columns([8, 2])
+        with col_btn2:
+            submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
+            
+        if submitted:
+            has_error = False
+            if not site_id:
+                st.error("⚠️ Site ID dalna compulsory hai!")
+                has_error = True
+            for p in po_nos:
+                if p and (not p.isdigit() or len(p) != 11):
+                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka hona chahiye!")
+                    has_error = True
+            for w in wcc_nums:
+                if w and (not w.isdigit() or len(w) != 11):
+                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka hona chahiye!")
+                    has_error = True
+                    
+            if not has_error:
+                update_data = {
+                    "Department": dept if dept != "Select" else "",
+                    "Operator": operator if operator != "Select" else "",
+                    "Project Name": proj_name if proj_name != "Select" else "",
+                    "Site ID": site_id,
+                    "Site Name": site_name,
+                    "Cluster": cluster,
+                    "Site Status": site_status if site_status != "Select" else "",
+                    "Work Description": work_desc,
+                    "Product": product if product != "Select" else "",
+                    
+                    "PO No.": ", ".join([p for p in po_nos if p]),
+                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
+                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
+                    
+                    "RFAI Status": rfai_status if rfai_status != "Select" else "",
+                    "WH Material": wh_material if wh_material != "Select" else "",
+                    "Team Name": team_name if team_name != "Select" else "",
+                    "Team Billing Status": team_billing if team_billing != "Select" else "",
+                    "Extra Approval": extra_approval if extra_approval != "Select" else "",
+                    "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
+                    
+                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
+                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
+                }
+                
+                try:
+                    supabase.table("site_data").update(update_data).eq("id", row_data['id']).execute()
+                    st.success("✅ Record Successfully Updated!")
+                    st.rerun() 
+                except Exception as e:
+                    st.error(f"❌ Error Updating Data: {e}")
+
+
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_add, col_upload, col_export = st.columns([4, 1.5, 1.5, 1.5])
 with col_title:
@@ -336,7 +524,7 @@ with col_title:
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
-        st.session_state.po_count = 1 # Popup open hone par hamesha 1 PO dabba dikhega
+        st.session_state.po_count = 1 
         add_record_dialog() 
 with col_upload:
     if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
@@ -355,9 +543,9 @@ try:
 except Exception:
     data = []
 
-# Define All Columns exactly as requested
+# FIX: Added "id" internally to track row edits and deletions. It will be hidden from UI.
 columns_list = [
-    "Department", "Operator", "Project Name", "Project ID", "Site ID", 
+    "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "Work Description", "Product", "PO No.", 
     "PO Date", "PO Status", "RFAI Status", "WH Material", "Team Name", 
     "Team Billing Status", "Extra Approval", "Vision Billing Status", 
@@ -366,30 +554,25 @@ columns_list = [
 
 if data:
     df = pd.DataFrame(data)
-    # Ensure all columns exist even if data is partial
     for col in columns_list:
         if col not in df.columns:
             df[col] = ""
 else:
-    # Empty Lavish DataFrame
     df = pd.DataFrame(columns=columns_list)
 
-# Pehla column "Action" select ke liye add kar rahe hain
 if "🎯 Select" not in df.columns:
     df.insert(0, "🎯 Select", False)
 else:
     df["🎯 Select"] = False
 
-# --- 5.5 NEW: LAVISH UNIVERSAL SEARCH BOX ---
+# --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
 col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
 with col_search:
     search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
 
-# Agar user ne kuch search kiya hai toh data filter hoga
 if search_query:
-    # Ye ultra-modern approach hai jo sabhi columns me data dhoondhti hai
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
 
@@ -401,7 +584,6 @@ rows_per_page = 10
 total_rows = len(df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
-# Bound page limits
 if st.session_state.current_page > total_pages:
     st.session_state.current_page = total_pages
 elif st.session_state.current_page < 1:
@@ -413,26 +595,42 @@ end_idx = start_idx + rows_per_page
 # --- 7. LAVISH DATA TABLE (Horizonal & Vertical Scroll) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-# Data Editor jisme user row select kar sakta hai
 edited_df = st.data_editor(
     df_page, 
     use_container_width=True, 
     hide_index=True,
-    height=400, # Fixed height for vertical roller
+    height=400, 
     column_config={
+        "id": None, # Hide UUID completely from frontend
         "🎯 Select": st.column_config.CheckboxColumn("Edit/Del", default=False)
     }
 )
 
-# Agar user ne koi row select ki hai, toh Edit/Delete buttons show honge
+# --- NEW: EDIT & DELETE BUTTON ACTION LOGIC ---
 selected_rows = edited_df[edited_df["🎯 Select"] == True]
 if not selected_rows.empty:
     st.markdown("---")
     col_ed1, col_ed2, col_ed3 = st.columns([1, 1, 6])
+    
+    # Selecting the first checked row
+    row_to_edit = selected_rows.iloc[0].to_dict()
+    
     with col_ed1:
-        st.button("✏️ Edit Selected", type="primary", use_container_width=True)
+        if st.button("✏️ Edit Selected", type="primary", use_container_width=True):
+            # Reset PO count session state so it recalculates based on data
+            if 'edit_po_count' in st.session_state:
+                del st.session_state['edit_po_count']
+            edit_record_dialog(row_to_edit)
+            
     with col_ed2:
-        st.button("🗑️ Delete Selected", type="primary", use_container_width=True)
+        if st.button("🗑️ Delete Selected", type="primary", use_container_width=True):
+            try:
+                # Backend se exact UUID se delete karega
+                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
+                st.success("✅ Record Successfully Deleted!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Deleting Record: {e}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
