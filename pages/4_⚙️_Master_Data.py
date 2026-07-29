@@ -158,39 +158,52 @@ def bulk_upload_item_dialog():
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
-# --- NEW: EDIT DIALOG POPUP ---
+# --- NEW: EDIT DIALOG POPUP (WITH DIRECT SUPABASE FETCH) ---
 @st.dialog("✏️ Edit Record", width="large")
 def edit_dialog(row_data):
+    # Fetch fresh record directly from Supabase using ID to ensure all columns are loaded
+    record_id = row_data.get('id')
+    live_data = row_data
+    try:
+        res = supabase.table(master_table_name).select("*").eq("id", record_id).execute()
+        if res.data and len(res.data) > 0:
+            live_data = res.data[0]
+    except Exception as e:
+        pass
+
     with st.form("edit_form", border=False):
-        default_index = categories.index(row_data['category']) if row_data['category'] in categories else 0
+        default_index = categories.index(live_data['category']) if live_data['category'] in categories else 0
         new_cat = st.selectbox("Category", categories, index=default_index)
         
-        new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
+        new_val = st.text_input("Option Value", value=str(live_data.get('option_value', '') or ''))
         
         mob, p_num, g_num, perc, item_desc_val, stn_status_val, mat_of_val, rate_val = "", "", "", "", "", "", "Indus", None
         
         if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
             with c1:
-                mob = st.text_input("Mobile Number", value=str(row_data.get('mobile', '') or ''))
-                p_num = st.text_input("PAN Number", value=str(row_data.get('pan', '') or ''))
+                mob = st.text_input("Mobile Number", value=str(live_data.get('mobile', '') or ''))
+                p_num = st.text_input("PAN Number", value=str(live_data.get('pan', '') or ''))
             with c2:
-                g_num = st.text_input("GST Number", value=str(row_data.get('gst', '') or ''))
-                perc = st.text_input("Percentage", value=str(row_data.get('percentage', '') or ''))
+                g_num = st.text_input("GST Number", value=str(live_data.get('gst', '') or ''))
+                perc = st.text_input("Percentage", value=str(live_data.get('percentage', '') or ''))
         elif new_cat == 'Item Code':
             c1, c2 = st.columns(2)
             with c1:
-                item_desc_val = st.text_input("Item Description", value=str(row_data.get('item_description', '') or ''))
+                item_desc_val = st.text_input("Item Description", value=str(live_data.get('item_description', '') or ''))
                 mat_opts_list = ["Indus", "Visiontech"]
-                curr_mat = str(row_data.get('material_of', 'Indus') or 'Indus')
+                curr_mat = str(live_data.get('material_of', 'Indus') or 'Indus')
                 mat_idx = mat_opts_list.index(curr_mat) if curr_mat in mat_opts_list else 0
                 mat_of_val = st.selectbox("Material of", mat_opts_list, index=mat_idx)
             with c2:
                 stn_opts_list = ["Required", "Not Required"]
-                curr_stn = str(row_data.get('stn_status', 'Required') or 'Required')
+                curr_stn = str(live_data.get('stn_status', 'Required') or 'Required')
                 stn_idx = stn_opts_list.index(curr_stn) if curr_stn in stn_opts_list else 0
                 stn_status_val = st.selectbox("STN Status", stn_opts_list, index=stn_idx)
-                raw_rate_ed = st.text_input("Rate", value=str(row_data.get('rate', '')) if row_data.get('rate') is not None else '')
+                
+                existing_rate = live_data.get('rate')
+                rate_str = str(existing_rate) if existing_rate is not None else ''
+                raw_rate_ed = st.text_input("Rate", value=rate_str)
                 rate_val = float(raw_rate_ed) if raw_rate_ed.strip() != '' else None
             
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
@@ -203,7 +216,7 @@ def edit_dialog(row_data):
                 "material_of": mat_of_val, "rate": rate_val
             }
             try:
-                supabase.table(master_table_name).update(update_data).eq("id", row_data['id']).execute()
+                supabase.table(master_table_name).update(update_data).eq("id", record_id).execute()
                 st.success("✅ Record updated!")
                 st.rerun()
             except Exception as e:
