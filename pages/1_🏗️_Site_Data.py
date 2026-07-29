@@ -565,38 +565,41 @@ def material_movement_dialog(row_data):
             with mc2:
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
+            
+            # -------------------------------------------------------------
+            # EXACT SITE ID LOGIC FOR ITEM CODE WITH SESSION STATE UPDATE
+            # -------------------------------------------------------------
             with mc3:
-                # UPDATED: Item Code is strictly a TEXT INPUT
                 i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # --- LIVE SUPABASE QUERY FOR ITEM CODE (Same Logic as Site ID) ---
-            auto_desc = ""
-            auto_stn = "Select"
             code_val = i_code.strip()
-            
             if code_val:
                 try:
-                    # 1. Try with Exact Name "Item Code"
+                    # Supabase query with both possible exact names for safety
                     item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
                     if not item_res.data:
-                        # 2. Try with lowercase name "item_code"
                         item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
                         
                     if item_res.data:
-                        auto_desc = str(item_res.data[0].get("item_description", ""))
-                        stn_val_from_db = str(item_res.data[0].get("stn_status", "Required"))
-                        if stn_val_from_db in stn_status_opts:
-                            auto_stn = stn_val_from_db
-                        st.toast(f"Item Details Auto-Fetched! ✅", icon="✅")
+                        fetched_desc = str(item_res.data[0].get("item_description", ""))
+                        fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
+                        
+                        # Fix for Streamlit text_input not updating visually: Push directly to session state
+                        st.session_state[f"m_idesc_{i}"] = fetched_desc
+                        
+                        st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
                     else:
-                        st.toast(f"Item Code Not Found! ⚠️", icon="⚠️")
+                        st.toast("Item Code not found in database ⚠️", icon="⚠️")
                 except Exception as e:
-                    st.toast(f"Error fetching Item: {e} ❌", icon="❌")
+                    st.toast(f"Table Error: {e} ❌", icon="❌")
 
             with mc4:
-                i_desc = st.text_input("ITEM DESCRIPTION", value=auto_desc, placeholder="Description", key=f"m_idesc_{i}")
+                # Value is fetched dynamically or from session state
+                current_desc_val = st.session_state.get(f"m_idesc_{i}", "")
+                i_desc = st.text_input("ITEM DESCRIPTION", value=current_desc_val, placeholder="Description", key=f"m_idesc_{i}")
                 mat_descs.append(i_desc)
+                
             with mc5:
                 i_qty = st.number_input("INDUS QTY", min_value=0, value=0, key=f"m_iqty_{i}")
                 mat_qtys.append(i_qty)
@@ -610,7 +613,12 @@ def material_movement_dialog(row_data):
                 d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 mat_dates.append(d_date)
             with mc8:
-                stn_idx = stn_status_opts.index(auto_stn) if auto_stn in stn_status_opts else 0
+                # Default logic for STN
+                default_stn = "Select"
+                if code_val and 'item_res' in locals() and item_res.data:
+                    default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
+                
+                stn_idx = stn_status_opts.index(default_stn) if default_stn in stn_status_opts else 0
                 stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"m_stn_{i}")
                 mat_stn_statuses.append(stn_stat)
             with mc9:
