@@ -185,6 +185,9 @@ def add_record_dialog():
             
         st.markdown('<div class="modal-section-title">📦 MATERIAL, PO & RFAI DETAILS</div>', unsafe_allow_html=True)
         
+        # --- NEW: Work Description added as 1st field in this section ---
+        work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
+        
         # Row 3
         c9, c10, c11, c12 = st.columns(4)
         with c9:
@@ -265,6 +268,7 @@ def add_record_dialog():
                     "Site Name": site_name,
                     "Cluster": cluster,
                     "Site Status": site_status if site_status != "Select" else "",
+                    "Work Description": work_desc, # --- NEW ---
                     "Product": product if product != "Select" else "",
                     "PO No.": po_no,
                     "PO Date": str(po_date) if po_date else "",
@@ -311,10 +315,10 @@ try:
 except Exception:
     data = []
 
-# Define All Columns exactly as requested
+# Define All Columns exactly as requested (Included 'Work Description')
 columns_list = [
     "Department", "Operator", "Project Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Site Status", "Product", "PO No.", 
+    "Site Name", "Cluster", "Site Status", "Work Description", "Product", "PO No.", 
     "PO Date", "PO Status", "RFAI Status", "WH Material", "Team Name", 
     "Team Billing Status", "Extra Approval", "Vision Billing Status", 
     "WCC Number", "WCC Status"
