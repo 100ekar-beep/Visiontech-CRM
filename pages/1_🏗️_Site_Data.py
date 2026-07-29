@@ -588,6 +588,10 @@ def material_movement_dialog(row_data):
                         # Fix for Streamlit text_input not updating visually: Push directly to session state
                         st.session_state[f"m_idesc_{i}"] = fetched_desc
                         
+                        # NEW FIX FOR STN STATUS DROPDOWN: Force session state update so Streamlit reflects it
+                        if fetched_stn in stn_status_opts:
+                            st.session_state[f"m_stn_{i}"] = fetched_stn
+                            
                         st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
                     else:
                         st.toast("Item Code not found in database ⚠️", icon="⚠️")
