@@ -588,12 +588,11 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                # UPDATED: Item Code as selectbox instead of dropdown, populated from master table
                 icode_opts = ["Select"] + item_codes_list
                 i_code = st.selectbox("ITEM CODE *", icode_opts, key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # Auto-fetch Description & STN Status based on selected item code
+            # Auto-fetch Description & STN Status based on selected item code from master dictionary
             auto_desc = ""
             auto_stn = "Select"
             if i_code != "Select" and i_code in item_master_dict:
