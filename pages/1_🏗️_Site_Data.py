@@ -20,10 +20,10 @@ st.markdown("""
     /* Top Action Buttons */
     div.stButton > button {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-        color: white;
+        color: white !important;
         border: none;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
@@ -33,11 +33,12 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
 
-    /* Pagination Text & Button Font Color Fix */
+    /* Pagination Text & Button Font Color Fix (Stronger Selector for white & bold) */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
     
-    /* NEW: Make all button text inside pagination white and bold */
-    div[data-testid="column"] div.stButton > button p {
+    div.stButton > button p, 
+    div.stButton > button span, 
+    div.stButton > button div {
         color: #ffffff !important;
         font-weight: 800 !important;
     }
