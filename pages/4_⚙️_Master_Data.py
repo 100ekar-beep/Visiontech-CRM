@@ -115,7 +115,8 @@ with col1:
                     st.success(f"✅ '{new_option_value}' has been successfully added to {selected_category}!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Database Error: Please make sure '{master_table_name}' table exists in Supabase.")
+                    # FIX: Yahan ab Supabase ka actual exact error dikhega
+                    st.error(f"❌ Database Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
@@ -144,7 +145,6 @@ with col2:
             st.info(f"ℹ️ No options registered yet for {filter_cat}.")
             
     except Exception as e:
-        st.error(f"⚠️ Table Error: '{master_table_name}' table could not be found.")
-        st.caption("Action Required: Go to Supabase and create a new table named 'dropdown_master'.")
+        st.error(f"⚠️ Table Error: {e}")
     
     st.markdown('</div>', unsafe_allow_html=True)
