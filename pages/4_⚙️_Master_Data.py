@@ -106,7 +106,7 @@ def edit_dialog(row_data):
         
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
-        mob, p_num, g_num, perc, item_desc_val, stn_status_val = "", "", "", "", "", ""
+        mob, p_num, g_num, perc, item_desc_val, stn_status_val, mat_of_val, rate_val = "", "", "", "", "", "", "Indus", ""
         
         if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
@@ -120,11 +120,16 @@ def edit_dialog(row_data):
             c1, c2 = st.columns(2)
             with c1:
                 item_desc_val = st.text_input("Item Description", value=row_data.get('item_description', ''))
+                mat_opts_list = ["Indus", "Visiontech"]
+                curr_mat = row_data.get('material_of', 'Indus')
+                mat_idx = mat_opts_list.index(curr_mat) if curr_mat in mat_opts_list else 0
+                mat_of_val = st.selectbox("Material of", mat_opts_list, index=mat_idx)
             with c2:
                 stn_opts_list = ["Required", "Not Required"]
                 curr_stn = row_data.get('stn_status', 'Required')
                 stn_idx = stn_opts_list.index(curr_stn) if curr_stn in stn_opts_list else 0
                 stn_status_val = st.selectbox("STN Status", stn_opts_list, index=stn_idx)
+                rate_val = st.text_input("Rate", value=row_data.get('rate', ''))
             
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
@@ -132,7 +137,8 @@ def edit_dialog(row_data):
                 "category": new_cat,
                 "option_value": new_val.strip(),
                 "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc,
-                "item_description": item_desc_val, "stn_status": stn_status_val
+                "item_description": item_desc_val, "stn_status": stn_status_val,
+                "material_of": mat_of_val, "rate": rate_val
             }
             try:
                 supabase.table(master_table_name).update(update_data).eq("id", row_data['id']).execute()
@@ -156,7 +162,7 @@ with col1:
     selected_category = st.selectbox("Select Dropdown Category", categories)
     
     with st.form("add_master_form", clear_on_submit=True):
-        mobile, pan, gst, percentage, item_desc, stn_status = "", "", "", "", "", "Required"
+        mobile, pan, gst, percentage, item_desc, stn_status, material_of, rate = "", "", "", "", "", "Required", "Indus", ""
         
         if selected_category == "Team Name":
             new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
@@ -172,8 +178,10 @@ with col1:
             col_i1, col_i2 = st.columns(2)
             with col_i1:
                 item_desc = st.text_input("Item Description *", placeholder="Enter Item Description")
+                material_of = st.selectbox("Material of *", ["Indus", "Visiontech"])
             with col_i2:
                 stn_status = st.selectbox("STN Status *", ["Required", "Not Required"])
+                rate = st.text_input("Rate *", placeholder="Enter Rate")
         else:
             new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
         
@@ -192,7 +200,9 @@ with col1:
                     "gst": gst,
                     "percentage": percentage,
                     "item_description": item_desc,
-                    "stn_status": stn_status
+                    "stn_status": stn_status,
+                    "material_of": material_of,
+                    "rate": rate
                 }
                 try:
                     supabase.table(master_table_name).insert(insert_data).execute()
@@ -219,7 +229,7 @@ with col2:
         if data:
             df = pd.DataFrame(data)
             
-            for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage', 'item_description', 'stn_status']:
+            for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage', 'item_description', 'stn_status', 'material_of', 'rate']:
                 if col not in df.columns:
                     df[col] = ""
             
@@ -229,7 +239,7 @@ with col2:
             if filter_cat == "Team Name":
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'percentage', 'is_active']].copy()
             elif filter_cat == "Item Code":
-                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'item_description', 'stn_status', 'is_active']].copy()
+                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'item_description', 'material_of', 'stn_status', 'rate', 'is_active']].copy()
             else:
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'is_active']].copy()
             
