@@ -184,29 +184,30 @@ def add_record_dialog():
             </div>
         """, unsafe_allow_html=True)
             
+        # --- UPDATE: REORDERED MATERIAL, BILLING & RFAI DETAILS ---
         st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
         
         work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
         
-        # --- UPDATE: PO Status removed from Row 3 ---
-        c9, c10, c11 = st.columns(3)
+        # Row 3 (4 Boxes)
+        c9, c10, c11, c12 = st.columns(4)
         with c9:
             product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
         with c10:
-            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
-        with c11:
-            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
-            
-        # Row 4
-        c13, c14, c15, c16 = st.columns(4)
-        with c13:
             rfai_status = st.selectbox("RFAI STATUS", get_opts("RFAI Status", all_dd))
-        with c14:
-            wh_material = st.selectbox("WH MATERIAL *", get_opts("WH Material", all_dd))
-        with c15:
+        with c11:
+            wh_material = st.selectbox("WH MATERIAL", get_opts("WH Material", all_dd)) # Removed '*'
+        with c12:
             team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
-        with c16:
+            
+        # Row 4 (3 Boxes)
+        c13, c14, c15 = st.columns(3)
+        with c13:
             extra_approval = st.selectbox("EXTRA APPROVAL", get_opts("Extra Approval", all_dd))
+        with c14:
+            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
+        with c15:
+            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
 
         # --- UPDATE: DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
@@ -297,7 +298,7 @@ def add_record_dialog():
                     "Work Description": work_desc,
                     "Product": product if product != "Select" else "",
                     
-                    # COMMA SEPARATED JOIN FOR MULTIPLE POs (Safe to save in text column)
+                    # COMMA SEPARATED JOIN FOR MULTIPLE POs
                     "PO No.": ", ".join([p for p in po_nos if p]),
                     "PO Date": ", ".join([str(d) for d in po_dates if d]),
                     "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
