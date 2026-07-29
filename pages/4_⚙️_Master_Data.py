@@ -106,7 +106,6 @@ def edit_dialog(row_data):
         
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
-        # Extra fields logic for Team Name & Item Code
         mob, p_num, g_num, perc, item_desc_val, stn_status_val = "", "", "", "", "", ""
         
         if new_cat == 'Team Name':
@@ -122,7 +121,10 @@ def edit_dialog(row_data):
             with c1:
                 item_desc_val = st.text_input("Item Description", value=row_data.get('item_description', ''))
             with c2:
-                stn_status_val = st.text_input("STN Status", value=row_data.get('stn_status', ''))
+                stn_opts_list = ["Required", "Not Required"]
+                curr_stn = row_data.get('stn_status', 'Required')
+                stn_idx = stn_opts_list.index(curr_stn) if curr_stn in stn_opts_list else 0
+                stn_status_val = st.selectbox("STN Status", stn_opts_list, index=stn_idx)
             
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
@@ -154,7 +156,7 @@ with col1:
     selected_category = st.selectbox("Select Dropdown Category", categories)
     
     with st.form("add_master_form", clear_on_submit=True):
-        mobile, pan, gst, percentage, item_desc, stn_status = "", "", "", "", "", ""
+        mobile, pan, gst, percentage, item_desc, stn_status = "", "", "", "", "", "Required"
         
         if selected_category == "Team Name":
             new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
@@ -171,7 +173,7 @@ with col1:
             with col_i1:
                 item_desc = st.text_input("Item Description *", placeholder="Enter Item Description")
             with col_i2:
-                stn_status = st.text_input("STN Status *", placeholder="Enter STN Status")
+                stn_status = st.selectbox("STN Status *", ["Required", "Not Required"])
         else:
             new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
         
