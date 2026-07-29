@@ -118,6 +118,9 @@ def bulk_upload_item_dialog():
                     if not val or val == "nan":
                         continue
                         
+                    raw_rate = row.get("rate", row.get("Rate", None))
+                    clean_rate = float(raw_rate) if pd.notna(raw_rate) and str(raw_rate).strip() != "" else None
+
                     insert_dict = {
                         "category": "Item Code",
                         "option_value": val,
@@ -125,7 +128,7 @@ def bulk_upload_item_dialog():
                         "item_description": str(row.get("item_description", row.get("Item Description", ""))),
                         "material_of": str(row.get("material_of", row.get("Material of", "Indus"))),
                         "stn_status": str(row.get("stn_status", row.get("STN Status", "Required"))),
-                        "rate": str(row.get("rate", row.get("Rate", "")))
+                        "rate": clean_rate
                     }
                     try:
                         supabase.table(master_table_name).insert(insert_dict).execute()
@@ -147,7 +150,7 @@ def edit_dialog(row_data):
         
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
-        mob, p_num, g_num, perc, item_desc_val, stn_status_val, mat_of_val, rate_val = "", "", "", "", "", "", "Indus", ""
+        mob, p_num, g_num, perc, item_desc_val, stn_status_val, mat_of_val, rate_val = "", "", "", "", "", "", "Indus", None
         
         if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
@@ -170,7 +173,8 @@ def edit_dialog(row_data):
                 curr_stn = row_data.get('stn_status', 'Required')
                 stn_idx = stn_opts_list.index(curr_stn) if curr_stn in stn_opts_list else 0
                 stn_status_val = st.selectbox("STN Status", stn_opts_list, index=stn_idx)
-                rate_val = st.text_input("Rate", value=row_data.get('rate', ''))
+                raw_rate_ed = st.text_input("Rate", value=str(row_data.get('rate', '')) if row_data.get('rate') is not None else '')
+                rate_val = float(raw_rate_ed) if raw_rate_ed.strip() != '' else None
             
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
@@ -210,7 +214,7 @@ with col1:
     selected_category = st.selectbox("Select Dropdown Category", categories)
     
     with st.form("add_master_form", clear_on_submit=True):
-        mobile, pan, gst, percentage, item_desc, stn_status, material_of, rate = "", "", "", "", "", "Required", "Indus", ""
+        mobile, pan, gst, percentage, item_desc, stn_status, material_of, rate = "", "", "", "", "", "Required", "Indus", None
         
         if selected_category == "Team Name":
             new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
@@ -229,7 +233,8 @@ with col1:
                 material_of = st.selectbox("Material of *", ["Indus", "Visiontech"])
             with col_i2:
                 stn_status = st.selectbox("STN Status *", ["Required", "Not Required"])
-                rate = st.text_input("Rate *", placeholder="Enter Rate")
+                raw_rate_input = st.text_input("Rate *", placeholder="Enter Rate")
+                rate = float(raw_rate_input) if raw_rate_input.strip() != "" else None
         else:
             new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
         
