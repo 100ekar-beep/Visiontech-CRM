@@ -6,6 +6,10 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
 
+# --- INITIALIZE PO COUNT SESSION STATE ---
+if 'po_count' not in st.session_state:
+    st.session_state.po_count = 1
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -85,7 +89,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- 3.1 NEW: HELPER FOR DYNAMIC DROPDOWNS ---
+# --- 3.1 HELPER FOR DYNAMIC DROPDOWNS ---
 def get_all_dropdowns():
     try:
         res = supabase.table("dropdown_master").select("*").execute()
@@ -102,10 +106,8 @@ def get_opts(category, all_data):
 def add_record_dialog():
     st.caption("Configure comprehensive site metrics and procurement status")
     
-    # Supabase master table se saare options dynamically fetch kar rahe hain
     all_dd = get_all_dropdowns() 
     
-    # "st.form" ko "st.container" banaya taaki 'Site ID' enter karte hi real-time auto-fetch kaam kare
     with st.container():
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
         
@@ -126,7 +128,7 @@ def add_record_dialog():
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
         # ------------------------------------------------------------------
-        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated logic with Area)
+        # SITE ID DALNE PAR AUTO-FETCH (Area, KM, Lat Long)
         # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
@@ -140,7 +142,6 @@ def add_record_dialog():
         
         if site_id:
             try:
-                # Data 'Excalation Matrix' table se fetch hoga (Space remove kar diya string se)
                 master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id.strip()).execute()
                 if master_res.data:
                     site_name_val = master_res.data[0].get("Site Name", "")
@@ -166,7 +167,7 @@ def add_record_dialog():
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
         # ------------------------------------------------------------------
-        # UPDATE: 2 LINES MEIN WHITE COLOR DETAILS WITH AREA, KM, & LAT/LONG
+        # 2 LINES MEIN WHITE COLOR DETAILS WITH AREA, KM, & LAT/LONG
         # ------------------------------------------------------------------
         st.markdown(f"""
             <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
@@ -183,19 +184,18 @@ def add_record_dialog():
             </div>
         """, unsafe_allow_html=True)
             
-        st.markdown('<div class="modal-section-title">📦 MATERIAL, PO & RFAI DETAILS</div>', unsafe_allow_html=True)
+        st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
         
-        # --- NEW: Work Description added as 1st field in this section ---
         work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
         
-        # Row 3
+        # --- UPDATE: Row 3 (Team Billing and Vision Billing shifted up here) ---
         c9, c10, c11, c12 = st.columns(4)
         with c9:
             product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
         with c10:
-            po_no = st.text_input("PO NO.", placeholder="11 digits")
+            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
         with c11:
-            po_date = st.date_input("PO DATE", value=None)
+            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
         with c12:
             po_status = st.selectbox("PO STATUS", get_opts("PO Status", all_dd))
             
@@ -210,25 +210,47 @@ def add_record_dialog():
         with c16:
             extra_approval = st.selectbox("EXTRA APPROVAL", get_opts("Extra Approval", all_dd))
 
-        st.markdown('<div class="modal-section-title">💰 BILLING & WCC FINALIZATION</div>', unsafe_allow_html=True)
+        # --- UPDATE: DYNAMIC MULTIPLE PO SECTION ---
+        st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
-        # Row 5
-        c17, c18, c19, c20 = st.columns(4)
-        with c17:
-            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
-        with c18:
-            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
-        with c19:
-            wcc_num = st.text_input("WCC NUMBER", placeholder="11 digits")
-        with c20:
-            wcc_status = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd))
+        po_nos = []
+        po_dates = []
+        wcc_nums = []
+        wcc_statuses = []
+        
+        # Loop to generate dynamic PO Rows
+        for i in range(st.session_state.po_count):
+            if i > 0:
+                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
+            
+            c17, c18, c19, c20 = st.columns(4)
+            with c17:
+                p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
+                po_nos.append(p_n)
+            with c18:
+                p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
+                po_dates.append(p_d)
+            with c19:
+                w_n = st.text_input("WCC NUMBER", placeholder="11 digits", key=f"wcc_num_{i}")
+                wcc_nums.append(w_n)
+            with c20:
+                w_s = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd), key=f"wcc_status_{i}")
+                wcc_statuses.append(w_s)
+                
+        # Additional PO Button
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_btn_add, _ = st.columns([3, 7])
+        with col_btn_add:
+            if st.button("➕ Add Additional PO", use_container_width=True):
+                st.session_state.po_count += 1
+                st.rerun()
             
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Form Submit Buttons
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
-            submitted = st.button("➕ Add Data", use_container_width=True)
+            submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
             
         if submitted:
             has_error = False
@@ -238,15 +260,17 @@ def add_record_dialog():
                 st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
                 has_error = True
             
-            # 2. PO No 11 Digit Check
-            if po_no and (not po_no.isdigit() or len(po_no) != 11):
-                st.error("⚠️ PO NO. strict 11 digit ka number hona chahiye!")
-                has_error = True
+            # 2. Dynamic PO No 11 Digit Check
+            for p in po_nos:
+                if p and (not p.isdigit() or len(p) != 11):
+                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
+                    has_error = True
                 
-            # 3. WCC No 11 Digit Check
-            if wcc_num and (not wcc_num.isdigit() or len(wcc_num) != 11):
-                st.error("⚠️ WCC NUMBER strict 11 digit ka number hona chahiye!")
-                has_error = True
+            # 3. Dynamic WCC No 11 Digit Check
+            for w in wcc_nums:
+                if w and (not w.isdigit() or len(w) != 11):
+                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka number hona chahiye!")
+                    has_error = True
             
             # 4. Project ID Duplicate Check
             if not has_error:
@@ -268,10 +292,13 @@ def add_record_dialog():
                     "Site Name": site_name,
                     "Cluster": cluster,
                     "Site Status": site_status if site_status != "Select" else "",
-                    "Work Description": work_desc, # --- NEW ---
+                    "Work Description": work_desc,
                     "Product": product if product != "Select" else "",
-                    "PO No.": po_no,
-                    "PO Date": str(po_date) if po_date else "",
+                    
+                    # COMMA SEPARATED JOIN FOR MULTIPLE POs (Safe to save in text column)
+                    "PO No.": ", ".join([p for p in po_nos if p]),
+                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
+                    
                     "PO Status": po_status if po_status != "Select" else "",
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
@@ -279,8 +306,10 @@ def add_record_dialog():
                     "Team Billing Status": team_billing if team_billing != "Select" else "",
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
-                    "WCC Number": wcc_num,
-                    "WCC Status": wcc_status if wcc_status != "Select" else ""
+                    
+                    # COMMA SEPARATED JOIN FOR MULTIPLE WCCs
+                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
+                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
                 }
                 
                 try:
@@ -297,7 +326,8 @@ with col_title:
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
-        add_record_dialog() # Calling the pop-up function here
+        st.session_state.po_count = 1 # Popup open hone par hamesha 1 PO dabba dikhega
+        add_record_dialog() 
 with col_upload:
     if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
         st.session_state.action = "upload"
@@ -315,7 +345,7 @@ try:
 except Exception:
     data = []
 
-# Define All Columns exactly as requested (Included 'Work Description')
+# Define All Columns exactly as requested
 columns_list = [
     "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "Work Description", "Product", "PO No.", 
