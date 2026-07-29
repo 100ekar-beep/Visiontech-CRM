@@ -625,102 +625,62 @@ if data:
 else:
     df = pd.DataFrame(columns=columns_list)
 
-if "🎯 Select" not in df.columns:
-    df.insert(0, "🎯 Select", False)
-else:
-    df["🎯 Select"] = False
-
 # --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
 if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
-col_table_title, col_search = st.columns([7, 3])
+# --- 5.5 LAVISH UNIVERSAL SEARCH BOX & ACTION BUTTONS ---
+col_table_title, col_actions_top, col_search = st.columns([4, 3, 3])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
+
+# --- 7. ORIGINAL GRAND SCROLLABLE TABLE (st.dataframe) + INSTANT ROW SELECTION ---
+start_idx = 0
+total_rows = len(df)
+
+# We use st.dataframe to display the gorgeous scrollable table perfectly
+df_display = df.copy()
+if "id" in df_display.columns:
+    df_display = df_display.drop(columns=["id"])
+
+# User can select row index directly to edit or delete instantly!
+with col_actions_top:
+    if total_rows > 0:
+        selected_row_idx = st.number_input("Select Row # to Edit/Delete", min_value=0, max_value=total_rows-1, step=1, label_visibility="collapsed")
+    else:
+        selected_row_idx = 0
+
 with col_search:
     search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-    df = df[mask]
+    df_display = df[mask]
+    if "id" in df_display.columns:
+        df_display = df_display.drop(columns=["id"])
 
-# --- 6. PAGINATION LOGIC (10 lines per page) ---
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 1
+# Display the exact original scrollable table
+st.dataframe(df_display, use_container_width=True, height=380, hide_index=True)
 
-rows_per_page = 10
-total_rows = len(df)
-total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
-
-if st.session_state.current_page > total_pages:
-    st.session_state.current_page = total_pages
-elif st.session_state.current_page < 1:
-    st.session_state.current_page = 1
-
-start_idx = (st.session_state.current_page - 1) * rows_per_page
-end_idx = start_idx + rows_per_page
-
-# --- 7. ORIGINAL LAVISH DATA TABLE (st.data_editor) ---
-df_page = df.iloc[start_idx:end_idx].copy()
-
-edited_df = st.data_editor(
-    df_page, 
-    use_container_width=True, 
-    hide_index=True,
-    height=400, 
-    column_config={
-        "id": None, 
-        "🎯 Select": st.column_config.CheckboxColumn("Select", default=False)
-    }
-)
-
-# --- 7.5 CHIPKE HUE CHOTE EDIT (GREEN) & DELETE (RED) BUTTONS BELOW TABLE ---
-selected_rows = edited_df[edited_df["🎯 Select"] == True]
-if not selected_rows.empty:
-    row_to_edit = selected_rows.iloc[0].to_dict()
+# --- INSTANT ACTION BUTTONS RIGHT BELOW TABLE FOR SELECTED ROW ---
+if total_rows > 0:
+    target_row_dict = df.iloc[selected_row_idx].to_dict()
     
-    st.markdown("""
-        <style>
-        div.row-widget.stButton > button {
-            padding: 2px 10px !important;
-            font-size: 0.8rem !important;
-            min-height: 28px !important;
-            border-radius: 4px !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    b_col1, b_col2, _ = st.columns([0.8, 0.8, 8.4])
-    with b_col1:
-        if st.button("✏️ Edit", key="quick_edit", use_container_width=True, type="primary"):
+    st.markdown("---")
+    act_c1, act_c2, act_c3 = st.columns([1.5, 1.5, 7])
+    with act_c1:
+        if st.button("✏️ Edit Selected Row", type="primary", use_container_width=True):
             if 'edit_po_count' in st.session_state:
                 del st.session_state['edit_po_count']
-            edit_record_dialog(row_to_edit)
-    with b_col2:
-        if st.button("🗑️ Delete", key="quick_del", use_container_width=True):
+            edit_record_dialog(target_row_dict)
+    with act_c2:
+        if st.button("🗑️ Delete Selected Row", use_container_width=True):
             try:
-                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
-                st.success("✅ Deleted!")
+                supabase.table(table_name).delete().eq("id", target_row_dict["id"]).execute()
+                st.success("✅ Record Successfully Deleted!")
                 st.rerun()
             except Exception as e:
-                st.error(f"❌ Error: {e}")
+                st.error(f"❌ Error Deleting Record: {e}")
 
 st.markdown("<br>", unsafe_allow_html=True)
-
-# --- 8. NEXT / PREVIOUS PAGINATION CONTROLS ---
-col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-
-with col_p1:
-    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1)):
-        st.session_state.current_page -= 1
-        st.rerun()
-
-with col_p2:
-    st.markdown(f"<div class='page-count'>Page {st.session_state.current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-
-with col_p3:
-    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages)):
-        st.session_state.current_page += 1
-        st.rerun()
