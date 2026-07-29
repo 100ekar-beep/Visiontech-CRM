@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -97,6 +98,46 @@ categories = [
     "Item Description", "Material Status", "STN Status"
 ]
 
+# --- NEW: BULK UPLOAD DIALOG POPUP (ONLY FOR ITEM CODE) ---
+@st.dialog("📤 Bulk Upload Item Codes", width="large")
+def bulk_upload_item_dialog():
+    st.caption("Upload an Excel (.xlsx) or .tsv file. Columns required: option_value (Item Code), item_description, material_of, stn_status, rate")
+    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_item_file")
+    
+    if uploaded_file:
+        if st.button("🚀 Process & Upload Items", type="primary", use_container_width=True):
+            try:
+                if uploaded_file.name.endswith(('.xlsx', '.xls')):
+                    df_upload = pd.read_excel(uploaded_file)
+                else:
+                    df_upload = pd.read_csv(uploaded_file, sep='\t')
+                    
+                added_count = 0
+                for index, row in df_upload.iterrows():
+                    val = str(row.get("option_value", row.get("Item Code", ""))).strip()
+                    if not val or val == "nan":
+                        continue
+                        
+                    insert_dict = {
+                        "category": "Item Code",
+                        "option_value": val,
+                        "is_active": True,
+                        "item_description": str(row.get("item_description", row.get("Item Description", ""))),
+                        "material_of": str(row.get("material_of", row.get("Material of", "Indus"))),
+                        "stn_status": str(row.get("stn_status", row.get("STN Status", "Required"))),
+                        "rate": str(row.get("rate", row.get("Rate", "")))
+                    }
+                    try:
+                        supabase.table(master_table_name).insert(insert_dict).execute()
+                        added_count += 1
+                    except Exception as db_e:
+                        st.error(f"Error saving Item Code {val}: {db_e}")
+                        
+                st.success(f"✅ Bulk Upload Complete! {added_count} Item Codes Added Successfully.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error reading file: {e}")
+
 # --- NEW: EDIT DIALOG POPUP ---
 @st.dialog("✏️ Edit Record", width="large")
 def edit_dialog(row_data):
@@ -148,8 +189,15 @@ def edit_dialog(row_data):
                 st.error(f"❌ Update Error: {e}")
 
 # --- 4. HEADER ---
-st.markdown('<div class="page-header">⚙️ Master Dropdown Settings</div>', unsafe_allow_html=True)
-st.caption("Centralized hub to register and manage all your form dropdown values dynamically.")
+col_head1, col_head2 = st.columns([7, 3])
+with col_head1:
+    st.markdown('<div class="page-header">⚙️ Master Dropdown Settings</div>', unsafe_allow_html=True)
+    st.caption("Centralized hub to register and manage all your form dropdown values dynamically.")
+with col_head2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("📤 Bulk Upload Item Codes", use_container_width=True):
+        bulk_upload_item_dialog()
+
 st.markdown("<br>", unsafe_allow_html=True)
 
 # --- 5. UI LAYOUT ---
