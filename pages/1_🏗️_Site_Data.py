@@ -105,7 +105,8 @@ def add_record_dialog():
     # Supabase master table se saare options dynamically fetch kar rahe hain
     all_dd = get_all_dropdowns() 
     
-    with st.form("add_new_site_form", border=False):
+    # "st.form" ko "st.container" banaya taaki 'Site ID' enter karte hi real-time auto-fetch kaam kare
+    with st.container():
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
         
         # Row 1
@@ -123,12 +124,49 @@ def add_record_dialog():
         c5, c6, c7, c8 = st.columns(4)
         with c5:
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
+            
+        # ------------------------------------------------------------------
+        # NAYA LOGIC: SITE ID DALNE PAR AUTO-FETCH
+        # ------------------------------------------------------------------
+        site_name_val = ""
+        cluster_val = ""
+        km_val = "N/A"
+        tech_val = "N/A"
+        fse_val = "N/A"
+        aom_val = "N/A"
+        
+        if site_id:
+            try:
+                # Yeh aapke master 'site_master' table se data dhoondhega
+                master_res = supabase.table("site_master").select("*").eq("Site ID", site_id).execute()
+                if master_res.data:
+                    site_name_val = master_res.data[0].get("Site Name", "")
+                    cluster_val = master_res.data[0].get("Cluster", "")
+                    km_val = master_res.data[0].get("KM", "N/A")
+                    tech_val = master_res.data[0].get("Technician Detail", "N/A")
+                    fse_val = master_res.data[0].get("FSE Detail", "N/A")
+                    aom_val = master_res.data[0].get("AOM Detail", "N/A")
+            except Exception:
+                pass
+
         with c6:
-            site_name = st.text_input("SITE NAME", placeholder="Enter Site Name")
+            site_name = st.text_input("SITE NAME", value=site_name_val, placeholder="Auto Fetch")
         with c7:
-            cluster = st.text_input("CLUSTER", placeholder="Enter Cluster")
+            cluster = st.text_input("CLUSTER", value=cluster_val, placeholder="Auto Fetch")
         with c8:
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
+
+        # ------------------------------------------------------------------
+        # NAYA LOGIC: 1 LINE MEIN WHITE COLOR DETAILS
+        # ------------------------------------------------------------------
+        st.markdown(f"""
+            <div style="background: rgba(255,255,255,0.05); padding: 12px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; display: flex; justify-content: space-between; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
+                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
+                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
+                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+            </div>
+        """, unsafe_allow_html=True)
             
         st.markdown('<div class="modal-section-title">📦 MATERIAL, PO & RFAI DETAILS</div>', unsafe_allow_html=True)
         
@@ -172,7 +210,7 @@ def add_record_dialog():
         # Form Submit Buttons
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
-            submitted = st.form_submit_button("➕ Add Data", use_container_width=True)
+            submitted = st.button("➕ Add Data", use_container_width=True)
             
         if submitted:
             has_error = False
@@ -192,7 +230,7 @@ def add_record_dialog():
                 st.error("⚠️ WCC NUMBER strict 11 digit ka number hona chahiye!")
                 has_error = True
             
-            # 4. Project ID Duplicate Check (Sirf tab chalega jab baaki errors na ho)
+            # 4. Project ID Duplicate Check
             if not has_error:
                 try:
                     dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).execute()
