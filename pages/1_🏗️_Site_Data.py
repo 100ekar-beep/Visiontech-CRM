@@ -203,11 +203,22 @@ def add_record_dialog():
         # Row 4 (3 Boxes)
         c13, c14, c15 = st.columns(3)
         with c13:
-            extra_approval = st.selectbox("EXTRA APPROVAL", get_opts("Extra Approval", all_dd))
+            # FIX: Setup default index for EXTRA APPROVAL
+            extra_opts = get_opts("Extra Approval", all_dd)
+            def_extra = extra_opts.index("Not Available") if "Not Available" in extra_opts else 0
+            extra_approval = st.selectbox("EXTRA APPROVAL", extra_opts, index=def_extra)
+            
         with c14:
-            team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
+            # FIX: Setup default index for TEAM BILLING STATUS
+            team_opts = get_opts("Team Billing Status", all_dd)
+            def_team = team_opts.index("Pending") if "Pending" in team_opts else 0
+            team_billing = st.selectbox("TEAM BILLING STATUS", team_opts, index=def_team)
+            
         with c15:
-            vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
+            # FIX: Setup default index for VISION BILLING STATUS
+            vision_opts = get_opts("Vision Billing Status", all_dd)
+            def_vis = vision_opts.index("Pending") if "Pending" in vision_opts else 0
+            vision_billing = st.selectbox("VISION BILLING STATUS", vision_opts, index=def_vis)
 
         # --- DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
@@ -244,7 +255,7 @@ def add_record_dialog():
         st.markdown("<br>", unsafe_allow_html=True)
         col_btn_add, _ = st.columns([3, 7])
         with col_btn_add:
-            # FIX: Hata diya gaya st.rerun() taaki pop-up band na ho
+            # Hata diya gaya st.rerun() taaki pop-up band na ho
             if st.button("➕ Add Additional PO", use_container_width=True):
                 st.session_state.po_count += 1
             
