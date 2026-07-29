@@ -101,7 +101,7 @@ categories = [
 # --- NEW: BULK UPLOAD DIALOG POPUP (ONLY FOR ITEM CODE) ---
 @st.dialog("📤 Bulk Upload Item Codes", width="large")
 def bulk_upload_item_dialog():
-    st.caption("Upload an Excel (.xlsx) or .tsv file. Columns required: option_value (Item Code), item_description, material_of, stn_status, rate")
+    st.caption("Upload an Excel (.xlsx) or .tsv file. Columns required: item_code, item_description, material_of, stn_status, rate")
     uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_item_file")
     
     if uploaded_file:
@@ -112,9 +112,13 @@ def bulk_upload_item_dialog():
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
+                st.info(f"📁 File read successfully! Found {len(df_upload)} rows. Processing...")
+                
                 added_count = 0
+                failed_count = 0
+                
                 for index, row in df_upload.iterrows():
-                    val = str(row.get("option_value", row.get("Item Code", ""))).strip()
+                    val = str(row.get("item_code", row.get("Item Code", ""))).strip()
                     if not val or val == "nan":
                         continue
                         
@@ -131,13 +135,19 @@ def bulk_upload_item_dialog():
                         "rate": clean_rate
                     }
                     try:
-                        supabase.table(master_table_name).insert(insert_dict).execute()
+                        res = supabase.table(master_table_name).insert(insert_dict).execute()
                         added_count += 1
                     except Exception as db_e:
-                        st.error(f"Error saving Item Code {val}: {db_e}")
+                        failed_count += 1
+                        st.error(f"❌ DB Error at row {index+1} (Item Code: {val}): {db_e}")
                         
-                st.success(f"✅ Bulk Upload Complete! {added_count} Item Codes Added Successfully.")
-                st.rerun()
+                if added_count > 0:
+                    st.success(f"✅ Bulk Upload Complete! {added_count} Item Codes Added Successfully. (Failed: {failed_count})")
+                    if failed_count == 0:
+                        st.rerun()
+                else:
+                    st.error(f"⚠️ No records were added. Total failed: {failed_count}. Please check Supabase columns!")
+                    
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
