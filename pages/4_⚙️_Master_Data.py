@@ -101,7 +101,7 @@ categories = [
 # --- NEW: BULK UPLOAD DIALOG POPUP ---
 @st.dialog("📤 Bulk Upload Item Codes", width="large")
 def bulk_upload_item_dialog():
-    st.caption("Upload Excel (.xlsx) or .tsv file. Columns required: item_code, item_description, material_of, stn_status, rate")
+    st.caption("Upload Excel (.xlsx) or .tsv file. Required columns: item_code, item_description, material_of, stn_status, rate")
     uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_item_file")
     
     if uploaded_file:
@@ -346,7 +346,7 @@ with col2:
                             st.error("Error updating status.")
                             
                 with col_a3:
-                    if st.button("🗑️ Delete", type="primary", use_keyword=True, use_container_width=True) if hasattr(st.button, 'use_container_width') else st.button("🗑️ Delete", type="primary", use_container_width=True):
+                    if st.button("🗑️ Delete", type="primary", use_container_width=True):
                         try:
                             supabase.table(master_table_name).delete().eq("id", row_to_edit['id']).execute()
                             st.rerun()
