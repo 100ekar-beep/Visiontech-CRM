@@ -126,10 +126,11 @@ def add_record_dialog():
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
         # ------------------------------------------------------------------
-        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated logic with .strip() & notification)
+        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated logic with Area)
         # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
+        area_val = "N/A"
         km_val = "N/A"
         lat_val = "N/A"
         long_val = "N/A"
@@ -144,6 +145,7 @@ def add_record_dialog():
                 if master_res.data:
                     site_name_val = master_res.data[0].get("Site Name", "")
                     cluster_val = master_res.data[0].get("Cluster", "")
+                    area_val = master_res.data[0].get("Area", "N/A")
                     km_val = master_res.data[0].get("KM", "N/A")
                     lat_val = master_res.data[0].get("Lat", "N/A")
                     long_val = master_res.data[0].get("Long", "N/A")
@@ -164,11 +166,12 @@ def add_record_dialog():
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
         # ------------------------------------------------------------------
-        # UPDATE: 2 LINES MEIN WHITE COLOR DETAILS WITH LAT/LONG
+        # UPDATE: 2 LINES MEIN WHITE COLOR DETAILS WITH AREA, KM, & LAT/LONG
         # ------------------------------------------------------------------
         st.markdown(f"""
             <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
                 <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #3b82f6;">{area_val}</span></div>
                     <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
                     <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #3b82f6; white-space: pre;">{lat_val}  {long_val}</span></div>
                 </div>
