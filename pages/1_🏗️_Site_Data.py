@@ -33,7 +33,7 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
 
-    /* Pagination Text & Button Font Color Fix (Stronger Selector for white & bold) */
+    /* Pagination Text & Button Font Color Fix */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
     
     div.stButton > button p, 
@@ -135,9 +135,6 @@ def add_record_dialog():
         with c5:
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
-        # ------------------------------------------------------------------
-        # SITE ID DALNE PAR AUTO-FETCH
-        # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
         area_val = "N/A"
@@ -174,9 +171,6 @@ def add_record_dialog():
         with c8:
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
-        # ------------------------------------------------------------------
-        # 2 LINES MEIN WHITE COLOR DETAILS WITH AREA, KM, & LAT/LONG
-        # ------------------------------------------------------------------
         st.markdown(f"""
             <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
                 <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
@@ -192,12 +186,10 @@ def add_record_dialog():
             </div>
         """, unsafe_allow_html=True)
             
-        # --- MATERIAL, BILLING & RFAI DETAILS ---
         st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
         
         work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
         
-        # Row 3 (4 Boxes)
         c9, c10, c11, c12 = st.columns(4)
         with c9:
             product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
@@ -208,7 +200,6 @@ def add_record_dialog():
         with c12:
             team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
             
-        # Row 4 (3 Boxes)
         c13, c14, c15 = st.columns(3)
         with c13:
             ex_opts = get_opts("Extra Approval", all_dd)
@@ -223,7 +214,6 @@ def add_record_dialog():
             def_vis = vb_opts.index("Pending") if "Pending" in vb_opts else 0
             vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=def_vis)
 
-        # --- DYNAMIC MULTIPLE PO SECTION ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
         po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
@@ -249,7 +239,6 @@ def add_record_dialog():
                 w_s = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd), key=f"wcc_status_{i}")
                 wcc_statuses.append(w_s)
                 
-        # Additional PO Button
         st.markdown("<br>", unsafe_allow_html=True)
         col_btn_add, _ = st.columns([3, 7])
         with col_btn_add:
@@ -258,7 +247,6 @@ def add_record_dialog():
             
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Form Submit Buttons
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
             submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
@@ -574,8 +562,8 @@ def export_dialog(df_export):
     st.caption("Download your live database records as an Excel file.")
     
     export_df = df_export.copy()
-    if "🎯 Select" in export_df.columns:
-        export_df = export_df.drop(columns=["🎯 Select"])
+    if "Actions" in export_df.columns:
+        export_df = export_df.drop(columns=["Actions"])
     if "id" in export_df.columns:
         export_df = export_df.drop(columns=["id"])
         
@@ -637,11 +625,6 @@ if data:
 else:
     df = pd.DataFrame(columns=columns_list)
 
-if "🎯 Select" not in df.columns:
-    df.insert(0, "🎯 Select", False)
-else:
-    df["🎯 Select"] = False
-
 # --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
 if st.session_state.get('action') == "export":
     export_dialog(df)
@@ -674,42 +657,49 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. LAVISH DATA TABLE (Horizonal & Vertical Scroll) ---
+# --- 7. LAVISH DATA TABLE WITH DIRECT IN-ROW EDIT & DELETE BUTTONS ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-edited_df = st.data_editor(
-    df_page, 
-    use_container_width=True, 
-    hide_index=True,
-    height=400, 
-    column_config={
-        "id": None, 
-        "🎯 Select": st.column_config.CheckboxColumn("Edit/Del", default=False)
-    }
-)
+# Header columns for custom row layout
+header_cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.2])
+with header_cols[0]: st.markdown("**Actions**")
+with header_cols[1]: st.markdown("**Project ID**")
+with header_cols[2]: st.markdown("**Site ID**")
+with header_cols[3]: st.markdown("**Operator**")
+with header_cols[4]: st.markdown("**Department**")
+with header_cols[5]: st.markdown("**Site Name**")
+with header_cols[6]: st.markdown("**Site Status**")
 
-# --- EDIT & DELETE BUTTON ACTION LOGIC ---
-selected_rows = edited_df[edited_df["🎯 Select"] == True]
-if not selected_rows.empty:
-    st.markdown("---")
-    col_ed1, col_ed2, col_ed3 = st.columns([1, 1, 6])
+st.markdown("<hr style='margin:5px 0px 10px 0px; border-color:rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+
+for index, row in df_page.iterrows():
+    r_cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.2])
     
-    row_to_edit = selected_rows.iloc[0].to_dict()
+    with r_cols[0]:
+        # Green Edit & Red Delete Buttons per row
+        b_col1, b_col2 = st.columns(2)
+        with b_col1:
+            if st.button("✏️", key=f"edit_{row['id']}", help="Edit this record"):
+                if 'edit_po_count' in st.session_state:
+                    del st.session_state['edit_po_count']
+                edit_record_dialog(row.to_dict())
+        with b_col2:
+            if st.button("🗑️", key=f"del_{row['id']}", help="Delete this record"):
+                try:
+                    supabase.table(table_name).delete().eq("id", row["id"]).execute()
+                    st.success("✅ Deleted!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {e}")
+                    
+    with r_cols[1]: st.write(row.get("Project ID", ""))
+    with r_cols[2]: st.write(row.get("Site ID", ""))
+    with r_cols[3]: st.write(row.get("Operator", ""))
+    with r_cols[4]: st.write(row.get("Department", ""))
+    with r_cols[5]: st.write(row.get("Site Name", ""))
+    with r_cols[6]: st.write(row.get("Site Status", ""))
     
-    with col_ed1:
-        if st.button("✏️ Edit Selected", type="primary", use_container_width=True):
-            if 'edit_po_count' in st.session_state:
-                del st.session_state['edit_po_count']
-            edit_record_dialog(row_to_edit)
-            
-    with col_ed2:
-        if st.button("🗑️ Delete Selected", type="primary", use_container_width=True):
-            try:
-                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
-                st.success("✅ Record Successfully Deleted!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Deleting Record: {e}")
+    st.markdown("<hr style='margin:5px 0px; border-color:rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
