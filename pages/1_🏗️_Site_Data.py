@@ -88,7 +88,7 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
 
-    /* NEW: Make disabled/read-only input text inside Warehouse Site Info strictly BLACK and BOLD */
+    /* Make disabled/read-only input text inside Warehouse Site Info strictly BLACK and BOLD */
     div[data-testid="stTextInput"] input:disabled {
         color: #000000 !important;
         font-weight: 700 !important;
@@ -237,8 +237,9 @@ def add_record_dialog():
                 p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
                 po_nos.append(p_n)
             with c18:
-                # Strictly DD/MM/YYYY Format Input Field
-                p_d = st.text_input("PO DATE (DD/MM/YYYY)", placeholder="DD/MM/YYYY", key=f"po_date_{i}")
+                # Interactive Calendar Picker formatted to DD/MM/YYYY string on save
+                raw_p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
+                p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
             with c19:
                 p_s = st.selectbox("PO STATUS", get_opts("PO Status", all_dd), key=f"po_status_{i}")
@@ -582,8 +583,9 @@ def material_movement_dialog(row_data):
                 m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"m_mstat_{i}")
                 mat_statuses.append(m_stat)
             with mc7:
-                # Strictly DD/MM/YYYY Format Input Field for Dispatch Date
-                d_date = st.text_input("DISPATCH DATE (DD/MM/YYYY)", placeholder="DD/MM/YYYY", key=f"m_ddate_{i}")
+                # Interactive Calendar Picker formatted to DD/MM/YYYY string on save
+                raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"m_ddate_{i}")
+                d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 mat_dates.append(d_date)
             with mc8:
                 stn_stat = st.selectbox("STN STATUS", stn_status_opts, key=f"m_stn_{i}")
