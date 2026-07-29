@@ -203,19 +203,16 @@ def add_record_dialog():
         # Row 4 (3 Boxes)
         c13, c14, c15 = st.columns(3)
         with c13:
-            # FIX: Setup default index for EXTRA APPROVAL
             extra_opts = get_opts("Extra Approval", all_dd)
             def_extra = extra_opts.index("Not Available") if "Not Available" in extra_opts else 0
             extra_approval = st.selectbox("EXTRA APPROVAL", extra_opts, index=def_extra)
             
         with c14:
-            # FIX: Setup default index for TEAM BILLING STATUS
             team_opts = get_opts("Team Billing Status", all_dd)
             def_team = team_opts.index("Pending") if "Pending" in team_opts else 0
             team_billing = st.selectbox("TEAM BILLING STATUS", team_opts, index=def_team)
             
         with c15:
-            # FIX: Setup default index for VISION BILLING STATUS
             vision_opts = get_opts("Vision Billing Status", all_dd)
             def_vis = vision_opts.index("Pending") if "Pending" in vision_opts else 0
             vision_billing = st.selectbox("VISION BILLING STATUS", vision_opts, index=def_vis)
@@ -255,7 +252,6 @@ def add_record_dialog():
         st.markdown("<br>", unsafe_allow_html=True)
         col_btn_add, _ = st.columns([3, 7])
         with col_btn_add:
-            # Hata diya gaya st.rerun() taaki pop-up band na ho
             if st.button("➕ Add Additional PO", use_container_width=True):
                 st.session_state.po_count += 1
             
@@ -384,6 +380,19 @@ if "🎯 Select" not in df.columns:
 else:
     df["🎯 Select"] = False
 
+# --- 5.5 NEW: LAVISH UNIVERSAL SEARCH BOX ---
+col_table_title, col_search = st.columns([7, 3])
+with col_table_title:
+    st.markdown("##### 🗄️ Live Database Records")
+with col_search:
+    search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
+
+# Agar user ne kuch search kiya hai toh data filter hoga
+if search_query:
+    # Ye ultra-modern approach hai jo sabhi columns me data dhoondhti hai
+    mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+    df = df[mask]
+
 # --- 6. PAGINATION LOGIC (10 lines per page) ---
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 1
@@ -402,7 +411,6 @@ start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
 # --- 7. LAVISH DATA TABLE (Horizonal & Vertical Scroll) ---
-st.markdown("##### 🗄️ Live Database Records")
 df_page = df.iloc[start_idx:end_idx].copy()
 
 # Data Editor jisme user row select kar sakta hai
