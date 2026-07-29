@@ -60,6 +60,19 @@ st.markdown("""
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         padding-bottom: 5px;
     }
+    
+    /* Dialog Styling */
+    div[data-testid="stDialog"] > div {
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+    }
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
+        color: #ffffff !important; font-weight: 800 !important; letter-spacing: 0.5px;
+    }
+    div[data-testid="stDialog"] p { color: #e2e8f0 !important; }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #ffffff !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -73,15 +86,45 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# Database Table Name for Dropdowns
 master_table_name = "dropdown_master"
+
+# --- NEW: EDIT DIALOG POPUP ---
+@st.dialog("✏️ Edit Record", width="large")
+def edit_dialog(row_data):
+    with st.form("edit_form", border=False):
+        st.markdown(f"**Category:** {row_data['category']}")
+        new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
+        
+        # Agar category Team Name hai, tabhi extra fields dikhao
+        if row_data['category'] == 'Team Name':
+            c1, c2 = st.columns(2)
+            with c1:
+                mob = st.text_input("Mobile Number", value=row_data.get('mobile', ''))
+                p_num = st.text_input("PAN Number", value=row_data.get('pan', ''))
+            with c2:
+                g_num = st.text_input("GST Number", value=row_data.get('gst', ''))
+                perc = st.text_input("Percentage", value=row_data.get('percentage', ''))
+        else:
+            mob, p_num, g_num, perc = "", "", "", ""
+            
+        submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
+        if submitted:
+            update_data = {
+                "option_value": new_val.strip(),
+                "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc
+            }
+            try:
+                supabase.table(master_table_name).update(update_data).eq("id", row_data['id']).execute()
+                st.success("✅ Record updated!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Update Error: {e}")
 
 # --- 4. HEADER ---
 st.markdown('<div class="page-header">⚙️ Master Dropdown Settings</div>', unsafe_allow_html=True)
 st.caption("Centralized hub to register and manage all your form dropdown values dynamically.")
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Define all the categories user requested
 categories = [
     "Department", "Operator", "Project Name", "Site Status", 
     "Product", "PO Status", "RFAI Status", "WH Material", 
@@ -96,9 +139,23 @@ with col1:
     st.markdown('<div class="glass-container">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">➕ REGISTER NEW DROPDOWN OPTION</div>', unsafe_allow_html=True)
     
+    # NEW: Dropdown outside the form to make the UI dynamic
+    selected_category = st.selectbox("Select Dropdown Category", categories)
+    
     with st.form("add_master_form", clear_on_submit=True):
-        selected_category = st.selectbox("Select Dropdown Category", categories)
-        new_option_value = st.text_input("Enter New Option Value", placeholder="e.g. Civil, Pending, etc.")
+        # NEW: Custom UI based on Selection
+        if selected_category == "Team Name":
+            new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                mobile = st.text_input("Mobile Number")
+                pan = st.text_input("PAN Number")
+            with col_t2:
+                gst = st.text_input("GST Number")
+                percentage = st.text_input("Percentage (%)")
+        else:
+            new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
+            mobile, pan, gst, percentage = "", "", "", ""
         
         submit_btn = st.form_submit_button("🚀 Add to Database", use_container_width=True)
         
@@ -108,14 +165,18 @@ with col1:
             else:
                 insert_data = {
                     "category": selected_category,
-                    "option_value": new_option_value.strip()
+                    "option_value": new_option_value.strip(),
+                    "is_active": True, # Active by default
+                    "mobile": mobile,
+                    "pan": pan,
+                    "gst": gst,
+                    "percentage": percentage
                 }
                 try:
                     supabase.table(master_table_name).insert(insert_data).execute()
                     st.success(f"✅ '{new_option_value}' has been successfully added to {selected_category}!")
                     st.rerun()
                 except Exception as e:
-                    # FIX: Yahan ab Supabase ka actual exact error dikhega
                     st.error(f"❌ Database Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -126,7 +187,6 @@ with col2:
     filter_cat = st.selectbox("Filter Database by Category", ["View All"] + categories)
     
     try:
-        # Fetching data from Supabase
         if filter_cat == "View All":
             response = supabase.table(master_table_name).select("*").execute()
         else:
@@ -136,15 +196,67 @@ with col2:
         
         if data:
             df = pd.DataFrame(data)
-            # Reorder columns for beautiful display
-            display_df = df[['category', 'option_value']]
-            display_df.columns = ["Dropdown Category", "Registered Value"]
             
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=250)
+            # Ensure columns exist to prevent errors
+            for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage']:
+                if col not in df.columns:
+                    df[col] = ""
+            
+            # Setup Display Dataframe
+            if "🎯 Select" not in df.columns:
+                df.insert(0, "🎯 Select", False)
+            
+            # Formatting Display Columns based on category
+            if filter_cat == "Team Name":
+                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'percentage', 'is_active']].copy()
+            else:
+                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'is_active']].copy()
+            
+            # Interactive Data Editor
+            edited_df = st.data_editor(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                height=350,
+                column_config={
+                    "id": None, # Hide ID from UI
+                    "is_active": st.column_config.CheckboxColumn("Active?", disabled=True),
+                    "🎯 Select": st.column_config.CheckboxColumn("Action", default=False)
+                }
+            )
+            
+            # NEW: EDIT, DEACTIVATE & DELETE LOGIC
+            selected_rows = edited_df[edited_df["🎯 Select"] == True]
+            if not selected_rows.empty:
+                st.markdown("---")
+                col_a1, col_a2, col_a3 = st.columns(3)
+                row_to_edit = selected_rows.iloc[0].to_dict()
+                
+                with col_a1:
+                    if st.button("✏️ Edit", use_container_width=True):
+                        edit_dialog(row_to_edit)
+                        
+                with col_a2:
+                    status_text = "🚫 Deactivate" if row_to_edit['is_active'] else "✅ Activate"
+                    if st.button(status_text, use_container_width=True):
+                        new_status = not row_to_edit['is_active']
+                        try:
+                            supabase.table(master_table_name).update({"is_active": new_status}).eq("id", row_to_edit['id']).execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error("Error updating status.")
+                            
+                with col_a3:
+                    if st.button("🗑️ Delete", type="primary", use_container_width=True):
+                        try:
+                            supabase.table(master_table_name).delete().eq("id", row_to_edit['id']).execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error("Error deleting record.")
         else:
             st.info(f"ℹ️ No options registered yet for {filter_cat}.")
             
     except Exception as e:
-        st.error(f"⚠️ Table Error: {e}")
+        st.error(f"⚠️ Table Error: Please ensure all columns are created in Supabase. Details: {e}")
     
     st.markdown('</div>', unsafe_allow_html=True)
