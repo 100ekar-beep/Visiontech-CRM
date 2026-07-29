@@ -88,11 +88,21 @@ supabase: Client = init_connection()
 
 master_table_name = "dropdown_master"
 
+categories = [
+    "Department", "Operator", "Project Name", "Site Status", 
+    "Product", "PO Status", "RFAI Status", "WH Material", 
+    "Team Name", "Team Billing Status", "Extra Approval", 
+    "Vision Billing Status", "WCC Status"
+]
+
 # --- NEW: EDIT DIALOG POPUP ---
 @st.dialog("✏️ Edit Record", width="large")
 def edit_dialog(row_data):
     with st.form("edit_form", border=False):
-        st.markdown(f"**Category:** {row_data['category']}")
+        # FIX: Category ko editable dropdown bana diya gaya hai
+        default_index = categories.index(row_data['category']) if row_data['category'] in categories else 0
+        new_cat = st.selectbox("Category", categories, index=default_index)
+        
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
         # Agar category Team Name hai, tabhi extra fields dikhao
@@ -110,6 +120,7 @@ def edit_dialog(row_data):
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
             update_data = {
+                "category": new_cat, # NEW: Update category in database
                 "option_value": new_val.strip(),
                 "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc
             }
@@ -124,13 +135,6 @@ def edit_dialog(row_data):
 st.markdown('<div class="page-header">⚙️ Master Dropdown Settings</div>', unsafe_allow_html=True)
 st.caption("Centralized hub to register and manage all your form dropdown values dynamically.")
 st.markdown("<br>", unsafe_allow_html=True)
-
-categories = [
-    "Department", "Operator", "Project Name", "Site Status", 
-    "Product", "PO Status", "RFAI Status", "WH Material", 
-    "Team Name", "Team Billing Status", "Extra Approval", 
-    "Vision Billing Status", "WCC Status"
-]
 
 # --- 5. UI LAYOUT ---
 col1, col2 = st.columns([1, 1.5])
