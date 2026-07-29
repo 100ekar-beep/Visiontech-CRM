@@ -188,16 +188,14 @@ def add_record_dialog():
         
         work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
         
-        # --- UPDATE: Row 3 (Team Billing and Vision Billing shifted up here) ---
-        c9, c10, c11, c12 = st.columns(4)
+        # --- UPDATE: PO Status removed from Row 3 ---
+        c9, c10, c11 = st.columns(3)
         with c9:
             product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
         with c10:
             team_billing = st.selectbox("TEAM BILLING STATUS", get_opts("Team Billing Status", all_dd))
         with c11:
             vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
-        with c12:
-            po_status = st.selectbox("PO STATUS", get_opts("PO Status", all_dd))
             
         # Row 4
         c13, c14, c15, c16 = st.columns(4)
@@ -210,20 +208,21 @@ def add_record_dialog():
         with c16:
             extra_approval = st.selectbox("EXTRA APPROVAL", get_opts("Extra Approval", all_dd))
 
-        # --- UPDATE: DYNAMIC MULTIPLE PO SECTION ---
+        # --- UPDATE: DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
         po_nos = []
         po_dates = []
+        po_statuses = []
         wcc_nums = []
         wcc_statuses = []
         
-        # Loop to generate dynamic PO Rows
+        # Loop to generate dynamic PO Rows (5 boxes per row)
         for i in range(st.session_state.po_count):
             if i > 0:
                 st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
             
-            c17, c18, c19, c20 = st.columns(4)
+            c17, c18, c19, c20, c21 = st.columns(5)
             with c17:
                 p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
                 po_nos.append(p_n)
@@ -231,9 +230,12 @@ def add_record_dialog():
                 p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
                 po_dates.append(p_d)
             with c19:
+                p_s = st.selectbox("PO STATUS", get_opts("PO Status", all_dd), key=f"po_status_{i}")
+                po_statuses.append(p_s)
+            with c20:
                 w_n = st.text_input("WCC NUMBER", placeholder="11 digits", key=f"wcc_num_{i}")
                 wcc_nums.append(w_n)
-            with c20:
+            with c21:
                 w_s = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd), key=f"wcc_status_{i}")
                 wcc_statuses.append(w_s)
                 
@@ -298,8 +300,8 @@ def add_record_dialog():
                     # COMMA SEPARATED JOIN FOR MULTIPLE POs (Safe to save in text column)
                     "PO No.": ", ".join([p for p in po_nos if p]),
                     "PO Date": ", ".join([str(d) for d in po_dates if d]),
+                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
                     
-                    "PO Status": po_status if po_status != "Select" else "",
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
                     "Team Name": team_name if team_name != "Select" else "",
