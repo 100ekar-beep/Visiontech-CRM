@@ -30,6 +30,24 @@ st.markdown("""
 
     /* Pagination Text */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
+    
+    /* Modal/Dialog Glassmorphism */
+    div[data-testid="stDialog"] > div {
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+    }
+    .modal-section-title {
+        color: #94a3b8;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        margin-top: 15px;
+        margin-bottom: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 5px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -43,6 +61,115 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- 3.5 NEW: ADD RECORD DIALOG FUNCTION (POP-UP) ---
+@st.dialog("📄 Add Site Data", width="large")
+def add_record_dialog():
+    st.caption("Configure comprehensive site metrics and procurement status")
+    
+    with st.form("add_new_site_form", border=False):
+        st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
+        
+        # Row 1
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            dept = st.selectbox("DEPARTMENT", ["Select Dept", "Civil", "Electrical", "Telecom", "Acquisition"])
+        with c2:
+            operator = st.selectbox("OPERATOR", ["Select Op", "Airtel", "Jio", "VIL", "BSNL"])
+        with c3:
+            proj_name = st.text_input("PROJECT NAME", placeholder="Enter Project Name")
+        with c4:
+            proj_id = st.text_input("PROJECT ID * (REQUIRED)", placeholder="Project ID")
+            
+        # Row 2
+        c5, c6, c7, c8 = st.columns(4)
+        with c5:
+            site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
+        with c6:
+            site_name = st.text_input("SITE NAME", placeholder="Enter Site Name")
+        with c7:
+            cluster = st.text_input("CLUSTER", placeholder="Enter Cluster")
+        with c8:
+            site_status = st.selectbox("SITE STATUS", ["Status", "WIP", "Completed", "On Hold"])
+            
+        st.markdown('<div class="modal-section-title">📦 MATERIAL, PO & RFAI DETAILS</div>', unsafe_allow_html=True)
+        
+        # Row 3
+        c9, c10, c11, c12 = st.columns(4)
+        with c9:
+            product = st.selectbox("PRODUCT", ["Product", "Tower", "Pole", "Rooftop", "Tenancy"])
+        with c10:
+            po_no = st.text_input("PO NO.", placeholder="11 digits")
+        with c11:
+            po_date = st.date_input("PO DATE", value=None)
+        with c12:
+            po_status = st.selectbox("PO STATUS", ["Status", "Released", "Pending", "Cancelled"])
+            
+        # Row 4
+        c13, c14, c15, c16 = st.columns(4)
+        with c13:
+            rfai_status = st.selectbox("RFAI STATUS", ["RFAI", "Declared", "Pending"])
+        with c14:
+            wh_material = st.selectbox("WH MATERIAL *", ["Not Required", "Requested", "Delivered"])
+        with c15:
+            team_name = st.selectbox("TEAM NAME", ["Select Team", "Team Alpha", "Team Beta", "Vendor A"])
+        with c16:
+            extra_approval = st.selectbox("EXTRA APPROVAL", ["Not Available", "Required", "Approved"])
+
+        st.markdown('<div class="modal-section-title">💰 BILLING & WCC FINALIZATION</div>', unsafe_allow_html=True)
+        
+        # Row 5
+        c17, c18, c19, c20 = st.columns(4)
+        with c17:
+            team_billing = st.selectbox("TEAM BILLING STATUS", ["Pending", "In Process", "Billed", "Paid"])
+        with c18:
+            vision_billing = st.selectbox("VISION BILLING STATUS", ["Status", "Pending", "Submitted", "Cleared"])
+        with c19:
+            wcc_num = st.text_input("WCC NUMBER", placeholder="Enter WCC No.")
+        with c20:
+            wcc_status = st.selectbox("WCC STATUS", ["Status", "Pending", "Approved", "Rejected"])
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Form Submit Buttons
+        col_btn1, col_btn2 = st.columns([8, 2])
+        with col_btn2:
+            submitted = st.form_submit_button("➕ Add Data", use_container_width=True)
+            
+        if submitted:
+            if not proj_id or not site_id:
+                st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
+            else:
+                # Prepare data dictionary exactly matching the columns
+                insert_data = {
+                    "Department": dept if dept != "Select Dept" else "",
+                    "Operator": operator if operator != "Select Op" else "",
+                    "Project Name": proj_name,
+                    "Project ID": proj_id,
+                    "Site ID": site_id,
+                    "Site Name": site_name,
+                    "Cluster": cluster,
+                    "Site Status": site_status if site_status != "Status" else "",
+                    "Product": product if product != "Product" else "",
+                    "PO No.": po_no,
+                    "PO Date": str(po_date) if po_date else "",
+                    "PO Status": po_status if po_status != "Status" else "",
+                    "RFAI Status": rfai_status if rfai_status != "RFAI" else "",
+                    "WH Material": wh_material if wh_material != "Not Required" else "",
+                    "Team Name": team_name if team_name != "Select Team" else "",
+                    "Team Billing Status": team_billing if team_billing != "Pending" else "",
+                    "Extra Approval": extra_approval if extra_approval != "Not Available" else "",
+                    "Vision Billing Status": vision_billing if vision_billing != "Status" else "",
+                    "WCC Number": wcc_num,
+                    "WCC Status": wcc_status if wcc_status != "Status" else ""
+                }
+                
+                try:
+                    supabase.table("site_data").insert(insert_data).execute()
+                    st.success("✅ Record Successfully Added!")
+                    st.rerun() # Refresh to show new data in table
+                except Exception as e:
+                    st.error(f"❌ Error Saving Data: {e}")
+
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_add, col_upload, col_export = st.columns([4, 1.5, 1.5, 1.5])
 with col_title:
@@ -50,6 +177,7 @@ with col_title:
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
+        add_record_dialog() # Calling the new pop-up function here
 with col_upload:
     if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
         st.session_state.action = "upload"
@@ -87,7 +215,10 @@ else:
     df = pd.DataFrame(columns=columns_list)
 
 # Pehla column "Action" select ke liye add kar rahe hain
-df.insert(0, "🎯 Select", False)
+if "🎯 Select" not in df.columns:
+    df.insert(0, "🎯 Select", False)
+else:
+    df["🎯 Select"] = False
 
 # --- 6. PAGINATION LOGIC (10 lines per page) ---
 if 'current_page' not in st.session_state:
