@@ -48,6 +48,13 @@ st.markdown("""
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         padding-bottom: 5px;
     }
+    
+    /* NEW: FIX FOR FIELD LABELS COLOR (Make them bright white) */
+    label p, label[data-testid="stWidgetLabel"] p {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.5px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -61,7 +68,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- 3.5 NEW: ADD RECORD DIALOG FUNCTION (POP-UP) ---
+# --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
     st.caption("Configure comprehensive site metrics and procurement status")
@@ -177,7 +184,7 @@ with col_title:
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
-        add_record_dialog() # Calling the new pop-up function here
+        add_record_dialog() # Calling the pop-up function here
 with col_upload:
     if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
         st.session_state.action = "upload"
