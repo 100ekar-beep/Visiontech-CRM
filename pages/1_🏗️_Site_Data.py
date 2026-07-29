@@ -121,23 +121,29 @@ def get_opts(category, all_data):
 
 # --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
 def get_item_master_details():
-    try:
-        res = supabase.table("dropdown_master").select("*").eq("category", "Item Code").eq("is_active", True).execute()
-        if res.data:
-            mapping = {}
-            for item in res.data:
-                code = str(item.get("option_value", "")).strip()
-                if code:
-                    mapping[code] = {
-                        "description": str(item.get("item_description", "") or ""),
-                        "stn_status": str(item.get("stn_status", "Required") or "Required"),
-                        "material_of": str(item.get("material_of", "Indus") or "Indus"),
-                        "rate": item.get("rate")
-                    }
-            return mapping
-    except Exception as e:
-        pass
-    return {}
+    mapping = {}
+    # Naye Database Table "Item Code" (ya "item_code") se data lene ke liye
+    table_names_to_try = ["Item Code", "item_code"]
+    
+    for t_name in table_names_to_try:
+        try:
+            res = supabase.table(t_name).select("*").execute()
+            if res.data:
+                for item in res.data:
+                    # Yahan naye table ka column name 'item_code' use kiya gaya hai
+                    code = str(item.get("item_code", "")).strip()
+                    if code:
+                        mapping[code] = {
+                            "description": str(item.get("item_description", "") or ""),
+                            "stn_status": str(item.get("stn_status", "Required") or "Required"),
+                            "material_of": str(item.get("material_of", "Indus") or "Indus"),
+                            "rate": item.get("rate")
+                        }
+                return mapping # Ek baar data mil gaya toh aage try karne ki zarurat nahi
+        except Exception as e:
+            continue
+            
+    return mapping
 
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
@@ -544,7 +550,6 @@ def material_movement_dialog(row_data):
     st.caption("Manage transaction items and asset movements for selected site")
     all_dd = get_all_dropdowns()
     item_master_dict = get_item_master_details()
-    item_codes_list = list(item_master_dict.keys())
     
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
@@ -588,16 +593,17 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                icode_opts = ["Select"] + item_codes_list
-                i_code = st.selectbox("ITEM CODE *", icode_opts, key=f"m_icode_{i}")
+                # UPDATED: Item Code is STRICTLY A TEXT BOX now
+                i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # Auto-fetch Description & STN Status based on selected item code from master dictionary
+            # Auto-fetch Description & STN Status based on entered item code from new "Item Code" table
             auto_desc = ""
             auto_stn = "Select"
-            if i_code != "Select" and i_code in item_master_dict:
-                auto_desc = item_master_dict[i_code]["description"]
-                stn_val_from_db = item_master_dict[i_code]["stn_status"]
+            code_val = i_code.strip()
+            if code_val and code_val in item_master_dict:
+                auto_desc = item_master_dict[code_val]["description"]
+                stn_val_from_db = item_master_dict[code_val]["stn_status"]
                 if stn_val_from_db in stn_status_opts:
                     auto_stn = stn_val_from_db
 
