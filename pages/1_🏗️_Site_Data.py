@@ -33,8 +33,14 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
 
-    /* Pagination Text */
+    /* Pagination Text & Button Font Color Fix */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
+    
+    /* NEW: Make all button text inside pagination white and bold */
+    div[data-testid="column"] div.stButton > button p {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
     
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
@@ -57,7 +63,7 @@ st.markdown("""
         color: #e2e8f0 !important; 
     }
     div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #ffffff !important; /* Close button color fix */
+        fill: #ffffff !important; 
     }
 
     .modal-section-title {
@@ -471,11 +477,11 @@ def edit_record_dialog(row_data):
                 has_error = True
             for p in po_nos:
                 if p and (not p.isdigit() or len(p) != 11):
-                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka hona chahiye!")
+                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
                     has_error = True
             for w in wcc_nums:
                 if w and (not w.isdigit() or len(w) != 11):
-                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka hona chahiye!")
+                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka number hona chahiye!")
                     has_error = True
                     
             if not has_error:
@@ -512,7 +518,7 @@ def edit_record_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
 
-# --- 3.7 NEW: BULK UPLOAD DIALOG FUNCTION ---
+# --- 3.7 BULK UPLOAD DIALOG FUNCTION ---
 @st.dialog("📤 Bulk Upload Data", width="large")
 def bulk_upload_dialog():
     st.caption("Upload an Excel (.xlsx) or .tsv file to bulk insert records matching table columns.")
@@ -521,13 +527,11 @@ def bulk_upload_dialog():
     if uploaded_file:
         if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
             try:
-                # Load Excel or TSV dynamically based on extension
                 if uploaded_file.name.endswith(('.xlsx', '.xls')):
                     df_upload = pd.read_excel(uploaded_file)
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
-                # Fetch existing Project IDs to check duplicates before inserting
                 res = supabase.table("site_data").select("Project ID").execute()
                 existing_pids = [str(row["Project ID"]) for row in res.data] if res.data else []
                 
@@ -551,7 +555,7 @@ def bulk_upload_dialog():
                         try:
                             supabase.table("site_data").insert(insert_dict).execute()
                             added_count += 1
-                            existing_pids.append(pid) # Add to local cache to prevent duplicate in same file
+                            existing_pids.append(pid) 
                         except Exception as db_e:
                             st.error(f"Error saving Project ID {pid}: {db_e}")
                             
@@ -563,12 +567,11 @@ def bulk_upload_dialog():
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
-# --- 3.8 NEW: EXPORT DIALOG FUNCTION ---
+# --- 3.8 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
     st.caption("Download your live database records as an Excel file.")
     
-    # Clean dataframe before export
     export_df = df_export.copy()
     if "🎯 Select" in export_df.columns:
         export_df = export_df.drop(columns=["🎯 Select"])
@@ -589,13 +592,12 @@ def export_dialog(df_export):
     )
 
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
-# FIX: Adjusted columns to accommodate 5 buttons including Refresh
 col_title, col_ref, col_add, col_upload, col_export = st.columns([3.5, 1, 1.5, 1.5, 1.5])
 with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
-        st.rerun() # Refresh button click logic
+        st.rerun() 
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
@@ -603,7 +605,7 @@ with col_add:
         add_record_dialog() 
 with col_upload:
     if st.button("📤 Bulk Upload", use_container_width=True):
-        bulk_upload_dialog() # Pop up triggered
+        bulk_upload_dialog() 
 with col_export:
     if st.button("📥 Export Data", use_container_width=True):
         st.session_state.action = "export"
@@ -642,7 +644,7 @@ else:
 # --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
 if st.session_state.get('action') == "export":
     export_dialog(df)
-    st.session_state.action = "" # Reset action after opening dialog
+    st.session_state.action = "" 
 
 # --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
 col_table_title, col_search = st.columns([7, 3])
