@@ -38,6 +38,23 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
     }
+    
+    /* NEW: FIX FOR DIALOG TITLE AND CAPTION COLOR */
+    div[data-testid="stDialog"] h1, 
+    div[data-testid="stDialog"] h2, 
+    div[data-testid="stDialog"] h3 {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.5px;
+    }
+    div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
+    div[data-testid="stDialog"] p {
+        color: #e2e8f0 !important; 
+    }
+    div[data-testid="stDialog"] button[kind="icon"] svg {
+        fill: #ffffff !important; /* Close button color fix */
+    }
+
     .modal-section-title {
         color: #94a3b8;
         font-size: 0.85rem;
@@ -49,7 +66,7 @@ st.markdown("""
         padding-bottom: 5px;
     }
     
-    /* NEW: FIX FOR FIELD LABELS COLOR (Make them bright white) */
+    /* FIX FOR FIELD LABELS COLOR (Make them bright white) */
     label p, label[data-testid="stWidgetLabel"] p {
         color: #ffffff !important;
         font-weight: 600 !important;
