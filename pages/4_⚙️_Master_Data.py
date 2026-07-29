@@ -172,22 +172,22 @@ def edit_dialog(row_data):
         if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
             with c1:
-                mob = st.text_input("Mobile Number", value=row_data.get('mobile', ''))
-                p_num = st.text_input("PAN Number", value=row_data.get('pan', ''))
+                mob = st.text_input("Mobile Number", value=str(row_data.get('mobile', '') or ''))
+                p_num = st.text_input("PAN Number", value=str(row_data.get('pan', '') or ''))
             with c2:
-                g_num = st.text_input("GST Number", value=row_data.get('gst', ''))
-                perc = st.text_input("Percentage", value=row_data.get('percentage', ''))
+                g_num = st.text_input("GST Number", value=str(row_data.get('gst', '') or ''))
+                perc = st.text_input("Percentage", value=str(row_data.get('percentage', '') or ''))
         elif new_cat == 'Item Code':
             c1, c2 = st.columns(2)
             with c1:
-                item_desc_val = st.text_input("Item Description", value=row_data.get('item_description', ''))
+                item_desc_val = st.text_input("Item Description", value=str(row_data.get('item_description', '') or ''))
                 mat_opts_list = ["Indus", "Visiontech"]
-                curr_mat = row_data.get('material_of', 'Indus')
+                curr_mat = str(row_data.get('material_of', 'Indus') or 'Indus')
                 mat_idx = mat_opts_list.index(curr_mat) if curr_mat in mat_opts_list else 0
                 mat_of_val = st.selectbox("Material of", mat_opts_list, index=mat_idx)
             with c2:
                 stn_opts_list = ["Required", "Not Required"]
-                curr_stn = row_data.get('stn_status', 'Required')
+                curr_stn = str(row_data.get('stn_status', 'Required') or 'Required')
                 stn_idx = stn_opts_list.index(curr_stn) if curr_stn in stn_opts_list else 0
                 stn_status_val = st.selectbox("STN Status", stn_opts_list, index=stn_idx)
                 raw_rate_ed = st.text_input("Rate", value=str(row_data.get('rate', '')) if row_data.get('rate') is not None else '')
