@@ -106,7 +106,10 @@ def edit_dialog(row_data):
         
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
-        if row_data['category'] == 'Team Name':
+        # Extra fields logic for Team Name & Item Code
+        mob, p_num, g_num, perc, item_desc_val, stn_status_val = "", "", "", "", "", ""
+        
+        if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
             with c1:
                 mob = st.text_input("Mobile Number", value=row_data.get('mobile', ''))
@@ -114,15 +117,20 @@ def edit_dialog(row_data):
             with c2:
                 g_num = st.text_input("GST Number", value=row_data.get('gst', ''))
                 perc = st.text_input("Percentage", value=row_data.get('percentage', ''))
-        else:
-            mob, p_num, g_num, perc = "", "", "", ""
+        elif new_cat == 'Item Code':
+            c1, c2 = st.columns(2)
+            with c1:
+                item_desc_val = st.text_input("Item Description", value=row_data.get('item_description', ''))
+            with c2:
+                stn_status_val = st.text_input("STN Status", value=row_data.get('stn_status', ''))
             
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
             update_data = {
                 "category": new_cat,
                 "option_value": new_val.strip(),
-                "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc
+                "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc,
+                "item_description": item_desc_val, "stn_status": stn_status_val
             }
             try:
                 supabase.table(master_table_name).update(update_data).eq("id", row_data['id']).execute()
@@ -146,6 +154,8 @@ with col1:
     selected_category = st.selectbox("Select Dropdown Category", categories)
     
     with st.form("add_master_form", clear_on_submit=True):
+        mobile, pan, gst, percentage, item_desc, stn_status = "", "", "", "", "", ""
+        
         if selected_category == "Team Name":
             new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
             col_t1, col_t2 = st.columns(2)
@@ -155,9 +165,15 @@ with col1:
             with col_t2:
                 gst = st.text_input("GST Number")
                 percentage = st.text_input("Percentage (%)")
+        elif selected_category == "Item Code":
+            new_option_value = st.text_input("Item Code *", placeholder="Enter Item Code")
+            col_i1, col_i2 = st.columns(2)
+            with col_i1:
+                item_desc = st.text_input("Item Description *", placeholder="Enter Item Description")
+            with col_i2:
+                stn_status = st.text_input("STN Status *", placeholder="Enter STN Status")
         else:
             new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
-            mobile, pan, gst, percentage = "", "", "", ""
         
         submit_btn = st.form_submit_button("🚀 Add to Database", use_container_width=True)
         
@@ -172,7 +188,9 @@ with col1:
                     "mobile": mobile,
                     "pan": pan,
                     "gst": gst,
-                    "percentage": percentage
+                    "percentage": percentage,
+                    "item_description": item_desc,
+                    "stn_status": stn_status
                 }
                 try:
                     supabase.table(master_table_name).insert(insert_data).execute()
@@ -199,7 +217,7 @@ with col2:
         if data:
             df = pd.DataFrame(data)
             
-            for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage']:
+            for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage', 'item_description', 'stn_status']:
                 if col not in df.columns:
                     df[col] = ""
             
@@ -208,6 +226,8 @@ with col2:
             
             if filter_cat == "Team Name":
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'percentage', 'is_active']].copy()
+            elif filter_cat == "Item Code":
+                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'item_description', 'stn_status', 'is_active']].copy()
             else:
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'is_active']].copy()
             
