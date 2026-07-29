@@ -131,18 +131,22 @@ def add_record_dialog():
         site_name_val = ""
         cluster_val = ""
         km_val = "N/A"
+        lat_val = "N/A"
+        long_val = "N/A"
         tech_val = "N/A"
         fse_val = "N/A"
         aom_val = "N/A"
         
         if site_id:
             try:
-                # Ab data 'Excalation Matrix' table se fetch hoga
+                # Data 'Excalation Matrix' table se fetch hoga
                 master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id).execute()
                 if master_res.data:
                     site_name_val = master_res.data[0].get("Site Name", "")
                     cluster_val = master_res.data[0].get("Cluster", "")
                     km_val = master_res.data[0].get("KM", "N/A")
+                    lat_val = master_res.data[0].get("Lat", "N/A")
+                    long_val = master_res.data[0].get("Long", "N/A")
                     tech_val = master_res.data[0].get("Technician Detail", "N/A")
                     fse_val = master_res.data[0].get("FSE Detail", "N/A")
                     aom_val = master_res.data[0].get("AOM Detail", "N/A")
@@ -157,14 +161,19 @@ def add_record_dialog():
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
         # ------------------------------------------------------------------
-        # LOGIC: 1 LINE MEIN WHITE COLOR DETAILS
+        # UPDATE: 2 LINES MEIN WHITE COLOR DETAILS WITH LAT/LONG
         # ------------------------------------------------------------------
         st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 12px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; display: flex; justify-content: space-between; border: 1px solid rgba(255,255,255,0.1);">
-                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
-                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
-                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
-                <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #3b82f6; white-space: pre;">{lat_val}  {long_val}</span></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 12px;">
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
+                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+                </div>
             </div>
         """, unsafe_allow_html=True)
             
