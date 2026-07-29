@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
+import io
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -203,19 +204,17 @@ def add_record_dialog():
         # Row 4 (3 Boxes)
         c13, c14, c15 = st.columns(3)
         with c13:
-            extra_opts = get_opts("Extra Approval", all_dd)
-            def_extra = extra_opts.index("Not Available") if "Not Available" in extra_opts else 0
-            extra_approval = st.selectbox("EXTRA APPROVAL", extra_opts, index=def_extra)
-            
+            ex_opts = get_opts("Extra Approval", all_dd)
+            def_extra = ex_opts.index("Not Available") if "Not Available" in ex_opts else 0
+            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=def_extra)
         with c14:
-            team_opts = get_opts("Team Billing Status", all_dd)
-            def_team = team_opts.index("Pending") if "Pending" in team_opts else 0
-            team_billing = st.selectbox("TEAM BILLING STATUS", team_opts, index=def_team)
-            
+            tb_opts = get_opts("Team Billing Status", all_dd)
+            def_team = tb_opts.index("Pending") if "Pending" in tb_opts else 0
+            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=def_team)
         with c15:
-            vision_opts = get_opts("Vision Billing Status", all_dd)
-            def_vis = vision_opts.index("Pending") if "Pending" in vision_opts else 0
-            vision_billing = st.selectbox("VISION BILLING STATUS", vision_opts, index=def_vis)
+            vb_opts = get_opts("Vision Billing Status", all_dd)
+            def_vis = vb_opts.index("Pending") if "Pending" in vb_opts else 0
+            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=def_vis)
 
         # --- DYNAMIC MULTIPLE PO SECTION ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
@@ -315,7 +314,7 @@ def add_record_dialog():
                 except Exception as e:
                     st.error(f"❌ Error Saving Data: {e}")
 
-# --- 3.6 NEW: EDIT RECORD DIALOG FUNCTION ---
+# --- 3.6 EDIT RECORD DIALOG FUNCTION ---
 @st.dialog("✏️ Edit Site Data", width="large")
 def edit_record_dialog(row_data):
     st.caption("Update comprehensive site metrics and procurement status")
@@ -338,13 +337,12 @@ def edit_record_dialog(row_data):
             pn_opts = get_opts("Project Name", all_dd)
             proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key="ed_pn")
         with c4:
-            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), disabled=True, key="ed_pid") # Disabled for safety
+            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), disabled=True, key="ed_pid")
             
         c5, c6, c7, c8 = st.columns(4)
         with c5:
             site_id = st.text_input("Site ID * (REQUIRED)", value=row_data.get('Site ID', ''), key="ed_sid")
             
-        # Refetch logic in Edit
         area_val, km_val, lat_val, long_val, tech_val, fse_val, aom_val = "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
         if site_id:
             try:
@@ -414,7 +412,6 @@ def edit_record_dialog(row_data):
 
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
-        # Splitting logic for multiple POs
         po_no_list = [x.strip() for x in str(row_data.get("PO No.", "")).split(",") if x.strip()]
         po_date_list = [x.strip() for x in str(row_data.get("PO Date", "")).split(",") if x.strip()]
         po_status_list = [x.strip() for x in str(row_data.get("PO Status", "")).split(",") if x.strip()]
@@ -438,7 +435,6 @@ def edit_record_dialog(row_data):
                 po_nos.append(p_n)
             with c18:
                 val = po_date_list[i] if i < len(po_date_list) else None
-                # Basic string to date parse bypass (let user type if complex)
                 p_d = st.text_input("PO DATE (YYYY-MM-DD)", value=val if val else "", key=f"e_po_date_{i}")
                 po_dates.append(p_d)
             with c19:
@@ -516,19 +512,98 @@ def edit_record_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
 
+# --- 3.7 NEW: BULK UPLOAD DIALOG FUNCTION ---
+@st.dialog("📤 Bulk Upload Data", width="large")
+def bulk_upload_dialog():
+    st.caption("Upload an Excel (.xlsx) or .tsv file to bulk insert records matching table columns.")
+    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"])
+    
+    if uploaded_file:
+        if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
+            try:
+                # Load Excel or TSV dynamically based on extension
+                if uploaded_file.name.endswith(('.xlsx', '.xls')):
+                    df_upload = pd.read_excel(uploaded_file)
+                else:
+                    df_upload = pd.read_csv(uploaded_file, sep='\t')
+                    
+                # Fetch existing Project IDs to check duplicates before inserting
+                res = supabase.table("site_data").select("Project ID").execute()
+                existing_pids = [str(row["Project ID"]) for row in res.data] if res.data else []
+                
+                added_count = 0
+                skipped_pids = []
+                
+                for index, row in df_upload.iterrows():
+                    pid = str(row.get("Project ID", ""))
+                    if not pid or pid == "nan":
+                        continue
+                        
+                    if pid in existing_pids:
+                        skipped_pids.append(pid)
+                    else:
+                        insert_dict = {}
+                        for col in df_upload.columns:
+                            val = row[col]
+                            if pd.notna(val):
+                                insert_dict[col] = str(val)
+                        
+                        try:
+                            supabase.table("site_data").insert(insert_dict).execute()
+                            added_count += 1
+                            existing_pids.append(pid) # Add to local cache to prevent duplicate in same file
+                        except Exception as db_e:
+                            st.error(f"Error saving Project ID {pid}: {db_e}")
+                            
+                st.success(f"✅ Upload Complete! {added_count} New Sites Added.")
+                if skipped_pids:
+                    st.warning(f"⚠️ Skipped {len(skipped_pids)} duplicate sites.")
+                    st.info(f"Skipped Project IDs: {', '.join(skipped_pids)}")
+                    
+            except Exception as e:
+                st.error(f"❌ Error reading file: {e}")
+
+# --- 3.8 NEW: EXPORT DIALOG FUNCTION ---
+@st.dialog("📥 Export Data", width="large")
+def export_dialog(df_export):
+    st.caption("Download your live database records as an Excel file.")
+    
+    # Clean dataframe before export
+    export_df = df_export.copy()
+    if "🎯 Select" in export_df.columns:
+        export_df = export_df.drop(columns=["🎯 Select"])
+    if "id" in export_df.columns:
+        export_df = export_df.drop(columns=["id"])
+        
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        export_df.to_excel(writer, index=False, sheet_name='Site Data')
+        
+    st.download_button(
+        label="📊 Download Excel File",
+        data=buffer.getvalue(),
+        file_name="Site_Data_Export.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        type="primary"
+    )
 
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
-col_title, col_add, col_upload, col_export = st.columns([4, 1.5, 1.5, 1.5])
+# FIX: Adjusted columns to accommodate 5 buttons including Refresh
+col_title, col_ref, col_add, col_upload, col_export = st.columns([3.5, 1, 1.5, 1.5, 1.5])
 with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
+with col_ref:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.rerun() # Refresh button click logic
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
         st.session_state.action = "add"
         st.session_state.po_count = 1 
         add_record_dialog() 
 with col_upload:
-    if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
-        st.session_state.action = "upload"
+    if st.button("📤 Bulk Upload", use_container_width=True):
+        bulk_upload_dialog() # Pop up triggered
 with col_export:
     if st.button("📥 Export Data", use_container_width=True):
         st.session_state.action = "export"
@@ -543,7 +618,6 @@ try:
 except Exception:
     data = []
 
-# FIX: Added "id" internally to track row edits and deletions. It will be hidden from UI.
 columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "Work Description", "Product", "PO No.", 
@@ -564,6 +638,11 @@ if "🎯 Select" not in df.columns:
     df.insert(0, "🎯 Select", False)
 else:
     df["🎯 Select"] = False
+
+# --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
+if st.session_state.get('action') == "export":
+    export_dialog(df)
+    st.session_state.action = "" # Reset action after opening dialog
 
 # --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
 col_table_title, col_search = st.columns([7, 3])
@@ -601,23 +680,21 @@ edited_df = st.data_editor(
     hide_index=True,
     height=400, 
     column_config={
-        "id": None, # Hide UUID completely from frontend
+        "id": None, 
         "🎯 Select": st.column_config.CheckboxColumn("Edit/Del", default=False)
     }
 )
 
-# --- NEW: EDIT & DELETE BUTTON ACTION LOGIC ---
+# --- EDIT & DELETE BUTTON ACTION LOGIC ---
 selected_rows = edited_df[edited_df["🎯 Select"] == True]
 if not selected_rows.empty:
     st.markdown("---")
     col_ed1, col_ed2, col_ed3 = st.columns([1, 1, 6])
     
-    # Selecting the first checked row
     row_to_edit = selected_rows.iloc[0].to_dict()
     
     with col_ed1:
         if st.button("✏️ Edit Selected", type="primary", use_container_width=True):
-            # Reset PO count session state so it recalculates based on data
             if 'edit_po_count' in st.session_state:
                 del st.session_state['edit_po_count']
             edit_record_dialog(row_to_edit)
@@ -625,7 +702,6 @@ if not selected_rows.empty:
     with col_ed2:
         if st.button("🗑️ Delete Selected", type="primary", use_container_width=True):
             try:
-                # Backend se exact UUID se delete karega
                 supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
                 st.success("✅ Record Successfully Deleted!")
                 st.rerun()
