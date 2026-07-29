@@ -544,6 +544,7 @@ def material_movement_dialog(row_data):
     st.caption("Manage transaction items and asset movements for selected site")
     all_dd = get_all_dropdowns()
     item_master_dict = get_item_master_details()
+    item_codes_list = list(item_master_dict.keys())
     
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
@@ -587,16 +588,17 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                # UPDATED: Item Code as text input instead of dropdown
-                i_code = st.text_input("ITEM CODE *", placeholder="Enter Item Code", key=f"m_icode_{i}")
+                # UPDATED: Item Code as selectbox instead of dropdown, populated from master table
+                icode_opts = ["Select"] + item_codes_list
+                i_code = st.selectbox("ITEM CODE *", icode_opts, key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
 
-            # Auto-fetch Description & STN Status based on entered item code
+            # Auto-fetch Description & STN Status based on selected item code
             auto_desc = ""
             auto_stn = "Select"
-            if i_code.strip() in item_master_dict:
-                auto_desc = item_master_dict[i_code.strip()]["description"]
-                stn_val_from_db = item_master_dict[i_code.strip()]["stn_status"]
+            if i_code != "Select" and i_code in item_master_dict:
+                auto_desc = item_master_dict[i_code]["description"]
+                stn_val_from_db = item_master_dict[i_code]["stn_status"]
                 if stn_val_from_db in stn_status_opts:
                     auto_stn = stn_val_from_db
 
