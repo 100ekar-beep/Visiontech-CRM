@@ -7,12 +7,15 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
 
-# --- INITIALIZE PO COUNT SESSION STATE ---
+# --- INITIALIZE SESSION STATES ---
 if 'po_count' not in st.session_state:
     st.session_state.po_count = 1
 
 if 'mat_count' not in st.session_state:
     st.session_state.mat_count = 1
+
+if 'add_mat_count' not in st.session_state:
+    st.session_state.add_mat_count = 1
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -118,6 +121,30 @@ def get_all_dropdowns():
 def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
+
+# --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
+def get_item_master_details():
+    mapping = {}
+    table_names_to_try = ["Item Code", "item_code"]
+    
+    for t_name in table_names_to_try:
+        try:
+            res = supabase.table(t_name).select("*").execute()
+            if res.data:
+                for item in res.data:
+                    code = str(item.get("item_code", "")).strip()
+                    if code:
+                        mapping[code] = {
+                            "description": str(item.get("item_description", "") or ""),
+                            "stn_status": str(item.get("stn_status", "Required") or "Required"),
+                            "material_of": str(item.get("material_of", "Indus") or "Indus"),
+                            "rate": item.get("rate")
+                        }
+                return mapping 
+        except Exception as e:
+            continue
+            
+    return mapping
 
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
@@ -256,8 +283,92 @@ def add_record_dialog():
             if st.button("➕ Add Additional PO", use_container_width=True):
                 st.session_state.po_count += 1
             
+        # -------------------------------------------------------------
+        # NEW SECTION: WAREHOUSE MATERIAL TRACKING IN ADD RECORD
+        # -------------------------------------------------------------
+        st.markdown('<div class="modal-section-title">📦 WAREHOUSE MATERIAL TRACKING (OPTIONAL)</div>', unsafe_allow_html=True)
+        
+        trans_types = get_opts("Transaction Type", all_dd)
+        mat_status_opts = get_opts("Material Status", all_dd)
+        stn_status_opts = get_opts("STN Status", all_dd)
+        
+        a_mat_trans_types, a_mat_boqs, a_mat_item_codes, a_mat_descs, a_mat_qtys = [], [], [], [], []
+        a_mat_statuses, a_mat_dates, a_mat_stn_statuses, a_mat_remarks = [], [], [], []
+        
+        for i in range(st.session_state.add_mat_count):
+            if i > 0:
+                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
+            
+            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+            with mc1:
+                t_type = st.selectbox("TRANSACTION TYPE", trans_types, key=f"a_trans_{i}")
+                a_mat_trans_types.append(t_type)
+            with mc2:
+                boq_no = st.text_input("BOQ NUMBER", placeholder="BOQ No", key=f"a_boq_{i}")
+                a_mat_boqs.append(boq_no)
+            with mc3:
+                i_code = st.text_input("ITEM CODE", placeholder="Type & Press Enter", key=f"a_icode_{i}")
+                a_mat_item_codes.append(i_code)
+
+            code_val = i_code.strip()
+            if code_val:
+                try:
+                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
+                    if not item_res.data:
+                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
+                        
+                    if item_res.data:
+                        fetched_desc = str(item_res.data[0].get("item_description", ""))
+                        fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
+                        
+                        st.session_state[f"a_idesc_{i}"] = fetched_desc
+                        if fetched_stn in stn_status_opts:
+                            st.session_state[f"a_stn_{i}"] = fetched_stn
+                            
+                        st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
+                    else:
+                        st.toast("Item Code not found in database ⚠️", icon="⚠️")
+                except Exception as e:
+                    st.toast(f"Table Error: {e} ❌", icon="❌")
+
+            with mc4:
+                current_desc_val = st.session_state.get(f"a_idesc_{i}", "")
+                i_desc = st.text_input("ITEM DESCRIPTION", value=current_desc_val, placeholder="Description", key=f"a_idesc_{i}")
+                a_mat_descs.append(i_desc)
+            with mc5:
+                i_qty = st.number_input("INDUS QTY", min_value=0, value=0, key=f"a_iqty_{i}")
+                a_mat_qtys.append(i_qty)
+                
+            mc6, mc7, mc8, mc9 = st.columns(4)
+            with mc6:
+                m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"a_mstat_{i}")
+                a_mat_statuses.append(m_stat)
+            with mc7:
+                raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"a_ddate_{i}")
+                d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
+                a_mat_dates.append(d_date)
+            with mc8:
+                default_stn = "Select"
+                if code_val and 'item_res' in locals() and item_res.data:
+                    default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
+                
+                stn_idx = stn_status_opts.index(default_stn) if default_stn in stn_status_opts else 0
+                stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"a_stn_{i}")
+                a_mat_stn_statuses.append(stn_stat)
+            with mc9:
+                rem = st.text_input("REMARKS", placeholder="Remarks notes", key=f"a_rem_{i}")
+                a_mat_remarks.append(rem)
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_a_add, _ = st.columns([3, 7])
+        with col_a_add:
+            if st.button("➕ Add Material Item", key="btn_a_add_mat", use_container_width=True):
+                st.session_state.add_mat_count += 1
+                st.rerun()
+
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # --- SUBMIT LOGIC ---
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
             submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
@@ -566,9 +677,6 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             
-            # -------------------------------------------------------------
-            # EXACT SITE ID LOGIC FOR ITEM CODE WITH SESSION STATE UPDATE
-            # -------------------------------------------------------------
             with mc3:
                 i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
@@ -576,7 +684,6 @@ def material_movement_dialog(row_data):
             code_val = i_code.strip()
             if code_val:
                 try:
-                    # Supabase query with both possible exact names for safety
                     item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
                     if not item_res.data:
                         item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
@@ -585,10 +692,7 @@ def material_movement_dialog(row_data):
                         fetched_desc = str(item_res.data[0].get("item_description", ""))
                         fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
                         
-                        # Fix for Streamlit text_input not updating visually: Push directly to session state
                         st.session_state[f"m_idesc_{i}"] = fetched_desc
-                        
-                        # NEW FIX FOR STN STATUS DROPDOWN: Force session state update so Streamlit reflects it
                         if fetched_stn in stn_status_opts:
                             st.session_state[f"m_stn_{i}"] = fetched_stn
                             
@@ -599,7 +703,6 @@ def material_movement_dialog(row_data):
                     st.toast(f"Table Error: {e} ❌", icon="❌")
 
             with mc4:
-                # Value is fetched dynamically or from session state
                 current_desc_val = st.session_state.get(f"m_idesc_{i}", "")
                 i_desc = st.text_input("ITEM DESCRIPTION", value=current_desc_val, placeholder="Description", key=f"m_idesc_{i}")
                 mat_descs.append(i_desc)
@@ -617,7 +720,6 @@ def material_movement_dialog(row_data):
                 d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 mat_dates.append(d_date)
             with mc8:
-                # Default logic for STN
                 default_stn = "Select"
                 if code_val and 'item_res' in locals() and item_res.data:
                     default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
