@@ -99,13 +99,11 @@ categories = [
 @st.dialog("✏️ Edit Record", width="large")
 def edit_dialog(row_data):
     with st.form("edit_form", border=False):
-        # FIX: Category ko editable dropdown bana diya gaya hai
         default_index = categories.index(row_data['category']) if row_data['category'] in categories else 0
         new_cat = st.selectbox("Category", categories, index=default_index)
         
         new_val = st.text_input("Option Value", value=row_data.get('option_value', ''))
         
-        # Agar category Team Name hai, tabhi extra fields dikhao
         if row_data['category'] == 'Team Name':
             c1, c2 = st.columns(2)
             with c1:
@@ -120,7 +118,7 @@ def edit_dialog(row_data):
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
         if submitted:
             update_data = {
-                "category": new_cat, # NEW: Update category in database
+                "category": new_cat,
                 "option_value": new_val.strip(),
                 "mobile": mob, "pan": p_num, "gst": g_num, "percentage": perc
             }
@@ -143,11 +141,9 @@ with col1:
     st.markdown('<div class="glass-container">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">➕ REGISTER NEW DROPDOWN OPTION</div>', unsafe_allow_html=True)
     
-    # NEW: Dropdown outside the form to make the UI dynamic
     selected_category = st.selectbox("Select Dropdown Category", categories)
     
     with st.form("add_master_form", clear_on_submit=True):
-        # NEW: Custom UI based on Selection
         if selected_category == "Team Name":
             new_option_value = st.text_input("Team Name *", placeholder="Enter Team Name")
             col_t1, col_t2 = st.columns(2)
@@ -170,7 +166,7 @@ with col1:
                 insert_data = {
                     "category": selected_category,
                     "option_value": new_option_value.strip(),
-                    "is_active": True, # Active by default
+                    "is_active": True,
                     "mobile": mobile,
                     "pan": pan,
                     "gst": gst,
@@ -201,35 +197,30 @@ with col2:
         if data:
             df = pd.DataFrame(data)
             
-            # Ensure columns exist to prevent errors
             for col in ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage']:
                 if col not in df.columns:
                     df[col] = ""
             
-            # Setup Display Dataframe
             if "🎯 Select" not in df.columns:
                 df.insert(0, "🎯 Select", False)
             
-            # Formatting Display Columns based on category
             if filter_cat == "Team Name":
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'percentage', 'is_active']].copy()
             else:
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'is_active']].copy()
             
-            # Interactive Data Editor
             edited_df = st.data_editor(
                 display_df,
                 use_container_width=True,
                 hide_index=True,
                 height=350,
                 column_config={
-                    "id": None, # Hide ID from UI
+                    "id": None,
                     "is_active": st.column_config.CheckboxColumn("Active?", disabled=True),
                     "🎯 Select": st.column_config.CheckboxColumn("Action", default=False)
                 }
             )
             
-            # NEW: EDIT, DEACTIVATE & DELETE LOGIC
             selected_rows = edited_df[edited_df["🎯 Select"] == True]
             if not selected_rows.empty:
                 st.markdown("---")
