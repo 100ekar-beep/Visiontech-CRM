@@ -184,7 +184,7 @@ def add_record_dialog():
             </div>
         """, unsafe_allow_html=True)
             
-        # --- UPDATE: REORDERED MATERIAL, BILLING & RFAI DETAILS ---
+        # --- MATERIAL, BILLING & RFAI DETAILS ---
         st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
         
         work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
@@ -196,7 +196,7 @@ def add_record_dialog():
         with c10:
             rfai_status = st.selectbox("RFAI STATUS", get_opts("RFAI Status", all_dd))
         with c11:
-            wh_material = st.selectbox("WH MATERIAL", get_opts("WH Material", all_dd)) # Removed '*'
+            wh_material = st.selectbox("WH MATERIAL", get_opts("WH Material", all_dd))
         with c12:
             team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
             
@@ -209,7 +209,7 @@ def add_record_dialog():
         with c15:
             vision_billing = st.selectbox("VISION BILLING STATUS", get_opts("Vision Billing Status", all_dd))
 
-        # --- UPDATE: DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
+        # --- DYNAMIC MULTIPLE PO SECTION WITH 5 COLUMNS ---
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
         po_nos = []
@@ -244,9 +244,9 @@ def add_record_dialog():
         st.markdown("<br>", unsafe_allow_html=True)
         col_btn_add, _ = st.columns([3, 7])
         with col_btn_add:
+            # FIX: Hata diya gaya st.rerun() taaki pop-up band na ho
             if st.button("➕ Add Additional PO", use_container_width=True):
                 st.session_state.po_count += 1
-                st.rerun()
             
         st.markdown("<br>", unsafe_allow_html=True)
         
