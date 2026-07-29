@@ -278,10 +278,16 @@ def add_record_dialog():
                 wcc_statuses.append(w_s)
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_btn_add, _ = st.columns([3, 7])
+        
+        # --- FIXED ADD/REMOVE PO BUTTONS ---
+        col_btn_add, col_btn_rem, _ = st.columns([3, 3, 4])
         with col_btn_add:
             if st.button("➕ Add Additional PO", use_container_width=True):
                 st.session_state.po_count += 1
+        with col_btn_rem:
+            if st.session_state.po_count > 1:
+                if st.button("➖ Remove PO", use_container_width=True):
+                    st.session_state.po_count -= 1
             
         # -------------------------------------------------------------
         # NEW SECTION: WAREHOUSE MATERIAL TRACKING IN ADD RECORD
@@ -360,11 +366,16 @@ def add_record_dialog():
                 a_mat_remarks.append(rem)
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_a_add, _ = st.columns([3, 7])
+        
+        # --- FIXED ADD/REMOVE MATERIAL BUTTONS ---
+        col_a_add, col_a_rem, _ = st.columns([3, 3, 4])
         with col_a_add:
             if st.button("➕ Add Material Item", key="btn_a_add_mat", use_container_width=True):
                 st.session_state.add_mat_count += 1
-                st.rerun()
+        with col_a_rem:
+            if st.session_state.add_mat_count > 1:
+                if st.button("➖ Remove Material", key="btn_a_rem_mat", use_container_width=True):
+                    st.session_state.add_mat_count -= 1
 
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -570,10 +581,16 @@ def edit_record_dialog(row_data):
                 wcc_statuses.append(w_s)
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_btn_add, _ = st.columns([3, 7])
+        
+        # --- FIXED ADD/REMOVE PO BUTTONS ---
+        col_btn_add, col_btn_rem, _ = st.columns([3, 3, 4])
         with col_btn_add:
             if st.button("➕ Add Additional PO", key="e_add_po", use_container_width=True):
                 st.session_state.edit_po_count += 1
+        with col_btn_rem:
+            if st.session_state.edit_po_count > 1:
+                if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
+                    st.session_state.edit_po_count -= 1
             
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -732,10 +749,16 @@ def material_movement_dialog(row_data):
                 mat_remarks.append(rem)
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_m_add, _ = st.columns([3, 7])
+        
+        # --- FIXED ADD/REMOVE MATERIAL BUTTONS ---
+        col_m_add, col_m_rem, _ = st.columns([3, 3, 4])
         with col_m_add:
             if st.button("➕ Add Item", key="btn_add_mat_item", use_container_width=True):
                 st.session_state.mat_count += 1
+        with col_m_rem:
+            if st.session_state.mat_count > 1:
+                if st.button("➖ Remove Item", key="btn_rem_mat_item", use_container_width=True):
+                    st.session_state.mat_count -= 1
                 
         st.markdown("<br>", unsafe_allow_html=True)
         
