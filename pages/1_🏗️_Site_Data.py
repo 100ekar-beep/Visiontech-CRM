@@ -126,7 +126,7 @@ def add_record_dialog():
             site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
             
         # ------------------------------------------------------------------
-        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated to Excalation Matrix)
+        # FIX: SITE ID DALNE PAR AUTO-FETCH (Updated logic with .strip() & notification)
         # ------------------------------------------------------------------
         site_name_val = ""
         cluster_val = ""
@@ -139,8 +139,8 @@ def add_record_dialog():
         
         if site_id:
             try:
-                # Data 'Excalation Matrix' table se fetch hoga
-                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id).execute()
+                # Data 'Excalation Matrix' table se fetch hoga (Space remove kar diya string se)
+                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id.strip()).execute()
                 if master_res.data:
                     site_name_val = master_res.data[0].get("Site Name", "")
                     cluster_val = master_res.data[0].get("Cluster", "")
@@ -150,8 +150,11 @@ def add_record_dialog():
                     tech_val = master_res.data[0].get("Technician Detail", "N/A")
                     fse_val = master_res.data[0].get("FSE Detail", "N/A")
                     aom_val = master_res.data[0].get("AOM Detail", "N/A")
+                    st.toast("Data Auto-Fetched Successfully! ✅", icon="✅")
+                else:
+                    st.toast("Site ID not found in Excalation Matrix table ⚠️", icon="⚠️")
             except Exception as e:
-                pass
+                st.toast(f"Table Error: {e} ❌", icon="❌")
 
         with c6:
             site_name = st.text_input("SITE NAME", value=site_name_val, placeholder="Auto Fetch")
