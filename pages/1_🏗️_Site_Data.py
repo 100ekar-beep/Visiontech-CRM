@@ -119,6 +119,26 @@ def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
 
+# --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
+def get_item_master_details():
+    try:
+        res = supabase.table("dropdown_master").select("*").eq("category", "Item Code").eq("is_active", True).execute()
+        if res.data:
+            mapping = {}
+            for item in res.data:
+                code = str(item.get("option_value", "")).strip()
+                if code:
+                    mapping[code] = {
+                        "description": str(item.get("item_description", "") or ""),
+                        "stn_status": str(item.get("stn_status", "Required") or "Required"),
+                        "material_of": str(item.get("material_of", "Indus") or "Indus"),
+                        "rate": item.get("rate")
+                    }
+            return mapping
+    except Exception as e:
+        pass
+    return {}
+
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
@@ -237,7 +257,6 @@ def add_record_dialog():
                 p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
                 po_nos.append(p_n)
             with c18:
-                # Interactive Calendar Picker formatted to DD/MM/YYYY string on save
                 raw_p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
                 p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
@@ -524,6 +543,7 @@ def edit_record_dialog(row_data):
 def material_movement_dialog(row_data):
     st.caption("Manage transaction items and asset movements for selected site")
     all_dd = get_all_dropdowns()
+    item_master_dict = get_item_master_details()
     
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
@@ -531,7 +551,6 @@ def material_movement_dialog(row_data):
     with st.container():
         st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
         
-        # 1st Step: Read-only Site Details with Black Bold Text + SRN Status Dropdown
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         with c1:
             st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True, key="m_pid")
@@ -550,7 +569,6 @@ def material_movement_dialog(row_data):
         st.markdown('<div class="modal-section-title">📦 TRANSACTION & ASSET ITEMS</div>', unsafe_allow_html=True)
         
         trans_types = get_opts("Transaction Type", all_dd)
-        item_code_opts = get_opts("Item Code", all_dd)
         mat_status_opts = get_opts("Material Status", all_dd)
         stn_status_opts = get_opts("STN Status", all_dd)
         
@@ -569,10 +587,21 @@ def material_movement_dialog(row_data):
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
                 mat_boqs.append(boq_no)
             with mc3:
-                i_code = st.selectbox("ITEM CODE *", item_code_opts, key=f"m_icode_{i}")
+                # UPDATED: Item Code as text input instead of dropdown
+                i_code = st.text_input("ITEM CODE *", placeholder="Enter Item Code", key=f"m_icode_{i}")
                 mat_item_codes.append(i_code)
+
+            # Auto-fetch Description & STN Status based on entered item code
+            auto_desc = ""
+            auto_stn = "Select"
+            if i_code.strip() in item_master_dict:
+                auto_desc = item_master_dict[i_code.strip()]["description"]
+                stn_val_from_db = item_master_dict[i_code.strip()]["stn_status"]
+                if stn_val_from_db in stn_status_opts:
+                    auto_stn = stn_val_from_db
+
             with mc4:
-                i_desc = st.text_input("ITEM DESCRIPTION", placeholder="Description", key=f"m_idesc_{i}")
+                i_desc = st.text_input("ITEM DESCRIPTION", value=auto_desc, placeholder="Description", key=f"m_idesc_{i}")
                 mat_descs.append(i_desc)
             with mc5:
                 i_qty = st.number_input("INDUS QTY", min_value=0, value=0, key=f"m_iqty_{i}")
@@ -583,12 +612,12 @@ def material_movement_dialog(row_data):
                 m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"m_mstat_{i}")
                 mat_statuses.append(m_stat)
             with mc7:
-                # Interactive Calendar Picker formatted to DD/MM/YYYY string on save
                 raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"m_ddate_{i}")
                 d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 mat_dates.append(d_date)
             with mc8:
-                stn_stat = st.selectbox("STN STATUS", stn_status_opts, key=f"m_stn_{i}")
+                stn_idx = stn_status_opts.index(auto_stn) if auto_stn in stn_status_opts else 0
+                stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"m_stn_{i}")
                 mat_stn_statuses.append(stn_stat)
             with mc9:
                 rem = st.text_input("REMARKS", placeholder="Remarks notes", key=f"m_rem_{i}")
@@ -621,7 +650,44 @@ def material_movement_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
 
-# --- 3.8 EXPORT DIALOG FUNCTION ---
+# --- 3.8 BULK UPLOAD DIALOG FUNCTION ---
+@st.dialog("📤 Bulk Upload Site Data", width="large")
+def bulk_upload_dialog():
+    st.caption("Upload an Excel (.xlsx) or .tsv file to bulk import site records.")
+    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_site_file")
+    
+    if uploaded_file:
+        if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
+            try:
+                if uploaded_file.name.endswith(('.xlsx', '.xls')):
+                    df_upload = pd.read_excel(uploaded_file)
+                else:
+                    df_upload = pd.read_csv(uploaded_file, sep='\t')
+                    
+                added_count = 0
+                for index, row in df_upload.iterrows():
+                    p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
+                    if not p_id or p_id == "nan":
+                        continue
+                    
+                    insert_dict = {}
+                    for col in columns_list:
+                        if col != "id" and col != "🎯 Select":
+                            val = row.get(col, row.get(col.lower(), ""))
+                            insert_dict[col] = str(val) if pd.notna(val) else ""
+                            
+                    try:
+                        supabase.table("site_data").insert(insert_dict).execute()
+                        added_count += 1
+                    except Exception:
+                        pass
+                        
+                st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error reading file: {e}")
+
+# --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
     st.caption("Download your live database records as an Excel file.")
