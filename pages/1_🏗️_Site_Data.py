@@ -562,8 +562,8 @@ def export_dialog(df_export):
     st.caption("Download your live database records as an Excel file.")
     
     export_df = df_export.copy()
-    if "Actions" in export_df.columns:
-        export_df = export_df.drop(columns=["Actions"])
+    if "🎯 Select" in export_df.columns:
+        export_df = export_df.drop(columns=["🎯 Select"])
     if "id" in export_df.columns:
         export_df = export_df.drop(columns=["id"])
         
@@ -625,6 +625,11 @@ if data:
 else:
     df = pd.DataFrame(columns=columns_list)
 
+if "🎯 Select" not in df.columns:
+    df.insert(0, "🎯 Select", False)
+else:
+    df["🎯 Select"] = False
+
 # --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
 if st.session_state.get('action') == "export":
     export_dialog(df)
@@ -657,49 +662,52 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. LAVISH DATA TABLE WITH DIRECT IN-ROW EDIT & DELETE BUTTONS ---
+# --- 7. ORIGINAL LAVISH DATA TABLE (WITH CHECKBOX & CHIPKE HUE CHOTE BUTTONS) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-# Header columns for custom row layout
-header_cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.2])
-with header_cols[0]: st.markdown("**Actions**")
-with header_cols[1]: st.markdown("**Project ID**")
-with header_cols[2]: st.markdown("**Site ID**")
-with header_cols[3]: st.markdown("**Operator**")
-with header_cols[4]: st.markdown("**Department**")
-with header_cols[5]: st.markdown("**Site Name**")
-with header_cols[6]: st.markdown("**Site Status**")
+edited_df = st.data_editor(
+    df_page, 
+    use_container_width=True, 
+    hide_index=True,
+    height=400, 
+    column_config={
+        "id": None, 
+        "🎯 Select": st.column_config.CheckboxColumn("Select", default=False)
+    }
+)
 
-st.markdown("<hr style='margin:5px 0px 10px 0px; border-color:rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
-
-for index, row in df_page.iterrows():
-    r_cols = st.columns([1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.2])
+# --- 7.5 NEW: CHIPKE HUE CHOTE EDIT (GREEN) & DELETE (RED) BUTTONS ---
+selected_rows = edited_df[edited_df["🎯 Select"] == True]
+if not selected_rows.empty:
+    row_to_edit = selected_rows.iloc[0].to_dict()
     
-    with r_cols[0]:
-        # Green Edit & Red Delete Buttons per row
-        b_col1, b_col2 = st.columns(2)
-        with b_col1:
-            if st.button("✏️", key=f"edit_{row['id']}", help="Edit this record"):
-                if 'edit_po_count' in st.session_state:
-                    del st.session_state['edit_po_count']
-                edit_record_dialog(row.to_dict())
-        with b_col2:
-            if st.button("🗑️", key=f"del_{row['id']}", help="Delete this record"):
-                try:
-                    supabase.table(table_name).delete().eq("id", row["id"]).execute()
-                    st.success("✅ Deleted!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error: {e}")
-                    
-    with r_cols[1]: st.write(row.get("Project ID", ""))
-    with r_cols[2]: st.write(row.get("Site ID", ""))
-    with r_cols[3]: st.write(row.get("Operator", ""))
-    with r_cols[4]: st.write(row.get("Department", ""))
-    with r_cols[5]: st.write(row.get("Site Name", ""))
-    with r_cols[6]: st.write(row.get("Site Status", ""))
+    # Custom CSS for tiny glued buttons inside a compact row
+    st.markdown("""
+        <style>
+        div.row-widget.stButton > button {
+            padding: 2px 10px !important;
+            font-size: 0.8rem !important;
+            min-height: 28px !important;
+            border-radius: 4px !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     
-    st.markdown("<hr style='margin:5px 0px; border-color:rgba(255,255,255,0.05);'>", unsafe_allow_html=True)
+    # 2 chote buttons bilkul chipke hue (Green Edit & Red Delete)
+    b_col1, b_col2, _ = st.columns([0.8, 0.8, 8.4])
+    with b_col1:
+        if st.button("✏️ Edit", key="quick_edit", use_container_width=True, type="primary"):
+            if 'edit_po_count' in st.session_state:
+                del st.session_state['edit_po_count']
+            edit_record_dialog(row_to_edit)
+    with b_col2:
+        if st.button("🗑️ Delete", key="quick_del", use_container_width=True):
+            try:
+                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
+                st.success("✅ Deleted!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
