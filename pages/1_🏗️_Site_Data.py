@@ -1,35 +1,39 @@
 import streamlit as st
 import pandas as pd
+import math
 from supabase import create_client, Client
 
-# Page Configuration
-st.set_page_config(
-    page_title="Site Data Management",
-    page_icon="🏗️",
-    layout="wide"
-)
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
 
-# Custom Styling for Site Data Page
+# --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 800;
-        color: #ffffff;
-        margin-bottom: 0.5rem;
+    /* Dark Premium Theme */
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    
+    /* Top Action Buttons */
+    div.stButton > button {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
-    .sub-text {
-        color: #94a3b8;
-        font-size: 1rem;
-        margin-bottom: 2rem;
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
+
+    /* Pagination Text */
+    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🏗️ Site Data Management Hub</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-text">Yahan aapke saare sites ka live database records display hoga.</div>', unsafe_allow_html=True)
-
-# Supabase Credentials
+# --- 3. SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
@@ -39,36 +43,108 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# Table name (Agar aapka table ka naam 'site_data' hai ya kuch aur, toh yahan change kar sakte hain)
-table_name = "site_data" 
+# --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
+col_title, col_add, col_upload, col_export = st.columns([4, 1.5, 1.5, 1.5])
+with col_title:
+    st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
+with col_add:
+    if st.button("➕ Add Record", use_container_width=True):
+        st.session_state.action = "add"
+with col_upload:
+    if st.button("📤 Bulk Upload (.tsv)", use_container_width=True):
+        st.session_state.action = "upload"
+with col_export:
+    if st.button("📥 Export Data", use_container_width=True):
+        st.session_state.action = "export"
 
+st.markdown("<br>", unsafe_allow_html=True)
+
+# --- 5. FETCH & PREPARE DATA ---
+table_name = "site_data"
 try:
-    # Supabase se data fetch karna
     response = supabase.table(table_name).select("*").execute()
     data = response.data
-    
-    if data:
-        df = pd.DataFrame(data)
-        
-        # Search / Filter Bar
-        search_query = st.text_input("🔍 Search Site / Client Name:", "")
-        if search_query:
-            # Flexible search across text columns
-            text_cols = df.select_dtypes(include=['object']).columns
-            mask = df[text_cols].apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-            df = df[mask]
-            
-        st.markdown(f"**Total Records Found:** {len(df)}")
-        
-        # Display Lavish Dataframe Table
-        st.dataframe(df, use_container_width=True, height=450)
-        
-    else:
-        st.info(f"ℹ️ `{table_name}` table mein abhi koi data nahi hai. Aap pehle Supabase mein is table mein data add karein.")
-        
-        # Agar table nahi hai ya data add karna hai toh guide
-        with st.expander("🛠️ Table Setup Guide"):
-            st.write(f"Ensure karein ki Supabase mein **{table_name}** naam ka table bana hua hai.")
+except Exception:
+    data = []
 
-except Exception as e:
-    st.error(f"⚠️ Database connection ya query mein error aaya: {e}")
+# Define All Columns exactly as requested
+columns_list = [
+    "Department", "Operator", "Project Name", "Project ID", "Site ID", 
+    "Site Name", "Cluster", "Site Status", "Product", "PO No.", 
+    "PO Date", "PO Status", "RFAI Status", "WH Material", "Team Name", 
+    "Team Billing Status", "Extra Approval", "Vision Billing Status", 
+    "WCC Number", "WCC Status"
+]
+
+if data:
+    df = pd.DataFrame(data)
+    # Ensure all columns exist even if data is partial
+    for col in columns_list:
+        if col not in df.columns:
+            df[col] = ""
+else:
+    # Empty Lavish DataFrame
+    df = pd.DataFrame(columns=columns_list)
+
+# Pehla column "Action" select ke liye add kar rahe hain
+df.insert(0, "🎯 Select", False)
+
+# --- 6. PAGINATION LOGIC (10 lines per page) ---
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 1
+
+rows_per_page = 10
+total_rows = len(df)
+total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
+
+# Bound page limits
+if st.session_state.current_page > total_pages:
+    st.session_state.current_page = total_pages
+elif st.session_state.current_page < 1:
+    st.session_state.current_page = 1
+
+start_idx = (st.session_state.current_page - 1) * rows_per_page
+end_idx = start_idx + rows_per_page
+
+# --- 7. LAVISH DATA TABLE (Horizonal & Vertical Scroll) ---
+st.markdown("##### 🗄️ Live Database Records")
+df_page = df.iloc[start_idx:end_idx].copy()
+
+# Data Editor jisme user row select kar sakta hai
+edited_df = st.data_editor(
+    df_page, 
+    use_container_width=True, 
+    hide_index=True,
+    height=400, # Fixed height for vertical roller
+    column_config={
+        "🎯 Select": st.column_config.CheckboxColumn("Edit/Del", default=False)
+    }
+)
+
+# Agar user ne koi row select ki hai, toh Edit/Delete buttons show honge
+selected_rows = edited_df[edited_df["🎯 Select"] == True]
+if not selected_rows.empty:
+    st.markdown("---")
+    col_ed1, col_ed2, col_ed3 = st.columns([1, 1, 6])
+    with col_ed1:
+        st.button("✏️ Edit Selected", type="primary", use_container_width=True)
+    with col_ed2:
+        st.button("🗑️ Delete Selected", type="primary", use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# --- 8. NEXT / PREVIOUS PAGINATION CONTROLS ---
+col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+
+with col_p1:
+    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1)):
+        st.session_state.current_page -= 1
+        st.rerun()
+
+with col_p2:
+    st.markdown(f"<div class='page-count'>Page {st.session_state.current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
+
+with col_p3:
+    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages)):
+        st.session_state.current_page += 1
+        st.rerun()
