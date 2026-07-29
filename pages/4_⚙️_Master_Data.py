@@ -98,10 +98,10 @@ categories = [
     "Item Description", "Material Status", "STN Status"
 ]
 
-# --- NEW: BULK UPLOAD DIALOG POPUP (ONLY FOR ITEM CODE) ---
+# --- NEW: BULK UPLOAD DIALOG POPUP (SMART FIELD MAPPING) ---
 @st.dialog("📤 Bulk Upload Item Codes", width="large")
 def bulk_upload_item_dialog():
-    st.caption("Upload an Excel (.xlsx) or .tsv file. Columns required: item_code, item_description, material_of, stn_status, rate")
+    st.caption("Upload Excel (.xlsx) or .tsv file. Required columns: item_code, item_description, material_of, stn_status, rate")
     uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_item_file")
     
     if uploaded_file:
@@ -112,16 +112,28 @@ def bulk_upload_item_dialog():
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
-                st.info(f"📁 File read successfully! Found {len(df_upload)} rows. Processing...")
-                
                 added_count = 0
                 failed_count = 0
                 
                 for index, row in df_upload.iterrows():
-                    val = str(row.get("item_code", row.get("Item Code", ""))).strip()
+                    # Flexible column lookup for Item Code
+                    val = str(row.get("item_code", row.get("Item Code", row.get("Itemcode", row.get("option_value", ""))) )).strip()
                     if not val or val == "nan":
                         continue
                         
+                    # Flexible column lookup for Description
+                    desc = str(row.get("item_description", row.get("Item Description", row.get("Description", ""))))
+                    if desc == "nan": desc = ""
+
+                    # Flexible column lookup for Material of
+                    mat = str(row.get("material_of", row.get("Material of", row.get("Material Of", "Indus"))))
+                    if mat == "nan" or not mat.strip(): mat = "Indus"
+
+                    # Flexible column lookup for STN Status
+                    stn = str(row.get("stn_status", row.get("STN Status", row.get("Stn Status", "Required"))))
+                    if stn == "nan" or not stn.strip(): stn = "Required"
+
+                    # Flexible column lookup for Rate
                     raw_rate = row.get("rate", row.get("Rate", None))
                     clean_rate = float(raw_rate) if pd.notna(raw_rate) and str(raw_rate).strip() != "" else None
 
@@ -129,24 +141,24 @@ def bulk_upload_item_dialog():
                         "category": "Item Code",
                         "option_value": val,
                         "is_active": True,
-                        "item_description": str(row.get("item_description", row.get("Item Description", ""))),
-                        "material_of": str(row.get("material_of", row.get("Material of", "Indus"))),
-                        "stn_status": str(row.get("stn_status", row.get("STN Status", "Required"))),
+                        "item_description": desc,
+                        "material_of": mat,
+                        "stn_status": stn,
                         "rate": clean_rate
                     }
                     try:
-                        res = supabase.table(master_table_name).insert(insert_dict).execute()
+                        supabase.table(master_table_name).insert(insert_dict).execute()
                         added_count += 1
                     except Exception as db_e:
                         failed_count += 1
-                        st.error(f"❌ DB Error at row {index+1} (Item Code: {val}): {db_e}")
+                        st.error(f"❌ DB Error at row {index+1} ({val}): {db_e}")
                         
                 if added_count > 0:
                     st.success(f"✅ Bulk Upload Complete! {added_count} Item Codes Added Successfully. (Failed: {failed_count})")
                     if failed_count == 0:
                         st.rerun()
                 else:
-                    st.error(f"⚠️ No records were added. Total failed: {failed_count}. Please check Supabase columns!")
+                    st.error(f"⚠️ No records added. Failed: {failed_count}.")
                     
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
