@@ -120,7 +120,8 @@ def get_site_projects():
     try:
         res = supabase.table("site_data").select("*").execute()
         return res.data if res.data else []
-    except Exception:
+    except Exception as e:
+        st.toast(f"Database Error: {e}", icon="❌")
         return []
 
 # --- 3.5 WAREHOUSE MATERIAL ADD DIALOG (POP-UP) ---
@@ -132,19 +133,30 @@ def add_warehouse_material_dialog():
     site_records = get_site_projects()
     
     # ----------------------------------------------------------------------
-    # Smart Key Detector for Supabase Column Names
-    # Handling cases like 'Project ID', 'project_id', 'WH Material', 'wh_material'
+    # BULLETPROOF KEY CLEANER: Handles any casing or underscores from Supabase
     # ----------------------------------------------------------------------
     unique_proj_ids = []
     for r in site_records:
-        pid = r.get("Project ID", r.get("project_id", r.get("project id", "")))
-        wh_mat = r.get("WH Material", r.get("wh_material", r.get("wh material", "")))
+        pid, wh_mat = "", ""
         
+        # Check every column dynamically
+        for k, v in r.items():
+            k_clean = str(k).strip().lower().replace("_", " ")
+            if k_clean == "project id":
+                pid = v
+            elif k_clean == "wh material":
+                wh_mat = v
+                
+        # Include only if 'Required'
         if str(pid).strip() and str(wh_mat).strip().lower() == "required":
             unique_proj_ids.append(str(pid).strip())
             
     unique_proj_ids = list(set(unique_proj_ids))
     unique_proj_ids.sort()
+    
+    if not unique_proj_ids:
+        st.toast("Koi bhi Project ID 'WH Material = Required' status ke sath nahi mili!", icon="ℹ️")
+        
     proj_id_opts = ["Select Project ID"] + unique_proj_ids
 
     with st.container():
@@ -154,16 +166,23 @@ def add_warehouse_material_dialog():
         with c1:
             proj_id = st.selectbox("PROJECT ID *", proj_id_opts)
             
-        # Auto fetch site details based on Project ID selection
+        # Auto fetch site details based on Project ID selection (using Bulletproof cleaner)
         site_id_val, site_name_val, cluster_val, team_val = "", "", "", ""
         if proj_id != "Select Project ID":
             for r in site_records:
-                curr_pid = str(r.get("Project ID", r.get("project_id", r.get("project id", "")))).strip()
+                curr_pid = ""
+                for k, v in r.items():
+                    if str(k).strip().lower().replace("_", " ") == "project id":
+                        curr_pid = str(v).strip()
+                        break
+                
                 if curr_pid == proj_id:
-                    site_id_val = str(r.get("Site ID", r.get("site_id", r.get("site id", ""))))
-                    site_name_val = str(r.get("Site Name", r.get("site_name", r.get("site name", ""))))
-                    cluster_val = str(r.get("Cluster", r.get("cluster", "")))
-                    team_val = str(r.get("Team Name", r.get("team_name", r.get("team name", r.get("Team", "")))))
+                    for k, v in r.items():
+                        k_clean = str(k).strip().lower().replace("_", " ")
+                        if k_clean == "site id": site_id_val = str(v)
+                        elif k_clean == "site name": site_name_val = str(v)
+                        elif k_clean == "cluster": cluster_val = str(v)
+                        elif k_clean == "team name" or k_clean == "team": team_val = str(v)
                     break
 
         with c2:
