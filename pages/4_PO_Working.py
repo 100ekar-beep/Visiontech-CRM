@@ -297,37 +297,43 @@ def view_po_details_dialog(row_data):
         </div>
     """, unsafe_allow_html=True)
     
-    df_full = st.session_state.po_working_df
-    
     display_cols = [
         'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
-    po_specific_df = df_full[df_full['PO Number'] == po_no][display_cols].copy()
     
-    # --- NEW: STATE INJECTION FOR INSTANT CALCULATION WITHOUT CLOSING ---
     editor_key = f"po_editor_{po_no}"
     
-    # Apply user's live typing (from Session State) to Dataframe BEFORE displaying it
+    # --- NEW FIX: DIRECT STATE INJECTION --- 
+    # Catch live edits and immediately apply them to the main dataframe so they don't reset to 0
     if editor_key in st.session_state:
         edits = st.session_state[editor_key].get("edited_rows", {})
-        for str_idx, changes in edits.items():
-            idx = int(str_idx)
-            for col, val in changes.items():
-                if col in po_specific_df.columns:
-                    po_specific_df.loc[idx, col] = val
+        if edits:
+            for str_idx, changes in edits.items():
+                idx = int(str_idx)
+                for col, val in changes.items():
+                    st.session_state.po_working_df.loc[idx, col] = val
                     
-    # Calculate Diff and Amount in real-time
+    # Fetch fresh slice after applying live edits
+    po_specific_df = st.session_state.po_working_df[st.session_state.po_working_df['PO Number'] == po_no][display_cols].copy()
+    
+    # Pre-calculate formulas instantly for display
     po_specific_df['PO Qty'] = pd.to_numeric(po_specific_df['PO Qty'], errors='coerce').fillna(0).astype(int)
     po_specific_df['VIS Qty'] = pd.to_numeric(po_specific_df['VIS Qty'], errors='coerce').fillna(0).astype(int)
     po_specific_df['Price'] = pd.to_numeric(po_specific_df['Price'], errors='coerce').fillna(0).astype(int)
     
     po_specific_df['Diff'] = po_specific_df['PO Qty'] - po_specific_df['VIS Qty']
     po_specific_df['Amount'] = po_specific_df['VIS Qty'] * po_specific_df['Price']
+    
+    po_specific_df['User Qty'] = pd.to_numeric(po_specific_df['User Qty'], errors='coerce').fillna(0).astype(int)
+    po_specific_df['Claim Qty'] = pd.to_numeric(po_specific_df['Claim Qty'], errors='coerce').fillna(0).astype(int)
+    po_specific_df['Receipt Qty'] = pd.to_numeric(po_specific_df['Receipt Qty'], errors='coerce').fillna(0).astype(int)
+    
+    # Save formulas back to main dataframe memory
+    st.session_state.po_working_df.update(po_specific_df)
 
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
-    # Data Editor rendering updated instantly calculated dataframe
     edited_po_df = st.data_editor(
         po_specific_df, 
         key=editor_key,
@@ -352,11 +358,10 @@ def view_po_details_dialog(row_data):
     st.markdown("<br>", unsafe_allow_html=True)
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
-        # Changed button from "Save Changes" to "Submit"
         if st.button("💾 Submit", type="primary", use_container_width=True):
             st.session_state.po_working_df.update(edited_po_df)
             
-            # Clean up the editor memory cache after submitting
+            # Clear editor memory to prevent conflicts
             if editor_key in st.session_state:
                 del st.session_state[editor_key]
                 
@@ -424,7 +429,6 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# Fix: Action and SR NO width is small, others explicitly forced large
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
