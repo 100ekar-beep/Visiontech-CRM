@@ -118,8 +118,8 @@ def get_opts(category, all_data):
 
 def get_site_projects():
     try:
-        # NAYI LINE: 'WH Material' column add kiya taaki uske status se filter kar sakein
-        res = supabase.table("site_data").select("Project ID, Site ID, Site Name, Cluster, Team Name, WH Material").execute()
+        # NAYI LINE: select("*") kiya taaki spaces in column names ke wajah se API error na aaye
+        res = supabase.table("site_data").select("*").execute()
         return res.data if res.data else []
     except Exception:
         return []
@@ -132,7 +132,7 @@ def add_warehouse_material_dialog():
     all_dd = get_all_dropdowns()
     site_records = get_site_projects()
     
-    # NAYI LINE: Sirf unhi Project IDs ko list me daalo jinka WH Material "Required" hai
+    # Sirf unhi Project IDs ko list me daalo jinka WH Material "Required" hai
     unique_proj_ids = list(set([r["Project ID"] for r in site_records if r.get("Project ID") and str(r.get("WH Material", "")).strip().lower() == "required"]))
     unique_proj_ids.sort()
     proj_id_opts = ["Select Project ID"] + unique_proj_ids
