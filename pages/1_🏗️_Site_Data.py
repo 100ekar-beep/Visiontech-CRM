@@ -437,6 +437,35 @@ def add_record_dialog():
                 
                 try:
                     supabase.table("site_data").insert(insert_data).execute()
+                    
+                    # --- NEW FIX: SAVE OPTIONAL WAREHOUSE MATERIAL ---
+                    for i in range(len(a_mat_item_codes)):
+                        if a_mat_item_codes[i].strip() != "" and a_mat_boqs[i].strip() != "":
+                            insert_wh = {
+                                "Project ID": proj_id,
+                                "Site ID": site_id,
+                                "Site Name": site_name,
+                                "Cluster": cluster,
+                                "Team": team_name if team_name != "Select" else "",
+                                "SRN Status": "Required",
+                                "Transaction Type": a_mat_trans_types[i] if a_mat_trans_types[i] != "Select" else "",
+                                "BOQ Number": a_mat_boqs[i],
+                                "Item Code": a_mat_item_codes[i].strip(),
+                                "Item Description": a_mat_descs[i],
+                                "Indus Qty": a_mat_qtys[i],
+                                "Material Status": a_mat_statuses[i] if a_mat_statuses[i] != "Select" else "",
+                                "Dispatch Date": a_mat_dates[i],
+                                "STN Status": a_mat_stn_statuses[i] if a_mat_stn_statuses[i] != "Select" else "",
+                                "Remark": a_mat_remarks[i]
+                            }
+                            try:
+                                dup_wh = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).execute()
+                                if not dup_wh.data:
+                                    supabase.table("warehouse_data").insert(insert_wh).execute()
+                            except Exception:
+                                pass
+                    # -------------------------------------------------
+                    
                     st.success("✅ Record Successfully Added!")
                     st.rerun() 
                 except Exception as e:
@@ -774,8 +803,56 @@ def material_movement_dialog(row_data):
                     has_m_err = True
                     break
                     
+            # --- NEW FIX: DUPLICATE CHECK & SAVE TO WAREHOUSE_DATA ---
+            proj_id = row_data.get('Project ID', '')
+            seen_codes = set()
+            if not has_m_err:
+                for idx, ic in enumerate(mat_item_codes):
+                    code_str = ic.strip()
+                    if not code_str:
+                        st.error(f"⚠️ Item {idx+1}: Item Code cannot be empty!")
+                        has_m_err = True
+                        break
+                    if code_str in seen_codes:
+                        st.error(f"⚠️ Item {idx+1}: You entered duplicate Item Code '{code_str}' in this form!")
+                        has_m_err = True
+                        break
+                    seen_codes.add(code_str)
+
+            if not has_m_err and proj_id:
+                for ic in mat_item_codes:
+                    code_str = ic.strip()
+                    try:
+                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).execute()
+                        if dup_check.data and len(dup_check.data) > 0:
+                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}'.")
+                            has_m_err = True
+                            break
+                    except Exception:
+                        pass
+                        
             if not has_m_err:
                 try:
+                    for i in range(len(mat_item_codes)):
+                        insert_dict = {
+                            "Project ID": proj_id,
+                            "Site ID": row_data.get('Site ID', ''),
+                            "Site Name": row_data.get('Site Name', ''),
+                            "Cluster": row_data.get('Cluster', ''),
+                            "Team": row_data.get('Team Name', ''),
+                            "SRN Status": srn_status if srn_status != "Select" else "",
+                            "Transaction Type": mat_trans_types[i] if mat_trans_types[i] != "Select" else "",
+                            "BOQ Number": mat_boqs[i],
+                            "Item Code": mat_item_codes[i].strip(),
+                            "Item Description": mat_descs[i],
+                            "Indus Qty": mat_qtys[i],
+                            "Material Status": mat_statuses[i] if mat_statuses[i] != "Select" else "",
+                            "Dispatch Date": mat_dates[i],
+                            "STN Status": mat_stn_statuses[i] if mat_stn_statuses[i] != "Select" else "",
+                            "Remark": mat_remarks[i]
+                        }
+                        supabase.table("warehouse_data").insert(insert_dict).execute()
+                        
                     st.success("✅ Warehouse Material Successfully Saved!")
                     st.rerun()
                 except Exception as e:
