@@ -132,7 +132,7 @@ def add_warehouse_material_dialog():
     site_records = get_site_projects()
     
     # ----------------------------------------------------------------------
-    # NEW FIX: Smart Key Detector for Supabase Column Names
+    # Smart Key Detector for Supabase Column Names
     # Handling cases like 'Project ID', 'project_id', 'WH Material', 'wh_material'
     # ----------------------------------------------------------------------
     unique_proj_ids = []
@@ -154,7 +154,7 @@ def add_warehouse_material_dialog():
         with c1:
             proj_id = st.selectbox("PROJECT ID *", proj_id_opts)
             
-        # Auto fetch site details based on Project ID selection (Smart Key check applied here too)
+        # Auto fetch site details based on Project ID selection
         site_id_val, site_name_val, cluster_val, team_val = "", "", "", ""
         if proj_id != "Select Project ID":
             for r in site_records:
