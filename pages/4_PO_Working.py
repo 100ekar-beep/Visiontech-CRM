@@ -217,7 +217,6 @@ def po_upload_dialog():
                 df_proc['Claim Qty'] = 0
                 df_proc['Receipt Qty'] = 0
                 
-                # --- NEW FIX: Removed .0 by casting to integers ---
                 num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
                 for col in num_columns_to_int:
                     if col in df_proc.columns:
@@ -300,7 +299,6 @@ def view_po_details_dialog(row_data):
     
     df_full = st.session_state.po_working_df
     
-    # --- NEW FIX: Reordered Columns as Requested ---
     display_cols = [
         'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
@@ -309,13 +307,13 @@ def view_po_details_dialog(row_data):
     
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
-    # --- NEW FIX: Centered Numbers, Removed .0, Fixed Diff & Amount ---
     edited_po_df = st.data_editor(
         po_specific_df, 
         use_container_width=True, 
         hide_index=True,
         height=400, 
         column_config={
+            "Site ID": None, "Site Name": None, "Project Name": None,
             "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
             "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
             "PO Qty": st.column_config.NumberColumn("PO Qty", disabled=True, alignment="center", format="%d"),
@@ -333,17 +331,13 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Save Changes", type="primary", use_container_width=True):
-            # --- NEW FIX: Automatically Calculate Diff and Amount on Save ---
-            for idx, row in edited_po_df.iterrows():
-                try:
-                    vis_val = int(row['VIS Qty'])
-                    po_val = int(row['PO Qty'])
-                    price_val = int(row['Price'])
-                    
-                    edited_po_df.at[idx, 'Diff'] = po_val - vis_val
-                    edited_po_df.at[idx, 'Amount'] = vis_val * price_val
-                except:
-                    pass
+            # --- FIX: Powerful Vectorized Calculation to Ensure Diff & Amount Update ---
+            edited_po_df['PO Qty'] = pd.to_numeric(edited_po_df['PO Qty'], errors='coerce').fillna(0).astype(int)
+            edited_po_df['VIS Qty'] = pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int)
+            edited_po_df['Price'] = pd.to_numeric(edited_po_df['Price'], errors='coerce').fillna(0).astype(int)
+            
+            edited_po_df['Diff'] = edited_po_df['PO Qty'] - edited_po_df['VIS Qty']
+            edited_po_df['Amount'] = edited_po_df['VIS Qty'] * edited_po_df['Price']
             
             st.session_state.po_working_df.update(edited_po_df)
             st.success("✅ PO Lines & Formulas Updated Successfully!")
@@ -410,7 +404,7 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# --- NEW FIX: Small width for Action and SR NO columns in Summary View ---
+# --- FIX: Used width="large" for other columns to compress Action & SR NO to minimum size ---
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
@@ -418,7 +412,9 @@ edited_summary = st.data_editor(
     height=400, 
     column_config={
         "🎯 Select": st.column_config.CheckboxColumn("Action", width="small", default=False),
-        "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d")
+        "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d"),
+        "Project Name": st.column_config.TextColumn("Project Name", width="large"),
+        "Site Name": st.column_config.TextColumn("Site Name", width="large")
     }
 )
 
