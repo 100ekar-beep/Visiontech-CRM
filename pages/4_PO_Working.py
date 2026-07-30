@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
@@ -9,9 +10,9 @@ st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 # --- INITIALIZE SESSION STATE FOR TABLE DATA ---
 if 'po_working_df' not in st.session_state:
     st.session_state.po_working_df = pd.DataFrame(columns=[
-        'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+        'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
         'Item Num', 'Description', 'UOM', 'PO Qty', 
-        'User Qty', 'VIS Qty', 'Price', 'Amount'
+        'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ])
 
 # --- 2. LAVISH CUSTOM CSS ---
@@ -52,6 +53,7 @@ st.markdown("""
         backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
+        max-width: 95vw !important; /* Make dialog wider for detailed table */
     }
     
     /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
@@ -122,67 +124,100 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
+
+    /* KPI PILLS FOR POPUP HEADER */
+    .kpi-pill-container {
+        display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+    }
+    .kpi-pill {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #cbd5e1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .kpi-pill span {
+        color: #60a5fa;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+    }
     </style>
 """, unsafe_allow_html=True)
+
+# --- 2.5 SUPABASE CONNECTION (For fetching Site KPIs in popup) ---
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
+
+@st.cache_resource
+def init_connection():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase: Client = init_connection()
 
 # --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
 @st.dialog("📤 Upload Oracle PO File", width="large")
 def po_upload_dialog():
     st.caption("Upload the Oracle exported .tsv file. Background cleaning rules will apply automatically.")
     
-    # Strictly configured for .tsv files
+    po_number_input = st.text_input("Enter PO Number *", placeholder="E.g. 19030475207")
     uploaded_file = st.file_uploader("Choose Oracle .tsv File", type=["tsv"], key="po_upload_file")
     
     if uploaded_file:
         if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
-            try:
-                # Read TSV with cp1252 encoding and skipping first 8 messy rows from Oracle
-                df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
-                
-                # Rule 1-5 & 7-13: Dropping all unnecessary Oracle columns
-                cols_to_drop = [
-                    'Type', 'Type.1', 'Item/Job', 'Supplier Item', 'Type.2', 
-                    'Advance Amount', 'Advance Billed', 'Maximum Retainage Amount', 
-                    'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
-                ]
-                df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
-                
-                # Rule 6: Drop rows where 'Qty' is completely blank
-                df_proc = df_proc.dropna(subset=['Qty'])
-                
-                # Rule 14: Delete everything after 'Project Name'
-                if 'Project Name' in df_proc.columns:
-                    proj_idx = df_proc.columns.get_loc('Project Name')
-                    df_proc = df_proc.iloc[:, :proj_idx+1]
+            if not po_number_input.strip():
+                st.error("⚠️ PO Number dalna compulsory hai!")
+            else:
+                try:
+                    df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
                     
-                # Mapping existing Oracle columns to your requested format
-                df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
-                
-                # Adding the new manual input columns
-                df_proc['User Qty'] = 0.0
-                df_proc['VIS Qty'] = 0.0
-                
-                # Formatting to strictly match the requested sequence
-                final_cols = [
-                    'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-                    'Item Num', 'Description', 'UOM', 'PO Qty', 
-                    'User Qty', 'VIS Qty', 'Price', 'Amount'
-                ]
-                
-                # Ensure all columns exist before restructuring to prevent errors
-                for col in final_cols:
-                    if col not in df_proc.columns:
-                        df_proc[col] = ""
+                    cols_to_drop = [
+                        'Type', 'Type.1', 'Item/Job', 'Supplier Item', 'Type.2', 
+                        'Advance Amount', 'Advance Billed', 'Maximum Retainage Amount', 
+                        'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
+                    ]
+                    df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
+                    
+                    df_proc = df_proc.dropna(subset=['Qty'])
+                    
+                    if 'Project Name' in df_proc.columns:
+                        proj_idx = df_proc.columns.get_loc('Project Name')
+                        df_proc = df_proc.iloc[:, :proj_idx+1]
                         
-                df_proc = df_proc[final_cols]
-                
-                # Pushing clean data to session state for live table rendering
-                st.session_state.po_working_df = df_proc
-                st.success("✅ Oracle TSV Processed and Cleaned Successfully!")
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Error processing file: Make sure it's the exact Oracle .tsv export. Details: {e}")
+                    df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
+                    
+                    # Add PO Number & Custom Columns
+                    df_proc['PO Number'] = po_number_input.strip()
+                    df_proc['User Qty'] = 0.0
+                    df_proc['VIS Qty'] = 0.0
+                    df_proc['Diff'] = 0.0
+                    df_proc['Claim Qty'] = 0.0
+                    df_proc['Receipt Qty'] = 0.0
+                    
+                    final_cols = [
+                        'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                        'Item Num', 'Description', 'UOM', 'PO Qty', 
+                        'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+                    ]
+                    
+                    for col in final_cols:
+                        if col not in df_proc.columns:
+                            df_proc[col] = ""
+                            
+                    df_proc = df_proc[final_cols]
+                    
+                    # NAYI LINE: Append naya PO data into existing session state so multiple POs can exist
+                    st.session_state.po_working_df = pd.concat([st.session_state.po_working_df, df_proc], ignore_index=True)
+                    st.success(f"✅ PO {po_number_input} Processed and Added Successfully!")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing file: Make sure it's the exact Oracle .tsv export. Details: {e}")
 
 # --- 4. EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export PO Working Data", width="large")
@@ -206,6 +241,80 @@ def export_dialog(df_export):
         type="primary"
     )
 
+# --- 4.5 DETAILED PO VIEW DIALOG FUNCTION (NEW UI FROM SCREENSHOT 2) ---
+@st.dialog("👁️ PO Detailed Working View", width="large")
+def view_po_details_dialog(row_data):
+    po_no = row_data['PO Number']
+    site_id = row_data['Site ID']
+    site_name = row_data['Site Name']
+    proj_name = row_data['Project Name']
+    
+    # Auto-fetch additional KPIs from Supabase Site Data & Excalation Matrix
+    cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
+    if site_id:
+        try:
+            res_site = supabase.table("site_data").select("Cluster, RFAI Status").eq("Site ID", site_id).execute()
+            if res_site.data:
+                cluster_val = res_site.data[0].get("Cluster", "-")
+                rfai_val = res_site.data[0].get("RFAI Status", "-")
+            
+            res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", site_id).execute()
+            if res_exc.data:
+                km_val = res_exc.data[0].get("KM", "-")
+        except:
+            pass
+
+    # Display KPI Pills Header (Like Screenshot 2)
+    st.markdown(f"""
+        <div class="kpi-pill-container">
+            <div class="kpi-pill">SITE ID: <span>{site_id}</span></div>
+            <div class="kpi-pill">SITE NAME: <span>{site_name}</span></div>
+            <div class="kpi-pill">PROJECT ID: <span>{proj_name}</span></div>
+            <div class="kpi-pill">CLUSTER: <span>{cluster_val}</span></div>
+            <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
+            <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
+            <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Filter the main DataFrame to show only lines for this specific PO
+    df_full = st.session_state.po_working_df
+    po_specific_df = df_full[df_full['PO Number'] == po_no].copy()
+    
+    st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
+    
+    # Render Data Editor inside the dialog for inline editing
+    edited_po_df = st.data_editor(
+        po_specific_df, 
+        use_container_width=True, 
+        hide_index=True,
+        height=400, 
+        column_config={
+            "Site ID": None, "Site Name": None, "Project Name": None, # Hide summary columns in detail view
+            "User Qty": st.column_config.NumberColumn("USER QTY", format="%.2f"),
+            "VIS Qty": st.column_config.NumberColumn("VIS QTY", format="%.2f"),
+            "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", format="%.2f"),
+            "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", format="%.2f")
+        }
+    )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_v1, col_v2 = st.columns([8, 2])
+    with col_v2:
+        if st.button("💾 Save Changes", type="primary", use_container_width=True):
+            # Calculate dynamic Difference (Diff = PO Qty - User Qty) if needed, or just save edits
+            for idx, row in edited_po_df.iterrows():
+                try:
+                    diff_val = float(row['PO Qty']) - float(row['User Qty'])
+                    edited_po_df.at[idx, 'Diff'] = diff_val
+                except:
+                    pass
+            
+            # Update the main session state with edited specific PO data
+            st.session_state.po_working_df.update(edited_po_df)
+            st.success("✅ PO Lines Updated Successfully!")
+            st.rerun()
+
 # --- 5. TOP ACTION BAR ---
 col_title, col_ref, col_upload, col_export = st.columns([4, 1, 2, 2])
 with col_title:
@@ -214,7 +323,7 @@ with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         st.rerun() 
 with col_upload:
-    if st.button("📤 PO Upload", use_container_width=True):
+    if st.button("📤 PO Upload Notepad", use_container_width=True):
         po_upload_dialog() 
 with col_export:
     if st.button("📥 Export", use_container_width=True):
@@ -225,10 +334,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- FETCH DATA FROM SESSION ---
 df = st.session_state.po_working_df.copy()
 
-if "🎯 Select" not in df.columns:
-    df.insert(0, "🎯 Select", False)
-
-# --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
+# EXPORT LOGIC TRIGGER
 if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
@@ -236,20 +342,29 @@ if st.session_state.get('action') == "export":
 # --- 6. LAVISH UNIVERSAL SEARCH BOX ---
 col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
-    st.markdown("##### 🗄️ Working Line Items")
+    st.markdown("##### 🗄️ Uploaded PO Summary")
 with col_search:
-    search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
+    search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
+
+# --- CREATE UNIQUE PO SUMMARY LIST (LIKE SCREENSHOT 1) ---
+if not df.empty:
+    # Grouping by PO Number to create the Master List View
+    summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
+    summary_df.insert(0, "SR NO", range(1, len(summary_df) + 1))
+    summary_df.insert(0, "🎯 Select", False)
+else:
+    summary_df = pd.DataFrame(columns=["🎯 Select", "SR NO", "Project Name", "Site ID", "Site Name", "PO Number"])
 
 # --- 7. PAGINATION LOGIC (10 lines per page) ---
 if 'po_current_page' not in st.session_state:
     st.session_state.po_current_page = 1
 
 rows_per_page = 10
-total_rows = len(df)
+total_rows = len(summary_df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
 if st.session_state.po_current_page > total_pages:
@@ -260,30 +375,38 @@ elif st.session_state.po_current_page < 1:
 start_idx = (st.session_state.po_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 8. ORIGINAL LAVISH DATA TABLE (st.data_editor) ---
-df_page = df.iloc[start_idx:end_idx].copy()
+# --- 8. SUMMARY DATA TABLE ---
+df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# Render Data Editor - User Qty and VIS Qty are left editable to match "Working" concept
-edited_df = st.data_editor(
+edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
     hide_index=True,
     height=400, 
     column_config={
-        "🎯 Select": st.column_config.CheckboxColumn("Select", default=False),
-        "User Qty": st.column_config.NumberColumn("User Qty", format="%.2f"),
-        "VIS Qty": st.column_config.NumberColumn("VIS Qty", format="%.2f")
+        "🎯 Select": st.column_config.CheckboxColumn("Action", default=False)
     }
 )
 
-# Update Session State if user manually edits User Qty or VIS Qty in the table
-if not edited_df.equals(df_page):
-    for idx, row in edited_df.iterrows():
-        original_idx = df.index[(df['Line Number'] == row['Line Number']) & (df['Item Num'] == row['Item Num'])]
-        if not original_idx.empty:
-            real_index = original_idx[0]
-            st.session_state.po_working_df.at[real_index, 'User Qty'] = row['User Qty']
-            st.session_state.po_working_df.at[real_index, 'VIS Qty'] = row['VIS Qty']
+# --- ROW ACTION BUTTONS (VIEW & DELETE) ---
+selected_rows = edited_summary[edited_summary["🎯 Select"] == True]
+if not selected_rows.empty:
+    st.markdown("---")
+    col_act1, col_act2, _ = st.columns([1.5, 1.5, 7])
+    
+    row_to_action = selected_rows.iloc[0].to_dict()
+    selected_po = row_to_action['PO Number']
+    
+    with col_act1:
+        if st.button("👁️ View Details", type="primary", use_container_width=True):
+            view_po_details_dialog(row_to_action)
+            
+    with col_act2:
+        if st.button("🗑️ Delete PO", type="primary", use_container_width=True):
+            # Delete all lines associated with this PO from the main session state
+            st.session_state.po_working_df = st.session_state.po_working_df[st.session_state.po_working_df['PO Number'] != selected_po]
+            st.success(f"✅ PO {selected_po} Deleted Successfully!")
+            st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
