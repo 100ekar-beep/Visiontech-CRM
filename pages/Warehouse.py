@@ -118,7 +118,6 @@ def get_opts(category, all_data):
 
 def get_site_projects():
     try:
-        # NAYI LINE: select("*") kiya taaki spaces in column names ke wajah se API error na aaye
         res = supabase.table("site_data").select("*").execute()
         return res.data if res.data else []
     except Exception:
@@ -132,9 +131,21 @@ def add_warehouse_material_dialog():
     all_dd = get_all_dropdowns()
     site_records = get_site_projects()
     
-    # Sirf unhi Project IDs ko list me daalo jinka WH Material "Required" hai
-    unique_proj_ids = list(set([r["Project ID"] for r in site_records if r.get("Project ID") and str(r.get("WH Material", "")).strip().lower() == "required"]))
-    unique_proj_ids.sort()
+    # NAYI LINE: Bulletproof case-insensitive helper to find Project IDs where WH Material is Required
+    def get_val_ci(d, possible_keys):
+        for k, v in d.items():
+            if k.lower().replace("_", " ").strip() in [pk.lower().replace("_", " ").strip() for pk in possible_keys]:
+                return v
+        return ""
+
+    unique_proj_ids = []
+    for r in site_records:
+        pid = str(get_val_ci(r, ["Project ID", "project_id", "ProjectID"])).strip()
+        wh_stat = str(get_val_ci(r, ["WH Material", "wh_material", "WH_Material", "WH MATERIAL"])).strip().lower()
+        if pid and pid != "nan" and ("require" in wh_stat and "not" not in wh_stat):
+            unique_proj_ids.append(pid)
+
+    unique_proj_ids = sorted(list(set(unique_proj_ids)))
     proj_id_opts = ["Select Project ID"] + unique_proj_ids
 
     with st.container():
@@ -148,11 +159,12 @@ def add_warehouse_material_dialog():
         site_id_val, site_name_val, cluster_val, team_val = "", "", "", ""
         if proj_id != "Select Project ID":
             for r in site_records:
-                if r["Project ID"] == proj_id:
-                    site_id_val = r.get("Site ID", "")
-                    site_name_val = r.get("Site Name", "")
-                    cluster_val = r.get("Cluster", "")
-                    team_val = r.get("Team Name", "")
+                current_pid = str(get_val_ci(r, ["Project ID", "project_id", "ProjectID"])).strip()
+                if current_pid == proj_id:
+                    site_id_val = str(get_val_ci(r, ["Site ID", "site_id", "SiteID"])).strip()
+                    site_name_val = str(get_val_ci(r, ["Site Name", "site_name", "SiteName"])).strip()
+                    cluster_val = str(get_val_ci(r, ["Cluster", "cluster"])).strip()
+                    team_val = str(get_val_ci(r, ["Team Name", "Team", "team_name", "team"])).strip()
                     break
 
         with c2:
@@ -266,7 +278,6 @@ def add_warehouse_material_dialog():
                 st.error("⚠️ Project ID select karna compulsory hai!")
                 has_m_err = True
 
-            # Check if any Item Code or BOQ is empty, and check for duplicates within the current form
             seen_codes = set()
             if not has_m_err:
                 for idx, (b, ic) in enumerate(zip(w_boqs, w_item_codes)):
@@ -287,7 +298,6 @@ def add_warehouse_material_dialog():
                         break
                     seen_codes.add(code_str)
 
-            # Strict Logic: Check Duplicates Against Database (1 Project ID against 1 Item Code)
             if not has_m_err:
                 for ic in w_item_codes:
                     code_str = ic.strip()
@@ -298,7 +308,7 @@ def add_warehouse_material_dialog():
                             has_m_err = True
                             break
                     except Exception as db_err:
-                        pass # Handle if table doesn't exist yet
+                        pass
                         
             if not has_m_err:
                 try:
