@@ -178,7 +178,6 @@ def add_warehouse_material_dialog():
                         elif k_clean == "team name" or k_clean == "team": team_val = str(v)
                     break
 
-        # FIXED: Removed 'key' parameter so Streamlit forces visual update immediately
         with c2:
             st.text_input("SITE ID", value=site_id_val, disabled=True)
         with c3:
@@ -348,6 +347,97 @@ def add_warehouse_material_dialog():
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
 
+# --- 3.6 EDIT WAREHOUSE MATERIAL DIALOG FUNCTION (NEW) ---
+@st.dialog("✏️ Edit Warehouse Material", width="large")
+def edit_warehouse_material_dialog(row_data):
+    st.caption("Update transaction items and asset movements")
+    all_dd = get_all_dropdowns()
+    
+    def get_idx(val, opt_list):
+        return opt_list.index(val) if val in opt_list else 0
+
+    with st.container():
+        st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
+        
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1:
+            st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True, key="ed_w_pid")
+        with c2:
+            st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True, key="ed_w_sid")
+        with c3:
+            st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True, key="ed_w_sname")
+        with c4:
+            st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True, key="ed_w_clu")
+        with c5:
+            st.text_input("TEAM", value=row_data.get('Team', ''), disabled=True, key="ed_w_team")
+        with c6:
+            srn_opts = get_opts("SRN Status", all_dd)
+            srn_status = st.selectbox("SRN STATUS *", srn_opts, index=get_idx(row_data.get('SRN Status'), srn_opts), key="ed_w_srn")
+
+        st.markdown('<div class="modal-section-title">📦 TRANSACTION & ASSET ITEMS</div>', unsafe_allow_html=True)
+        
+        trans_types = get_opts("Transaction Type", all_dd)
+        mat_status_opts = get_opts("Material Status", all_dd)
+        stn_status_opts = get_opts("STN Status", all_dd)
+        
+        mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+        with mc1:
+            t_type = st.selectbox("TRANSACTION TYPE", trans_types, index=get_idx(row_data.get('Transaction Type'), trans_types), key="ed_w_trans")
+        with mc2:
+            boq_no = st.text_input("BOQ NUMBER *", value=row_data.get('BOQ Number', ''), key="ed_w_boq")
+        with mc3:
+            i_code = st.text_input("ITEM CODE *", value=row_data.get('Item Code', ''), key="ed_w_icode")
+        with mc4:
+            i_desc = st.text_input("ITEM DESCRIPTION", value=row_data.get('Item Description', ''), key="ed_w_idesc")
+        with mc5:
+            try:
+                indus_val = float(row_data.get('Indus Qty', 0))
+            except:
+                indus_val = 0.0
+            i_qty = st.number_input("INDUS QTY", value=indus_val, key="ed_w_iqty")
+            
+        mc6, mc7, mc8, mc9 = st.columns(4)
+        with mc6:
+            m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, index=get_idx(row_data.get('Material Status'), mat_status_opts), key="ed_w_mstat")
+        with mc7:
+            val_date = str(row_data.get('Dispatch Date', ''))
+            d_date = st.text_input("DISPATCH DATE (DD/MM/YYYY)", value=val_date if val_date != 'nan' else "", key="ed_w_ddate")
+        with mc8:
+            stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=get_idx(row_data.get('STN Status'), stn_status_opts), key="ed_w_stn")
+        with mc9:
+            val_rem = str(row_data.get('Remark', ''))
+            rem = st.text_input("REMARKS", value=val_rem if val_rem != 'nan' else "", key="ed_w_rem")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_ms1, col_ms2 = st.columns([8, 2])
+        with col_ms2:
+            update_mat = st.button("💾 Update Material", type="primary", use_container_width=True)
+            
+        if update_mat:
+            if not boq_no:
+                st.error("⚠️ BOQ Number dalna compulsory hai!")
+            elif not i_code.strip():
+                st.error("⚠️ Item Code cannot be empty!")
+            else:
+                try:
+                    update_dict = {
+                        "SRN Status": srn_status if srn_status != "Select" else "",
+                        "Transaction Type": t_type if t_type != "Select" else "",
+                        "BOQ Number": boq_no,
+                        "Item Code": i_code.strip(),
+                        "Item Description": i_desc,
+                        "Indus Qty": i_qty,
+                        "Material Status": m_stat if m_stat != "Select" else "",
+                        "Dispatch Date": d_date,
+                        "STN Status": stn_stat if stn_stat != "Select" else "",
+                        "Remark": rem
+                    }
+                    supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
+                    st.success("✅ Warehouse Material Successfully Updated!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Updating Material: {e}")
+
 # --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
@@ -471,15 +561,19 @@ edited_df = st.data_editor(
     }
 )
 
-# --- DELETE LOGIC FOR TABLE ROW ---
+# --- EDIT & DELETE LOGIC FOR TABLE ROW ---
 selected_rows = edited_df[edited_df["🎯 Select"] == True]
 if not selected_rows.empty:
     st.markdown("---")
-    col_ed1, col_ed2 = st.columns([1, 8])
+    col_ed1, col_ed2, _ = st.columns([1, 1, 7])
     
     row_to_edit = selected_rows.iloc[0].to_dict()
-            
+    
     with col_ed1:
+        if st.button("✏️ Edit Record", type="primary", use_container_width=True):
+            edit_warehouse_material_dialog(row_to_edit)
+            
+    with col_ed2:
         if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
             try:
                 supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
