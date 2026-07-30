@@ -327,20 +327,28 @@ def view_po_details_dialog(row_data):
         }
     )
     
+    # --- NEW: INSTANT EXCEL-LIKE CALCULATION (WITHOUT WAITING FOR SAVE BUTTON) ---
+    calc_diff = (pd.to_numeric(edited_po_df['PO Qty'], errors='coerce').fillna(0).astype(int) - 
+                 pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int))
+                 
+    calc_amount = (pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int) * 
+                   pd.to_numeric(edited_po_df['Price'], errors='coerce').fillna(0).astype(int))
+                   
+    curr_diff = pd.to_numeric(edited_po_df['Diff'], errors='coerce').fillna(0).astype(int)
+    curr_amount = pd.to_numeric(edited_po_df['Amount'], errors='coerce').fillna(0).astype(int)
+    
+    # Check if calculation requires an update
+    if not curr_diff.equals(calc_diff) or not curr_amount.equals(calc_amount):
+        edited_po_df['Diff'] = calc_diff
+        edited_po_df['Amount'] = calc_amount
+        st.session_state.po_working_df.update(edited_po_df)
+        st.rerun() # Instantly refreshes the table to show updated Diff and Amount
+    
     st.markdown("<br>", unsafe_allow_html=True)
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Save Changes", type="primary", use_container_width=True):
-            # --- FIX: Powerful Vectorized Calculation to Ensure Diff & Amount Update ---
-            edited_po_df['PO Qty'] = pd.to_numeric(edited_po_df['PO Qty'], errors='coerce').fillna(0).astype(int)
-            edited_po_df['VIS Qty'] = pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int)
-            edited_po_df['Price'] = pd.to_numeric(edited_po_df['Price'], errors='coerce').fillna(0).astype(int)
-            
-            edited_po_df['Diff'] = edited_po_df['PO Qty'] - edited_po_df['VIS Qty']
-            edited_po_df['Amount'] = edited_po_df['VIS Qty'] * edited_po_df['Price']
-            
-            st.session_state.po_working_df.update(edited_po_df)
-            st.success("✅ PO Lines & Formulas Updated Successfully!")
+            st.success("✅ PO Lines Saved Successfully!")
             st.rerun()
 
 # --- 5. TOP ACTION BAR ---
@@ -404,7 +412,7 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# --- FIX: Used width="large" for other columns to compress Action & SR NO to minimum size ---
+# --- NEW FIX: Forcefully expanded other columns to squish Action and SR NO tightly ---
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
@@ -414,7 +422,9 @@ edited_summary = st.data_editor(
         "🎯 Select": st.column_config.CheckboxColumn("Action", width="small", default=False),
         "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d"),
         "Project Name": st.column_config.TextColumn("Project Name", width="large"),
-        "Site Name": st.column_config.TextColumn("Site Name", width="large")
+        "Site ID": st.column_config.TextColumn("Site ID", width="large"),
+        "Site Name": st.column_config.TextColumn("Site Name", width="large"),
+        "PO Number": st.column_config.TextColumn("PO Number", width="large")
     }
 )
 
