@@ -131,21 +131,20 @@ def add_warehouse_material_dialog():
     all_dd = get_all_dropdowns()
     site_records = get_site_projects()
     
-    # NAYI LINE: Bulletproof case-insensitive helper to find Project IDs where WH Material is Required
-    def get_val_ci(d, possible_keys):
-        for k, v in d.items():
-            if k.lower().replace("_", " ").strip() in [pk.lower().replace("_", " ").strip() for pk in possible_keys]:
-                return v
-        return ""
-
+    # ----------------------------------------------------------------------
+    # NEW FIX: Smart Key Detector for Supabase Column Names
+    # Handling cases like 'Project ID', 'project_id', 'WH Material', 'wh_material'
+    # ----------------------------------------------------------------------
     unique_proj_ids = []
     for r in site_records:
-        pid = str(get_val_ci(r, ["Project ID", "project_id", "ProjectID"])).strip()
-        wh_stat = str(get_val_ci(r, ["WH Material", "wh_material", "WH_Material", "WH MATERIAL"])).strip().lower()
-        if pid and pid != "nan" and ("require" in wh_stat and "not" not in wh_stat):
-            unique_proj_ids.append(pid)
-
-    unique_proj_ids = sorted(list(set(unique_proj_ids)))
+        pid = r.get("Project ID", r.get("project_id", r.get("project id", "")))
+        wh_mat = r.get("WH Material", r.get("wh_material", r.get("wh material", "")))
+        
+        if str(pid).strip() and str(wh_mat).strip().lower() == "required":
+            unique_proj_ids.append(str(pid).strip())
+            
+    unique_proj_ids = list(set(unique_proj_ids))
+    unique_proj_ids.sort()
     proj_id_opts = ["Select Project ID"] + unique_proj_ids
 
     with st.container():
@@ -155,16 +154,16 @@ def add_warehouse_material_dialog():
         with c1:
             proj_id = st.selectbox("PROJECT ID *", proj_id_opts)
             
-        # Auto fetch site details based on Project ID selection
+        # Auto fetch site details based on Project ID selection (Smart Key check applied here too)
         site_id_val, site_name_val, cluster_val, team_val = "", "", "", ""
         if proj_id != "Select Project ID":
             for r in site_records:
-                current_pid = str(get_val_ci(r, ["Project ID", "project_id", "ProjectID"])).strip()
-                if current_pid == proj_id:
-                    site_id_val = str(get_val_ci(r, ["Site ID", "site_id", "SiteID"])).strip()
-                    site_name_val = str(get_val_ci(r, ["Site Name", "site_name", "SiteName"])).strip()
-                    cluster_val = str(get_val_ci(r, ["Cluster", "cluster"])).strip()
-                    team_val = str(get_val_ci(r, ["Team Name", "Team", "team_name", "team"])).strip()
+                curr_pid = str(r.get("Project ID", r.get("project_id", r.get("project id", "")))).strip()
+                if curr_pid == proj_id:
+                    site_id_val = str(r.get("Site ID", r.get("site_id", r.get("site id", ""))))
+                    site_name_val = str(r.get("Site Name", r.get("site_name", r.get("site name", ""))))
+                    cluster_val = str(r.get("Cluster", r.get("cluster", "")))
+                    team_val = str(r.get("Team Name", r.get("team_name", r.get("team name", r.get("Team", "")))))
                     break
 
         with c2:
@@ -278,6 +277,7 @@ def add_warehouse_material_dialog():
                 st.error("⚠️ Project ID select karna compulsory hai!")
                 has_m_err = True
 
+            # Check if any Item Code or BOQ is empty, and check for duplicates within the current form
             seen_codes = set()
             if not has_m_err:
                 for idx, (b, ic) in enumerate(zip(w_boqs, w_item_codes)):
@@ -298,6 +298,7 @@ def add_warehouse_material_dialog():
                         break
                     seen_codes.add(code_str)
 
+            # Strict Logic: Check Duplicates Against Database (1 Project ID against 1 Item Code)
             if not has_m_err:
                 for ic in w_item_codes:
                     code_str = ic.strip()
@@ -308,7 +309,7 @@ def add_warehouse_material_dialog():
                             has_m_err = True
                             break
                     except Exception as db_err:
-                        pass
+                        pass # Handle if table doesn't exist yet
                         
             if not has_m_err:
                 try:
