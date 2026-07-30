@@ -21,31 +21,37 @@ st.markdown("""
     /* Dark Premium Theme */
     .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
     
-    /* Top Action Buttons */
-    div.stButton > button {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+    /* Primary Action Buttons */
+    button[data-testid="baseButton-primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: white !important;
-        border: none;
-        border-radius: 8px;
+        border: none !important;
+        border-radius: 8px !important;
         font-weight: 800 !important;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        padding: 0.5rem 1rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2) !important;
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+    
+    /* Secondary Action Buttons (Like Cancel) */
+    button[data-testid="baseButton-secondary"] {
+        background: rgba(255, 255, 255, 0.05) !important;
+        color: #e2e8f0 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 8px !important;
+        font-weight: 800 !important;
+        padding: 0.5rem 1rem !important;
+        transition: all 0.3s ease !important;
+    }
+
+    button[data-testid="baseButton-primary"]:hover, 
+    button[data-testid="baseButton-secondary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Pagination Text & Button Font Color Fix */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
-    
-    div.stButton > button p, 
-    div.stButton > button span, 
-    div.stButton > button div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-    }
     
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
@@ -53,7 +59,6 @@ st.markdown("""
         backdrop-filter: blur(16px);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
-        max-width: 95vw !important; /* Make dialog wider for detailed table */
     }
     
     /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
@@ -160,64 +165,78 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
-@st.dialog("📤 Upload Oracle PO File", width="large")
+# --- 3. UPLOAD ORACLE PO DIALOG FUNCTION (COMPACT UI) ---
+@st.dialog("📄 Upload PO (Notepad)")
 def po_upload_dialog():
-    st.caption("Upload the Oracle exported .tsv file. Background cleaning rules will apply automatically.")
     
-    po_number_input = st.text_input("Enter PO Number *", placeholder="E.g. 19030475207")
-    uploaded_file = st.file_uploader("Choose Oracle .tsv File", type=["tsv"], key="po_upload_file")
+    # Custom Labels exactly like the screenshot
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    po_number_input = st.text_input("PO NUMBER", label_visibility="collapsed", placeholder="Enter PO Number...")
     
-    if uploaded_file:
-        if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
-            if not po_number_input.strip():
-                st.error("⚠️ PO Number dalna compulsory hai!")
-            else:
-                try:
-                    df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:15px;'>PO DOCUMENT (TXT/CSV/TSV/EXCEL) <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("PO DOCUMENT", label_visibility="collapsed", type=["tsv", "csv", "txt", "xlsx"], key="po_upload_file")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_cancel, col_submit = st.columns(2)
+    with col_cancel:
+        cancel_btn = st.button("Cancel", use_container_width=True)
+    with col_submit:
+        submit_btn = st.button("💾 Submit", type="primary", use_container_width=True)
+        
+    if cancel_btn:
+        st.rerun()
+        
+    if submit_btn:
+        if not po_number_input.strip():
+            st.error("⚠️ PO Number dalna compulsory hai!")
+        elif not uploaded_file:
+            st.error("⚠️ File upload karna compulsory hai!")
+        else:
+            try:
+                # Backend logic stays 100% same
+                df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
+                
+                cols_to_drop = [
+                    'Type', 'Type.1', 'Item/Job', 'Supplier Item', 'Type.2', 
+                    'Advance Amount', 'Advance Billed', 'Maximum Retainage Amount', 
+                    'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
+                ]
+                df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
+                
+                df_proc = df_proc.dropna(subset=['Qty'])
+                
+                if 'Project Name' in df_proc.columns:
+                    proj_idx = df_proc.columns.get_loc('Project Name')
+                    df_proc = df_proc.iloc[:, :proj_idx+1]
                     
-                    cols_to_drop = [
-                        'Type', 'Type.1', 'Item/Job', 'Supplier Item', 'Type.2', 
-                        'Advance Amount', 'Advance Billed', 'Maximum Retainage Amount', 
-                        'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
-                    ]
-                    df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
-                    
-                    df_proc = df_proc.dropna(subset=['Qty'])
-                    
-                    if 'Project Name' in df_proc.columns:
-                        proj_idx = df_proc.columns.get_loc('Project Name')
-                        df_proc = df_proc.iloc[:, :proj_idx+1]
+                df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
+                
+                df_proc['PO Number'] = po_number_input.strip()
+                df_proc['User Qty'] = 0.0
+                df_proc['VIS Qty'] = 0.0
+                df_proc['Diff'] = 0.0
+                df_proc['Claim Qty'] = 0.0
+                df_proc['Receipt Qty'] = 0.0
+                
+                final_cols = [
+                    'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                    'Item Num', 'Description', 'UOM', 'PO Qty', 
+                    'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+                ]
+                
+                for col in final_cols:
+                    if col not in df_proc.columns:
+                        df_proc[col] = ""
                         
-                    df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
-                    
-                    # Add PO Number & Custom Columns
-                    df_proc['PO Number'] = po_number_input.strip()
-                    df_proc['User Qty'] = 0.0
-                    df_proc['VIS Qty'] = 0.0
-                    df_proc['Diff'] = 0.0
-                    df_proc['Claim Qty'] = 0.0
-                    df_proc['Receipt Qty'] = 0.0
-                    
-                    final_cols = [
-                        'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-                        'Item Num', 'Description', 'UOM', 'PO Qty', 
-                        'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
-                    ]
-                    
-                    for col in final_cols:
-                        if col not in df_proc.columns:
-                            df_proc[col] = ""
-                            
-                    df_proc = df_proc[final_cols]
-                    
-                    # NAYI LINE: Append naya PO data into existing session state so multiple POs can exist
-                    st.session_state.po_working_df = pd.concat([st.session_state.po_working_df, df_proc], ignore_index=True)
-                    st.success(f"✅ PO {po_number_input} Processed and Added Successfully!")
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Error processing file: Make sure it's the exact Oracle .tsv export. Details: {e}")
+                df_proc = df_proc[final_cols]
+                
+                st.session_state.po_working_df = pd.concat([st.session_state.po_working_df, df_proc], ignore_index=True)
+                st.success(f"✅ PO {po_number_input} Processed and Added Successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error processing file: Make sure it's the exact Oracle .tsv export format. Details: {e}")
 
 # --- 4. EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export PO Working Data", width="large")
@@ -241,7 +260,7 @@ def export_dialog(df_export):
         type="primary"
     )
 
-# --- 4.5 DETAILED PO VIEW DIALOG FUNCTION (NEW UI FROM SCREENSHOT 2) ---
+# --- 4.5 DETAILED PO VIEW DIALOG FUNCTION ---
 @st.dialog("👁️ PO Detailed Working View", width="large")
 def view_po_details_dialog(row_data):
     po_no = row_data['PO Number']
@@ -249,7 +268,6 @@ def view_po_details_dialog(row_data):
     site_name = row_data['Site Name']
     proj_name = row_data['Project Name']
     
-    # Auto-fetch additional KPIs from Supabase Site Data & Excalation Matrix
     cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
     if site_id:
         try:
@@ -264,7 +282,6 @@ def view_po_details_dialog(row_data):
         except:
             pass
 
-    # Display KPI Pills Header (Like Screenshot 2)
     st.markdown(f"""
         <div class="kpi-pill-container">
             <div class="kpi-pill">SITE ID: <span>{site_id}</span></div>
@@ -277,20 +294,18 @@ def view_po_details_dialog(row_data):
         </div>
     """, unsafe_allow_html=True)
     
-    # Filter the main DataFrame to show only lines for this specific PO
     df_full = st.session_state.po_working_df
     po_specific_df = df_full[df_full['PO Number'] == po_no].copy()
     
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
-    # Render Data Editor inside the dialog for inline editing
     edited_po_df = st.data_editor(
         po_specific_df, 
         use_container_width=True, 
         hide_index=True,
         height=400, 
         column_config={
-            "Site ID": None, "Site Name": None, "Project Name": None, # Hide summary columns in detail view
+            "Site ID": None, "Site Name": None, "Project Name": None,
             "User Qty": st.column_config.NumberColumn("USER QTY", format="%.2f"),
             "VIS Qty": st.column_config.NumberColumn("VIS QTY", format="%.2f"),
             "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", format="%.2f"),
@@ -302,7 +317,6 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Save Changes", type="primary", use_container_width=True):
-            # Calculate dynamic Difference (Diff = PO Qty - User Qty) if needed, or just save edits
             for idx, row in edited_po_df.iterrows():
                 try:
                     diff_val = float(row['PO Qty']) - float(row['User Qty'])
@@ -310,7 +324,6 @@ def view_po_details_dialog(row_data):
                 except:
                     pass
             
-            # Update the main session state with edited specific PO data
             st.session_state.po_working_df.update(edited_po_df)
             st.success("✅ PO Lines Updated Successfully!")
             st.rerun()
@@ -323,7 +336,7 @@ with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         st.rerun() 
 with col_upload:
-    if st.button("📤 PO Upload Notepad", use_container_width=True):
+    if st.button("📤 PO Upload Notepad", type="primary", use_container_width=True):
         po_upload_dialog() 
 with col_export:
     if st.button("📥 Export", use_container_width=True):
@@ -334,7 +347,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- FETCH DATA FROM SESSION ---
 df = st.session_state.po_working_df.copy()
 
-# EXPORT LOGIC TRIGGER
 if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
@@ -350,16 +362,15 @@ if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
 
-# --- CREATE UNIQUE PO SUMMARY LIST (LIKE SCREENSHOT 1) ---
+# --- CREATE UNIQUE PO SUMMARY LIST ---
 if not df.empty:
-    # Grouping by PO Number to create the Master List View
     summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
     summary_df.insert(0, "SR NO", range(1, len(summary_df) + 1))
     summary_df.insert(0, "🎯 Select", False)
 else:
     summary_df = pd.DataFrame(columns=["🎯 Select", "SR NO", "Project Name", "Site ID", "Site Name", "PO Number"])
 
-# --- 7. PAGINATION LOGIC (10 lines per page) ---
+# --- 7. PAGINATION LOGIC ---
 if 'po_current_page' not in st.session_state:
     st.session_state.po_current_page = 1
 
@@ -403,7 +414,6 @@ if not selected_rows.empty:
             
     with col_act2:
         if st.button("🗑️ Delete PO", type="primary", use_container_width=True):
-            # Delete all lines associated with this PO from the main session state
             st.session_state.po_working_df = st.session_state.po_working_df[st.session_state.po_working_df['PO Number'] != selected_po]
             st.success(f"✅ PO {selected_po} Deleted Successfully!")
             st.rerun()
