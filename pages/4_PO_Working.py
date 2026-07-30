@@ -305,10 +305,32 @@ def view_po_details_dialog(row_data):
     ]
     po_specific_df = df_full[df_full['PO Number'] == po_no][display_cols].copy()
     
+    # --- NEW: STATE INJECTION FOR INSTANT CALCULATION WITHOUT CLOSING ---
+    editor_key = f"po_editor_{po_no}"
+    
+    # Apply user's live typing (from Session State) to Dataframe BEFORE displaying it
+    if editor_key in st.session_state:
+        edits = st.session_state[editor_key].get("edited_rows", {})
+        for str_idx, changes in edits.items():
+            idx = int(str_idx)
+            for col, val in changes.items():
+                if col in po_specific_df.columns:
+                    po_specific_df.loc[idx, col] = val
+                    
+    # Calculate Diff and Amount in real-time
+    po_specific_df['PO Qty'] = pd.to_numeric(po_specific_df['PO Qty'], errors='coerce').fillna(0).astype(int)
+    po_specific_df['VIS Qty'] = pd.to_numeric(po_specific_df['VIS Qty'], errors='coerce').fillna(0).astype(int)
+    po_specific_df['Price'] = pd.to_numeric(po_specific_df['Price'], errors='coerce').fillna(0).astype(int)
+    
+    po_specific_df['Diff'] = po_specific_df['PO Qty'] - po_specific_df['VIS Qty']
+    po_specific_df['Amount'] = po_specific_df['VIS Qty'] * po_specific_df['Price']
+
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
+    # Data Editor rendering updated instantly calculated dataframe
     edited_po_df = st.data_editor(
         po_specific_df, 
+        key=editor_key,
         use_container_width=True, 
         hide_index=True,
         height=400, 
@@ -327,28 +349,18 @@ def view_po_details_dialog(row_data):
         }
     )
     
-    # --- NEW: INSTANT EXCEL-LIKE CALCULATION (WITHOUT WAITING FOR SAVE BUTTON) ---
-    calc_diff = (pd.to_numeric(edited_po_df['PO Qty'], errors='coerce').fillna(0).astype(int) - 
-                 pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int))
-                 
-    calc_amount = (pd.to_numeric(edited_po_df['VIS Qty'], errors='coerce').fillna(0).astype(int) * 
-                   pd.to_numeric(edited_po_df['Price'], errors='coerce').fillna(0).astype(int))
-                   
-    curr_diff = pd.to_numeric(edited_po_df['Diff'], errors='coerce').fillna(0).astype(int)
-    curr_amount = pd.to_numeric(edited_po_df['Amount'], errors='coerce').fillna(0).astype(int)
-    
-    # Check if calculation requires an update
-    if not curr_diff.equals(calc_diff) or not curr_amount.equals(calc_amount):
-        edited_po_df['Diff'] = calc_diff
-        edited_po_df['Amount'] = calc_amount
-        st.session_state.po_working_df.update(edited_po_df)
-        st.rerun() # Instantly refreshes the table to show updated Diff and Amount
-    
     st.markdown("<br>", unsafe_allow_html=True)
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
-        if st.button("💾 Save Changes", type="primary", use_container_width=True):
-            st.success("✅ PO Lines Saved Successfully!")
+        # Changed button from "Save Changes" to "Submit"
+        if st.button("💾 Submit", type="primary", use_container_width=True):
+            st.session_state.po_working_df.update(edited_po_df)
+            
+            # Clean up the editor memory cache after submitting
+            if editor_key in st.session_state:
+                del st.session_state[editor_key]
+                
+            st.success("✅ PO Lines Submitted Successfully!")
             st.rerun()
 
 # --- 5. TOP ACTION BAR ---
@@ -412,7 +424,7 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# --- NEW FIX: Forcefully expanded other columns to squish Action and SR NO tightly ---
+# Fix: Action and SR NO width is small, others explicitly forced large
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
