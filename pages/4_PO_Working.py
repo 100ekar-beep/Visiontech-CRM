@@ -155,7 +155,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2.5 SUPABASE CONNECTION (For fetching Site KPIs in popup) ---
+# --- 2.5 SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
@@ -169,7 +169,6 @@ supabase: Client = init_connection()
 @st.dialog("📄 Upload PO (Notepad)")
 def po_upload_dialog():
     
-    # Custom Labels exactly like the screenshot
     st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
     po_number_input = st.text_input("PO NUMBER", label_visibility="collapsed", placeholder="Enter PO Number...")
     
@@ -194,7 +193,6 @@ def po_upload_dialog():
             st.error("⚠️ File upload karna compulsory hai!")
         else:
             try:
-                # Backend logic stays 100% same
                 df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
                 
                 cols_to_drop = [
@@ -213,11 +211,17 @@ def po_upload_dialog():
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 
                 df_proc['PO Number'] = po_number_input.strip()
-                df_proc['User Qty'] = 0.0
-                df_proc['VIS Qty'] = 0.0
-                df_proc['Diff'] = 0.0
-                df_proc['Claim Qty'] = 0.0
-                df_proc['Receipt Qty'] = 0.0
+                df_proc['User Qty'] = 0
+                df_proc['VIS Qty'] = 0
+                df_proc['Diff'] = 0
+                df_proc['Claim Qty'] = 0
+                df_proc['Receipt Qty'] = 0
+                
+                # --- NEW FIX: Removed .0 by casting to integers ---
+                num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+                for col in num_columns_to_int:
+                    if col in df_proc.columns:
+                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
                 
                 final_cols = [
                     'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
@@ -295,21 +299,33 @@ def view_po_details_dialog(row_data):
     """, unsafe_allow_html=True)
     
     df_full = st.session_state.po_working_df
-    po_specific_df = df_full[df_full['PO Number'] == po_no].copy()
+    
+    # --- NEW FIX: Reordered Columns as Requested ---
+    display_cols = [
+        'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
+        'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+    ]
+    po_specific_df = df_full[df_full['PO Number'] == po_no][display_cols].copy()
     
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
+    # --- NEW FIX: Centered Numbers, Removed .0, Fixed Diff & Amount ---
     edited_po_df = st.data_editor(
         po_specific_df, 
         use_container_width=True, 
         hide_index=True,
         height=400, 
         column_config={
-            "Site ID": None, "Site Name": None, "Project Name": None,
-            "User Qty": st.column_config.NumberColumn("USER QTY", format="%.2f"),
-            "VIS Qty": st.column_config.NumberColumn("VIS QTY", format="%.2f"),
-            "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", format="%.2f"),
-            "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", format="%.2f")
+            "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
+            "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
+            "PO Qty": st.column_config.NumberColumn("PO Qty", disabled=True, alignment="center", format="%d"),
+            "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%d", step=1),
+            "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
+            "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
+            "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", alignment="center", format="%d", step=1),
+            "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", alignment="center", format="%d", step=1),
+            "Price": st.column_config.NumberColumn("Price", alignment="center", format="%d"),
+            "Amount": st.column_config.NumberColumn("Amount", disabled=True, alignment="center", format="%d")
         }
     )
     
@@ -317,15 +333,20 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Save Changes", type="primary", use_container_width=True):
+            # --- NEW FIX: Automatically Calculate Diff and Amount on Save ---
             for idx, row in edited_po_df.iterrows():
                 try:
-                    diff_val = float(row['PO Qty']) - float(row['User Qty'])
-                    edited_po_df.at[idx, 'Diff'] = diff_val
+                    vis_val = int(row['VIS Qty'])
+                    po_val = int(row['PO Qty'])
+                    price_val = int(row['Price'])
+                    
+                    edited_po_df.at[idx, 'Diff'] = po_val - vis_val
+                    edited_po_df.at[idx, 'Amount'] = vis_val * price_val
                 except:
                     pass
             
             st.session_state.po_working_df.update(edited_po_df)
-            st.success("✅ PO Lines Updated Successfully!")
+            st.success("✅ PO Lines & Formulas Updated Successfully!")
             st.rerun()
 
 # --- 5. TOP ACTION BAR ---
@@ -389,13 +410,15 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
+# --- NEW FIX: Small width for Action and SR NO columns in Summary View ---
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
     hide_index=True,
     height=400, 
     column_config={
-        "🎯 Select": st.column_config.CheckboxColumn("Action", default=False)
+        "🎯 Select": st.column_config.CheckboxColumn("Action", width="small", default=False),
+        "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d")
     }
 )
 
