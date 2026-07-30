@@ -132,14 +132,9 @@ def add_warehouse_material_dialog():
     all_dd = get_all_dropdowns()
     site_records = get_site_projects()
     
-    # ----------------------------------------------------------------------
-    # BULLETPROOF KEY CLEANER: Handles any casing or underscores from Supabase
-    # ----------------------------------------------------------------------
     unique_proj_ids = []
     for r in site_records:
         pid, wh_mat = "", ""
-        
-        # Check every column dynamically
         for k, v in r.items():
             k_clean = str(k).strip().lower().replace("_", " ")
             if k_clean == "project id":
@@ -147,7 +142,6 @@ def add_warehouse_material_dialog():
             elif k_clean == "wh material":
                 wh_mat = v
                 
-        # Include only if 'Required'
         if str(pid).strip() and str(wh_mat).strip().lower() == "required":
             unique_proj_ids.append(str(pid).strip())
             
@@ -166,7 +160,6 @@ def add_warehouse_material_dialog():
         with c1:
             proj_id = st.selectbox("PROJECT ID *", proj_id_opts)
             
-        # Auto fetch site details based on Project ID selection (using Bulletproof cleaner)
         site_id_val, site_name_val, cluster_val, team_val = "", "", "", ""
         if proj_id != "Select Project ID":
             for r in site_records:
@@ -185,14 +178,15 @@ def add_warehouse_material_dialog():
                         elif k_clean == "team name" or k_clean == "team": team_val = str(v)
                     break
 
+        # FIXED: Removed 'key' parameter so Streamlit forces visual update immediately
         with c2:
-            st.text_input("SITE ID", value=site_id_val, disabled=True, key="w_sid")
+            st.text_input("SITE ID", value=site_id_val, disabled=True)
         with c3:
-            st.text_input("SITE NAME", value=site_name_val, disabled=True, key="w_sname")
+            st.text_input("SITE NAME", value=site_name_val, disabled=True)
         with c4:
-            st.text_input("CLUSTER", value=cluster_val, disabled=True, key="w_clu")
+            st.text_input("CLUSTER", value=cluster_val, disabled=True)
         with c5:
-            st.text_input("TEAM", value=team_val, disabled=True, key="w_team")
+            st.text_input("TEAM", value=team_val, disabled=True)
         with c6:
             srn_opts = get_opts("SRN Status", all_dd)
             srn_status = st.selectbox("SRN STATUS *", srn_opts, key="w_srn_status")
@@ -221,7 +215,6 @@ def add_warehouse_material_dialog():
                 i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"w_icode_{i}")
                 w_item_codes.append(i_code)
 
-            # Auto-Fetch Item Description & STN
             auto_desc = ""
             auto_stn = "Select"
             code_val = i_code.strip()
@@ -296,7 +289,6 @@ def add_warehouse_material_dialog():
                 st.error("⚠️ Project ID select karna compulsory hai!")
                 has_m_err = True
 
-            # Check if any Item Code or BOQ is empty, and check for duplicates within the current form
             seen_codes = set()
             if not has_m_err:
                 for idx, (b, ic) in enumerate(zip(w_boqs, w_item_codes)):
@@ -317,7 +309,6 @@ def add_warehouse_material_dialog():
                         break
                     seen_codes.add(code_str)
 
-            # Strict Logic: Check Duplicates Against Database (1 Project ID against 1 Item Code)
             if not has_m_err:
                 for ic in w_item_codes:
                     code_str = ic.strip()
@@ -328,7 +319,7 @@ def add_warehouse_material_dialog():
                             has_m_err = True
                             break
                     except Exception as db_err:
-                        pass # Handle if table doesn't exist yet
+                        pass 
                         
             if not has_m_err:
                 try:
@@ -355,8 +346,7 @@ def add_warehouse_material_dialog():
                     st.success("✅ Warehouse Material Successfully Saved!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error Saving Material: {e} (Please verify if 'warehouse_data' table is created in Supabase)")
-
+                    st.error(f"❌ Error Saving Material: {e}")
 
 # --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
@@ -414,10 +404,18 @@ columns_list = [
     "STN Status", "Remark"
 ]
 
+# FIXED: Advanced Dictionary Mapper to solve Data Not Showing Issue
 if data:
-    df = pd.DataFrame(data)
+    df_raw = pd.DataFrame(data)
+    df = pd.DataFrame()
     for col in columns_list:
-        if col not in df.columns:
+        matched = False
+        for raw_col in df_raw.columns:
+            if str(raw_col).strip().lower().replace("_", " ") == str(col).strip().lower().replace("_", " "):
+                df[col] = df_raw[raw_col]
+                matched = True
+                break
+        if not matched:
             df[col] = ""
 else:
     df = pd.DataFrame(columns=columns_list)
