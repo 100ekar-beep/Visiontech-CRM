@@ -241,14 +241,17 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            
-            km_val = ""
-            for k in proj_row.columns:
-                if str(k).strip().upper() == 'KM':
-                    km_val = proj_row.iloc[0][k]
-                    break
-            auto_km = "" if pd.isna(km_val) else str(km_val)
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
+            
+            # --- NAYI LINE: Fetch KM directly from 'Excalation Matrix' table using Site ID ---
+            if auto_site_id:
+                try:
+                    res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", auto_site_id).execute()
+                    if res_exc.data and len(res_exc.data) > 0:
+                        km_val = res_exc.data[0].get("KM", "")
+                        auto_km = "" if pd.isna(km_val) else str(km_val)
+                except Exception:
+                    pass
             
     with col4:
         st.text_input("SITE ID *", value=auto_site_id, disabled=True)
@@ -356,7 +359,6 @@ def quotation_dialog(quotation_data=None):
         hide_index=True,
         height=300,
         column_config={
-            # --- NAYI LINE (Fixed Box Space/Waste Issue): Item Code set to medium, Description explicitly large ---
             "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
