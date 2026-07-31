@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -183,12 +183,14 @@ df_projects = fetch_quotation_projects()
 project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_projects.empty else []
 
 df_items = fetch_item_master()
-# --- NAYI LINE: Generate Combined Dropdown List (Code + Description) ---
 if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
     item_display_list = (df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)).tolist()
+    item_code_list = df_items["Item Code"].astype(str).tolist()
+    # NAYI LINE: Combine both lists so dropdown accepts 'Code | Desc' but cell can safely hold just 'Code'
+    combined_item_options = item_display_list + item_code_list 
 else:
-    item_display_list = []
+    combined_item_options = []
 
 # --- 5. INITIALIZE SESSION STATE ---
 if 'quotations_df' not in st.session_state:
@@ -218,7 +220,7 @@ def quotation_dialog(quotation_data=None):
     auto_site_id = ""
     auto_site_name = ""
     auto_cluster = ""
-    auto_km = "" # NAYI LINE: Initialize KM
+    auto_km = "" 
     auto_proj_name = ""
     if sel_proj:
         proj_row = df_projects[df_projects["Project ID"] == sel_proj]
@@ -226,20 +228,20 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            auto_km = str(proj_row.iloc[0].get("KM", "")) # NAYI LINE: Fetch KM
+            # NAYI LINE: Case-insensitive KM fallback 
+            auto_km = str(proj_row.iloc[0].get("KM", proj_row.iloc[0].get("km", proj_row.iloc[0].get("Km", ""))))
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
     with col4:
         st.text_input("SITE ID *", value=auto_site_id, disabled=True)
         
-    # --- NAYI LINE: Split into 5 columns to include KM ---
     col5, col6, col_km, col7, col8 = st.columns(5)
     with col5:
         st.text_input("SITE NAME", value=auto_site_name, disabled=True)
     with col6:
         st.text_input("CLUSTER", value=auto_cluster, disabled=True)
     with col_km:
-        st.text_input("KM", value=auto_km, disabled=True) # NAYI LINE: Display KM
+        st.text_input("KM", value=auto_km, disabled=True) 
     with col7:
         st.text_input("PROJECT NAME", value=auto_proj_name, disabled=True)
     with col8:
@@ -260,8 +262,6 @@ def quotation_dialog(quotation_data=None):
                 res_items = supabase.table("quotation_items").select("*").eq("Quotation Name", quo_name).execute()
                 if res_items.data:
                     temp_df = pd.DataFrame(res_items.data)[["Item Code", "Description", "Qty", "Price", "Total"]]
-                    # NAYI LINE: Map DB 'Item Code' back to 'Code | Description' format for UI dropdown
-                    temp_df["Item Code"] = temp_df.apply(lambda row: f"{row['Item Code']} | {row['Description']}", axis=1)
                     st.session_state[editor_key] = temp_df
                 else:
                     st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
@@ -282,44 +282,62 @@ def quotation_dialog(quotation_data=None):
         hide_index=True,
         height=300,
         column_config={
-            # --- NAYI LINE: Options updated, width changed to medium, Qty aligned center with small width ---
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_display_list, required=True, width="medium"),
+            # NAYI LINE: Widths and alignments strictly optimized as per request
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
-            "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d"),
-            "Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %d")
+            "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small"),
+            "Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %d", alignment="center", width="medium")
         }
     )
     
+    # --- NAYI LINE: Instant Calculation & Smart Trimmer Engine ---
     changes_made = False
     for idx, row in edited_items_df.iterrows():
-        i_code_full = row.get("Item Code")
-        if pd.notna(i_code_full) and i_code_full != "":
-            # --- NAYI LINE: Split selected value to extract pure Item Code for calculation ---
-            actual_code = str(i_code_full).split(" | ")[0].strip()
-            master_match = df_items[df_items["Item Code"] == actual_code]
-            
+        i_code_raw = row.get("Item Code")
+        
+        if pd.notna(i_code_raw) and str(i_code_raw).strip() != "":
+            code_just_selected = False
+            i_code = str(i_code_raw)
+
+            # Smart Trimmer: Converts "Code | Desc" directly to "Code" instantly
+            if " | " in i_code:
+                i_code = i_code.split(" | ")[0].strip()
+                edited_items_df.at[idx, "Item Code"] = i_code
+                code_just_selected = True
+                changes_made = True
+
+            master_match = df_items[df_items["Item Code"] == i_code]
             if not master_match.empty:
                 exp_desc = master_match.iloc[0]["Description"]
                 exp_price = master_match.iloc[0]["Price"]
                 
-                if pd.isna(row.get("Description")) or row.get("Description") == "":
+                # Instantly fill description if empty or just selected
+                if code_just_selected or pd.isna(row.get("Description")) or str(row.get("Description")).strip() == "":
                     edited_items_df.at[idx, "Description"] = exp_desc
-                    changed_made = True
+                    changes_made = True
                 
-                if pd.isna(row.get("Price")) or row.get("Price") == 0:
+                # Instantly fill price ONLY if just selected or currently blank/0
+                curr_price = row.get("Price")
+                if code_just_selected or pd.isna(curr_price) or curr_price == 0:
                     edited_items_df.at[idx, "Price"] = exp_price
-                    changed_made = True
+                    changes_made = True
                     
-        qty = pd.to_numeric(row.get("Qty"), errors='coerce')
-        price = pd.to_numeric(row.get("Price"), errors='coerce')
+        # Instant Live Calculation of Total
+        qty = pd.to_numeric(edited_items_df.at[idx, "Qty"], errors='coerce')
+        price = pd.to_numeric(edited_items_df.at[idx, "Price"], errors='coerce')
         qty = 0 if pd.isna(qty) else int(qty)
         price = 0 if pd.isna(price) else int(price)
         
         calc_total = qty * price
         if row.get("Total") != calc_total:
             edited_items_df.at[idx, "Total"] = calc_total
-            changed_made = True
+            changes_made = True
+
+    # NAYI LINE: If any live changes detected, update memory and refresh instantly (Zero Wait Time)
+    if changes_made:
+        st.session_state[editor_key] = edited_items_df
+        st.rerun()
 
     st.session_state[editor_key] = edited_items_df
 
@@ -362,7 +380,6 @@ def quotation_dialog(quotation_data=None):
                     items_to_insert = []
                     for _, r in edited_items_df.iterrows():
                         if pd.notna(r["Item Code"]) and r["Item Code"] != "":
-                            # --- NAYI LINE: Clean DB injection (saving only the code) ---
                             clean_code = str(r["Item Code"]).split(" | ")[0].strip()
                             items_to_insert.append({
                                 "Quotation Name": quo_name,
