@@ -304,8 +304,7 @@ def view_po_details_dialog(row_data):
     
     editor_key = f"po_editor_{po_no}"
     
-    # --- NEW FIX: DIRECT STATE INJECTION --- 
-    # Catch live edits and immediately apply them to the main dataframe so they don't reset to 0
+    # Catch live edits and immediately apply them to the main dataframe
     if editor_key in st.session_state:
         edits = st.session_state[editor_key].get("edited_rows", {})
         if edits:
@@ -429,6 +428,7 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
+# --- FIX: Removed hardcoded "large" widths to allow auto-adjust for text columns ---
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
@@ -437,10 +437,10 @@ edited_summary = st.data_editor(
     column_config={
         "🎯 Select": st.column_config.CheckboxColumn("Action", width="small", default=False),
         "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d"),
-        "Project Name": st.column_config.TextColumn("Project Name", width="large"),
-        "Site ID": st.column_config.TextColumn("Site ID", width="large"),
-        "Site Name": st.column_config.TextColumn("Site Name", width="large"),
-        "PO Number": st.column_config.TextColumn("PO Number", width="large")
+        "Project Name": st.column_config.TextColumn("Project Name"),
+        "Site ID": st.column_config.TextColumn("Site ID"),
+        "Site Name": st.column_config.TextColumn("Site Name"),
+        "PO Number": st.column_config.TextColumn("PO Number")
     }
 )
 
