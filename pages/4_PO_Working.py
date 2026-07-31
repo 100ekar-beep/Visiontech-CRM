@@ -201,7 +201,6 @@ def po_upload_dialog():
                     'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
                 ]
                 df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
-                
                 df_proc = df_proc.dropna(subset=['Qty'])
                 
                 if 'Project Name' in df_proc.columns:
@@ -209,32 +208,51 @@ def po_upload_dialog():
                     df_proc = df_proc.iloc[:, :proj_idx+1]
                     
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
+                po_no = po_number_input.strip()
                 
-                df_proc['PO Number'] = po_number_input.strip()
-                df_proc['User Qty'] = 0
-                df_proc['VIS Qty'] = 0
-                df_proc['Diff'] = 0
-                df_proc['Claim Qty'] = 0
-                df_proc['Receipt Qty'] = 0
+                # NAYI LINE: Upsert Logic (Rewrite if exists, Apppend if new)
+                existing_df = st.session_state.po_working_df
+                new_rows_to_add = []
                 
+                for idx, new_row in df_proc.iterrows():
+                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Item Num'] == new_row['Item Num'])
+                    if match_mask.any():
+                        match_idx = existing_df[match_mask].index[0]
+                        # Rewrite basic details but protect User Qty, VIS Qty etc.
+                        existing_df.at[match_idx, 'PO Qty'] = new_row['PO Qty']
+                        existing_df.at[match_idx, 'Price'] = new_row['Price']
+                        existing_df.at[match_idx, 'UOM'] = new_row['UOM']
+                        existing_df.at[match_idx, 'Description'] = new_row['Description']
+                    else:
+                        new_row['PO Number'] = po_no
+                        new_row['User Qty'] = 0
+                        new_row['VIS Qty'] = 0
+                        new_row['Diff'] = 0
+                        new_row['Claim Qty'] = 0
+                        new_row['Receipt Qty'] = 0
+                        new_rows_to_add.append(new_row)
+                
+                if new_rows_to_add:
+                    new_df = pd.DataFrame(new_rows_to_add)
+                    existing_df = pd.concat([existing_df, new_df], ignore_index=True)
+                
+                # Format to Int to remove .0
                 num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
                 for col in num_columns_to_int:
-                    if col in df_proc.columns:
-                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
+                    if col in existing_df.columns:
+                        existing_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(0).astype(int)
                 
-                final_cols = [
-                    'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-                    'Item Num', 'Description', 'UOM', 'PO Qty', 
-                    'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
-                ]
+                # Recalculate Formulas explicitly
+                existing_df['Diff'] = existing_df['PO Qty'] - existing_df['VIS Qty']
+                existing_df['Amount'] = existing_df['VIS Qty'] * existing_df['Price']
                 
-                for col in final_cols:
-                    if col not in df_proc.columns:
-                        df_proc[col] = ""
-                        
-                df_proc = df_proc[final_cols]
+                # NAYI LINE: Top Position Logic (Make current PO #1)
+                current_po_mask = existing_df['PO Number'] == po_no
+                current_po_rows = existing_df[current_po_mask].copy()
+                other_po_rows = existing_df[~current_po_mask].copy()
                 
-                st.session_state.po_working_df = pd.concat([st.session_state.po_working_df, df_proc], ignore_index=True)
+                st.session_state.po_working_df = pd.concat([current_po_rows, other_po_rows], ignore_index=True)
+                
                 st.success(f"✅ PO {po_number_input} Processed and Added Successfully!")
                 st.rerun()
                 
@@ -304,32 +322,37 @@ def view_po_details_dialog(row_data):
     
     editor_key = f"po_editor_{po_no}"
     
-    # Catch live edits and immediately apply them to the main dataframe
+    # NAYI LINE: Safest State Injection Engine (No data loss on Enter/Tab)
+    df_full = st.session_state.po_working_df
+    po_specific_mask = df_full['PO Number'] == po_no
+    real_indices = df_full[po_specific_mask].index.tolist()
+    
     if editor_key in st.session_state:
         edits = st.session_state[editor_key].get("edited_rows", {})
         if edits:
             for str_idx, changes in edits.items():
-                idx = int(str_idx)
-                for col, val in changes.items():
-                    st.session_state.po_working_df.loc[idx, col] = val
-                    
-    # Fetch fresh slice after applying live edits
-    po_specific_df = st.session_state.po_working_df[st.session_state.po_working_df['PO Number'] == po_no][display_cols].copy()
+                pos_idx = int(str_idx)
+                if pos_idx < len(real_indices):
+                    real_idx = real_indices[pos_idx]  # Translating 0, 1, 2 to real dataframe index
+                    for col, val in changes.items():
+                        st.session_state.po_working_df.loc[real_idx, col] = val
+
+    # Fetch Fresh Slice AFTER injection
+    df_temp = st.session_state.po_working_df[po_specific_mask].copy()
     
-    # Pre-calculate formulas instantly for display
-    po_specific_df['PO Qty'] = pd.to_numeric(po_specific_df['PO Qty'], errors='coerce').fillna(0).astype(int)
-    po_specific_df['VIS Qty'] = pd.to_numeric(po_specific_df['VIS Qty'], errors='coerce').fillna(0).astype(int)
-    po_specific_df['Price'] = pd.to_numeric(po_specific_df['Price'], errors='coerce').fillna(0).astype(int)
+    # Instant Pre-Calculation (Formulas update without Submit)
+    df_temp['PO Qty'] = pd.to_numeric(df_temp['PO Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['Price'] = pd.to_numeric(df_temp['Price'], errors='coerce').fillna(0).astype(int)
     
-    po_specific_df['Diff'] = po_specific_df['PO Qty'] - po_specific_df['VIS Qty']
-    po_specific_df['Amount'] = po_specific_df['VIS Qty'] * po_specific_df['Price']
+    df_temp['Diff'] = df_temp['PO Qty'] - df_temp['VIS Qty']
+    df_temp['Amount'] = df_temp['VIS Qty'] * df_temp['Price']
     
-    po_specific_df['User Qty'] = pd.to_numeric(po_specific_df['User Qty'], errors='coerce').fillna(0).astype(int)
-    po_specific_df['Claim Qty'] = pd.to_numeric(po_specific_df['Claim Qty'], errors='coerce').fillna(0).astype(int)
-    po_specific_df['Receipt Qty'] = pd.to_numeric(po_specific_df['Receipt Qty'], errors='coerce').fillna(0).astype(int)
+    # Push calculated values immediately back to memory
+    st.session_state.po_working_df.update(df_temp)
     
-    # Save formulas back to main dataframe memory
-    st.session_state.po_working_df.update(po_specific_df)
+    # Load exact formatted slice for display
+    po_specific_df = st.session_state.po_working_df[po_specific_mask][display_cols].copy()
 
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
@@ -358,9 +381,7 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Submit", type="primary", use_container_width=True):
-            st.session_state.po_working_df.update(edited_po_df)
-            
-            # Clear editor memory to prevent conflicts
+            # Editor Memory cleanup (Prevents overlapping of old types)
             if editor_key in st.session_state:
                 del st.session_state[editor_key]
                 
@@ -428,7 +449,6 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# --- FIX: Removed hardcoded "large" widths to allow auto-adjust for text columns ---
 edited_summary = st.data_editor(
     df_page, 
     use_container_width=True, 
