@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import io
+import json
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -37,7 +38,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -84,7 +85,6 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* NAYI LINE: FIX FOR DISABLED INPUTS (Force Dark Black & Bold) */
     input:disabled, div[data-baseweb="input"] input:disabled, textarea:disabled {
         color: #000000 !important;
         -webkit-text-fill-color: #000000 !important;
@@ -184,6 +184,17 @@ def fetch_item_master():
             continue
     return pd.DataFrame(columns=["Item Code", "Description", "Price"])
 
+# --- NAYI LINE: Fetch Templates from Supabase ---
+@st.cache_data(ttl=30)
+def fetch_quotation_templates():
+    try:
+        res = supabase.table("quotation_templates").select("*").execute()
+        if res.data:
+            return res.data
+    except:
+        pass
+    return []
+
 def fetch_quotations():
     try:
         res = supabase.table("quotations").select("*").execute()
@@ -212,6 +223,9 @@ else:
     combined_item_options = []
     display_to_desc = {}
     display_to_price = {}
+
+templates_data = fetch_quotation_templates()
+template_names = [t["Template Name"] for t in templates_data]
 
 # --- 5. INITIALIZE SESSION STATE ---
 if 'quotations_df' not in st.session_state:
@@ -249,7 +263,6 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
             if auto_site_id:
                 try:
@@ -259,6 +272,7 @@ def quotation_dialog(quotation_data=None):
                         auto_km = "" if pd.isna(km_val) else str(km_val)
                 except Exception:
                     pass
+            auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
     with col4:
         st.text_input("SITE ID *", value=auto_site_id, disabled=True)
@@ -273,12 +287,13 @@ def quotation_dialog(quotation_data=None):
     with col7:
         st.text_input("PROJECT NAME", value=auto_proj_name, disabled=True)
     with col8:
-        st.selectbox("QUOTATION TEMPLATE", options=["Standard Template", "Capex Template", "Opex Template"])
+        # --- NAYI LINE: Functional Template Dropdown ---
+        selected_template = st.selectbox("QUOTATION TEMPLATE", options=["-- Select Template --"] + template_names)
         
     st.markdown("<br>", unsafe_allow_html=True)
     col_list_title, col_add_btn = st.columns([8, 2])
     with col_list_title:
-        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use the plus (+) icon below to add lines)</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use plus (+) icon below to add lines)</span></div>', unsafe_allow_html=True)
     
     editor_key = f"quo_items_{quo_name}_{sel_proj}"
     widget_key = f"widget_{editor_key}"
@@ -299,6 +314,26 @@ def quotation_dialog(quotation_data=None):
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
 
+    # --- NAYI LINE: Auto-load Template Items when template is selected ---
+    if selected_template and selected_template != "-- Select Template --":
+        for t in templates_data:
+            if t["Template Name"] == selected_template:
+                try:
+                    raw_items = json.loads(t["Items Data"]) if isinstance(t["Items Data"], str) else t["Items Data"]
+                    loaded_rows = []
+                    for ri in raw_items:
+                        loaded_rows.append({
+                            "Item Code": ri.get("Item Code", ""),
+                            "Description": ri.get("Description", ""),
+                            "Qty": 1,
+                            "Price": ri.get("Price", 0),
+                            "Total": ri.get("Price", 0) * 1
+                        })
+                    if loaded_rows:
+                        st.session_state[editor_key] = pd.DataFrame(loaded_rows)
+                except:
+                    pass
+
     with col_add_btn:
         if st.button("➕ Add New Row", use_container_width=True):
             new_item = pd.DataFrame([{"Item Code": None, "Description": "", "Qty": 1, "Price": 0, "Total": 0}])
@@ -312,17 +347,13 @@ def quotation_dialog(quotation_data=None):
         
         if edits or adds or dels:
             curr_df = st.session_state[editor_key].copy()
-            
-            if dels:
-                curr_df = curr_df.drop(dels).reset_index(drop=True)
-                
+            if dels: curr_df = curr_df.drop(dels).reset_index(drop=True)
             if edits:
                 for str_idx, changes in edits.items():
                     idx = int(str_idx)
                     if idx < len(curr_df):
                         for col, val in changes.items():
                             curr_df.at[idx, col] = val
-                            
                         if "Item Code" in changes:
                             disp = str(changes["Item Code"])
                             if " | " in disp:
@@ -336,11 +367,9 @@ def quotation_dialog(quotation_data=None):
                                 if not match.empty:
                                     curr_df.at[idx, "Description"] = match.iloc[0]["Description"]
                                     curr_df.at[idx, "Price"] = match.iloc[0]["Price"]
-                        
                         qty = pd.to_numeric(curr_df.at[idx, "Qty"], errors='coerce')
                         price = pd.to_numeric(curr_df.at[idx, "Price"], errors='coerce')
                         curr_df.at[idx, "Total"] = (0 if pd.isna(qty) else int(qty)) * (0 if pd.isna(price) else int(price))
-                        
             if adds:
                 for row in adds:
                     new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0, "Total": 0}
@@ -354,7 +383,6 @@ def quotation_dialog(quotation_data=None):
                                 new_row["Price"] = display_to_price[disp]
                                 new_row["Total"] = display_to_price[disp] * 1
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
-                    
             st.session_state[editor_key] = curr_df
             del st.session_state[widget_key]
 
