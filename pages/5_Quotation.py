@@ -199,9 +199,12 @@ def fetch_quotations():
         res = supabase.table("quotations").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
+            # Safely map Cluster from df_projects
             if not df.empty and "Project ID" in df.columns and not df_projects.empty:
                 proj_cluster_map = dict(zip(df_projects["Project ID"], df_projects["Cluster"]))
                 df["Cluster"] = df["Project ID"].map(proj_cluster_map).fillna("")
+            else:
+                df["Cluster"] = ""
             return df
     except Exception:
         pass
@@ -489,9 +492,11 @@ with col_head4:
                 if df_filtered.empty:
                     df_filtered = df_base
                 
+                # Sheet 1: Site Details (Main Page Data with Cluster safely populated)
                 sheet1_df = df_filtered[["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount"]].copy()
-                sheet1_df.columns = ["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project", "Quotation Amount"]
+                sheet1_df.columns = ["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project", "Grand Total"]
                 
+                # Sheet 2: Line Wise Items Detail
                 line_rows = []
                 quotation_names = df_filtered["Quotation Name"].tolist()
                 
@@ -552,7 +557,8 @@ if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
 
-disp_cols = ["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount"]
+# --- NAYI LINE: Exact column sequence requested for Main Screen ---
+disp_cols = ["Date", "Project ID", "Site ID", "Site Name", "Cluster", "Project Name", "Quotation Amount"]
 
 if not df_display.empty:
     for c in disp_cols:
