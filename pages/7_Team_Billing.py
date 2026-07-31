@@ -128,19 +128,16 @@ def team_invoice_dialog(row_data=None):
     c8, c9, c10, c11 = st.columns(4)
     remark = c8.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    # --- NAYI LINE: value=None makes the box completely blank initially ---
     start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
     basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
     gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
     
-    # Safe calculations to prevent errors when inputs are blank
     safe_basic = basic_amt if basic_amt is not None else 0.0
     safe_gst = gst_perc if gst_perc is not None else 0.0
     
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
     
-    # --- NAYI LINE: Removed .2f formatting to show direct clean amounts ---
     c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
     st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span></div>", unsafe_allow_html=True)
     
@@ -190,7 +187,6 @@ def vendor_invoice_dialog(row_data=None):
     team_val = c4.selectbox("Link to Team *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     remark = c5.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    # --- NAYI LINE: value=None makes the box completely blank initially ---
     start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
     basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
     gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
@@ -201,7 +197,6 @@ def vendor_invoice_dialog(row_data=None):
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
     
-    # --- NAYI LINE: Removed .2f formatting ---
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
             <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.0f}</span></div>
@@ -233,6 +228,56 @@ def vendor_invoice_dialog(row_data=None):
             except Exception as e:
                 st.error(f"Error: {e}")
 
+# --- NAYI LINE: POPUP DIALOG FOR PAYMENTS (BLANK INPUTS & NO DECIMALS) ---
+@st.dialog("💳 Payment Entry", width="large")
+def payment_dialog(row_data=None, mode="Team"):
+    is_new = row_data is None
+    
+    def_from = row_data.get("pay_from", pay_from_list[0]) if not is_new else (pay_from_list[0] if pay_from_list else "")
+    
+    pay_to_opts = team_list if mode == "Team" else vendor_list
+    def_to = row_data.get("pay_to", pay_to_opts[0]) if not is_new else (pay_to_opts[0] if pay_to_opts else "")
+    
+    def_type = row_data.get("pay_type", pay_type_list[0]) if not is_new else (pay_type_list[0] if pay_type_list else "")
+    
+    def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
+    def_date = pd.to_datetime(def_date_str).date()
+    
+    p1, p2, p3 = st.columns(3)
+    pay_from = p1.selectbox("Payment From *", options=pay_from_list, index=pay_from_list.index(def_from) if def_from in pay_from_list else 0)
+    pay_to = p2.selectbox("Pay To *", options=pay_to_opts, index=pay_to_opts.index(def_to) if def_to in pay_to_opts else 0)
+    pay_type = p3.selectbox("Payment Type *", options=pay_type_list, index=pay_type_list.index(def_type) if def_type in pay_type_list else 0)
+    
+    p4, p5, p6 = st.columns(3)
+    start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
+    pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
+    pay_date = p5.date_input("Payment Date", value=def_date)
+    pay_remark = p6.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button(f"💾 Save {mode} Payment", type="primary", use_container_width=True):
+        if pay_amt is None or pay_amt <= 0:
+            st.error("⚠️ Amount must be greater than zero!")
+        else:
+            try:
+                payload = {
+                    "pay_from": pay_from,
+                    "pay_to": pay_to,
+                    "pay_type": pay_type,
+                    "amount": pay_amt,
+                    "date": str(pay_date),
+                    "remark": pay_remark,
+                    "mode": mode
+                }
+                if is_new:
+                    supabase.table("billing_payments").insert(payload).execute()
+                else:
+                    supabase.table("billing_payments").update(payload).eq("id", row_data["id"]).execute()
+                st.success(f"✅ {mode} Payment Saved Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
 # --- 6. MAIN PAGE TABS ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 tab1, tab2, tab3 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports"])
@@ -243,7 +288,7 @@ tab1, tab2, tab3 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Le
 with tab1:
     col_search, col_tbtn, col_vbtn, col_dl = st.columns([4, 2, 2, 2])
     with col_search:
-        search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed")
+        search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
     with col_tbtn:
         if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
             team_invoice_dialog()
@@ -266,7 +311,7 @@ with tab1:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_inv.to_excel(writer, index=False, sheet_name='Invoices')
-                st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary")
+                st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary", key="dl_inv_btn")
 
             if not df_inv.empty:
                 df_inv.insert(0, "Select", False)
@@ -288,14 +333,14 @@ with tab1:
                     col_act1, col_act2, _ = st.columns([2, 2, 8])
                     
                     with col_act1:
-                        if st.button("👁️ Edit Selected", type="primary", use_container_width=True):
+                        if st.button("👁️ Edit Selected", type="primary", use_container_width=True, key="edit_inv_btn"):
                             if row_dict.get("invoice_type") == "Team":
                                 team_invoice_dialog(row_dict)
                             else:
                                 vendor_invoice_dialog(row_dict)
                                 
                     with col_act2:
-                        if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
+                        if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True, key="del_inv_btn"):
                             try:
                                 supabase.table("billing_invoices").delete().eq("id", row_dict["id"]).execute()
                                 st.success("✅ Deleted successfully!")
@@ -307,63 +352,81 @@ with tab1:
         else:
             st.info("No invoices found. Click the buttons above to add one.")
             with col_dl:
-                st.button("📥 Download Excel", disabled=True, use_container_width=True)
+                st.button("📥 Download Excel", disabled=True, use_container_width=True, key="dl_inv_btn_disabled")
     except Exception as e:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 2: PAYMENT ENTRY
+# TAB 2: PAYMENT ENTRY (NAYI LINE: Fully Table-Driven & Popups matching Tab 1)
 # ==========================================
 with tab2:
-    col_pmode, _ = st.columns([3, 7])
-    with col_pmode:
-        pay_mode = st.radio("Select Payment Mode:", ["Team", "Vendor"], horizontal=True, key="pay_mode")
-    
-    st.markdown("---")
-    
-    with st.form("payment_form", clear_on_submit=True):
-        p1, p2, p3 = st.columns(3)
-        pay_from = p1.selectbox("Payment From", options=pay_from_list)
-        pay_to_opts = team_list if pay_mode == "Team" else vendor_list
-        pay_to = p2.selectbox("Pay To", options=pay_to_opts)
-        pay_type = p3.selectbox("Payment Type", options=pay_type_list)
-        
-        p4, p5, p6 = st.columns(3)
-        # --- NAYI LINE: Blank Payment Input ---
-        pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=None, placeholder="0")
-        pay_date = p5.date_input("Payment Date", value=datetime.date.today())
-        pay_remark = p6.text_input("Remark")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        sub_pay = st.form_submit_button("💾 Save Payment", type="primary", use_container_width=True)
-        
-        if sub_pay:
-            if pay_amt is None or pay_amt <= 0:
-                st.error("⚠️ Amount must be greater than zero!")
-            else:
-                try:
-                    payload = {
-                        "pay_from": pay_from,
-                        "pay_to": pay_to,
-                        "pay_type": pay_type,
-                        "amount": pay_amt,
-                        "date": str(pay_date),
-                        "remark": pay_remark,
-                        "mode": pay_mode
-                    }
-                    supabase.table("billing_payments").insert(payload).execute()
-                    st.success("✅ Payment Saved Successfully!")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    col_search_p, col_tpbtn, col_vpbtn, col_dl_p = st.columns([4, 2, 2, 2])
+    with col_search_p:
+        search_pay = st.text_input("Search", placeholder="🔍 Search Payments...", label_visibility="collapsed", key="search_pay_input")
+    with col_tpbtn:
+        if st.button("➕ Add Team Payment", type="primary", use_container_width=True):
+            payment_dialog(mode="Team")
+    with col_vpbtn:
+        if st.button("➕ Add Vendor Payment", type="primary", use_container_width=True):
+            payment_dialog(mode="Vendor")
+            
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown("### 💸 Recent Payments")
     try:
-        pay_data = supabase.table("billing_payments").select("*").eq("mode", pay_mode).order("id", desc=True).execute()
-        if pay_data.data:
-            df_pay = pd.DataFrame(pay_data.data)
-            st.dataframe(df_pay, use_container_width=True, hide_index=True)
-    except:
-        st.info("No data found.")
+        pay_res = supabase.table("billing_payments").select("*").order("id", desc=True).execute()
+        if pay_res.data:
+            df_pay = pd.DataFrame(pay_res.data)
+            
+            if search_pay:
+                mask_p = df_pay.astype(str).apply(lambda x: x.str.contains(search_pay, case=False, na=False)).any(axis=1)
+                df_pay = df_pay[mask_p]
+
+            with col_dl_p:
+                buffer_p = io.BytesIO()
+                with pd.ExcelWriter(buffer_p, engine='openpyxl') as writer:
+                    df_pay.to_excel(writer, index=False, sheet_name='Payments')
+                st.download_button(label="📥 Download Excel", data=buffer_p.getvalue(), file_name="Payments_List.xlsx", use_container_width=True, type="secondary", key="dl_pay_btn")
+
+            if not df_pay.empty:
+                df_pay.insert(0, "Select", False)
+                edited_pay_df = st.data_editor(
+                    df_pay,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=500,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+                        "amount": st.column_config.NumberColumn("AMOUNT", format="₹ %d")
+                    },
+                    key="pay_editor"
+                )
+                
+                sel_p_rows = edited_pay_df[edited_pay_df["Select"] == True]
+                if not sel_p_rows.empty:
+                    st.markdown("---")
+                    p_row_dict = sel_p_rows.iloc[0].to_dict()
+                    col_pact1, col_pact2, _ = st.columns([2, 2, 8])
+                    
+                    with col_pact1:
+                        if st.button("👁️ Edit Selected", type="primary", use_container_width=True, key="edit_p_btn"):
+                            payment_dialog(row_data=p_row_dict, mode=p_row_dict.get("mode", "Team"))
+                                
+                    with col_pact2:
+                        if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True, key="del_p_btn"):
+                            try:
+                                supabase.table("billing_payments").delete().eq("id", p_row_dict["id"]).execute()
+                                st.success("✅ Deleted successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting: {e}")
+            else:
+                st.info("No payments match your search.")
+        else:
+            st.info("No payments found. Click the buttons above to add one.")
+            with col_dl_p:
+                st.button("📥 Download Excel", disabled=True, use_container_width=True, key="dl_p_btn_disabled")
+    except Exception as e:
+        st.error(f"Database error: {e}")
 
 # ==========================================
 # TAB 3: REPORTS & LEDGER
@@ -404,7 +467,6 @@ with tab3:
 
         bal = tot_inv - tot_pay
         k1, k2, k3 = st.columns(3)
-        # --- NAYI LINE: Removed .2f formatting from KPIs ---
         with k1:
             st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Billed</div><div class='kpi-value-blue'>₹ {tot_inv:,.0f}</div></div>", unsafe_allow_html=True)
         with k2:
@@ -450,7 +512,6 @@ with tab3:
                 pdf.cell(190, 8, f"{sel_name}", ln=True, align='C')
                 pdf.ln(5)
                 
-                # --- NAYI LINE: Removed .2f formatting from PDF Generation ---
                 pdf.set_font("Arial", 'B', 10)
                 pdf.cell(95, 8, f"Total Billed: Rs. {tot_inv:,.0f}", ln=False)
                 pdf.cell(95, 8, f"Total Paid: Rs. {tot_pay:,.0f}", ln=True, align='R')
