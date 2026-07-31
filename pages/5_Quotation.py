@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -67,7 +67,6 @@ st.markdown("""
         font-size: 1rem;
         font-weight: 800;
         letter-spacing: 0.5px;
-        margin-top: 25px;
         margin-bottom: 15px;
         border-bottom: 2px solid #e2e8f0;
         padding-bottom: 8px;
@@ -144,10 +143,15 @@ supabase: Client = init_connection()
 # --- 4. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60)
 def fetch_quotation_projects():
+    # NAYI LINE (ERROR FIX 1): Smart Filter using Pandas to bypass spelling mistakes in 'Operator' like 'Quotaiton'
     try:
-        res = supabase.table("site_data").select("Project ID, Site ID, Site Name, Cluster, KM, Project Name").eq("Operator", "Quotation").execute()
+        res = supabase.table("site_data").select("*").execute()
         if res.data:
-            return pd.DataFrame(res.data)
+            df = pd.DataFrame(res.data)
+            if "Operator" in df.columns:
+                mask = df["Operator"].astype(str).str.contains("uotat", case=False, na=False)
+                return df[mask]
+            return df
     except Exception:
         pass
     return pd.DataFrame(columns=["Project ID", "Site ID", "Site Name", "Cluster", "KM", "Project Name"])
@@ -193,7 +197,6 @@ def quotation_dialog(quotation_data=None):
     
     is_new = quotation_data is None
     
-    # --- NAYI LINE (ERROR FIX): Safely handle NoneType and empty lists ---
     quo_id = None
     default_name = f"Quotation {len(st.session_state.quotations_df) + 100}" if is_new else quotation_data.get("Quotation Name", "")
     default_date = datetime.date.today() if is_new else pd.to_datetime(quotation_data.get("Date", datetime.date.today())).date()
@@ -234,7 +237,11 @@ def quotation_dialog(quotation_data=None):
     with col8:
         st.selectbox("QUOTATION TEMPLATE", options=["Standard Template", "Capex Template", "Opex Template"])
         
-    st.markdown('<div class="modal-section-title">📚 Listing Premium Items</div>', unsafe_allow_html=True)
+    # NAYI LINE (ERROR FIX 2): Explicit Add Row Button exactly like screenshot
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_list_title, col_add_btn = st.columns([8, 2])
+    with col_list_title:
+        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items</div>', unsafe_allow_html=True)
     
     editor_key = f"quo_items_{quo_name}"
     
@@ -250,6 +257,12 @@ def quotation_dialog(quotation_data=None):
                     st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
+
+    with col_add_btn:
+        if st.button("➕ Add New Row", use_container_width=True):
+            new_item = pd.DataFrame([{"Item Code": None, "Description": "", "Qty": 0, "Price": 0, "Total": 0}])
+            st.session_state[editor_key] = pd.concat([st.session_state[editor_key], new_item], ignore_index=True)
+            st.rerun()
 
     edited_items_df = st.data_editor(
         st.session_state[editor_key],
@@ -363,7 +376,19 @@ with col_head3:
     if st.button("➕ Add Record", type="primary", use_container_width=True):
         quotation_dialog()
 with col_head4:
-    st.button("📄 File ▼", type="secondary", use_container_width=True)
+    # NAYI LINE (ERROR FIX 3): Functional Download Excel Button inside Header
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        st.session_state.quotations_df.to_excel(writer, index=False, sheet_name='Quotations')
+    
+    st.download_button(
+        label="📥 Download Excel",
+        data=buffer.getvalue(),
+        file_name="Quotation_List.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        type="secondary"
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -374,7 +399,6 @@ if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
 
-# --- NAYI LINE (ERROR FIX): Always render the table structure even if empty ---
 disp_cols = ["Quotation Name", "Date", "Site ID", "Site Name", "Project ID", "Project Name", "Quotation Amount"]
 
 if not df_display.empty:
@@ -386,7 +410,6 @@ if not df_display.empty:
     df_list.insert(0, "Action", False)
     df_list.insert(0, "#", range(1, len(df_list) + 1))
 else:
-    # Render empty structure
     df_list = pd.DataFrame(columns=["Action", "#"] + disp_cols)
 
 edited_list = st.data_editor(
@@ -409,7 +432,6 @@ if not selected_rows.empty:
     col_act1, col_act2, _ = st.columns([2, 2, 8])
     
     selected_index = selected_rows.index[0]
-    # Ensure index exists in original df
     if selected_index < len(df_display):
         actual_data = df_display.iloc[selected_index].to_dict()
         
