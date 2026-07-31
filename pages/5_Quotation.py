@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -82,6 +82,14 @@ st.markdown("""
         font-size: 0.85rem !important;
         letter-spacing: 0.5px;
         text-transform: uppercase;
+    }
+
+    /* NAYI LINE: FIX FOR DISABLED INPUTS (Force Dark Black & Bold) */
+    input:disabled, div[data-baseweb="input"] input:disabled, textarea:disabled {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+        font-weight: 900 !important;
+        opacity: 1 !important;
     }
 
     /* Data Editor Table Header */
@@ -243,7 +251,6 @@ def quotation_dialog(quotation_data=None):
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
-            # --- NAYI LINE: Fetch KM directly from 'Excalation Matrix' table using Site ID ---
             if auto_site_id:
                 try:
                     res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", auto_site_id).execute()
