@@ -136,10 +136,12 @@ supabase: Client = init_connection()
 
 master_table_name = "dropdown_master"
 
+# --- NAYI LINE: Added Vendor Name, Payment From, and Payment Type in Categories ---
 categories = [
     "Department", "Operator", "Project Name", "Site Status", 
     "Product", "PO Status", "RFAI Status", "WH Material", 
-    "Team Name", "Team Billing Status", "Extra Approval", 
+    "Team Name", "Vendor Name", "Payment From", "Payment Type",
+    "Team Billing Status", "Extra Approval", 
     "Vision Billing Status", "WCC Status",
     "SRN Status", "Transaction Type", "Item Code", 
     "Item Description", "Material Status", "STN Status"
@@ -234,6 +236,14 @@ def edit_dialog(row_data):
             with c2:
                 g_num = st.text_input("GST Number", value=str(live_data.get('gst', '') or ''))
                 perc = st.text_input("Percentage", value=str(live_data.get('percentage', '') or ''))
+        # --- NAYI LINE: Vendor Name Edit Form Logic ---
+        elif new_cat == 'Vendor Name':
+            c1, c2 = st.columns(2)
+            with c1:
+                mob = st.text_input("Mobile Number", value=str(live_data.get('mobile', '') or ''))
+                p_num = st.text_input("PAN Number", value=str(live_data.get('pan', '') or ''))
+            with c2:
+                g_num = st.text_input("GST Number", value=str(live_data.get('gst', '') or ''))
         elif new_cat == 'Item Code':
             c1, c2 = st.columns(2)
             with c1:
@@ -302,6 +312,15 @@ with col1:
             with col_t2:
                 gst = st.text_input("GST Number")
                 percentage = st.text_input("Percentage (%)")
+        # --- NAYI LINE: Vendor Name Add Form Logic ---
+        elif selected_category == "Vendor Name":
+            new_option_value = st.text_input("Vendor Name *", placeholder="Enter Vendor Name")
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                mobile = st.text_input("Mobile Number")
+                pan = st.text_input("PAN Number")
+            with col_v2:
+                gst = st.text_input("GST Number")
         elif selected_category == "Item Code":
             new_option_value = st.text_input("Item Code *", placeholder="Enter Item Code")
             col_i1, col_i2 = st.columns(2)
@@ -313,6 +332,7 @@ with col1:
                 raw_rate_input = st.text_input("Rate *", placeholder="Enter Rate")
                 rate = float(raw_rate_input) if raw_rate_input.strip() != "" else None
         else:
+            # Payment From and Payment Type will perfectly use this default block
             new_option_value = st.text_input("Enter New Option Value *", placeholder="e.g. Civil, Pending, etc.")
         
         submit_btn = st.form_submit_button("🚀 Add to Database", use_container_width=True)
@@ -368,6 +388,9 @@ with col2:
             
             if filter_cat == "Team Name":
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'percentage', 'is_active']].copy()
+            # --- NAYI LINE: Vendor Name Table View Display Logic ---
+            elif filter_cat == "Vendor Name":
+                display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'mobile', 'pan', 'gst', 'is_active']].copy()
             elif filter_cat == "Item Code":
                 display_df = df[['🎯 Select', 'id', 'category', 'option_value', 'item_description', 'material_of', 'stn_status', 'rate', 'is_active']].copy()
             else:
