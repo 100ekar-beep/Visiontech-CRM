@@ -506,19 +506,15 @@ with tab3:
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
                 
-                # --- NAYI LINE: Adding Logo Safely ---
                 if os.path.exists("logo (1).png"):
-                    # Placing logo centered at the top
                     pdf.image("logo (1).png", x=75, y=10, w=60)
-                    pdf.ln(28) # Adding space after the logo
+                    pdf.ln(28) 
                 
-                # Colors
-                primary_color = (15, 23, 42) # Dark Slate
-                secondary_color = (59, 130, 246) # Blue
-                green_color = (16, 185, 129) # Green
-                red_color = (239, 68, 68) # Red
+                primary_color = (15, 23, 42) 
+                secondary_color = (59, 130, 246) 
+                green_color = (16, 185, 129) 
+                red_color = (239, 68, 68) 
                 
-                # Header
                 pdf.set_text_color(*primary_color)
                 pdf.set_font("Arial", 'B', 18)
                 pdf.cell(190, 10, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
@@ -527,12 +523,11 @@ with tab3:
                 pdf.set_font("Arial", 'B', 14)
                 pdf.cell(190, 8, "LEDGER & BALANCE SHEET", ln=True, align='C')
                 
-                pdf.set_text_color(100, 116, 139) # Gray
+                pdf.set_text_color(100, 116, 139) 
                 pdf.set_font("Arial", 'B', 12)
                 pdf.cell(190, 8, f"Statement For: {sel_name}", ln=True, align='C')
                 pdf.ln(5)
                 
-                # Summary Box
                 pdf.set_fill_color(248, 250, 252)
                 pdf.set_draw_color(203, 213, 225)
                 pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
@@ -552,14 +547,12 @@ with tab3:
                 
                 pdf.ln(12)
                 
-                # Dynamic Table Generator
                 def create_table(title, df, header_color):
                     if not df.empty:
                         pdf.set_font("Arial", 'B', 12)
                         pdf.set_text_color(*header_color)
                         pdf.cell(190, 8, title, ln=True, align='L')
                         
-                        # Table Header
                         pdf.set_fill_color(*header_color)
                         pdf.set_text_color(255, 255, 255)
                         pdf.set_font("Arial", 'B', 9)
@@ -571,7 +564,6 @@ with tab3:
                             pdf.cell(col_width, 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
                         pdf.ln()
                         
-                        # Table Rows
                         pdf.set_text_color(0, 0, 0)
                         pdf.set_font("Arial", '', 8)
                         
@@ -587,17 +579,15 @@ with tab3:
                                 if 'amount' in str(col).lower():
                                     val_str = f"Rs. {float(val):,.0f}" if pd.notna(val) else ""
                                 else:
-                                    val_str = str(val)[:30] # Limit string length to avoid overflow
+                                    val_str = str(val)[:30] 
                                 pdf.cell(col_width, 7, val_str, border=1, align='C', fill=fill)
                             pdf.ln()
                             fill = not fill
                         pdf.ln(5)
                 
-                # Render Invoices Table
-                create_table("📝 INVOICES (BILLED)", df_inv_rep, secondary_color)
-                
-                # Render Payments Table
-                create_table("💳 PAYMENTS (PAID)", df_pay_rep, green_color)
+                # --- NAYI LINE: Removed Emojis from PDF Generation ---
+                create_table("INVOICES (BILLED)", df_inv_rep, secondary_color)
+                create_table("PAYMENTS (PAID)", df_pay_rep, green_color)
                 
                 return pdf.output(dest='S').encode('latin1')
 
