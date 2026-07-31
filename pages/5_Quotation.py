@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -183,14 +183,22 @@ df_projects = fetch_quotation_projects()
 project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_projects.empty else []
 
 df_items = fetch_item_master()
+# --- NAYI LINE: Smart Mapping for Dropdown (Description first, Code inside brackets for wide view) ---
 if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
-    item_display_list = (df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)).tolist()
-    item_code_list = df_items["Item Code"].astype(str).tolist()
-    # NAYI LINE: Combine both lists so dropdown accepts 'Code | Desc' but cell can safely hold just 'Code'
-    combined_item_options = item_display_list + item_code_list 
+    df_items["Display"] = df_items["Description"].astype(str) + "  [" + df_items["Item Code"].astype(str) + "]"
+    
+    item_display_list = df_items["Display"].tolist()
+    code_to_display = dict(zip(df_items["Item Code"], df_items["Display"]))
+    display_to_code = dict(zip(df_items["Display"], df_items["Item Code"]))
+    display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
+    display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
 else:
-    combined_item_options = []
+    item_display_list = []
+    code_to_display = {}
+    display_to_code = {}
+    display_to_desc = {}
+    display_to_price = {}
 
 # --- 5. INITIALIZE SESSION STATE ---
 if 'quotations_df' not in st.session_state:
@@ -228,8 +236,9 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            # NAYI LINE: Case-insensitive KM fallback 
-            auto_km = str(proj_row.iloc[0].get("KM", proj_row.iloc[0].get("km", proj_row.iloc[0].get("Km", ""))))
+            # --- NAYI LINE: Strongly fetch KM value ---
+            km_val = proj_row.iloc[0].get("KM", proj_row.iloc[0].get("km", proj_row.iloc[0].get("Km", "")))
+            auto_km = "" if pd.isna(km_val) else str(km_val)
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
     with col4:
@@ -248,98 +257,86 @@ def quotation_dialog(quotation_data=None):
         st.selectbox("QUOTATION TEMPLATE", options=["Standard Template", "Capex Template", "Opex Template"])
         
     st.markdown("<br>", unsafe_allow_html=True)
-    col_list_title, col_add_btn = st.columns([8, 2])
-    with col_list_title:
-        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items</div>', unsafe_allow_html=True)
+    st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use the plus (+) icon below table to add lines)</span></div>', unsafe_allow_html=True)
     
-    editor_key = f"quo_items_{quo_name}"
+    # --- NAYI LINE: Unique Editor Key linked to Project ID to separate items ---
+    editor_key = f"quo_items_{quo_name}_{sel_proj}"
+    widget_key = f"widget_{editor_key}"
     
+    # Init Data Dataframe (Loads saved items if viewing old, else empty)
     if editor_key not in st.session_state:
         if is_new:
             st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
         else:
             try:
                 res_items = supabase.table("quotation_items").select("*").eq("Quotation Name", quo_name).execute()
-                if res_items.data:
+                if res_items.data and len(res_items.data) > 0:
                     temp_df = pd.DataFrame(res_items.data)[["Item Code", "Description", "Qty", "Price", "Total"]]
+                    # Map code back to Display format for the dropdown
+                    temp_df["Item Code"] = temp_df["Item Code"].map(code_to_display).fillna(temp_df["Item Code"])
                     st.session_state[editor_key] = temp_df
                 else:
                     st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
 
-    with col_add_btn:
-        if st.button("➕ Add New Row", use_container_width=True):
-            new_item = pd.DataFrame([{"Item Code": None, "Description": "", "Qty": 0, "Price": 0, "Total": 0}])
-            st.session_state[editor_key] = pd.concat([st.session_state[editor_key], new_item], ignore_index=True)
-            st.rerun()
+    # --- NAYI LINE: Pre-Render Instant Calculation Engine (Zero Wait Time, No Popup Closing) ---
+    if widget_key in st.session_state:
+        widget_state = st.session_state[widget_key]
+        edits = widget_state.get("edited_rows", {})
+        adds = widget_state.get("added_rows", [])
+        dels = widget_state.get("deleted_rows", [])
+        
+        curr_df = st.session_state[editor_key].copy()
+        
+        if dels:
+            curr_df = curr_df.drop(dels).reset_index(drop=True)
+            
+        if edits:
+            for str_idx, changes in edits.items():
+                idx = int(str_idx)
+                if idx < len(curr_df):
+                    for col, val in changes.items():
+                        curr_df.at[idx, col] = val
+                    # Auto-fill logic triggers instantly
+                    if "Item Code" in changes:
+                        disp = changes["Item Code"]
+                        if disp in display_to_desc:
+                            curr_df.at[idx, "Description"] = display_to_desc[disp]
+                            curr_df.at[idx, "Price"] = display_to_price[disp]
+                            
+        if adds:
+            for row in adds:
+                new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 0, "Price": 0, "Total": 0}
+                if "Item Code" in row and row["Item Code"] in display_to_desc:
+                    new_row["Description"] = display_to_desc[row["Item Code"]]
+                    new_row["Price"] = display_to_price[row["Item Code"]]
+                curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
 
+        # Apply calculations instantly before rendering
+        curr_df['Qty'] = pd.to_numeric(curr_df['Qty'], errors='coerce').fillna(0).astype(int)
+        curr_df['Price'] = pd.to_numeric(curr_df['Price'], errors='coerce').fillna(0).astype(int)
+        curr_df['Total'] = curr_df['Qty'] * curr_df['Price']
+        
+        st.session_state[editor_key] = curr_df
+
+    # Render Table
     edited_items_df = st.data_editor(
         st.session_state[editor_key],
-        key=f"editor_{editor_key}",
+        key=widget_key,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         height=300,
         column_config={
-            # NAYI LINE: Widths and alignments strictly optimized as per request
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
+            # --- NAYI LINE: Width optimized, Dropdown fixed, QTY strictly centered and 50% small ---
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_display_list, required=True, width="large"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small"),
             "Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %d", alignment="center", width="medium")
         }
     )
-    
-    # --- NAYI LINE: Instant Calculation & Smart Trimmer Engine ---
-    changes_made = False
-    for idx, row in edited_items_df.iterrows():
-        i_code_raw = row.get("Item Code")
-        
-        if pd.notna(i_code_raw) and str(i_code_raw).strip() != "":
-            code_just_selected = False
-            i_code = str(i_code_raw)
-
-            # Smart Trimmer: Converts "Code | Desc" directly to "Code" instantly
-            if " | " in i_code:
-                i_code = i_code.split(" | ")[0].strip()
-                edited_items_df.at[idx, "Item Code"] = i_code
-                code_just_selected = True
-                changes_made = True
-
-            master_match = df_items[df_items["Item Code"] == i_code]
-            if not master_match.empty:
-                exp_desc = master_match.iloc[0]["Description"]
-                exp_price = master_match.iloc[0]["Price"]
-                
-                # Instantly fill description if empty or just selected
-                if code_just_selected or pd.isna(row.get("Description")) or str(row.get("Description")).strip() == "":
-                    edited_items_df.at[idx, "Description"] = exp_desc
-                    changes_made = True
-                
-                # Instantly fill price ONLY if just selected or currently blank/0
-                curr_price = row.get("Price")
-                if code_just_selected or pd.isna(curr_price) or curr_price == 0:
-                    edited_items_df.at[idx, "Price"] = exp_price
-                    changes_made = True
-                    
-        # Instant Live Calculation of Total
-        qty = pd.to_numeric(edited_items_df.at[idx, "Qty"], errors='coerce')
-        price = pd.to_numeric(edited_items_df.at[idx, "Price"], errors='coerce')
-        qty = 0 if pd.isna(qty) else int(qty)
-        price = 0 if pd.isna(price) else int(price)
-        
-        calc_total = qty * price
-        if row.get("Total") != calc_total:
-            edited_items_df.at[idx, "Total"] = calc_total
-            changes_made = True
-
-    # NAYI LINE: If any live changes detected, update memory and refresh instantly (Zero Wait Time)
-    if changes_made:
-        st.session_state[editor_key] = edited_items_df
-        st.rerun()
-
-    st.session_state[editor_key] = edited_items_df
 
     grand_total = edited_items_df["Total"].sum() if not edited_items_df.empty else 0
     
@@ -380,10 +377,13 @@ def quotation_dialog(quotation_data=None):
                     items_to_insert = []
                     for _, r in edited_items_df.iterrows():
                         if pd.notna(r["Item Code"]) and r["Item Code"] != "":
-                            clean_code = str(r["Item Code"]).split(" | ")[0].strip()
+                            # --- NAYI LINE: Cleanly save only Item Code back to DB ---
+                            disp_val = r["Item Code"]
+                            actual_code = display_to_code.get(disp_val, disp_val)
+                            
                             items_to_insert.append({
                                 "Quotation Name": quo_name,
-                                "Item Code": clean_code,
+                                "Item Code": actual_code,
                                 "Description": str(r["Description"]),
                                 "Qty": int(r["Qty"]) if pd.notna(r["Qty"]) else 0,
                                 "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0,
