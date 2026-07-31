@@ -193,11 +193,11 @@ def quotation_dialog(quotation_data=None):
     
     is_new = quotation_data is None
     
-    # Init variables
+    # --- NAYI LINE (ERROR FIX): Safely handle NoneType and empty lists ---
     quo_id = None
     default_name = f"Quotation {len(st.session_state.quotations_df) + 100}" if is_new else quotation_data.get("Quotation Name", "")
     default_date = datetime.date.today() if is_new else pd.to_datetime(quotation_data.get("Date", datetime.date.today())).date()
-    default_proj = project_list[0] if project_list and is_new else quotation_data.get("Project ID", "")
+    default_proj = quotation_data.get("Project ID", "") if quotation_data else (project_list[0] if project_list else "")
     
     # Top Section
     col1, col2, col3, col4 = st.columns(4)
@@ -374,9 +374,10 @@ if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
 
+# --- NAYI LINE (ERROR FIX): Always render the table structure even if empty ---
+disp_cols = ["Quotation Name", "Date", "Site ID", "Site Name", "Project ID", "Project Name", "Quotation Amount"]
+
 if not df_display.empty:
-    disp_cols = ["Quotation Name", "Date", "Site ID", "Site Name", "Project ID", "Project Name", "Quotation Amount"]
-    
     for c in disp_cols:
         if c not in df_display.columns:
             df_display[c] = ""
@@ -384,27 +385,32 @@ if not df_display.empty:
     df_list = df_display[disp_cols].copy()
     df_list.insert(0, "Action", False)
     df_list.insert(0, "#", range(1, len(df_list) + 1))
+else:
+    # Render empty structure
+    df_list = pd.DataFrame(columns=["Action", "#"] + disp_cols)
+
+edited_list = st.data_editor(
+    df_list,
+    use_container_width=True,
+    hide_index=True,
+    height=500,
+    column_config={
+        "Action": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+        "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
+        "Quotation Amount": st.column_config.NumberColumn("GRAND TOTAL", format="₹ %d"),
+        "Project Name": st.column_config.TextColumn("PROJECT"),
+        "Site ID": st.column_config.TextColumn("SITE CODE")
+    }
+)
+
+selected_rows = edited_list[edited_list["Action"] == True]
+if not selected_rows.empty:
+    st.markdown("---")
+    col_act1, col_act2, _ = st.columns([2, 2, 8])
     
-    edited_list = st.data_editor(
-        df_list,
-        use_container_width=True,
-        hide_index=True,
-        height=500,
-        column_config={
-            "Action": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-            "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
-            "Quotation Amount": st.column_config.NumberColumn("GRAND TOTAL", format="₹ %d"),
-            "Project Name": st.column_config.TextColumn("PROJECT"),
-            "Site ID": st.column_config.TextColumn("SITE CODE")
-        }
-    )
-    
-    selected_rows = edited_list[edited_list["Action"] == True]
-    if not selected_rows.empty:
-        st.markdown("---")
-        col_act1, col_act2, _ = st.columns([2, 2, 8])
-        
-        selected_index = selected_rows.index[0]
+    selected_index = selected_rows.index[0]
+    # Ensure index exists in original df
+    if selected_index < len(df_display):
         actual_data = df_display.iloc[selected_index].to_dict()
         
         with col_act1:
@@ -422,5 +428,3 @@ if not df_display.empty:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error deleting: {e}")
-else:
-    st.info("No Quotations found. Click '+ Add Record' to create one.")
