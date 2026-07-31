@@ -117,6 +117,8 @@ def template_dialog(template_data=None):
                 st.rerun()
 
     t_key = f"t_items_{t_name}"
+    widget_t_key = f"widget_{t_key}"
+
     if t_key not in st.session_state:
         if is_new:
             st.session_state.temp_items_df = pd.DataFrame(columns=["Item Code", "Description", "Price"])
@@ -128,7 +130,7 @@ def template_dialog(template_data=None):
             except:
                 st.session_state.temp_items_df = pd.DataFrame(columns=["Item Code", "Description", "Price"])
 
-    widget_t_key = f"widget_{t_key}"
+    # --- NAYI LINE: Pre-Process Engine to prevent popup close bug ---
     if widget_t_key in st.session_state:
         w_state = st.session_state[widget_t_key]
         edits = w_state.get("edited_rows", {})
@@ -152,6 +154,11 @@ def template_dialog(template_data=None):
                                 if disp in display_to_desc:
                                     curr_df.at[idx, "Description"] = display_to_desc[disp]
                                     curr_df.at[idx, "Price"] = display_to_price[disp]
+                            else:
+                                match = df_items[df_items["Item Code"] == disp]
+                                if not match.empty:
+                                    curr_df.at[idx, "Description"] = match.iloc[0]["Description"]
+                                    curr_df.at[idx, "Price"] = match.iloc[0]["Price"]
             if adds:
                 for row in adds:
                     new_row = {"Item Code": row.get("Item Code"), "Description": "", "Price": 0}
