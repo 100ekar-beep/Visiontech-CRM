@@ -104,12 +104,11 @@ pay_from_list = get_dropdown_data("Payment From") or ["Bank", "Cash"]
 pay_type_list = get_dropdown_data("Payment Type") or ["NEFT", "RTGS", "UPI"]
 
 
-# --- 5. NAYI LINE: POPUP DIALOGS FOR INVOICES (WITH DYNAMIC GST) ---
+# --- 5. POPUP DIALOGS FOR INVOICES (BLANK INPUTS & NO DECIMALS) ---
 @st.dialog("📝 Team Invoice Entry", width="large")
 def team_invoice_dialog(row_data=None):
     is_new = row_data is None
     
-    # Defaults
     def_team = row_data.get("team_name", team_list[0]) if not is_new else team_list[0]
     def_inv = row_data.get("invoice_no", "") if not is_new else ""
     def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
@@ -129,17 +128,21 @@ def team_invoice_dialog(row_data=None):
     c8, c9, c10, c11 = st.columns(4)
     remark = c8.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    # Real-time GST Calculation (No st.form used here, so it updates instantly)
-    start_amount = float(row_data.get("amount", 0.0)) if not is_new else 0.0
-    basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount)
-    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=0.0)
+    # --- NAYI LINE: value=None makes the box completely blank initially ---
+    start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
+    basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
+    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
     
-    gst_amt = basic_amt * (gst_perc / 100)
-    total_calc = basic_amt + gst_amt
+    # Safe calculations to prevent errors when inputs are blank
+    safe_basic = basic_amt if basic_amt is not None else 0.0
+    safe_gst = gst_perc if gst_perc is not None else 0.0
     
-    c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.2f}</span>", unsafe_allow_html=True)
+    gst_amt = safe_basic * (safe_gst / 100)
+    total_calc = safe_basic + gst_amt
     
-    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.2f}</span></div>", unsafe_allow_html=True)
+    # --- NAYI LINE: Removed .2f formatting to show direct clean amounts ---
+    c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span></div>", unsafe_allow_html=True)
     
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
         if not inv_no:
@@ -187,17 +190,22 @@ def vendor_invoice_dialog(row_data=None):
     team_val = c4.selectbox("Link to Team *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     remark = c5.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    start_amount = float(row_data.get("amount", 0.0)) if not is_new else 0.0
-    basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount)
-    gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=0.0)
+    # --- NAYI LINE: value=None makes the box completely blank initially ---
+    start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
+    basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
+    gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
     
-    gst_amt = basic_amt * (gst_perc / 100)
-    total_calc = basic_amt + gst_amt
+    safe_basic = basic_amt if basic_amt is not None else 0.0
+    safe_gst = gst_perc if gst_perc is not None else 0.0
     
+    gst_amt = safe_basic * (safe_gst / 100)
+    total_calc = safe_basic + gst_amt
+    
+    # --- NAYI LINE: Removed .2f formatting ---
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
-            <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.2f}</span></div>
-            <div><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.2f}</span></div>
+            <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.0f}</span></div>
+            <div><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span></div>
         </div>
     """, unsafe_allow_html=True)
     
@@ -230,10 +238,9 @@ st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor 
 tab1, tab2, tab3 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports"])
 
 # ==========================================
-# TAB 1: INVOICE ENTRY (NAYI LINE: Fully Table-Driven & Popups)
+# TAB 1: INVOICE ENTRY
 # ==========================================
 with tab1:
-    # Top Action Bar
     col_search, col_tbtn, col_vbtn, col_dl = st.columns([4, 2, 2, 2])
     with col_search:
         search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed")
@@ -246,25 +253,21 @@ with tab1:
             
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Fetch and Display Table
     try:
         inv_res = supabase.table("billing_invoices").select("*").order("id", desc=True).execute()
         if inv_res.data:
             df_inv = pd.DataFrame(inv_res.data)
             
-            # Apply Search Filter
             if search_inv:
                 mask = df_inv.astype(str).apply(lambda x: x.str.contains(search_inv, case=False, na=False)).any(axis=1)
                 df_inv = df_inv[mask]
 
-            # Excel Download inside the Top Bar column
             with col_dl:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_inv.to_excel(writer, index=False, sheet_name='Invoices')
                 st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary")
 
-            # Editable Table
             if not df_inv.empty:
                 df_inv.insert(0, "Select", False)
                 edited_df = st.data_editor(
@@ -309,7 +312,7 @@ with tab1:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 2: PAYMENT ENTRY (Untouched logic)
+# TAB 2: PAYMENT ENTRY
 # ==========================================
 with tab2:
     col_pmode, _ = st.columns([3, 7])
@@ -326,7 +329,8 @@ with tab2:
         pay_type = p3.selectbox("Payment Type", options=pay_type_list)
         
         p4, p5, p6 = st.columns(3)
-        pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0)
+        # --- NAYI LINE: Blank Payment Input ---
+        pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=None, placeholder="0")
         pay_date = p5.date_input("Payment Date", value=datetime.date.today())
         pay_remark = p6.text_input("Remark")
         
@@ -334,7 +338,7 @@ with tab2:
         sub_pay = st.form_submit_button("💾 Save Payment", type="primary", use_container_width=True)
         
         if sub_pay:
-            if pay_amt <= 0:
+            if pay_amt is None or pay_amt <= 0:
                 st.error("⚠️ Amount must be greater than zero!")
             else:
                 try:
@@ -362,7 +366,7 @@ with tab2:
         st.info("No data found.")
 
 # ==========================================
-# TAB 3: REPORTS & LEDGER (Untouched logic)
+# TAB 3: REPORTS & LEDGER
 # ==========================================
 with tab3:
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
@@ -400,13 +404,14 @@ with tab3:
 
         bal = tot_inv - tot_pay
         k1, k2, k3 = st.columns(3)
+        # --- NAYI LINE: Removed .2f formatting from KPIs ---
         with k1:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Billed</div><div class='kpi-value-blue'>₹ {tot_inv:,.2f}</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Billed</div><div class='kpi-value-blue'>₹ {tot_inv:,.0f}</div></div>", unsafe_allow_html=True)
         with k2:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Paid</div><div class='kpi-value-green'>₹ {tot_pay:,.2f}</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Paid</div><div class='kpi-value-green'>₹ {tot_pay:,.0f}</div></div>", unsafe_allow_html=True)
         with k3:
             bal_color = "kpi-value-red" if bal > 0 else "kpi-value-green"
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Net Balance</div><div class='{bal_color}'>₹ {bal:,.2f}</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Net Balance</div><div class='{bal_color}'>₹ {bal:,.0f}</div></div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -445,10 +450,11 @@ with tab3:
                 pdf.cell(190, 8, f"{sel_name}", ln=True, align='C')
                 pdf.ln(5)
                 
+                # --- NAYI LINE: Removed .2f formatting from PDF Generation ---
                 pdf.set_font("Arial", 'B', 10)
-                pdf.cell(95, 8, f"Total Billed: Rs. {tot_inv:,.2f}", ln=False)
-                pdf.cell(95, 8, f"Total Paid: Rs. {tot_pay:,.2f}", ln=True, align='R')
-                pdf.cell(190, 8, f"Net Balance: Rs. {bal:,.2f}", ln=True, align='C')
+                pdf.cell(95, 8, f"Total Billed: Rs. {tot_inv:,.0f}", ln=False)
+                pdf.cell(95, 8, f"Total Paid: Rs. {tot_pay:,.0f}", ln=True, align='R')
+                pdf.cell(190, 8, f"Net Balance: Rs. {bal:,.0f}", ln=True, align='C')
                 pdf.ln(10)
                 
                 return pdf.output(dest='S').encode('latin1')
