@@ -181,7 +181,6 @@ if 'po_working_df' not in st.session_state:
             'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
         ])
 
-# Ensure 'id' column exists to avoid missing column errors
 if 'id' not in st.session_state.po_working_df.columns:
     st.session_state.po_working_df['id'] = None
 
@@ -229,7 +228,6 @@ def po_upload_dialog():
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 po_no = po_number_input.strip()
                 
-                # NAYI LINE: Enforce clean columns BEFORE iteration to prevent dirty data
                 df_proc['PO Number'] = po_no
                 df_proc['User Qty'] = 0
                 df_proc['VIS Qty'] = 0
@@ -275,7 +273,6 @@ def po_upload_dialog():
                         new_diff = new_po - curr_vis
                         new_amount = curr_vis * new_price
                         
-                        # UPDATE SUPABASE RECORD IF EXISTS
                         if pd.notna(row_id):
                             try:
                                 supabase.table("po_working").update({
@@ -291,7 +288,6 @@ def po_upload_dialog():
                     else:
                         new_rows_to_add.append(new_row.to_dict())
                 
-                # NAYI LINE: STRICT SUPABASE DATA FORMATTING (Removes NaNs and np.int64)
                 if new_rows_to_add:
                     records_to_insert = []
                     for rec in new_rows_to_add:
@@ -309,7 +305,6 @@ def po_upload_dialog():
                         st.error(f"❌ DB Insert Error: Please verify Supabase columns match exactly. Details: {e}")
                         return
                 
-                # FORCE DB RE-FETCH ON SUCCESS
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
                 st.success(f"✅ PO {po_number_input} Processed and Saved to Database!")
@@ -381,10 +376,13 @@ def view_po_details_dialog(row_data):
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
     
-    editor_key = f"po_editor_{po_no}"
+    # NAYI LINE: Unique Editor Key for each PO AND Project combination to avoid conflicts
+    editor_key = f"po_editor_{po_no}_{proj_name}"
     
     df_full = st.session_state.po_working_df
-    po_specific_mask = df_full['PO Number'] == po_no
+    
+    # NAYI LINE: Dual filter for both PO Number AND Project Name
+    po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
     real_indices = df_full[po_specific_mask].index.tolist()
     
     if editor_key in st.session_state:
@@ -442,7 +440,6 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Submit", type="primary", use_container_width=True):
-            # UPDATE SUPABASE DIRECTLY
             for idx, row in edited_po_df.iterrows():
                 try:
                     if pd.notna(row.get('id')):
