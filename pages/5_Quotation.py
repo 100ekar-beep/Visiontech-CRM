@@ -198,10 +198,15 @@ def fetch_quotations():
     try:
         res = supabase.table("quotations").select("*").execute()
         if res.data:
-            return pd.DataFrame(res.data)
+            df = pd.DataFrame(res.data)
+            # Map Cluster from site_data if available
+            if not df.empty and "Project ID" in df.columns and not df_projects.empty:
+                proj_cluster_map = dict(zip(df_projects["Project ID"], df_projects["Cluster"]))
+                df["Cluster"] = df["Project ID"].map(proj_cluster_map).fillna("")
+            return df
     except Exception:
         pass
-    return pd.DataFrame(columns=["id", "Quotation Name", "Date", "Project ID", "Site ID", "Site Name", "Project Name", "Quotation Amount", "Status"])
+    return pd.DataFrame(columns=["id", "Quotation Name", "Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount", "Status"])
 
 # Load Master Data
 df_projects = fetch_quotation_projects()
@@ -221,7 +226,7 @@ if not df_items.empty:
 else:
     combined_item_options = []
     display_to_desc = {}
-    display_to_price = {}
+    display_to_price {}
 
 templates_data = fetch_quotation_templates()
 template_names = [t["Template Name"] for t in templates_data]
@@ -467,7 +472,7 @@ with col_head3:
     if st.button("➕ Add Record", type="primary", use_container_width=True):
         quotation_dialog()
 with col_head4:
-    # --- NAYI LINE: Date Filter & 2-Sheet Excel Download Logic ---
+    # --- NAYI LINE: Date Filter & 2-Sheet Excel Download Logic with Cluster ---
     with st.popover("📥 Download Options", use_container_width=True):
         st.markdown("##### Filter by Date Range")
         d_from = st.date_input("From Date", value=datetime.date.today() - datetime.timedelta(days=30))
@@ -475,24 +480,22 @@ with col_head4:
         
         if st.button("📊 Generate Excel", type="primary", use_container_width=True):
             try:
-                # 1. Get filtered main data based on search or date
                 df_base = st.session_state.quotations_df.copy()
                 if search_q:
                     mask = df_base.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
                     df_base = df_base[mask]
                 
-                # Filter by date
                 df_base['Date_Parsed'] = pd.to_datetime(df_base['Date'], errors='coerce').dt.date
                 df_filtered = df_base[(df_base['Date_Parsed'] >= d_from) & (df_base['Date_Parsed'] <= d_to)]
                 
                 if df_filtered.empty:
-                    df_filtered = df_base # Fallback if date range has no exact matches
+                    df_filtered = df_base
                 
-                # Sheet 1: Site Details (Main Page Data)
-                sheet1_df = df_filtered[["Quotation Name", "Date", "Project ID", "Site ID", "Site Name", "Project Name", "Quotation Amount"]].copy()
-                sheet1_df.columns = ["Quotation Name", "Date", "Project ID", "Site ID", "Site Name", "Project", "Quotation Amount"]
+                # Sheet 1: Site Details (Main Page Data with Cluster after Project ID)
+                sheet1_df = df_filtered[["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount"]].copy()
+                sheet1_df.columns = ["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project", "Quotation Amount"]
                 
-                # Sheet 2: Line Wise Items Detail
+                # Sheet 2: Line Wise Items Detail with Cluster
                 line_rows = []
                 quotation_names = df_filtered["Quotation Name"].tolist()
                 
@@ -500,15 +503,22 @@ with col_head4:
                     res_items = supabase.table("quotation_items").select("*").in_("Quotation Name", quotation_names).execute()
                     if res_items.data:
                         items_df = pd.DataFrame(res_items.data)
-                        # Merge with header to get Project, Site info
                         merged_df = pd.merge(items_df, df_filtered, on="Quotation Name", how="inner")
                         
                         for _, row in merged_df.iterrows():
+                            # Fetch cluster for this project if missing in merged row
+                            p_id = row.get("Project ID", "")
+                            clust = row.get("Cluster", "")
+                            if not clust and not df_projects.empty:
+                                match_proj = df_projects[df_projects["Project ID"] == p_id]
+                                if not match_proj.empty:
+                                    clust = match_proj.iloc[0].get("Cluster", "")
+
                             line_rows.append({
-                                "Project ID": row.get("Project ID", ""),
+                                "Project ID": p_id,
                                 "Site ID": row.get("Site ID", ""),
                                 "Site Name": row.get("Site Name", ""),
-                                "Cluster": "", # Can be mapped if needed
+                                "Cluster": clust,
                                 "Project": row.get("Project Name", ""),
                                 "Item Code": row.get("Item Code", ""),
                                 "Item Description": row.get("Description", ""),
@@ -520,8 +530,10 @@ with col_head4:
                 sheet2_df = pd.DataFrame(line_rows)
                 if sheet2_df.empty:
                     sheet2_df = pd.DataFrame(columns=["Project ID", "Site ID", "Site Name", "Cluster", "Project", "Item Code", "Item Description", "Qty", "Price", "Total"])
+                else:
+                    # Reorder columns explicitly as requested
+                    sheet2_df = sheet2_df[["Project ID", "Site ID", "Site Name", "Cluster", "Project", "Item Code", "Item Description", "Qty", "Price", "Total"]]
                 
-                # Write to 2-Sheet Excel Buffer
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     sheet1_df.to_excel(writer, index=False, sheet_name='Site Details')
@@ -546,7 +558,8 @@ if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
 
-disp_cols = ["Quotation Name", "Date", "Site ID", "Site Name", "Project ID", "Project Name", "Quotation Amount"]
+# --- NAYI LINE: Removed 'Quotation Name', added 'Cluster' right after 'Project ID' ---
+disp_cols = ["Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount"]
 
 if not df_display.empty:
     for c in disp_cols:
@@ -569,7 +582,8 @@ edited_list = st.data_editor(
         "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
         "Quotation Amount": st.column_config.NumberColumn("GRAND TOTAL", format="₹ %d"),
         "Project Name": st.column_config.TextColumn("PROJECT"),
-        "Site ID": st.column_config.TextColumn("SITE CODE")
+        "Site ID": st.column_config.TextColumn("SITE CODE"),
+        "Cluster": st.column_config.TextColumn("CLUSTER")
     }
 )
 
