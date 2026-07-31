@@ -157,7 +157,6 @@ def fetch_quotation_projects():
 
 @st.cache_data(ttl=60)
 def fetch_item_master():
-    # --- NAYI LINE: Deep Scan across common table names to securely fetch all 300+ items ---
     tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
     for t in tables_to_try:
         try:
@@ -191,14 +190,12 @@ df_projects = fetch_quotation_projects()
 project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_projects.empty else []
 
 df_items = fetch_item_master()
-# --- NAYI LINE: Smart Mapping for Dropdown (Description first, Code inside brackets for wide view) ---
 if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
     df_items["Display"] = df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)
     
     item_display_list = df_items["Display"].tolist()
     item_code_list = df_items["Item Code"].astype(str).tolist()
-    # Combine both so dropdown accepts pure code after trimming
     combined_item_options = item_display_list + item_code_list 
     
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
@@ -245,7 +242,6 @@ def quotation_dialog(quotation_data=None):
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
             
-            # --- NAYI LINE: Bulletproof KM Fetching Logic ---
             km_val = ""
             for k in proj_row.columns:
                 if str(k).strip().upper() == 'KM':
@@ -274,7 +270,6 @@ def quotation_dialog(quotation_data=None):
     with col_list_title:
         st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use the plus (+) icon below to add lines)</span></div>', unsafe_allow_html=True)
     
-    # --- NAYI LINE: Project ID completely isolated to prevent mixing ---
     editor_key = f"quo_items_{quo_name}_{sel_proj}"
     widget_key = f"widget_{editor_key}"
     
@@ -299,7 +294,6 @@ def quotation_dialog(quotation_data=None):
             new_item = pd.DataFrame([{"Item Code": None, "Description": "", "Qty": 1, "Price": 0, "Total": 0}])
             st.session_state[editor_key] = pd.concat([st.session_state[editor_key], new_item], ignore_index=True)
 
-    # --- NAYI LINE: Pre-Process Engine (Instant Updates Without Popup Close) ---
     if widget_key in st.session_state:
         w_state = st.session_state[widget_key]
         edits = w_state.get("edited_rows", {})
@@ -319,7 +313,6 @@ def quotation_dialog(quotation_data=None):
                         for col, val in changes.items():
                             curr_df.at[idx, col] = val
                             
-                        # Smart Trimmer: Trims Name instantly to just Code
                         if "Item Code" in changes:
                             disp = str(changes["Item Code"])
                             if " | " in disp:
@@ -353,7 +346,6 @@ def quotation_dialog(quotation_data=None):
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
                     
             st.session_state[editor_key] = curr_df
-            # Clearing widget cache to prevent loop rendering
             del st.session_state[widget_key]
 
     edited_items_df = st.data_editor(
@@ -364,8 +356,8 @@ def quotation_dialog(quotation_data=None):
         hide_index=True,
         height=300,
         column_config={
-            # --- NAYI LINE: Width optimized, Description fully visible, Qty completely centered ---
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="large"),
+            # --- NAYI LINE (Fixed Box Space/Waste Issue): Item Code set to medium, Description explicitly large ---
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small"),
