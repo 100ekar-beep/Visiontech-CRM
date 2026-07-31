@@ -7,14 +7,6 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 
-# --- INITIALIZE SESSION STATE FOR TABLE DATA ---
-if 'po_working_df' not in st.session_state:
-    st.session_state.po_working_df = pd.DataFrame(columns=[
-        'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-        'Item Num', 'Description', 'UOM', 'PO Qty', 
-        'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
-    ])
-
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -165,6 +157,31 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- NEW: INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE ---
+if 'po_working_df' not in st.session_state:
+    try:
+        res = supabase.table("po_working").select("*").execute()
+        if res.data and len(res.data) > 0:
+            df_fetched = pd.DataFrame(res.data)
+            # Ensure numbers stay solid integers without .0
+            num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+            for col in num_cols:
+                if col in df_fetched.columns:
+                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(int)
+            st.session_state.po_working_df = df_fetched
+        else:
+            st.session_state.po_working_df = pd.DataFrame(columns=[
+                'id', 'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                'Item Num', 'Description', 'UOM', 'PO Qty', 
+                'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+            ])
+    except Exception:
+        st.session_state.po_working_df = pd.DataFrame(columns=[
+            'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+            'Item Num', 'Description', 'UOM', 'PO Qty', 
+            'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+        ])
+
 # --- 3. UPLOAD ORACLE PO DIALOG FUNCTION (COMPACT UI) ---
 @st.dialog("📄 Upload PO (Notepad)")
 def po_upload_dialog():
@@ -210,50 +227,67 @@ def po_upload_dialog():
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 po_no = po_number_input.strip()
                 
-                # NAYI LINE: Upsert Logic (Rewrite if exists, Apppend if new)
                 existing_df = st.session_state.po_working_df
                 new_rows_to_add = []
                 
                 for idx, new_row in df_proc.iterrows():
                     match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Item Num'] == new_row['Item Num'])
+                    
                     if match_mask.any():
                         match_idx = existing_df[match_mask].index[0]
-                        # Rewrite basic details but protect User Qty, VIS Qty etc.
-                        existing_df.at[match_idx, 'PO Qty'] = new_row['PO Qty']
-                        existing_df.at[match_idx, 'Price'] = new_row['Price']
-                        existing_df.at[match_idx, 'UOM'] = new_row['UOM']
-                        existing_df.at[match_idx, 'Description'] = new_row['Description']
+                        row_id = existing_df.at[match_idx, 'id'] if 'id' in existing_df.columns else None
+                        
+                        curr_vis = int(existing_df.at[match_idx, 'VIS Qty']) if pd.notna(existing_df.at[match_idx, 'VIS Qty']) else 0
+                        new_po = int(new_row['PO Qty']) if pd.notna(new_row['PO Qty']) else 0
+                        new_price = int(new_row['Price']) if pd.notna(new_row['Price']) else 0
+                        
+                        # Calculate formulas safely
+                        new_diff = new_po - curr_vis
+                        new_amount = curr_vis * new_price
+                        
+                        # UPDATE SUPABASE RECORD IF EXISTS
+                        if pd.notna(row_id):
+                            try:
+                                supabase.table("po_working").update({
+                                    'PO Qty': new_po,
+                                    'Price': new_price,
+                                    'UOM': str(new_row['UOM']),
+                                    'Description': str(new_row['Description']),
+                                    'Diff': new_diff,
+                                    'Amount': new_amount
+                                }).eq("id", row_id).execute()
+                            except Exception:
+                                pass
                     else:
+                        new_po = int(new_row['PO Qty']) if pd.notna(new_row['PO Qty']) else 0
+                        
                         new_row['PO Number'] = po_no
                         new_row['User Qty'] = 0
                         new_row['VIS Qty'] = 0
-                        new_row['Diff'] = 0
+                        new_row['Diff'] = new_po # PO - 0 = PO
                         new_row['Claim Qty'] = 0
                         new_row['Receipt Qty'] = 0
+                        new_row['Amount'] = 0
                         new_rows_to_add.append(new_row)
                 
+                # INSERT NEW ROWS TO SUPABASE
                 if new_rows_to_add:
                     new_df = pd.DataFrame(new_rows_to_add)
-                    existing_df = pd.concat([existing_df, new_df], ignore_index=True)
+                    records_to_insert = []
+                    for _, r in new_df.iterrows():
+                        rec = r.to_dict()
+                        rec = {k: (v if pd.notna(v) else "") for k, v in rec.items() if k != 'id'}
+                        records_to_insert.append(rec)
+                    
+                    try:
+                        supabase.table("po_working").insert(records_to_insert).execute()
+                    except Exception as e:
+                        st.error(f"DB Insert Error: {e}")
                 
-                # Format to Int to remove .0
-                num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
-                for col in num_columns_to_int:
-                    if col in existing_df.columns:
-                        existing_df[col] = pd.to_numeric(existing_df[col], errors='coerce').fillna(0).astype(int)
-                
-                # Recalculate Formulas explicitly
-                existing_df['Diff'] = existing_df['PO Qty'] - existing_df['VIS Qty']
-                existing_df['Amount'] = existing_df['VIS Qty'] * existing_df['Price']
-                
-                # NAYI LINE: Top Position Logic (Make current PO #1)
-                current_po_mask = existing_df['PO Number'] == po_no
-                current_po_rows = existing_df[current_po_mask].copy()
-                other_po_rows = existing_df[~current_po_mask].copy()
-                
-                st.session_state.po_working_df = pd.concat([current_po_rows, other_po_rows], ignore_index=True)
-                
-                st.success(f"✅ PO {po_number_input} Processed and Added Successfully!")
+                # REFRESH CACHE: Delete local state to force fetch from Supabase
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
+                st.success(f"✅ PO {po_number_input} Processed and Saved to Database!")
                 st.rerun()
                 
             except Exception as e:
@@ -267,6 +301,8 @@ def export_dialog(df_export):
     export_df = df_export.copy()
     if "🎯 Select" in export_df.columns:
         export_df = export_df.drop(columns=["🎯 Select"])
+    if "id" in export_df.columns:
+        export_df = export_df.drop(columns=["id"])
         
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -316,13 +352,12 @@ def view_po_details_dialog(row_data):
     """, unsafe_allow_html=True)
     
     display_cols = [
-        'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
+        'id', 'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
     
     editor_key = f"po_editor_{po_no}"
     
-    # NAYI LINE: Safest State Injection Engine (No data loss on Enter/Tab)
     df_full = st.session_state.po_working_df
     po_specific_mask = df_full['PO Number'] == po_no
     real_indices = df_full[po_specific_mask].index.tolist()
@@ -333,14 +368,12 @@ def view_po_details_dialog(row_data):
             for str_idx, changes in edits.items():
                 pos_idx = int(str_idx)
                 if pos_idx < len(real_indices):
-                    real_idx = real_indices[pos_idx]  # Translating 0, 1, 2 to real dataframe index
+                    real_idx = real_indices[pos_idx] 
                     for col, val in changes.items():
                         st.session_state.po_working_df.loc[real_idx, col] = val
 
-    # Fetch Fresh Slice AFTER injection
     df_temp = st.session_state.po_working_df[po_specific_mask].copy()
     
-    # Instant Pre-Calculation (Formulas update without Submit)
     df_temp['PO Qty'] = pd.to_numeric(df_temp['PO Qty'], errors='coerce').fillna(0).astype(int)
     df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(int)
     df_temp['Price'] = pd.to_numeric(df_temp['Price'], errors='coerce').fillna(0).astype(int)
@@ -348,11 +381,15 @@ def view_po_details_dialog(row_data):
     df_temp['Diff'] = df_temp['PO Qty'] - df_temp['VIS Qty']
     df_temp['Amount'] = df_temp['VIS Qty'] * df_temp['Price']
     
-    # Push calculated values immediately back to memory
+    df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['Claim Qty'] = pd.to_numeric(df_temp['Claim Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['Receipt Qty'] = pd.to_numeric(df_temp['Receipt Qty'], errors='coerce').fillna(0).astype(int)
+    
     st.session_state.po_working_df.update(df_temp)
     
-    # Load exact formatted slice for display
-    po_specific_df = st.session_state.po_working_df[po_specific_mask][display_cols].copy()
+    # Hide ID column if not available or just to ensure display works cleanly
+    active_cols = [c for c in display_cols if c in st.session_state.po_working_df.columns]
+    po_specific_df = st.session_state.po_working_df[po_specific_mask][active_cols].copy()
 
     st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
     
@@ -363,7 +400,7 @@ def view_po_details_dialog(row_data):
         hide_index=True,
         height=400, 
         column_config={
-            "Site ID": None, "Site Name": None, "Project Name": None,
+            "id": None, "Site ID": None, "Site Name": None, "Project Name": None,
             "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
             "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
             "PO Qty": st.column_config.NumberColumn("PO Qty", disabled=True, alignment="center", format="%d"),
@@ -381,11 +418,30 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Submit", type="primary", use_container_width=True):
-            # Editor Memory cleanup (Prevents overlapping of old types)
+            # UPDATE SUPABASE DIRECTLY
+            for idx, row in edited_po_df.iterrows():
+                try:
+                    if pd.notna(row.get('id')):
+                        update_payload = {
+                            "User Qty": int(row['User Qty']),
+                            "VIS Qty": int(row['VIS Qty']),
+                            "Diff": int(row['Diff']),
+                            "Claim Qty": int(row['Claim Qty']),
+                            "Receipt Qty": int(row['Receipt Qty']),
+                            "Amount": int(row['Amount'])
+                        }
+                        supabase.table("po_working").update(update_payload).eq("id", row['id']).execute()
+                except Exception:
+                    pass
+            
             if editor_key in st.session_state:
                 del st.session_state[editor_key]
                 
-            st.success("✅ PO Lines Submitted Successfully!")
+            # FORCE RE-FETCH FROM DB
+            if 'po_working_df' in st.session_state:
+                del st.session_state['po_working_df']
+                
+            st.success("✅ PO Lines Submitted Successfully to DB!")
             st.rerun()
 
 # --- 5. TOP ACTION BAR ---
@@ -394,6 +450,8 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>🧾 PO Working Hub</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
+        if 'po_working_df' in st.session_state:
+            del st.session_state['po_working_df']
         st.rerun() 
 with col_upload:
     if st.button("📤 PO Upload Notepad", type="primary", use_container_width=True):
@@ -479,9 +537,15 @@ if not selected_rows.empty:
             
     with col_act2:
         if st.button("🗑️ Delete PO", type="primary", use_container_width=True):
-            st.session_state.po_working_df = st.session_state.po_working_df[st.session_state.po_working_df['PO Number'] != selected_po]
-            st.success(f"✅ PO {selected_po} Deleted Successfully!")
-            st.rerun()
+            try:
+                # DELETE FROM SUPABASE
+                supabase.table("po_working").delete().eq("PO Number", selected_po).execute()
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
+                st.success(f"✅ PO {selected_po} Deleted Successfully from DB!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Database Error: {e}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
