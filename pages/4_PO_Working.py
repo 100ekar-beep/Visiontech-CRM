@@ -166,6 +166,7 @@ if 'po_working_df' not in st.session_state:
             num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
             for col in num_cols:
                 if col in df_fetched.columns:
+                    df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
                     df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(int)
             st.session_state.po_working_df = df_fetched
         else:
@@ -251,7 +252,9 @@ def po_upload_dialog():
                 
                 num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
                 for col in num_columns_to_int:
-                    df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
+                    if col in df_proc.columns:
+                        df_proc[col] = df_proc[col].astype(str).str.replace(',', '', regex=True)
+                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
                 
                 df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
                 df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
@@ -382,21 +385,31 @@ def view_po_details_dialog(row_data):
 
     df_temp = st.session_state.po_working_df[po_specific_mask].copy()
     
+    df_temp['PO Qty'] = df_temp['PO Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['PO Qty'] = pd.to_numeric(df_temp['PO Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['VIS Qty'] = df_temp['VIS Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Price'] = df_temp['Price'].astype(str).str.replace(',', '', regex=True)
     df_temp['Price'] = pd.to_numeric(df_temp['Price'], errors='coerce').fillna(0).astype(int)
     
     df_temp['Diff'] = df_temp['PO Qty'] - df_temp['VIS Qty']
     df_temp['Amount'] = df_temp['VIS Qty'] * df_temp['Price']
     
+    df_temp['User Qty'] = df_temp['User Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Claim Qty'] = df_temp['Claim Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['Claim Qty'] = pd.to_numeric(df_temp['Claim Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Receipt Qty'] = df_temp['Receipt Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['Receipt Qty'] = pd.to_numeric(df_temp['Receipt Qty'], errors='coerce').fillna(0).astype(int)
     
     st.session_state.po_working_df.update(df_temp)
     
-    # --- NAYI LINE: Caculate Live Project Total Amount ---
-    project_total_amount = df_temp['Amount'].sum()
+    # --- FIX: Calculate Total Project Amount as (PO Qty * Price) ---
+    project_total_amount = (df_temp['PO Qty'] * df_temp['Price']).sum()
     
     st.markdown(f"""
         <div class="kpi-pill-container">
@@ -407,8 +420,8 @@ def view_po_details_dialog(row_data):
             <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
             <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
             <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
-            <div class="kpi-pill" style="background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%); border: none; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);">
-                <span style="color: #ffffff !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
+            <div class="kpi-pill" style="background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);">
+                <span style="color: #0f172a !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
