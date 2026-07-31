@@ -3,7 +3,12 @@ import pandas as pd
 import datetime
 import io
 from supabase import create_client, Client
-from fpdf import FPDF
+
+# --- NAYI LINE: Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Team & Vendor Billing", page_icon="💸", layout="wide")
@@ -42,17 +47,36 @@ st.markdown("""
     label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
     [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; }
 
-    /* PREMIUM SIDEBAR */
-    [data-testid="stSidebar"] { background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%); border-right: 1px solid rgba(255, 255, 255, 0.05); }
-    [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
-        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    /* =========================================================
+       NAYI LINE: FIXED PREMIUM SIDEBAR NAVIGATION BUTTONS
+       ========================================================= */
+    section[data-testid="stSidebar"] { 
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important; 
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
     }
-    [data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
-    [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    div[data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important; 
+        margin: 0.5rem 1rem !important; 
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; 
+        color: #cbd5e1 !important; 
+        font-weight: 600 !important;
+        display: flex !important; 
+        align-items: center !important; 
+        gap: 12px !important; 
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
     }
+    div[data-testid="stSidebarNav"] a:hover { 
+        background: rgba(255, 255, 255, 0.1) !important; 
+        color: #ffffff !important; 
+    }
+    div[data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; 
+        color: #ffffff !important; 
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+        border-color: transparent !important;
+    }
+    div[data-testid="stSidebarNav"] a span { color: inherit !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -307,9 +331,11 @@ with tab3:
             
             st.download_button(label="📊 Download Excel", data=buffer.getvalue(), file_name=f"{sel_name}_Ledger.xlsx", type="primary", use_container_width=True)
 
-        # 2. PDF Export (using FPDF)
+        # 2. PDF Export (using FPDF - Crash Proofed)
         with col_down2:
             def generate_pdf():
+                if FPDF is None:
+                    raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file in GitHub.")
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
                 pdf.set_font("Arial", 'B', 16)
@@ -331,4 +357,5 @@ with tab3:
                 pdf_bytes = generate_pdf()
                 st.download_button(label="📄 Download PDF", data=pdf_bytes, file_name=f"{sel_name}_Report.pdf", mime="application/pdf", use_container_width=True)
             except Exception as e:
-                st.error("PDF engine error. Please ensure 'fpdf' is installed in your python environment (pip install fpdf).")
+                # Displays inline error ONLY when clicked if fpdf is missing
+                st.error(str(e))
