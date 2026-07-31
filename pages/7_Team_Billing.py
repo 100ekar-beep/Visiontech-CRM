@@ -4,7 +4,7 @@ import datetime
 import io
 from supabase import create_client, Client
 
-# --- NAYI LINE: Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
+# --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
 try:
     from fpdf import FPDF
 except ImportError:
@@ -43,38 +43,36 @@ st.markdown("""
     .kpi-value-green { font-size: 2rem; color: #10b981; font-weight: 900; }
     .kpi-value-blue { font-size: 2rem; color: #3b82f6; font-weight: 900; }
 
-    /* Inputs */
+    /* Inputs & Labels */
     label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
     [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; }
 
-    /* =========================================================
-       NAYI LINE: FIXED PREMIUM SIDEBAR NAVIGATION BUTTONS
-       ========================================================= */
+    /* Dialog/Popup Premium Styling */
+    div[data-testid="stDialog"] > div {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2 {
+        color: #1e293b !important; font-weight: 800 !important; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px;
+    }
+    .gst-highlight { color: #10b981; font-weight: 800; font-size: 1.1rem; }
+    .total-highlight { color: #3b82f6; font-weight: 900; font-size: 1.8rem; }
+
+    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
     section[data-testid="stSidebar"] { 
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important; 
         border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
     }
     div[data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important; 
-        margin: 0.5rem 1rem !important; 
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important; 
-        color: #cbd5e1 !important; 
-        font-weight: 600 !important;
-        display: flex !important; 
-        align-items: center !important; 
-        gap: 12px !important; 
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
     }
-    div[data-testid="stSidebarNav"] a:hover { 
-        background: rgba(255, 255, 255, 0.1) !important; 
-        color: #ffffff !important; 
-    }
+    div[data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
     div[data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; 
-        color: #ffffff !important; 
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
-        border-color: transparent !important;
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
     </style>
@@ -90,7 +88,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- 4. DATA FETCHING FUNCTIONS (From dropdown_master) ---
+# --- 4. DATA FETCHING FUNCTIONS ---
 def get_dropdown_data(category_name):
     try:
         res = supabase.table("dropdown_master").select("option_value").eq("category", category_name).eq("is_active", True).execute()
@@ -100,105 +98,218 @@ def get_dropdown_data(category_name):
         pass
     return []
 
-# Fetch Master Data dynamically from dropdown_master
 team_list = get_dropdown_data("Team Name") or ["No Teams Available"]
 vendor_list = get_dropdown_data("Vendor Name") or ["No Vendors Available"]
 pay_from_list = get_dropdown_data("Payment From") or ["Bank", "Cash"]
 pay_type_list = get_dropdown_data("Payment Type") or ["NEFT", "RTGS", "UPI"]
 
-# --- 5. MAIN PAGE LAYOUT ---
-st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 
+# --- 5. NAYI LINE: POPUP DIALOGS FOR INVOICES (WITH DYNAMIC GST) ---
+@st.dialog("📝 Team Invoice Entry", width="large")
+def team_invoice_dialog(row_data=None):
+    is_new = row_data is None
+    
+    # Defaults
+    def_team = row_data.get("team_name", team_list[0]) if not is_new else team_list[0]
+    def_inv = row_data.get("invoice_no", "") if not is_new else ""
+    def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
+    def_date = pd.to_datetime(def_date_str).date()
+    
+    c1, c2, c3 = st.columns(3)
+    team_val = c1.selectbox("Team Name *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
+    inv_no = c2.text_input("Invoice No *", value=def_inv)
+    inv_date = c3.date_input("Invoice Date", value=def_date)
+    
+    c4, c5, c6, c7 = st.columns(4)
+    proj_id = c4.text_input("Project ID", value=row_data.get("project_id", "") if not is_new else "")
+    site_id = c5.text_input("Site ID", value=row_data.get("site_id", "") if not is_new else "")
+    site_name = c6.text_input("Site Name", value=row_data.get("site_name", "") if not is_new else "")
+    cluster = c7.text_input("Cluster", value=row_data.get("cluster", "") if not is_new else "")
+    
+    c8, c9, c10, c11 = st.columns(4)
+    remark = c8.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
+    
+    # Real-time GST Calculation (No st.form used here, so it updates instantly)
+    start_amount = float(row_data.get("amount", 0.0)) if not is_new else 0.0
+    basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount)
+    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=0.0)
+    
+    gst_amt = basic_amt * (gst_perc / 100)
+    total_calc = basic_amt + gst_amt
+    
+    c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.2f}</span>", unsafe_allow_html=True)
+    
+    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.2f}</span></div>", unsafe_allow_html=True)
+    
+    if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
+        if not inv_no:
+            st.error("⚠️ Invoice No is required!")
+        else:
+            payload = {
+                "invoice_type": "Team",
+                "team_name": team_val,
+                "amount": total_calc,
+                "date": str(inv_date),
+                "project_id": proj_id,
+                "site_id": site_id,
+                "site_name": site_name,
+                "invoice_no": inv_no,
+                "vendor_name": "",
+                "remark": remark,
+                "cluster": cluster
+            }
+            try:
+                if is_new:
+                    supabase.table("billing_invoices").insert(payload).execute()
+                else:
+                    supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
+                st.success("✅ Team Invoice Saved Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+@st.dialog("📝 Vendor Invoice Entry", width="large")
+def vendor_invoice_dialog(row_data=None):
+    is_new = row_data is None
+    
+    def_vendor = row_data.get("vendor_name", vendor_list[0]) if not is_new else vendor_list[0]
+    def_team = row_data.get("team_name", team_list[0]) if not is_new else team_list[0]
+    def_inv = row_data.get("invoice_no", "") if not is_new else ""
+    def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
+    def_date = pd.to_datetime(def_date_str).date()
+    
+    c1, c2, c3 = st.columns(3)
+    vendor_val = c1.selectbox("Vendor Name *", options=vendor_list, index=vendor_list.index(def_vendor) if def_vendor in vendor_list else 0)
+    inv_no = c2.text_input("Invoice No *", value=def_inv)
+    inv_date = c3.date_input("Invoice Date", value=def_date)
+    
+    c4, c5, c6, c7 = st.columns(4)
+    team_val = c4.selectbox("Link to Team *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
+    remark = c5.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
+    
+    start_amount = float(row_data.get("amount", 0.0)) if not is_new else 0.0
+    basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount)
+    gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=0.0)
+    
+    gst_amt = basic_amt * (gst_perc / 100)
+    total_calc = basic_amt + gst_amt
+    
+    st.markdown(f"""
+        <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
+            <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.2f}</span></div>
+            <div><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.2f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("💾 Save Vendor Invoice", type="primary", use_container_width=True):
+        if not inv_no:
+            st.error("⚠️ Invoice No is required!")
+        else:
+            payload = {
+                "invoice_type": "Vendor",
+                "team_name": team_val,
+                "amount": total_calc,
+                "date": str(inv_date),
+                "project_id": "", "site_id": "", "site_name": "", "cluster": "",
+                "invoice_no": inv_no,
+                "vendor_name": vendor_val,
+                "remark": remark
+            }
+            try:
+                if is_new:
+                    supabase.table("billing_invoices").insert(payload).execute()
+                else:
+                    supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
+                st.success("✅ Vendor Invoice Saved Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+# --- 6. MAIN PAGE TABS ---
+st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 tab1, tab2, tab3 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports"])
 
 # ==========================================
-# TAB 1: INVOICE ENTRY
+# TAB 1: INVOICE ENTRY (NAYI LINE: Fully Table-Driven & Popups)
 # ==========================================
 with tab1:
-    col_mode, _ = st.columns([3, 7])
-    with col_mode:
-        invoice_mode = st.radio("Select Invoice Mode:", ["Team", "Vendor"], horizontal=True, key="inv_mode")
-    
-    st.markdown("---")
-    
-    with st.form("invoice_form", clear_on_submit=True):
-        if invoice_mode == "Team":
-            c1, c2, c3 = st.columns(3)
-            team_val = c1.selectbox("Team Name *", options=team_list)
-            inv_no = c2.text_input("Invoice No *")
-            inv_date = c3.date_input("Invoice Date", value=datetime.date.today())
+    # Top Action Bar
+    col_search, col_tbtn, col_vbtn, col_dl = st.columns([4, 2, 2, 2])
+    with col_search:
+        search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed")
+    with col_tbtn:
+        if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
+            team_invoice_dialog()
+    with col_vbtn:
+        if st.button("➕ Add Vendor Invoice", type="primary", use_container_width=True):
+            vendor_invoice_dialog()
             
-            c4, c5, c6, c7 = st.columns(4)
-            proj_id = c4.text_input("Project ID")
-            site_id = c5.text_input("Site ID")
-            site_name = c6.text_input("Site Name")
-            cluster = c7.text_input("Cluster")
-            
-            c8, c9, c10, c11 = st.columns(4)
-            remark = c8.text_input("Remark")
-            basic_amt = c9.number_input("Basic Amount", min_value=0.0, step=1.0)
-            gst_perc = c10.number_input("GST %", min_value=0.0, step=1.0)
-            
-            # Auto Calc Display
-            total_calc = basic_amt + ((basic_amt * gst_perc) / 100)
-            c11.markdown(f"**Total Amount:**<br><h3 style='margin:0; color:#3b82f6;'>₹ {total_calc:,.2f}</h3>", unsafe_allow_html=True)
-            vendor_val = ""
-            
-        else:
-            c1, c2, c3 = st.columns(3)
-            vendor_val = c1.selectbox("Vendor Name *", options=vendor_list)
-            inv_no = c2.text_input("Invoice No *")
-            inv_date = c3.date_input("Invoice Date", value=datetime.date.today())
-            
-            c4, c5, c6, c7 = st.columns(4)
-            team_val = c4.selectbox("Link to Team *", options=team_list)
-            remark = c5.text_input("Remark")
-            basic_amt = c6.number_input("Basic Amount", min_value=0.0, step=1.0)
-            gst_perc = c7.number_input("GST %", min_value=0.0, step=1.0)
-            
-            total_calc = basic_amt + ((basic_amt * gst_perc) / 100)
-            st.markdown(f"**Total Amount:** <span style='color:#3b82f6; font-size:1.5rem; font-weight:bold;'>₹ {total_calc:,.2f}</span>", unsafe_allow_html=True)
-            
-            proj_id, site_id, site_name, cluster = "", "", "", ""
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        sub_inv = st.form_submit_button("💾 Save Invoice", type="primary", use_container_width=True)
-        
-        if sub_inv:
-            if not inv_no:
-                st.error("⚠️ Invoice No is required!")
-            else:
-                try:
-                    payload = {
-                        "invoice_type": invoice_mode,
-                        "team_name": team_val,
-                        "amount": total_calc,
-                        "date": str(inv_date),
-                        "project_id": proj_id,
-                        "site_id": site_id,
-                        "site_name": site_name,
-                        "invoice_no": inv_no,
-                        "vendor_name": vendor_val,
-                        "remark": remark,
-                        "cluster": cluster
-                    }
-                    supabase.table("billing_invoices").insert(payload).execute()
-                    st.success("✅ Invoice Saved Successfully!")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    # Display Recent Invoices
-    st.markdown("### 📋 Recent Invoices")
+    # Fetch and Display Table
     try:
-        inv_data = supabase.table("billing_invoices").select("*").eq("invoice_type", invoice_mode).order("id", desc=True).execute()
-        if inv_data.data:
-            df_inv = pd.DataFrame(inv_data.data)
-            st.dataframe(df_inv, use_container_width=True, hide_index=True)
-    except:
-        st.info("No data found.")
+        inv_res = supabase.table("billing_invoices").select("*").order("id", desc=True).execute()
+        if inv_res.data:
+            df_inv = pd.DataFrame(inv_res.data)
+            
+            # Apply Search Filter
+            if search_inv:
+                mask = df_inv.astype(str).apply(lambda x: x.str.contains(search_inv, case=False, na=False)).any(axis=1)
+                df_inv = df_inv[mask]
+
+            # Excel Download inside the Top Bar column
+            with col_dl:
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df_inv.to_excel(writer, index=False, sheet_name='Invoices')
+                st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary")
+
+            # Editable Table
+            if not df_inv.empty:
+                df_inv.insert(0, "Select", False)
+                edited_df = st.data_editor(
+                    df_inv,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=500,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+                        "amount": st.column_config.NumberColumn("AMOUNT", format="₹ %d")
+                    }
+                )
+                
+                sel_rows = edited_df[edited_df["Select"] == True]
+                if not sel_rows.empty:
+                    st.markdown("---")
+                    row_dict = sel_rows.iloc[0].to_dict()
+                    col_act1, col_act2, _ = st.columns([2, 2, 8])
+                    
+                    with col_act1:
+                        if st.button("👁️ Edit Selected", type="primary", use_container_width=True):
+                            if row_dict.get("invoice_type") == "Team":
+                                team_invoice_dialog(row_dict)
+                            else:
+                                vendor_invoice_dialog(row_dict)
+                                
+                    with col_act2:
+                        if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True):
+                            try:
+                                supabase.table("billing_invoices").delete().eq("id", row_dict["id"]).execute()
+                                st.success("✅ Deleted successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting: {e}")
+            else:
+                st.info("No invoices match your search.")
+        else:
+            st.info("No invoices found. Click the buttons above to add one.")
+            with col_dl:
+                st.button("📥 Download Excel", disabled=True, use_container_width=True)
+    except Exception as e:
+        st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 2: PAYMENT ENTRY
+# TAB 2: PAYMENT ENTRY (Untouched logic)
 # ==========================================
 with tab2:
     col_pmode, _ = st.columns([3, 7])
@@ -241,7 +352,6 @@ with tab2:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-    # Display Recent Payments
     st.markdown("### 💸 Recent Payments")
     try:
         pay_data = supabase.table("billing_payments").select("*").eq("mode", pay_mode).order("id", desc=True).execute()
@@ -252,7 +362,7 @@ with tab2:
         st.info("No data found.")
 
 # ==========================================
-# TAB 3: REPORTS & LEDGER
+# TAB 3: REPORTS & LEDGER (Untouched logic)
 # ==========================================
 with tab3:
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
@@ -265,13 +375,11 @@ with tab3:
     st.markdown("---")
 
     if sel_name and sel_name != "-- Select --":
-        # Fetch Logic
         tot_inv = 0.0
         tot_pay = 0.0
         df_inv_rep, df_pay_rep = pd.DataFrame(), pd.DataFrame()
         
         try:
-            # Fetch Invoices
             inv_col = "team_name" if rep_mode == "Team" else "vendor_name"
             res_inv = supabase.table("billing_invoices").select("*").eq("invoice_type", rep_mode).eq(inv_col, sel_name).execute()
             if res_inv.data:
@@ -282,7 +390,6 @@ with tab3:
                 else:
                     df_inv_rep = df_inv_rep[["invoice_no", "date", "team_name", "amount"]]
 
-            # Fetch Payments
             res_pay = supabase.table("billing_payments").select("*").eq("mode", rep_mode).eq("pay_to", sel_name).execute()
             if res_pay.data:
                 df_pay_rep = pd.DataFrame(res_pay.data)
@@ -291,7 +398,6 @@ with tab3:
         except Exception as e:
             st.error(f"Error fetching data: {e}")
 
-        # KPI Cards
         bal = tot_inv - tot_pay
         k1, k2, k3 = st.columns(3)
         with k1:
@@ -304,7 +410,6 @@ with tab3:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Tables Side by Side
         t1, t2 = st.columns(2)
         with t1:
             st.markdown("#### 📚 Invoices")
@@ -315,27 +420,22 @@ with tab3:
 
         st.markdown("---")
         
-        # Download Section
         col_down1, col_down2, _ = st.columns([2, 2, 6])
         
-        # 1. Excel Export
         with col_down1:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 if not df_inv_rep.empty: df_inv_rep.to_excel(writer, index=False, sheet_name='Invoices')
                 if not df_pay_rep.empty: df_pay_rep.to_excel(writer, index=False, sheet_name='Payments')
-                
-                # Summary Sheet
                 summary_df = pd.DataFrame({"Name": [sel_name], "Total Billed": [tot_inv], "Total Paid": [tot_pay], "Balance": [bal]})
                 summary_df.to_excel(writer, index=False, sheet_name='Summary')
             
             st.download_button(label="📊 Download Excel", data=buffer.getvalue(), file_name=f"{sel_name}_Ledger.xlsx", type="primary", use_container_width=True)
 
-        # 2. PDF Export (using FPDF - Crash Proofed)
         with col_down2:
             def generate_pdf():
                 if FPDF is None:
-                    raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file in GitHub.")
+                    raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
                 pdf.set_font("Arial", 'B', 16)
@@ -357,5 +457,4 @@ with tab3:
                 pdf_bytes = generate_pdf()
                 st.download_button(label="📄 Download PDF", data=pdf_bytes, file_name=f"{sel_name}_Report.pdf", mime="application/pdf", use_container_width=True)
             except Exception as e:
-                # Displays inline error ONLY when clicked if fpdf is missing
                 st.error(str(e))
