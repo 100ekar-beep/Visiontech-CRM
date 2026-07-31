@@ -359,29 +359,14 @@ def view_po_details_dialog(row_data):
         except:
             pass
 
-    st.markdown(f"""
-        <div class="kpi-pill-container">
-            <div class="kpi-pill">SITE ID: <span>{site_id}</span></div>
-            <div class="kpi-pill">SITE NAME: <span>{site_name}</span></div>
-            <div class="kpi-pill">PROJECT ID: <span>{proj_name}</span></div>
-            <div class="kpi-pill">CLUSTER: <span>{cluster_val}</span></div>
-            <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
-            <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
-            <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
-        </div>
-    """, unsafe_allow_html=True)
-    
     display_cols = [
         'id', 'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
     
-    # NAYI LINE: Unique Editor Key for each PO AND Project combination to avoid conflicts
     editor_key = f"po_editor_{po_no}_{proj_name}"
     
     df_full = st.session_state.po_working_df
-    
-    # NAYI LINE: Dual filter for both PO Number AND Project Name
     po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
     real_indices = df_full[po_specific_mask].index.tolist()
     
@@ -409,6 +394,24 @@ def view_po_details_dialog(row_data):
     df_temp['Receipt Qty'] = pd.to_numeric(df_temp['Receipt Qty'], errors='coerce').fillna(0).astype(int)
     
     st.session_state.po_working_df.update(df_temp)
+    
+    # --- NAYI LINE: Caculate Live Project Total Amount ---
+    project_total_amount = df_temp['Amount'].sum()
+    
+    st.markdown(f"""
+        <div class="kpi-pill-container">
+            <div class="kpi-pill">SITE ID: <span>{site_id}</span></div>
+            <div class="kpi-pill">SITE NAME: <span>{site_name}</span></div>
+            <div class="kpi-pill">PROJECT ID: <span>{proj_name}</span></div>
+            <div class="kpi-pill">CLUSTER: <span>{cluster_val}</span></div>
+            <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
+            <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
+            <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
+            <div class="kpi-pill" style="background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%); border: none; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);">
+                <span style="color: #ffffff !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
     active_cols = [c for c in display_cols if c in st.session_state.po_working_df.columns]
     po_specific_df = st.session_state.po_working_df[po_specific_mask][active_cols].copy()
