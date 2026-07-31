@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -143,7 +143,6 @@ supabase: Client = init_connection()
 # --- 4. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60)
 def fetch_quotation_projects():
-    # NAYI LINE (ERROR FIX 1): Smart Filter using Pandas to bypass spelling mistakes in 'Operator' like 'Quotaiton'
     try:
         res = supabase.table("site_data").select("*").execute()
         if res.data:
@@ -184,7 +183,12 @@ df_projects = fetch_quotation_projects()
 project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_projects.empty else []
 
 df_items = fetch_item_master()
-item_code_list = df_items["Item Code"].dropna().unique().tolist() if not df_items.empty else []
+# --- NAYI LINE: Generate Combined Dropdown List (Code + Description) ---
+if not df_items.empty:
+    df_items["Description"] = df_items["Description"].fillna("")
+    item_display_list = (df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)).tolist()
+else:
+    item_display_list = []
 
 # --- 5. INITIALIZE SESSION STATE ---
 if 'quotations_df' not in st.session_state:
@@ -211,10 +215,10 @@ def quotation_dialog(quotation_data=None):
     with col3:
         sel_proj = st.selectbox("PROJECT ID *", options=[""] + project_list, index=project_list.index(default_proj)+1 if default_proj in project_list else 0)
     
-    # Auto-fetch Site Details based on selected Project ID
     auto_site_id = ""
     auto_site_name = ""
     auto_cluster = ""
+    auto_km = "" # NAYI LINE: Initialize KM
     auto_proj_name = ""
     if sel_proj:
         proj_row = df_projects[df_projects["Project ID"] == sel_proj]
@@ -222,22 +226,25 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
+            auto_km = str(proj_row.iloc[0].get("KM", "")) # NAYI LINE: Fetch KM
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
     with col4:
         st.text_input("SITE ID *", value=auto_site_id, disabled=True)
         
-    col5, col6, col7, col8 = st.columns(4)
+    # --- NAYI LINE: Split into 5 columns to include KM ---
+    col5, col6, col_km, col7, col8 = st.columns(5)
     with col5:
         st.text_input("SITE NAME", value=auto_site_name, disabled=True)
     with col6:
         st.text_input("CLUSTER", value=auto_cluster, disabled=True)
+    with col_km:
+        st.text_input("KM", value=auto_km, disabled=True) # NAYI LINE: Display KM
     with col7:
         st.text_input("PROJECT NAME", value=auto_proj_name, disabled=True)
     with col8:
         st.selectbox("QUOTATION TEMPLATE", options=["Standard Template", "Capex Template", "Opex Template"])
         
-    # NAYI LINE (ERROR FIX 2): Explicit Add Row Button exactly like screenshot
     st.markdown("<br>", unsafe_allow_html=True)
     col_list_title, col_add_btn = st.columns([8, 2])
     with col_list_title:
@@ -252,7 +259,10 @@ def quotation_dialog(quotation_data=None):
             try:
                 res_items = supabase.table("quotation_items").select("*").eq("Quotation Name", quo_name).execute()
                 if res_items.data:
-                    st.session_state[editor_key] = pd.DataFrame(res_items.data)[["Item Code", "Description", "Qty", "Price", "Total"]]
+                    temp_df = pd.DataFrame(res_items.data)[["Item Code", "Description", "Qty", "Price", "Total"]]
+                    # NAYI LINE: Map DB 'Item Code' back to 'Code | Description' format for UI dropdown
+                    temp_df["Item Code"] = temp_df.apply(lambda row: f"{row['Item Code']} | {row['Description']}", axis=1)
+                    st.session_state[editor_key] = temp_df
                 else:
                     st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
             except:
@@ -272,9 +282,10 @@ def quotation_dialog(quotation_data=None):
         hide_index=True,
         height=300,
         column_config={
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_code_list, required=True, width="large"),
+            # --- NAYI LINE: Options updated, width changed to medium, Qty aligned center with small width ---
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_display_list, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
-            "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d"),
+            "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d"),
             "Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %d")
         }
@@ -282,9 +293,12 @@ def quotation_dialog(quotation_data=None):
     
     changes_made = False
     for idx, row in edited_items_df.iterrows():
-        i_code = row.get("Item Code")
-        if pd.notna(i_code) and i_code != "":
-            master_match = df_items[df_items["Item Code"] == i_code]
+        i_code_full = row.get("Item Code")
+        if pd.notna(i_code_full) and i_code_full != "":
+            # --- NAYI LINE: Split selected value to extract pure Item Code for calculation ---
+            actual_code = str(i_code_full).split(" | ")[0].strip()
+            master_match = df_items[df_items["Item Code"] == actual_code]
+            
             if not master_match.empty:
                 exp_desc = master_match.iloc[0]["Description"]
                 exp_price = master_match.iloc[0]["Price"]
@@ -348,9 +362,11 @@ def quotation_dialog(quotation_data=None):
                     items_to_insert = []
                     for _, r in edited_items_df.iterrows():
                         if pd.notna(r["Item Code"]) and r["Item Code"] != "":
+                            # --- NAYI LINE: Clean DB injection (saving only the code) ---
+                            clean_code = str(r["Item Code"]).split(" | ")[0].strip()
                             items_to_insert.append({
                                 "Quotation Name": quo_name,
-                                "Item Code": str(r["Item Code"]),
+                                "Item Code": clean_code,
                                 "Description": str(r["Description"]),
                                 "Qty": int(r["Qty"]) if pd.notna(r["Qty"]) else 0,
                                 "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0,
@@ -376,7 +392,6 @@ with col_head3:
     if st.button("➕ Add Record", type="primary", use_container_width=True):
         quotation_dialog()
 with col_head4:
-    # NAYI LINE (ERROR FIX 3): Functional Download Excel Button inside Header
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         st.session_state.quotations_df.to_excel(writer, index=False, sheet_name='Quotations')
