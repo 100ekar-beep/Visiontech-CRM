@@ -37,7 +37,7 @@ st.markdown("""
     button[data-testid="baseButton-primary"]:hover, 
     button[data-testid="baseButton-secondary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Dialog/Popup Glassmorphism for Quotation View */
@@ -157,17 +157,25 @@ def fetch_quotation_projects():
 
 @st.cache_data(ttl=60)
 def fetch_item_master():
-    try:
-        res = supabase.table("item_master").select("Item Code, Description, Price").execute()
-        if res.data:
-            return pd.DataFrame(res.data)
-    except Exception:
-        pass
-    return pd.DataFrame({
-        "Item Code": ["25-100000-0-00", "21-510000-0-00", "29-400000-0-00"],
-        "Description": ["Supply & Filling with Murram soil", "De-installation, Diesel Generator", "Hydra hiring for monopole"],
-        "Price": [450, 2500, 7000]
-    })
+    # --- NAYI LINE: Deep Scan across common table names to securely fetch all 300+ items ---
+    tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
+    for t in tables_to_try:
+        try:
+            res = supabase.table(t).select("*").limit(10000).execute()
+            if res.data and len(res.data) > 0:
+                df = pd.DataFrame(res.data)
+                col_map = {}
+                for c in df.columns:
+                    cl = str(c).strip().lower()
+                    if cl in ['item code', 'item_code', 'itemcode', 'code', 'material item']: col_map[c] = 'Item Code'
+                    if cl in ['description', 'desc', 'item description', 'item_description']: col_map[c] = 'Description'
+                    if cl in ['price', 'rate', 'amount', 'unit price']: col_map[c] = 'Price'
+                df = df.rename(columns=col_map)
+                if 'Item Code' in df.columns:
+                    return df
+        except Exception:
+            continue
+    return pd.DataFrame(columns=["Item Code", "Description", "Price"])
 
 def fetch_quotations():
     try:
@@ -186,17 +194,17 @@ df_items = fetch_item_master()
 # --- NAYI LINE: Smart Mapping for Dropdown (Description first, Code inside brackets for wide view) ---
 if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
-    df_items["Display"] = df_items["Description"].astype(str) + "  [" + df_items["Item Code"].astype(str) + "]"
+    df_items["Display"] = df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)
     
     item_display_list = df_items["Display"].tolist()
-    code_to_display = dict(zip(df_items["Item Code"], df_items["Display"]))
-    display_to_code = dict(zip(df_items["Display"], df_items["Item Code"]))
+    item_code_list = df_items["Item Code"].astype(str).tolist()
+    # Combine both so dropdown accepts pure code after trimming
+    combined_item_options = item_display_list + item_code_list 
+    
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
     display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
 else:
-    item_display_list = []
-    code_to_display = {}
-    display_to_code = {}
+    combined_item_options = []
     display_to_desc = {}
     display_to_price = {}
 
@@ -236,8 +244,13 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            # --- NAYI LINE: Strongly fetch KM value ---
-            km_val = proj_row.iloc[0].get("KM", proj_row.iloc[0].get("km", proj_row.iloc[0].get("Km", "")))
+            
+            # --- NAYI LINE: Bulletproof KM Fetching Logic ---
+            km_val = ""
+            for k in proj_row.columns:
+                if str(k).strip().upper() == 'KM':
+                    km_val = proj_row.iloc[0][k]
+                    break
             auto_km = "" if pd.isna(km_val) else str(km_val)
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
@@ -257,70 +270,92 @@ def quotation_dialog(quotation_data=None):
         st.selectbox("QUOTATION TEMPLATE", options=["Standard Template", "Capex Template", "Opex Template"])
         
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use the plus (+) icon below table to add lines)</span></div>', unsafe_allow_html=True)
+    col_list_title, col_add_btn = st.columns([8, 2])
+    with col_list_title:
+        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Listing Premium Items <span style="font-size:0.8rem; color:#64748b; font-weight:500;">(Use the plus (+) icon below to add lines)</span></div>', unsafe_allow_html=True)
     
-    # --- NAYI LINE: Unique Editor Key linked to Project ID to separate items ---
+    # --- NAYI LINE: Project ID completely isolated to prevent mixing ---
     editor_key = f"quo_items_{quo_name}_{sel_proj}"
     widget_key = f"widget_{editor_key}"
     
-    # Init Data Dataframe (Loads saved items if viewing old, else empty)
+    saved_proj = quotation_data.get("Project ID", "") if quotation_data else ""
+    
     if editor_key not in st.session_state:
-        if is_new:
+        if is_new or sel_proj != saved_proj:
             st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
         else:
             try:
                 res_items = supabase.table("quotation_items").select("*").eq("Quotation Name", quo_name).execute()
                 if res_items.data and len(res_items.data) > 0:
                     temp_df = pd.DataFrame(res_items.data)[["Item Code", "Description", "Qty", "Price", "Total"]]
-                    # Map code back to Display format for the dropdown
-                    temp_df["Item Code"] = temp_df["Item Code"].map(code_to_display).fillna(temp_df["Item Code"])
                     st.session_state[editor_key] = temp_df
                 else:
                     st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
 
-    # --- NAYI LINE: Pre-Render Instant Calculation Engine (Zero Wait Time, No Popup Closing) ---
+    with col_add_btn:
+        if st.button("➕ Add New Row", use_container_width=True):
+            new_item = pd.DataFrame([{"Item Code": None, "Description": "", "Qty": 1, "Price": 0, "Total": 0}])
+            st.session_state[editor_key] = pd.concat([st.session_state[editor_key], new_item], ignore_index=True)
+
+    # --- NAYI LINE: Pre-Process Engine (Instant Updates Without Popup Close) ---
     if widget_key in st.session_state:
-        widget_state = st.session_state[widget_key]
-        edits = widget_state.get("edited_rows", {})
-        adds = widget_state.get("added_rows", [])
-        dels = widget_state.get("deleted_rows", [])
+        w_state = st.session_state[widget_key]
+        edits = w_state.get("edited_rows", {})
+        adds = w_state.get("added_rows", [])
+        dels = w_state.get("deleted_rows", [])
         
-        curr_df = st.session_state[editor_key].copy()
-        
-        if dels:
-            curr_df = curr_df.drop(dels).reset_index(drop=True)
+        if edits or adds or dels:
+            curr_df = st.session_state[editor_key].copy()
             
-        if edits:
-            for str_idx, changes in edits.items():
-                idx = int(str_idx)
-                if idx < len(curr_df):
-                    for col, val in changes.items():
-                        curr_df.at[idx, col] = val
-                    # Auto-fill logic triggers instantly
-                    if "Item Code" in changes:
-                        disp = changes["Item Code"]
-                        if disp in display_to_desc:
-                            curr_df.at[idx, "Description"] = display_to_desc[disp]
-                            curr_df.at[idx, "Price"] = display_to_price[disp]
+            if dels:
+                curr_df = curr_df.drop(dels).reset_index(drop=True)
+                
+            if edits:
+                for str_idx, changes in edits.items():
+                    idx = int(str_idx)
+                    if idx < len(curr_df):
+                        for col, val in changes.items():
+                            curr_df.at[idx, col] = val
                             
-        if adds:
-            for row in adds:
-                new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 0, "Price": 0, "Total": 0}
-                if "Item Code" in row and row["Item Code"] in display_to_desc:
-                    new_row["Description"] = display_to_desc[row["Item Code"]]
-                    new_row["Price"] = display_to_price[row["Item Code"]]
-                curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
+                        # Smart Trimmer: Trims Name instantly to just Code
+                        if "Item Code" in changes:
+                            disp = str(changes["Item Code"])
+                            if " | " in disp:
+                                code_only = disp.split(" | ")[0].strip()
+                                curr_df.at[idx, "Item Code"] = code_only
+                                if disp in display_to_desc:
+                                    curr_df.at[idx, "Description"] = display_to_desc[disp]
+                                    curr_df.at[idx, "Price"] = display_to_price[disp]
+                            else:
+                                match = df_items[df_items["Item Code"] == disp]
+                                if not match.empty:
+                                    curr_df.at[idx, "Description"] = match.iloc[0]["Description"]
+                                    curr_df.at[idx, "Price"] = match.iloc[0]["Price"]
+                        
+                        qty = pd.to_numeric(curr_df.at[idx, "Qty"], errors='coerce')
+                        price = pd.to_numeric(curr_df.at[idx, "Price"], errors='coerce')
+                        curr_df.at[idx, "Total"] = (0 if pd.isna(qty) else int(qty)) * (0 if pd.isna(price) else int(price))
+                        
+            if adds:
+                for row in adds:
+                    new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0, "Total": 0}
+                    if "Item Code" in row and pd.notna(row["Item Code"]):
+                        disp = str(row["Item Code"])
+                        if " | " in disp:
+                            code_only = disp.split(" | ")[0].strip()
+                            new_row["Item Code"] = code_only
+                            if disp in display_to_desc:
+                                new_row["Description"] = display_to_desc[disp]
+                                new_row["Price"] = display_to_price[disp]
+                                new_row["Total"] = display_to_price[disp] * 1
+                    curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
+                    
+            st.session_state[editor_key] = curr_df
+            # Clearing widget cache to prevent loop rendering
+            del st.session_state[widget_key]
 
-        # Apply calculations instantly before rendering
-        curr_df['Qty'] = pd.to_numeric(curr_df['Qty'], errors='coerce').fillna(0).astype(int)
-        curr_df['Price'] = pd.to_numeric(curr_df['Price'], errors='coerce').fillna(0).astype(int)
-        curr_df['Total'] = curr_df['Qty'] * curr_df['Price']
-        
-        st.session_state[editor_key] = curr_df
-
-    # Render Table
     edited_items_df = st.data_editor(
         st.session_state[editor_key],
         key=widget_key,
@@ -329,8 +364,8 @@ def quotation_dialog(quotation_data=None):
         hide_index=True,
         height=300,
         column_config={
-            # --- NAYI LINE: Width optimized, Dropdown fixed, QTY strictly centered and 50% small ---
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_display_list, required=True, width="large"),
+            # --- NAYI LINE: Width optimized, Description fully visible, Qty completely centered ---
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="large"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small"),
@@ -376,14 +411,11 @@ def quotation_dialog(quotation_data=None):
                 if not edited_items_df.empty:
                     items_to_insert = []
                     for _, r in edited_items_df.iterrows():
-                        if pd.notna(r["Item Code"]) and r["Item Code"] != "":
-                            # --- NAYI LINE: Cleanly save only Item Code back to DB ---
-                            disp_val = r["Item Code"]
-                            actual_code = display_to_code.get(disp_val, disp_val)
-                            
+                        if pd.notna(r["Item Code"]) and str(r["Item Code"]).strip() != "":
+                            clean_code = str(r["Item Code"]).split(" | ")[0].strip()
                             items_to_insert.append({
                                 "Quotation Name": quo_name,
-                                "Item Code": actual_code,
+                                "Item Code": clean_code,
                                 "Description": str(r["Description"]),
                                 "Qty": int(r["Qty"]) if pd.notna(r["Qty"]) else 0,
                                 "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0,
