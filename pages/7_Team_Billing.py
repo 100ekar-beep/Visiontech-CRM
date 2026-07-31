@@ -228,7 +228,6 @@ def vendor_invoice_dialog(row_data=None):
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- NAYI LINE: POPUP DIALOG FOR PAYMENTS (BLANK INPUTS & NO DECIMALS) ---
 @st.dialog("💳 Payment Entry", width="large")
 def payment_dialog(row_data=None, mode="Team"):
     is_new = row_data is None
@@ -357,7 +356,7 @@ with tab1:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 2: PAYMENT ENTRY (NAYI LINE: Fully Table-Driven & Popups matching Tab 1)
+# TAB 2: PAYMENT ENTRY
 # ==========================================
 with tab2:
     col_search_p, col_tpbtn, col_vpbtn, col_dl_p = st.columns([4, 2, 2, 2])
@@ -429,7 +428,7 @@ with tab2:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 3: REPORTS & LEDGER
+# TAB 3: REPORTS & LEDGER (NAYI LINE: Updated PDF Logic)
 # ==========================================
 with tab3:
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
@@ -500,23 +499,99 @@ with tab3:
             st.download_button(label="📊 Download Excel", data=buffer.getvalue(), file_name=f"{sel_name}_Ledger.xlsx", type="primary", use_container_width=True)
 
         with col_down2:
+            # --- NAYI LINE: Redesigned Lavish PDF with Data Tables ---
             def generate_pdf():
                 if FPDF is None:
                     raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
-                pdf.set_font("Arial", 'B', 16)
-                pdf.cell(190, 8, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
+                
+                # Colors
+                primary_color = (15, 23, 42) # Dark Slate
+                secondary_color = (59, 130, 246) # Blue
+                green_color = (16, 185, 129) # Green
+                red_color = (239, 68, 68) # Red
+                
+                # Header
+                pdf.set_text_color(*primary_color)
+                pdf.set_font("Arial", 'B', 18)
+                pdf.cell(190, 10, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
+                
+                pdf.set_text_color(*secondary_color)
+                pdf.set_font("Arial", 'B', 14)
+                pdf.cell(190, 8, "LEDGER & BALANCE SHEET", ln=True, align='C')
+                
+                pdf.set_text_color(100, 116, 139) # Gray
                 pdf.set_font("Arial", 'B', 12)
-                pdf.cell(190, 8, "Balance Sheet", ln=True, align='C')
-                pdf.cell(190, 8, f"{sel_name}", ln=True, align='C')
+                pdf.cell(190, 8, f"Statement For: {sel_name}", ln=True, align='C')
                 pdf.ln(5)
                 
-                pdf.set_font("Arial", 'B', 10)
-                pdf.cell(95, 8, f"Total Billed: Rs. {tot_inv:,.0f}", ln=False)
-                pdf.cell(95, 8, f"Total Paid: Rs. {tot_pay:,.0f}", ln=True, align='R')
-                pdf.cell(190, 8, f"Net Balance: Rs. {bal:,.0f}", ln=True, align='C')
-                pdf.ln(10)
+                # Summary Box
+                pdf.set_fill_color(248, 250, 252)
+                pdf.set_draw_color(203, 213, 225)
+                pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
+                
+                pdf.set_y(pdf.get_y() + 5)
+                pdf.set_font("Arial", 'B', 11)
+                
+                pdf.set_text_color(*secondary_color)
+                pdf.cell(63, 8, f"Total Billed: Rs. {tot_inv:,.0f}", ln=False, align='C')
+                
+                pdf.set_text_color(*green_color)
+                pdf.cell(63, 8, f"Total Paid: Rs. {tot_pay:,.0f}", ln=False, align='C')
+                
+                bal_color = red_color if bal > 0 else green_color
+                pdf.set_text_color(*bal_color)
+                pdf.cell(64, 8, f"Net Balance: Rs. {bal:,.0f}", ln=True, align='C')
+                
+                pdf.ln(12)
+                
+                # Dynamic Table Generator
+                def create_table(title, df, header_color):
+                    if not df.empty:
+                        pdf.set_font("Arial", 'B', 12)
+                        pdf.set_text_color(*header_color)
+                        pdf.cell(190, 8, title, ln=True, align='L')
+                        
+                        # Table Header
+                        pdf.set_fill_color(*header_color)
+                        pdf.set_text_color(255, 255, 255)
+                        pdf.set_font("Arial", 'B', 9)
+                        
+                        cols = df.columns.tolist()
+                        col_width = 190 / len(cols)
+                        
+                        for col in cols:
+                            pdf.cell(col_width, 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
+                        pdf.ln()
+                        
+                        # Table Rows
+                        pdf.set_text_color(0, 0, 0)
+                        pdf.set_font("Arial", '', 8)
+                        
+                        fill = False
+                        for _, row in df.iterrows():
+                            if fill:
+                                pdf.set_fill_color(241, 245, 249)
+                            else:
+                                pdf.set_fill_color(255, 255, 255)
+                                
+                            for col in cols:
+                                val = row[col]
+                                if 'amount' in str(col).lower():
+                                    val_str = f"Rs. {float(val):,.0f}" if pd.notna(val) else ""
+                                else:
+                                    val_str = str(val)[:30] # Limit string length to avoid overflow
+                                pdf.cell(col_width, 7, val_str, border=1, align='C', fill=fill)
+                            pdf.ln()
+                            fill = not fill
+                        pdf.ln(5)
+                
+                # Render Invoices Table
+                create_table("📝 INVOICES (BILLED)", df_inv_rep, secondary_color)
+                
+                # Render Payments Table
+                create_table("💳 PAYMENTS (PAID)", df_pay_rep, green_color)
                 
                 return pdf.output(dest='S').encode('latin1')
 
