@@ -7,13 +7,13 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Quotation List", page_icon="📄", layout="wide")
 
-# --- 2. LAVISH CUSTOM CSS (Matches Screenshots) ---
+# --- 2. LAVISH CUSTOM CSS (Matches Screenshots & Sidebar) ---
 st.markdown("""
     <style>
     /* Dark Premium Theme & Backgrounds */
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
     
-    /* Top Action Buttons (Add Record, File) */
+    /* Primary Action Buttons */
     button[data-testid="baseButton-primary"] {
         background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
         color: white !important;
@@ -93,6 +93,41 @@ st.markdown("""
         text-transform: uppercase !important;
         font-size: 0.8rem !important;
     }
+
+    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -109,14 +144,12 @@ supabase: Client = init_connection()
 # --- 4. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60)
 def fetch_quotation_projects():
-    # Only fetch projects where Operator is 'Quotation'
     try:
         res = supabase.table("site_data").select("Project ID, Site ID, Site Name, Cluster, KM, Project Name").eq("Operator", "Quotation").execute()
         if res.data:
             return pd.DataFrame(res.data)
     except Exception:
         pass
-    # Fallback dummy data if DB fails
     return pd.DataFrame(columns=["Project ID", "Site ID", "Site Name", "Cluster", "KM", "Project Name"])
 
 @st.cache_data(ttl=60)
@@ -127,7 +160,6 @@ def fetch_item_master():
             return pd.DataFrame(res.data)
     except Exception:
         pass
-    # Fallback dummy data
     return pd.DataFrame({
         "Item Code": ["25-100000-0-00", "21-510000-0-00", "29-400000-0-00"],
         "Description": ["Supply & Filling with Murram soil", "De-installation, Diesel Generator", "Hydra hiring for monopole"],
@@ -167,14 +199,13 @@ def quotation_dialog(quotation_data=None):
     default_date = datetime.date.today() if is_new else pd.to_datetime(quotation_data.get("Date", datetime.date.today())).date()
     default_proj = project_list[0] if project_list and is_new else quotation_data.get("Project ID", "")
     
-    # Top Section: 4 Columns layout
+    # Top Section
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         quo_name = st.text_input("QUOTATION *", value=default_name)
     with col2:
         quo_date = st.date_input("QUOTATION DATE *", value=default_date)
     with col3:
-        # User selects Project ID
         sel_proj = st.selectbox("PROJECT ID *", options=[""] + project_list, index=project_list.index(default_proj)+1 if default_proj in project_list else 0)
     
     # Auto-fetch Site Details based on selected Project ID
@@ -205,14 +236,12 @@ def quotation_dialog(quotation_data=None):
         
     st.markdown('<div class="modal-section-title">📚 Listing Premium Items</div>', unsafe_allow_html=True)
     
-    # Line Items Session State management for this specific dialog
     editor_key = f"quo_items_{quo_name}"
     
     if editor_key not in st.session_state:
         if is_new:
             st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
         else:
-            # Fetch existing items from DB (Mocked logic, replace with actual DB fetch for items)
             try:
                 res_items = supabase.table("quotation_items").select("*").eq("Quotation Name", quo_name).execute()
                 if res_items.data:
@@ -222,8 +251,6 @@ def quotation_dialog(quotation_data=None):
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
 
-    # Render Dynamic Data Editor
-    # num_rows="dynamic" enables the built-in + icon and Trash/Delete icon per row
     edited_items_df = st.data_editor(
         st.session_state[editor_key],
         key=f"editor_{editor_key}",
@@ -240,12 +267,10 @@ def quotation_dialog(quotation_data=None):
         }
     )
     
-    # Auto-fill logic and Instant Calculation
     changes_made = False
     for idx, row in edited_items_df.iterrows():
         i_code = row.get("Item Code")
         if pd.notna(i_code) and i_code != "":
-            # Auto-fill Description and Price if missing
             master_match = df_items[df_items["Item Code"] == i_code]
             if not master_match.empty:
                 exp_desc = master_match.iloc[0]["Description"]
@@ -259,7 +284,6 @@ def quotation_dialog(quotation_data=None):
                     edited_items_df.at[idx, "Price"] = exp_price
                     changed_made = True
                     
-        # Calculate Total dynamically
         qty = pd.to_numeric(row.get("Qty"), errors='coerce')
         price = pd.to_numeric(row.get("Price"), errors='coerce')
         qty = 0 if pd.isna(qty) else int(qty)
@@ -270,7 +294,6 @@ def quotation_dialog(quotation_data=None):
             edited_items_df.at[idx, "Total"] = calc_total
             changed_made = True
 
-    # Update session state if calculated
     st.session_state[editor_key] = edited_items_df
 
     grand_total = edited_items_df["Total"].sum() if not edited_items_df.empty else 0
@@ -289,7 +312,6 @@ def quotation_dialog(quotation_data=None):
                 st.error("⚠️ Project ID is required!")
                 return
                 
-            # Create header record
             header_data = {
                 "Quotation Name": quo_name,
                 "Date": str(quo_date),
@@ -302,13 +324,11 @@ def quotation_dialog(quotation_data=None):
             }
             
             try:
-                # Upsert Header to Supabase
                 if not is_new and "id" in quotation_data and pd.notna(quotation_data["id"]):
                     supabase.table("quotations").update(header_data).eq("id", quotation_data["id"]).execute()
                 else:
                     supabase.table("quotations").insert(header_data).execute()
                 
-                # Delete old items and insert new ones
                 supabase.table("quotation_items").delete().eq("Quotation Name", quo_name).execute()
                 
                 if not edited_items_df.empty:
@@ -326,7 +346,6 @@ def quotation_dialog(quotation_data=None):
                     if items_to_insert:
                         supabase.table("quotation_items").insert(items_to_insert).execute()
                 
-                # Refresh local cache
                 st.session_state.quotations_df = fetch_quotations()
                 st.success("✅ Quotation Saved Successfully!")
                 st.rerun()
@@ -356,10 +375,8 @@ if not df_display.empty and search_q:
     df_display = df_display[mask]
 
 if not df_display.empty:
-    # Prepare display dataframe matching the requirement
     disp_cols = ["Quotation Name", "Date", "Site ID", "Site Name", "Project ID", "Project Name", "Quotation Amount"]
     
-    # Ensure columns exist
     for c in disp_cols:
         if c not in df_display.columns:
             df_display[c] = ""
@@ -382,7 +399,6 @@ if not df_display.empty:
         }
     )
     
-    # Action Buttons Trigger
     selected_rows = edited_list[edited_list["Action"] == True]
     if not selected_rows.empty:
         st.markdown("---")
