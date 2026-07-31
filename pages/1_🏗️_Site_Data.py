@@ -159,17 +159,22 @@ def init_connection():
 supabase: Client = init_connection()
 
 # -------------------------------------------------------------
-# --- NEW: WHATSAPP INTERACT API FUNCTION
+# --- FIX: UPDATED WHATSAPP INTERACT API FUNCTION
 # -------------------------------------------------------------
 def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_desc, area, lat_val, long_val, tech, fse, aom):
     try:
-        # NOTE: Agar table ya column ka naam alag hai to use yaha change kar lena
-        res = supabase.table("team_registration").select("*").eq("Team Name", team_name).execute()
+        # Corrected Table Name and Condition as per your screenshot
+        res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").eq("option_value", team_name).execute()
         if not res.data:
+            st.toast(f"⚠️ Team '{team_name}' not found in database.", icon="⚠️")
             return False
         
-        mobile_no = res.data[0].get("Mobile Number", "")
-        if not mobile_no:
+        # Corrected Column name for mobile number
+        mobile_no = res.data[0].get("mobile", "")
+        
+        # Check if mobile number is empty, None, or says "EMPTY"
+        if not mobile_no or str(mobile_no).strip().upper() == "EMPTY" or str(mobile_no).strip() == "nan":
+            st.toast(f"⚠️ No valid mobile number for Team '{team_name}'", icon="⚠️")
             return False
             
         mobile_no = str(mobile_no).replace("+91", "").replace(" ", "").strip()
@@ -186,6 +191,11 @@ def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_
     
     lat_long = f"{lat_val} {long_val}"
     
+    # Validation helper to ensure no empty values go to WhatsApp API
+    def clean_val(v):
+        val = str(v).strip()
+        return val if val and val != "None" else "N/A"
+    
     payload = {
         "countryCode": "+91",
         "phoneNumber": mobile_no,
@@ -196,9 +206,9 @@ def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_
             "languageCode": "mr",
             "headerValues": [],
             "bodyValues": [
-                str(team_name), str(site_id), str(site_name), str(proj_id), 
-                str(area), str(cluster), str(work_desc), str(lat_long), 
-                str(tech), str(fse), str(aom)
+                clean_val(team_name), clean_val(site_id), clean_val(site_name), clean_val(proj_id), 
+                clean_val(area), clean_val(cluster), clean_val(work_desc), clean_val(lat_long), 
+                clean_val(tech), clean_val(fse), clean_val(aom)
             ]
         }
     }
