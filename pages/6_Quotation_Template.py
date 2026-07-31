@@ -130,7 +130,7 @@ def template_dialog(template_data=None):
             except:
                 st.session_state.temp_items_df = pd.DataFrame(columns=["Item Code", "Description", "Price"])
 
-    # --- NAYI LINE: Pre-Process Engine to prevent popup close bug ---
+    # --- NAYI LINE: State Lock Engine to prevent popup close on line switch ---
     if widget_t_key in st.session_state:
         w_state = st.session_state[widget_t_key]
         edits = w_state.get("edited_rows", {})
@@ -172,7 +172,7 @@ def template_dialog(template_data=None):
                                 new_row["Price"] = display_to_price[disp]
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.temp_items_df = curr_df
-            del st.session_state[widget_t_key]
+            # Do NOT delete widget_t_key here to keep state locked and prevent popup reset
 
     edited_t_df = st.data_editor(
         st.session_state.temp_items_df,
