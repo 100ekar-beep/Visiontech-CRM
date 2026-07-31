@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import io
+import os
 from supabase import create_client, Client
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
@@ -428,7 +429,7 @@ with tab2:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 3: REPORTS & LEDGER (NAYI LINE: Updated PDF Logic)
+# TAB 3: REPORTS & LEDGER
 # ==========================================
 with tab3:
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
@@ -499,12 +500,17 @@ with tab3:
             st.download_button(label="📊 Download Excel", data=buffer.getvalue(), file_name=f"{sel_name}_Ledger.xlsx", type="primary", use_container_width=True)
 
         with col_down2:
-            # --- NAYI LINE: Redesigned Lavish PDF with Data Tables ---
             def generate_pdf():
                 if FPDF is None:
                     raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
+                
+                # --- NAYI LINE: Adding Logo Safely ---
+                if os.path.exists("logo (1).png"):
+                    # Placing logo centered at the top
+                    pdf.image("logo (1).png", x=75, y=10, w=60)
+                    pdf.ln(28) # Adding space after the logo
                 
                 # Colors
                 primary_color = (15, 23, 42) # Dark Slate
