@@ -23,7 +23,6 @@ st.markdown("""
     div[data-testid="stDialog"] > div { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 16px; }
     .modal-section-title { color: #3b82f6; font-size: 1rem; font-weight: 800; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
     label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
-    [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; }
 
     /* PREMIUM SIDEBAR */
     [data-testid="stSidebar"] { background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%); border-right: 1px solid rgba(255, 255, 255, 0.05); }
@@ -85,12 +84,12 @@ if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
     df_items["Display"] = df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)
     item_display_list = df_items["Display"].tolist()
-    item_code_list = df_items["Item Code"].astype(str).tolist()
-    combined_item_options = item_display_list + item_code_list 
+    display_to_code = dict(zip(df_items["Display"], df_items["Item Code"]))
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
     display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
 else:
-    combined_item_options = []
+    item_display_list = []
+    display_to_code = {}
     display_to_desc = {}
     display_to_price = {}
 
@@ -103,123 +102,120 @@ def template_dialog(template_data=None):
     is_new = template_data is None
     
     def_name = "" if is_new else template_data.get("Template Name", "")
-    t_name = st.text_input("QUOTATION TEMPLATE NAME *", value=def_name)
+    t_name = st.text_input("QUOTATION TEMPLATE NAME *", value=def_name, key="input_template_name")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    col_t1, col_t2 = st.columns([8, 2])
-    with col_t1:
-        st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Template Items</div>', unsafe_allow_html=True)
-    with col_t2:
-        if st.button("➕ Add Row", use_container_width=True):
-            if "temp_items_df" in st.session_state:
-                new_row = pd.DataFrame([{"Item Code": None, "Description": "", "Price": 0}])
-                st.session_state.temp_items_df = pd.concat([st.session_state.temp_items_df, new_row], ignore_index=True)
-                st.rerun()
+    st.markdown('<div class="modal-section-title" style="margin-top:0;">📚 Template Items</div>', unsafe_allow_html=True)
 
-    t_key = f"t_items_{t_name}"
-    widget_t_key = f"widget_{t_key}"
-
-    if t_key not in st.session_state:
+    # Initialize session state list for rows inside popup
+    session_key_rows = f"popup_rows_{def_name if not is_new else 'new'}"
+    if session_key_rows not in st.session_state:
         if is_new:
-            st.session_state.temp_items_df = pd.DataFrame(columns=["Item Code", "Description", "Price"])
+            st.session_state[session_key_rows] = [{"item": item_display_list[0] if item_display_list else "", "desc": "", "price": 0}]
         else:
             try:
                 raw_data = template_data.get("Items Data", "[]")
                 items_list = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
-                st.session_state.temp_items_df = pd.DataFrame(items_list)
+                loaded = []
+                for itm in items_list:
+                    c = itm.get("Item Code", "")
+                    # Find matching display string
+                    matched_disp = next((d for d in item_display_list if d.startswith(c)), item_display_list[0] if item_display_list else "")
+                    loaded.append({
+                        "item": matched_disp,
+                        "desc": itm.get("Description", ""),
+                        "price": int(itm.get("Price", 0))
+                    })
+                st.session_state[session_key_rows] = loaded if loaded else [{"item": "", "desc": "", "price": 0}]
             except:
-                st.session_state.temp_items_df = pd.DataFrame(columns=["Item Code", "Description", "Price"])
+                st.session_state[session_key_rows] = [{"item": "", "desc": "", "price": 0}]
 
-    # --- NAYI LINE: State Lock Engine to prevent popup close on line switch ---
-    if widget_t_key in st.session_state:
-        w_state = st.session_state[widget_t_key]
-        edits = w_state.get("edited_rows", {})
-        adds = w_state.get("added_rows", [])
-        dels = w_state.get("deleted_rows", [])
-        
-        if edits or adds or dels:
-            curr_df = st.session_state.temp_items_df.copy()
-            if dels: curr_df = curr_df.drop(dels).reset_index(drop=True)
-            if edits:
-                for str_idx, changes in edits.items():
-                    idx = int(str_idx)
-                    if idx < len(curr_df):
-                        for col, val in changes.items():
-                            curr_df.at[idx, col] = val
-                        if "Item Code" in changes:
-                            disp = str(changes["Item Code"])
-                            if " | " in disp:
-                                code_only = disp.split(" | ")[0].strip()
-                                curr_df.at[idx, "Item Code"] = code_only
-                                if disp in display_to_desc:
-                                    curr_df.at[idx, "Description"] = display_to_desc[disp]
-                                    curr_df.at[idx, "Price"] = display_to_price[disp]
-                            else:
-                                match = df_items[df_items["Item Code"] == disp]
-                                if not match.empty:
-                                    curr_df.at[idx, "Description"] = match.iloc[0]["Description"]
-                                    curr_df.at[idx, "Price"] = match.iloc[0]["Price"]
-            if adds:
-                for row in adds:
-                    new_row = {"Item Code": row.get("Item Code"), "Description": "", "Price": 0}
-                    if "Item Code" in row and pd.notna(row["Item Code"]):
-                        disp = str(row["Item Code"])
-                        if " | " in disp:
-                            code_only = disp.split(" | ")[0].strip()
-                            new_row["Item Code"] = code_only
-                            if disp in display_to_desc:
-                                new_row["Description"] = display_to_desc[disp]
-                                new_row["Price"] = display_to_price[disp]
-                    curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
-            st.session_state.temp_items_df = curr_df
-            # Do NOT delete widget_t_key here to keep state locked and prevent popup reset
+    # Render stable rows using form/container approach (No popup closing bug)
+    with st.form(key="template_items_form", clear_on_submit=False):
+        # Table Headers
+        h1, h2, h3, h4 = st.columns([3, 4, 2, 1])
+        with h1: st.markdown("**MATERIAL ITEM**")
+        with h2: st.markdown("**DESCRIPTION**")
+        with h3: st.markdown("**PRICE (₹)**")
+        with h4: st.markdown("**ACTION**")
 
-    edited_t_df = st.data_editor(
-        st.session_state.temp_items_df,
-        key=widget_t_key,
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        height=300,
-        column_config={
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
-            "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
-            "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small")
-        }
-    )
+        updated_rows = []
+        rows_to_delete = []
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 Save Template", type="primary", use_container_width=True):
-        if not t_name.strip():
-            st.error("⚠️ Template Name is required!")
-            return
-        
-        clean_items = []
-        for _, r in edited_t_df.iterrows():
-            if pd.notna(r["Item Code"]) and str(r["Item Code"]).strip() != "":
-                c_code = str(r["Item Code"]).split(" | ")[0].strip()
-                clean_items.append({
-                    "Item Code": c_code,
-                    "Description": str(r["Description"]),
-                    "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0
-                })
-        
-        payload = {
-            "Template Name": t_name.strip(),
-            "Items Data": json.dumps(clean_items)
-        }
-        
-        try:
-            if not is_new and "id" in template_data and pd.notna(template_data["id"]):
-                supabase.table("quotation_templates").update(payload).eq("id", template_data["id"]).execute()
-            else:
-                supabase.table("quotation_templates").insert(payload).execute()
+        for i, row_data in enumerate(st.session_state[session_key_rows]):
+            c1, c2, c3, c4 = st.columns([3, 4, 2, 1])
+            with c1:
+                curr_item = row_data.get("item", "")
+                idx_sel = item_display_list.index(curr_item) if curr_item in item_display_list else 0
+                selected_val = st.selectbox(f"Item {i}", options=item_display_list, index=idx_sel, key=f"sel_item_{i}", label_visibility="collapsed")
             
-            st.session_state.templates_df = fetch_templates()
-            st.success("✅ Template Saved Successfully!")
+            with c2:
+                # Auto update description & price based on selection
+                auto_desc = display_to_desc.get(selected_val, "")
+                auto_price = display_to_price.get(selected_val, 0)
+                st.text_input(f"Desc {i}", value=auto_desc, disabled=True, key=f"txt_desc_{i}", label_visibility="collapsed")
+            
+            with c3:
+                p_val = st.number_input(f"Price {i}", value=int(auto_price), step=1, key=f"num_price_{i}", label_visibility="collapsed")
+            
+            with c4:
+                if st.form_submit_button("🗑️", key=f"del_btn_{i}"):
+                    rows_to_delete.append(i)
+
+            updated_rows.append({
+                "item": selected_val,
+                "desc": auto_desc,
+                "price": p_val
+            })
+
+        # Handle row deletion from list
+        if rows_to_delete:
+            for idx in sorted(rows_to_delete, reverse=True):
+                st.session_state[session_key_rows].pop(idx)
             st.rerun()
-        except Exception as e:
-            st.error(f"Error saving template: {e}")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_f1, col_f2 = st.columns([2, 8])
+        with col_f1:
+            add_clicked = st.form_submit_button("➕ Add Row", use_container_width=True)
+        with col_f2:
+            save_clicked = st.form_submit_button("💾 Save Template", type="primary", use_container_width=True)
+
+        if add_clicked:
+            st.session_state[session_key_rows].append({"item": item_display_list[0] if item_display_list else "", "desc": "", "price": 0})
+            st.rerun()
+
+        if save_clicked:
+            if not t_name.strip():
+                st.error("⚠️ Template Name is required!")
+            else:
+                clean_items = []
+                for r in updated_rows:
+                    disp_val = r["item"]
+                    if disp_val:
+                        code_clean = display_to_code.get(disp_val, disp_val.split(" | ")[0].strip())
+                        clean_items.append({
+                            "Item Code": code_clean,
+                            "Description": r["desc"],
+                            "Price": int(r["price"])
+                        })
+                
+                payload = {
+                    "Template Name": t_name.strip(),
+                    "Items Data": json.dumps(clean_items)
+                }
+                
+                try:
+                    if not is_new and "id" in template_data and pd.notna(template_data["id"]):
+                        supabase.table("quotation_templates").update(payload).eq("id", template_data["id"]).execute()
+                    else:
+                        supabase.table("quotation_templates").insert(payload).execute()
+                    
+                    st.session_state.templates_df = fetch_templates()
+                    st.success("✅ Template Saved Successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error saving template: {e}")
 
 # --- TOP HEADER ---
 col_h1, col_h2 = st.columns([8, 2])
@@ -227,7 +223,6 @@ with col_h1:
     st.markdown("<h1 style='margin:0; color:#0f172a;'>Quotation Templates</h1>", unsafe_allow_html=True)
 with col_h2:
     if st.button("➕ Add Template", type="primary", use_container_width=True):
-        if "temp_items_df" in st.session_state: del st.session_state["temp_items_df"]
         template_dialog()
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -248,7 +243,6 @@ if not df_templates.empty:
         col_b1, col_b2, _ = st.columns([2, 2, 8])
         with col_b1:
             if st.button("👁️ Edit", type="primary", use_container_width=True):
-                if "temp_items_df" in st.session_state: del st.session_state["temp_items_df"]
                 template_dialog(row_dict)
         with col_b2:
             if st.button("🗑️ Delete", type="secondary", use_container_width=True):
