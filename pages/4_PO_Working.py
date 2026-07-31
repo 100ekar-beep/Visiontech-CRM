@@ -157,13 +157,12 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- NEW: INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE ---
+# --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE ---
 if 'po_working_df' not in st.session_state:
     try:
         res = supabase.table("po_working").select("*").execute()
         if res.data and len(res.data) > 0:
             df_fetched = pd.DataFrame(res.data)
-            # Ensure numbers stay solid integers without .0
             num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
             for col in num_cols:
                 if col in df_fetched.columns:
@@ -182,10 +181,13 @@ if 'po_working_df' not in st.session_state:
             'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
         ])
 
-# --- 3. UPLOAD ORACLE PO DIALOG FUNCTION (COMPACT UI) ---
+# Ensure 'id' column exists to avoid missing column errors
+if 'id' not in st.session_state.po_working_df.columns:
+    st.session_state.po_working_df['id'] = None
+
+# --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
 @st.dialog("📄 Upload PO (Notepad)")
 def po_upload_dialog():
-    
     st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
     po_number_input = st.text_input("PO NUMBER", label_visibility="collapsed", placeholder="Enter PO Number...")
     
@@ -227,6 +229,35 @@ def po_upload_dialog():
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 po_no = po_number_input.strip()
                 
+                # NAYI LINE: Enforce clean columns BEFORE iteration to prevent dirty data
+                df_proc['PO Number'] = po_no
+                df_proc['User Qty'] = 0
+                df_proc['VIS Qty'] = 0
+                df_proc['Diff'] = 0
+                df_proc['Claim Qty'] = 0
+                df_proc['Receipt Qty'] = 0
+                if 'Amount' not in df_proc.columns: df_proc['Amount'] = 0
+                if 'Price' not in df_proc.columns: df_proc['Price'] = 0
+                
+                final_cols = [
+                    'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                    'Item Num', 'Description', 'UOM', 'PO Qty', 
+                    'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+                ]
+                
+                for col in final_cols:
+                    if col not in df_proc.columns:
+                        df_proc[col] = ""
+                        
+                df_proc = df_proc[final_cols]
+                
+                num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+                for col in num_columns_to_int:
+                    df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
+                
+                df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
+                df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
+                
                 existing_df = st.session_state.po_working_df
                 new_rows_to_add = []
                 
@@ -238,10 +269,9 @@ def po_upload_dialog():
                         row_id = existing_df.at[match_idx, 'id'] if 'id' in existing_df.columns else None
                         
                         curr_vis = int(existing_df.at[match_idx, 'VIS Qty']) if pd.notna(existing_df.at[match_idx, 'VIS Qty']) else 0
-                        new_po = int(new_row['PO Qty']) if pd.notna(new_row['PO Qty']) else 0
-                        new_price = int(new_row['Price']) if pd.notna(new_row['Price']) else 0
+                        new_po = int(new_row['PO Qty'])
+                        new_price = int(new_row['Price'])
                         
-                        # Calculate formulas safely
                         new_diff = new_po - curr_vis
                         new_amount = curr_vis * new_price
                         
@@ -259,39 +289,34 @@ def po_upload_dialog():
                             except Exception:
                                 pass
                     else:
-                        new_po = int(new_row['PO Qty']) if pd.notna(new_row['PO Qty']) else 0
-                        
-                        new_row['PO Number'] = po_no
-                        new_row['User Qty'] = 0
-                        new_row['VIS Qty'] = 0
-                        new_row['Diff'] = new_po # PO - 0 = PO
-                        new_row['Claim Qty'] = 0
-                        new_row['Receipt Qty'] = 0
-                        new_row['Amount'] = 0
-                        new_rows_to_add.append(new_row)
+                        new_rows_to_add.append(new_row.to_dict())
                 
-                # INSERT NEW ROWS TO SUPABASE
+                # NAYI LINE: STRICT SUPABASE DATA FORMATTING (Removes NaNs and np.int64)
                 if new_rows_to_add:
-                    new_df = pd.DataFrame(new_rows_to_add)
                     records_to_insert = []
-                    for _, r in new_df.iterrows():
-                        rec = r.to_dict()
-                        rec = {k: (v if pd.notna(v) else "") for k, v in rec.items() if k != 'id'}
-                        records_to_insert.append(rec)
+                    for rec in new_rows_to_add:
+                        clean_rec = {}
+                        for k, v in rec.items():
+                            if k in num_columns_to_int:
+                                clean_rec[k] = int(v)
+                            else:
+                                clean_rec[k] = str(v).strip() if pd.notna(v) and str(v) != 'nan' else ""
+                        records_to_insert.append(clean_rec)
                     
                     try:
-                        supabase.table("po_working").insert(records_to_insert).execute()
+                        res = supabase.table("po_working").insert(records_to_insert).execute()
                     except Exception as e:
-                        st.error(f"DB Insert Error: {e}")
+                        st.error(f"❌ DB Insert Error: Please verify Supabase columns match exactly. Details: {e}")
+                        return
                 
-                # REFRESH CACHE: Delete local state to force fetch from Supabase
+                # FORCE DB RE-FETCH ON SUCCESS
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
                 st.success(f"✅ PO {po_number_input} Processed and Saved to Database!")
                 st.rerun()
                 
             except Exception as e:
-                st.error(f"❌ Error processing file: Make sure it's the exact Oracle .tsv export format. Details: {e}")
+                st.error(f"❌ Error processing file: {e}")
 
 # --- 4. EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export PO Working Data", width="large")
@@ -387,7 +412,6 @@ def view_po_details_dialog(row_data):
     
     st.session_state.po_working_df.update(df_temp)
     
-    # Hide ID column if not available or just to ensure display works cleanly
     active_cols = [c for c in display_cols if c in st.session_state.po_working_df.columns]
     po_specific_df = st.session_state.po_working_df[po_specific_mask][active_cols].copy()
 
@@ -437,7 +461,6 @@ def view_po_details_dialog(row_data):
             if editor_key in st.session_state:
                 del st.session_state[editor_key]
                 
-            # FORCE RE-FETCH FROM DB
             if 'po_working_df' in st.session_state:
                 del st.session_state['po_working_df']
                 
@@ -538,7 +561,6 @@ if not selected_rows.empty:
     with col_act2:
         if st.button("🗑️ Delete PO", type="primary", use_container_width=True):
             try:
-                # DELETE FROM SUPABASE
                 supabase.table("po_working").delete().eq("PO Number", selected_po).execute()
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
