@@ -4,6 +4,7 @@ import datetime
 import io
 import os
 import math
+import requests  # --- NAYI LINE: WhatsApp API ke liye ---
 from supabase import create_client, Client
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
@@ -89,6 +90,46 @@ def init_connection():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase: Client = init_connection()
+
+# --- NAYI LINE: INTERAKT WHATSAPP API SETUP ---
+INTERAKT_API_KEY = "YOUR_INTERAKT_BASE64_API_KEY" # Yaha VS code se apna Interakt API Key paste karein
+
+def get_mobile_number(category, name):
+    try:
+        res = supabase.table("dropdown_master").select("mobile").eq("category", category).eq("option_value", name).eq("is_active", True).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0].get("mobile", "")
+    except Exception:
+        pass
+    return ""
+
+def send_interakt_whatsapp(mobile, template_name, params):
+    if not mobile or not INTERAKT_API_KEY or INTERAKT_API_KEY == "YOUR_INTERAKT_BASE64_API_KEY":
+        return
+    
+    url = "https://api.interakt.ai/v1/public/message/"
+    headers = {
+        "Authorization": f"Basic {INTERAKT_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    mob = str(mobile).replace("+91", "").replace(" ", "").strip()
+    if len(mob) < 10: return
+    
+    payload = {
+        "countryCode": "+91",
+        "phoneNumber": mob,
+        "type": "Template",
+        "template": {
+            "name": template_name,
+            "languageCode": "en",
+            "bodyValues": params
+        }
+    }
+    try:
+        requests.post(url, headers=headers, json=payload, timeout=5)
+    except Exception:
+        pass
 
 # --- AMOUNT TO WORDS CONVERTER (INDIAN SYSTEM) ---
 def number_to_words(n):
@@ -203,7 +244,6 @@ def team_invoice_dialog(row_data=None):
     total_calc = safe_basic + gst_amt
     
     c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
-    
     st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>", unsafe_allow_html=True)
     
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
@@ -232,6 +272,16 @@ def team_invoice_dialog(row_data=None):
                     supabase.table("billing_invoices").insert(payload).execute()
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
+                
+                # --- NAYI LINE: Send WhatsApp on Success ---
+                try:
+                    mob = get_mobile_number("Team Name", team_val)
+                    if mob:
+                        # VS Code wala apna template name yaha check karein:
+                        send_interakt_whatsapp(mob, "invoice_booking_alert", [team_val, inv_no, str(total_calc)]) 
+                except:
+                    pass
+                
                 st.success("✅ Team Invoice Saved Successfully!")
                 st.rerun()
             except Exception as e:
@@ -326,6 +376,15 @@ def vendor_invoice_dialog(row_data=None):
                     supabase.table("billing_invoices").insert(payload).execute()
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
+                
+                # --- NAYI LINE: Send WhatsApp on Success ---
+                try:
+                    mob = get_mobile_number("Vendor Name", vendor_val)
+                    if mob:
+                        send_interakt_whatsapp(mob, "invoice_booking_alert", [vendor_val, inv_no, str(total_calc)])
+                except:
+                    pass
+                
                 st.success("✅ Vendor Invoice Saved Successfully!")
                 st.rerun()
             except Exception as e:
@@ -380,6 +439,17 @@ def payment_dialog(row_data=None, mode="Team"):
                     supabase.table("billing_payments").insert(payload).execute()
                 else:
                     supabase.table("billing_payments").update(payload).eq("id", row_data["id"]).execute()
+                
+                # --- NAYI LINE: Send WhatsApp on Success ---
+                try:
+                    cat = "Team Name" if mode == "Team" else "Vendor Name"
+                    mob = get_mobile_number(cat, pay_to)
+                    if mob:
+                        # VS Code wala apna template name yaha check karein:
+                        send_interakt_whatsapp(mob, "payment_success_alert", [pay_to, str(pay_amt), str(pay_date)]) 
+                except:
+                    pass
+
                 st.success(f"✅ {mode} Payment Saved Successfully!")
                 st.rerun()
             except Exception as e:
@@ -597,7 +667,6 @@ with tab3:
                 df_inv_rep = pd.DataFrame(res_inv.data)
                 tot_inv = df_inv_rep["amount"].sum()
                 
-                # --- NAYI LINE: Mapping required columns exactly for Reports ---
                 req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "gst_amount", "amount"]
                 for c in req_cols:
                     if c not in df_inv_rep.columns:
@@ -724,7 +793,6 @@ with tab3:
                         
                         cols = df.columns.tolist()
                         
-                        # --- NAYI LINE: Custom column widths to perfectly fit the 8 Invoice columns in A4 PDF ---
                         if len(cols) == 8:
                             col_widths = [20, 20, 25, 28, 27, 22, 20, 28]
                         else:
@@ -748,7 +816,6 @@ with tab3:
                                 val = row[col]
                                 col_lower = str(col).lower()
                                 
-                                # --- NAYI LINE: Smart formatting for Basic, GST and Total amounts in PDF ---
                                 if 'amt' in col_lower or 'total' in col_lower or 'gst' in col_lower or 'basic' in col_lower or 'amount' in col_lower:
                                     try:
                                         if pd.notna(val) and str(val).strip() != "":
