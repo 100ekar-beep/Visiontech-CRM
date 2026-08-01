@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
-from geopy.distance import geodesic
 from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
@@ -179,7 +178,10 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
         st.warning("Please add Start, End and at least one Site!")
     else:
         try:
+            # Safely importing inside the logic so the page doesn't crash on load
             from geopy.geocoders import Nominatim
+            from geopy.distance import geodesic
+            
             geolocator = Nominatim(user_agent="vis_route_planner")
             def get_lat_lon(loc):
                 if ',' in loc and any(c.isdigit() for c in loc): return [float(x.strip()) for x in loc.split(',')]
@@ -207,4 +209,5 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
                 stops = "/".join([f"{s['Lat']},{s['Long']}" for s in final_path])
                 gmaps_route = f"https://www.google.com/maps/dir/{start_coords}/{stops}/{end_coords}"
                 st.markdown(f'<a href="{gmaps_route}" target="_blank"><button style="width:100%; background-color:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:800; font-size:16px; cursor:pointer; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4);">🗺️ Open Sequential Route (1-2-3-4)</button></a>', unsafe_allow_html=True)
-        except Exception as e: st.error(f"Error: {e}")
+        except Exception as e: 
+            st.error(f"Error: {e} | Ensure 'geopy' is installed via requirements.txt")
