@@ -131,7 +131,7 @@ if st.session_state.current_page == "Dashboard":
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("📦\nBOQ Report"): st.switch_page("pages/boq_report.py")
-        # --- NAYI LINE: Underscore ke sath path update kiya gaya hai ---
+        # --- NAYI LINE: File name exact match (GitHub pe .py lagane ke baad ye perfect chalega) ---
         if st.button("📊\nIndus Data"): st.switch_page("pages/8_Indus_Site_Data.py")
         if st.button("🚨\nSTN Manager"): navigate_to("STN Manager")
     with c2:
