@@ -56,16 +56,31 @@ with st.form("ind_form_v5"):
         sub_ind = st.form_submit_button("🔍 Search Indus")
     
 if sub_ind:
-    # --- Search Logic ---
-    query = supabase.table("Excalation Matrix").select("*")
-    if in_id:
-        query = query.ilike("Site ID", f"%{in_id.strip()}%")
-    if in_nm:
-        query = query.ilike("Site Name", f"%{in_nm.strip()}%")
-        
-    res_ind = query.execute()
-    
-    if res_ind.data:
+    # --- NAYI LINE: Crash-proof Search Logic (Checks both spellings and columns to prevent API Error) ---
+    res_ind = None
+    try:
+        query = supabase.table("Excalation Matrix").select("*")
+        if in_id: query = query.ilike("Site ID", f"%{in_id.strip()}%")
+        if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
+        res_ind = query.execute()
+    except Exception as e1:
+        try:
+            # Fallback 1: Column might be 'Indus ID' instead of 'Site ID' in Supabase
+            query = supabase.table("Excalation Matrix").select("*")
+            if in_id: query = query.ilike("Indus ID", f"%{in_id.strip()}%")
+            if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
+            res_ind = query.execute()
+        except Exception as e2:
+            try:
+                # Fallback 2: Table might be 'Escalation Matrix'
+                query = supabase.table("Escalation Matrix").select("*")
+                if in_id: query = query.ilike("Indus ID", f"%{in_id.strip()}%")
+                if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
+                res_ind = query.execute()
+            except Exception as e3:
+                st.error(f"⚠️ Database Error: Supabase me 'Excalation Matrix' table ya 'Site ID' column nahi mil raha. Kripya exact spelling check karein!")
+
+    if res_ind and res_ind.data:
         df_ind = pd.DataFrame(res_ind.data)
         st.dataframe(df_ind, use_container_width=True, hide_index=True)
         st.divider()
@@ -110,10 +125,9 @@ if sub_ind:
                 st.markdown(f"📍 **Lat/Long** :- {lat if lat else '-'} / {lon if lon else '-'}")
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # --- NEW LOGIC: Team Dropdown & WhatsApp Button ---
+        # --- WhatsApp Team Selection & Action Logic ---
         st.markdown("### 💬 Send Details via WhatsApp")
         
-        # Fetching Teams from Dropdown Master
         team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").eq("is_active", True).execute()
         team_dict = {r['option_value']: r['mobile'] for r in team_res.data} if team_res.data else {}
         
@@ -136,13 +150,13 @@ if sub_ind:
             else:
                 t_col2.warning("Mobile number not found for this team.")
                 
-    else: 
-        st.info("No data found in Excalation Matrix.")
+    elif res_ind is not None: 
+        st.info("No data found matching your search.")
 
 st.divider()
 
 # =====================================================================
-# 🧭 ROUTE PLAN (0% Logic Change)
+# 🧭 ROUTE PLAN
 # =====================================================================
 
 st.subheader("🧭 Route Plan")
@@ -157,14 +171,25 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
         add_sid = st.text_input("📍 Add Site ID")
         if st.form_submit_button("➕ Add to List"):
             if add_sid:
-                s_res = supabase.table("Excalation Matrix").select("*").ilike("Site ID", f"%{add_sid.strip()}%").execute()
-                if s_res.data: 
+                # --- NAYI LINE: Crash-proof Route add logic ---
+                s_res = None
+                try:
+                    s_res = supabase.table("Excalation Matrix").select("*").ilike("Site ID", f"%{add_sid.strip()}%").execute()
+                except:
+                    try:
+                        s_res = supabase.table("Excalation Matrix").select("*").ilike("Indus ID", f"%{add_sid.strip()}%").execute()
+                    except:
+                        try:
+                            s_res = supabase.table("Escalation Matrix").select("*").ilike("Indus ID", f"%{add_sid.strip()}%").execute()
+                        except: pass
+
+                if s_res and s_res.data: 
                     st.session_state.route_list.append(s_res.data[0])
                     st.success(f"Site {add_sid} added!")
                     st.rerun()
-                else: st.error("Site ID not found!")
+                else: st.error("Site ID not found or Database Error!")
 
-    # --- Current Added Sites List (Visible before calculation) ---
+    # --- Current Added Sites List ---
     if st.session_state.route_list:
         st.write("### 📋 Added Sites:")
         temp_df = pd.DataFrame(st.session_state.route_list)[['Site ID', 'Site Name', 'Lat', 'Long']]
@@ -178,7 +203,7 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
         st.warning("Please add Start, End and at least one Site!")
     else:
         try:
-            # Safely importing inside the logic so the page doesn't crash on load
+            # Importing locally to prevent crash if not in requirements.txt
             from geopy.geocoders import Nominatim
             from geopy.distance import geodesic
             
@@ -205,9 +230,7 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
                 st.table(pd.DataFrame(route_results))
                 
                 # Point-wise Google Maps Link
-                # Format: origin/stop1/stop2/destination
                 stops = "/".join([f"{s['Lat']},{s['Long']}" for s in final_path])
                 gmaps_route = f"https://www.google.com/maps/dir/{start_coords}/{stops}/{end_coords}"
                 st.markdown(f'<a href="{gmaps_route}" target="_blank"><button style="width:100%; background-color:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:800; font-size:16px; cursor:pointer; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4);">🗺️ Open Sequential Route (1-2-3-4)</button></a>', unsafe_allow_html=True)
-        except Exception as e: 
-            st.error(f"Error: {e} | Ensure 'geopy' is installed via requirements.txt")
+        except Exception as e: st.error(f"Error: {e} | Ensure 'geopy' is added to requirements.txt file on GitHub.")
