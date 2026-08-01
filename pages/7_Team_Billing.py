@@ -90,6 +90,39 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- NAYI LINE: AMOUNT TO WORDS CONVERTER (INDIAN SYSTEM) ---
+def number_to_words(n):
+    if n is None or pd.isna(n):
+        return ""
+    n = int(n)
+    if n == 0:
+        return ""
+        
+    words = { 1: 'One', 2: 'Two', 3: 'Three', 4: 'Four', 5: 'Five', 6: 'Six', 7: 'Seven', 8: 'Eight', 9: 'Nine', 10: 'Ten',
+        11: 'Eleven', 12: 'Twelve', 13: 'Thirteen', 14: 'Fourteen', 15: 'Fifteen', 16: 'Sixteen', 17: 'Seventeen', 18: 'Eighteen', 19: 'Nineteen',
+        20: 'Twenty', 30: 'Thirty', 40: 'Forty', 50: 'Fifty', 60: 'Sixty', 70: 'Seventy', 80: 'Eighty', 90: 'Ninety' }
+    
+    def num_to_words_below_1000(num):
+        if num == 0: return ""
+        elif num < 20: return words[num]
+        elif num < 100: return words[num - num % 10] + (" " + words[num % 10] if num % 10 != 0 else "")
+        else: return words[num // 100] + " Hundred" + (" and " + num_to_words_below_1000(num % 100) if num % 100 != 0 else "")
+
+    res = ""
+    if n >= 10000000:
+        res += num_to_words_below_1000(n // 10000000) + " Crore "
+        n %= 10000000
+    if n >= 100000:
+        res += num_to_words_below_1000(n // 100000) + " Lakh "
+        n %= 100000
+    if n >= 1000:
+        res += num_to_words_below_1000(n // 1000) + " Thousand "
+        n %= 1000
+    if n > 0:
+        res += num_to_words_below_1000(n)
+        
+    return res.strip() + " Rupees Only"
+
 # --- 4. DATA FETCHING FUNCTIONS ---
 def get_dropdown_data(category_name):
     try:
@@ -136,7 +169,6 @@ def team_invoice_dialog(row_data=None):
         except Exception:
             pass
 
-    # --- NAYI LINE: Date input format DD/MM/YYYY ---
     inv_date = c3.date_input("Invoice Date", value=def_date, format="DD/MM/YYYY")
     
     c4, c5, c6, c7 = st.columns(4)
@@ -159,16 +191,22 @@ def team_invoice_dialog(row_data=None):
         start_gst_perc = None
 
     basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
-    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=start_gst_perc, placeholder="0")
-    
     safe_basic = basic_amt if basic_amt is not None else 0.0
+    
+    # --- NAYI LINE: Basic Amount in words ---
+    if safe_basic > 0:
+        c9.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_basic)}</div>", unsafe_allow_html=True)
+
+    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=start_gst_perc, placeholder="0")
     safe_gst = gst_perc if gst_perc is not None else 0.0
     
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
     
     c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
-    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span></div>", unsafe_allow_html=True)
+    
+    # --- NAYI LINE: Grand Total Amount in words ---
+    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>", unsafe_allow_html=True)
     
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
         if not inv_no:
@@ -231,7 +269,6 @@ def vendor_invoice_dialog(row_data=None):
         except Exception:
             pass
 
-    # --- NAYI LINE: Date input format DD/MM/YYYY ---
     inv_date = c3.date_input("Invoice Date", value=def_date, format="DD/MM/YYYY")
     
     c4, c5, c6, c7 = st.columns(4)
@@ -249,18 +286,24 @@ def vendor_invoice_dialog(row_data=None):
         start_gst_perc = None
 
     basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
+    safe_basic = basic_amt if basic_amt is not None else 0.0
+    
+    # --- NAYI LINE: Basic Amount in words ---
+    if safe_basic > 0:
+        c6.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_basic)}</div>", unsafe_allow_html=True)
+
     gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=start_gst_perc, placeholder="0")
     
-    safe_basic = basic_amt if basic_amt is not None else 0.0
     safe_gst = gst_perc if gst_perc is not None else 0.0
     
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
     
+    # --- NAYI LINE: Grand Total Amount in words ---
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
             <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.0f}</span></div>
-            <div><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span></div>
+            <div style='text-align:right;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>
         </div>
     """, unsafe_allow_html=True)
     
@@ -314,10 +357,13 @@ def payment_dialog(row_data=None, mode="Team"):
     p4, p5, p6 = st.columns(3)
     start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
     pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
+    safe_pay_amt = pay_amt if pay_amt is not None else 0.0
     
-    # --- NAYI LINE: Date input format DD/MM/YYYY ---
+    # --- NAYI LINE: Payment Amount in words ---
+    if safe_pay_amt > 0:
+        p4.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_pay_amt)}</div>", unsafe_allow_html=True)
+    
     pay_date = p5.date_input("Payment Date", value=def_date, format="DD/MM/YYYY")
-    
     pay_remark = p6.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -392,7 +438,6 @@ with tab1:
                 else:
                     df_inv["GST Amount"] = ""
                 
-                # --- NAYI LINE: Format string to actual Python Dates for proper UI parsing in DD/MM/YYYY ---
                 if "date" in df_inv.columns:
                     df_inv["date"] = pd.to_datetime(df_inv["date"], errors="coerce").dt.date
                 
@@ -409,7 +454,7 @@ with tab1:
                         "id": None, 
                         "team_name": "Team Name",
                         "invoice_no": "Invoice No.",
-                        "date": st.column_config.DateColumn("Invoice Date", format="DD/MM/YYYY"), # --- NAYI LINE ---
+                        "date": st.column_config.DateColumn("Invoice Date", format="DD/MM/YYYY"),
                         "project_id": "Project ID",
                         "site_id": "Site ID",
                         "site_name": "Site Name",
@@ -489,7 +534,6 @@ with tab2:
             if not df_pay.empty:
                 df_pay.insert(0, "Select", False)
                 
-                # --- NAYI LINE: Format string to actual Python Dates for proper UI parsing in DD/MM/YYYY ---
                 if "date" in df_pay.columns:
                     df_pay["date"] = pd.to_datetime(df_pay["date"], errors="coerce").dt.date
                 
@@ -500,7 +544,7 @@ with tab2:
                     height=500,
                     column_config={
                         "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-                        "date": st.column_config.DateColumn("Payment Date", format="DD/MM/YYYY"), # --- NAYI LINE ---
+                        "date": st.column_config.DateColumn("Payment Date", format="DD/MM/YYYY"),
                         "amount": st.column_config.NumberColumn("AMOUNT", format="₹ %d")
                     },
                     key="pay_editor"
@@ -562,7 +606,6 @@ with tab3:
                 else:
                     df_inv_rep = df_inv_rep[["invoice_no", "date", "team_name", "amount"]]
                 
-                # --- NAYI LINE: Format string strictly to DD/MM/YYYY for Report Tables & Export ---
                 if "date" in df_inv_rep.columns:
                     df_inv_rep["date"] = pd.to_datetime(df_inv_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
@@ -572,7 +615,6 @@ with tab3:
                 tot_pay = df_pay_rep["amount"].sum()
                 df_pay_rep = df_pay_rep[["date", "pay_from", "pay_type", "amount", "remark"]]
                 
-                # --- NAYI LINE: Format string strictly to DD/MM/YYYY for Report Tables & Export ---
                 if "date" in df_pay_rep.columns:
                     df_pay_rep["date"] = pd.to_datetime(df_pay_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
                     
