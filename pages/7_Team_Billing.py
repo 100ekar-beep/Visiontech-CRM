@@ -4,7 +4,7 @@ import datetime
 import io
 import os
 import math
-import requests  # --- NAYI LINE: WhatsApp API ke liye ---
+import requests
 from supabase import create_client, Client
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
@@ -91,8 +91,8 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- NAYI LINE: INTERAKT WHATSAPP API SETUP ---
-INTERAKT_API_KEY = "YOUR_INTERAKT_BASE64_API_KEY" # Yaha VS code se apna Interakt API Key paste karein
+# --- INTERAKT WHATSAPP API SETUP (VS CODE EXACT LOGIC) ---
+INTERAKT_API_KEY = "S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo="
 
 def get_mobile_number(category, name):
     try:
@@ -104,7 +104,7 @@ def get_mobile_number(category, name):
     return ""
 
 def send_interakt_whatsapp(mobile, template_name, params):
-    if not mobile or not INTERAKT_API_KEY or INTERAKT_API_KEY == "YOUR_INTERAKT_BASE64_API_KEY":
+    if not mobile or not INTERAKT_API_KEY:
         return
     
     url = "https://api.interakt.ai/v1/public/message/"
@@ -122,7 +122,7 @@ def send_interakt_whatsapp(mobile, template_name, params):
         "type": "Template",
         "template": {
             "name": template_name,
-            "languageCode": "en",
+            "languageCode": "hi", # VS Code language template
             "bodyValues": params
         }
     }
@@ -273,12 +273,11 @@ def team_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success ---
+                # --- NAYI LINE: Send WhatsApp on Success (Exact VS Code Params) ---
                 try:
                     mob = get_mobile_number("Team Name", team_val)
                     if mob:
-                        # VS Code wala apna template name yaha check karein:
-                        send_interakt_whatsapp(mob, "invoice_booking_alert", [team_val, inv_no, str(total_calc)]) 
+                        send_interakt_whatsapp(mob, "teaminvoice_r7", [str(team_val), str(proj_id), str(site_id), str(site_name), str(total_calc)]) 
                 except:
                     pass
                 
@@ -377,11 +376,17 @@ def vendor_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success ---
+                # --- NAYI LINE: Send WhatsApp to Both Team and Vendor (Exact VS Code Params) ---
                 try:
-                    mob = get_mobile_number("Vendor Name", vendor_val)
-                    if mob:
-                        send_interakt_whatsapp(mob, "invoice_booking_alert", [vendor_val, inv_no, str(total_calc)])
+                    team_mob = get_mobile_number("Team Name", team_val)
+                    vend_mob = get_mobile_number("Vendor Name", vendor_val)
+                    
+                    wa_params = [str(team_val), str(vendor_val), str(inv_no), str(inv_date), str(total_calc), str(team_val)]
+                    
+                    if team_mob:
+                        send_interakt_whatsapp(team_mob, "vendorinvoice", wa_params)
+                    if vend_mob:
+                        send_interakt_whatsapp(vend_mob, "vendorinvoice", wa_params)
                 except:
                     pass
                 
@@ -440,13 +445,12 @@ def payment_dialog(row_data=None, mode="Team"):
                 else:
                     supabase.table("billing_payments").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success ---
+                # --- NAYI LINE: Send WhatsApp on Success (Exact VS Code Params) ---
                 try:
                     cat = "Team Name" if mode == "Team" else "Vendor Name"
                     mob = get_mobile_number(cat, pay_to)
                     if mob:
-                        # VS Code wala apna template name yaha check karein:
-                        send_interakt_whatsapp(mob, "payment_success_alert", [pay_to, str(pay_amt), str(pay_date)]) 
+                        send_interakt_whatsapp(mob, "paymentinfo", [str(pay_to), str(pay_from), str(pay_type), str(pay_amt), str(pay_date)]) 
                 except:
                     pass
 
