@@ -131,8 +131,8 @@ if st.session_state.current_page == "Dashboard":
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("📦\nBOQ Report"): st.switch_page("pages/boq_report.py")
-        # --- NAYI LINE: File name exact match update kiya ---
-        if st.button("📊\nIndus Data"): st.switch_page("pages/Indus Site Data.py")
+        # --- NAYI LINE: GitHub ke exact naam ke sath update kiya ---
+        if st.button("📊\nIndus Data"): st.switch_page("pages/8_Indus Site Data.py")
         if st.button("🚨\nSTN Manager"): navigate_to("STN Manager")
     with c2:
         if st.button("🧾\nPO Report"): navigate_to("PO")
