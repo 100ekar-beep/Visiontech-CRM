@@ -56,38 +56,45 @@ with st.form("ind_form_v5"):
         sub_ind = st.form_submit_button("🔍 Search Indus")
     
 if sub_ind:
-    # --- NAYI LINE: Crash-proof Search Logic (Checks both spellings and columns to prevent API Error) ---
-    res_ind = None
-    try:
-        query = supabase.table("Excalation Matrix").select("*")
-        if in_id: query = query.ilike("Site ID", f"%{in_id.strip()}%")
-        if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
-        res_ind = query.execute()
-    except Exception as e1:
-        try:
-            # Fallback 1: Column might be 'Indus ID' instead of 'Site ID' in Supabase
-            query = supabase.table("Excalation Matrix").select("*")
-            if in_id: query = query.ilike("Indus ID", f"%{in_id.strip()}%")
-            if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
-            res_ind = query.execute()
-        except Exception as e2:
-            try:
-                # Fallback 2: Table might be 'Escalation Matrix'
-                query = supabase.table("Escalation Matrix").select("*")
-                if in_id: query = query.ilike("Indus ID", f"%{in_id.strip()}%")
-                if in_nm: query = query.ilike("Site Name", f"%{in_nm.strip()}%")
-                res_ind = query.execute()
-            except Exception as e3:
-                st.error(f"⚠️ Database Error: Supabase me 'Excalation Matrix' table ya 'Site ID' column nahi mil raha. Kripya exact spelling check karein!")
+    # --- Bulletproof Search Logic (Will not crash on API Errors) ---
+    search_success = False
+    res_data = None
+    
+    tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
+    id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
+    name_cols_to_try = ["Site Name", "site_name"]
+    
+    for t in tables_to_try:
+        if search_success: break
+        for id_col in id_cols_to_try:
+            if search_success: break
+            for nm_col in name_cols_to_try:
+                try:
+                    query = supabase.table(t).select("*")
+                    if in_id: query = query.ilike(id_col, f"%{in_id.strip()}%")
+                    if in_nm: query = query.ilike(nm_col, f"%{in_nm.strip()}%")
+                    res_ind = query.execute()
+                    
+                    if res_ind.data:
+                        res_data = res_ind.data
+                        search_success = True
+                        break
+                    elif not in_id and not in_nm:
+                        search_success = True
+                        break
+                except Exception:
+                    pass
 
-    if res_ind and res_ind.data:
-        df_ind = pd.DataFrame(res_ind.data)
+    if search_success and res_data:
+        df_ind = pd.DataFrame(res_data)
         st.dataframe(df_ind, use_container_width=True, hide_index=True)
         st.divider()
         st.subheader("📌 Vertical Site Details")
-        row_in = res_ind.data[0]
+        row_in = res_data[0]
         
-        # Mapping Data
+        # Mapping Data Safely for multiple possible column names
+        site_id_val = row_in.get('Indus ID', row_in.get('Site ID', row_in.get('indus_id', '-')))
+        site_name_val = row_in.get('Site Name', row_in.get('site_name', '-'))
         area_val = row_in.get('Area', row_in.get('Area Name', row_in.get('Site Address', '-')))
         cluster_val = row_in.get('Cluster', '-')
         
@@ -100,8 +107,8 @@ if sub_ind:
         aom_name = row_in.get('AOM Detail', row_in.get('AOM Name', '-'))
         aom_num = row_in.get('AOM Number', '-')
         
-        lat = row_in.get('Lat', row_in.get('Latitude', ''))
-        lon = row_in.get('Long', row_in.get('longitude', ''))
+        lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
+        lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
         def call_html(label, name, num):
             if num and str(num).strip() not in ['-', '', 'None', 'nan']:
@@ -125,9 +132,10 @@ if sub_ind:
                 st.markdown(f"📍 **Lat/Long** :- {lat if lat else '-'} / {lon if lon else '-'}")
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # --- WhatsApp Team Selection & Action Logic ---
+        # --- NEW LOGIC: Team Dropdown & WhatsApp Button ---
         st.markdown("### 💬 Send Details via WhatsApp")
         
+        # Fetching Teams from Dropdown Master
         team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").eq("is_active", True).execute()
         team_dict = {r['option_value']: r['mobile'] for r in team_res.data} if team_res.data else {}
         
@@ -140,7 +148,7 @@ if sub_ind:
                 clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
                 if len(clean_mob) >= 10:
                     maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
-                    wa_msg = f"Site Details:\n\n*Site ID:* {row_in.get('Site ID', row_in.get('Indus ID', '-'))}\n*Site Name:* {row_in.get('Site Name', '-')}\n*Lat:* {lat}\n*Long:* {lon}\n\n*Location Map:*\n{maps_link}"
+                    wa_msg = f"Site Details:\n\n*Site ID:* {site_id_val}\n*Site Name:* {site_name_val}\n*Lat:* {lat}\n*Long:* {lon}\n\n*Location Map:*\n{maps_link}"
                     wa_encoded = urllib.parse.quote(wa_msg)
                     wa_url = f"https://wa.me/91{clean_mob}?text={wa_encoded}"
                     
@@ -150,8 +158,8 @@ if sub_ind:
             else:
                 t_col2.warning("Mobile number not found for this team.")
                 
-    elif res_ind is not None: 
-        st.info("No data found matching your search.")
+    else: 
+        st.info("No data found matching your search in the Database. Kripya Site ID theek se check karein.")
 
 st.divider()
 
@@ -171,23 +179,33 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
         add_sid = st.text_input("📍 Add Site ID")
         if st.form_submit_button("➕ Add to List"):
             if add_sid:
-                # --- NAYI LINE: Crash-proof Route add logic ---
-                s_res = None
-                try:
-                    s_res = supabase.table("Excalation Matrix").select("*").ilike("Site ID", f"%{add_sid.strip()}%").execute()
-                except:
-                    try:
-                        s_res = supabase.table("Excalation Matrix").select("*").ilike("Indus ID", f"%{add_sid.strip()}%").execute()
-                    except:
+                # --- Crash-proof Route add logic ---
+                s_data = None
+                tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
+                id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
+                
+                for t in tables_to_try:
+                    if s_data: break
+                    for id_col in id_cols_to_try:
                         try:
-                            s_res = supabase.table("Escalation Matrix").select("*").ilike("Indus ID", f"%{add_sid.strip()}%").execute()
+                            s_res = supabase.table(t).select("*").ilike(id_col, f"%{add_sid.strip()}%").execute()
+                            if s_res.data: 
+                                s_data = s_res.data[0]
+                                break
                         except: pass
 
-                if s_res and s_res.data: 
-                    st.session_state.route_list.append(s_res.data[0])
+                if s_data: 
+                    # Data normalization for route table
+                    norm_data = {
+                        'Site ID': s_data.get('Site ID', s_data.get('Indus ID', s_data.get('indus_id', '-'))),
+                        'Site Name': s_data.get('Site Name', s_data.get('site_name', '-')),
+                        'Lat': s_data.get('Lat', s_data.get('Latitude', s_data.get('latitude', ''))),
+                        'Long': s_data.get('Long', s_data.get('longitude', s_data.get('Longitude', '')))
+                    }
+                    st.session_state.route_list.append(norm_data)
                     st.success(f"Site {add_sid} added!")
                     st.rerun()
-                else: st.error("Site ID not found or Database Error!")
+                else: st.error("Site ID not found!")
 
     # --- Current Added Sites List ---
     if st.session_state.route_list:
@@ -226,7 +244,7 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
                 # Showing Sequential Table
                 route_results = []
                 for i, s in enumerate(final_path, 1):
-                    route_results.append({"Stop No": i, "Site ID": s.get('Site ID', s.get('Indus ID', '-')), "Name": s.get('Site Name','-')})
+                    route_results.append({"Stop No": i, "Site ID": s.get('Site ID', '-'), "Name": s.get('Site Name','-')})
                 st.table(pd.DataFrame(route_results))
                 
                 # Point-wise Google Maps Link
