@@ -116,7 +116,6 @@ def send_interakt_whatsapp(mobile, template_name, params):
     mob = str(mobile).replace("+91", "").replace(" ", "").strip()
     if len(mob) < 10: return
     
-    # --- NAYI LINE: Khali strings ko "-" se replace kar rahe hain taaki API 400 error na de ---
     clean_params = [str(p).strip() if str(p).strip() else "-" for p in params]
     
     payload = {
@@ -276,11 +275,22 @@ def team_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
+                # --- NAYI LINE: Send WhatsApp on Success (Updated with 9 variables) ---
                 try:
                     mob = get_mobile_number("Team Name", team_val)
                     if mob:
-                        # --- NAYI LINE: Converting total to int so format is clean, and sending list safely ---
-                        wa_params = [team_val, proj_id, site_id, site_name, str(int(total_calc))]
+                        wa_date_str = inv_date.strftime("%d/%m/%Y")
+                        wa_params = [
+                            str(team_val), 
+                            str(inv_no), 
+                            str(wa_date_str), 
+                            str(proj_id), 
+                            str(site_id), 
+                            str(site_name), 
+                            str(int(safe_basic)), 
+                            str(int(gst_amt)), 
+                            str(int(total_calc))
+                        ]
                         send_interakt_whatsapp(mob, "teaminvoice_r7", wa_params) 
                 except:
                     pass
@@ -384,7 +394,6 @@ def vendor_invoice_dialog(row_data=None):
                     team_mob = get_mobile_number("Team Name", team_val)
                     vend_mob = get_mobile_number("Vendor Name", vendor_val)
                     
-                    # --- NAYI LINE: Formatted date properly for Whatsapp ---
                     wa_date_str = inv_date.strftime("%d/%m/%Y")
                     wa_params = [team_val, vendor_val, inv_no, wa_date_str, str(int(total_calc)), team_val]
                     
@@ -454,7 +463,6 @@ def payment_dialog(row_data=None, mode="Team"):
                     cat = "Team Name" if mode == "Team" else "Vendor Name"
                     mob = get_mobile_number(cat, pay_to)
                     if mob:
-                        # --- NAYI LINE: Formatted date properly for Whatsapp ---
                         wa_date_str = pay_date.strftime("%d/%m/%Y")
                         wa_params = [pay_to, pay_from, pay_type, str(int(pay_amt)), wa_date_str]
                         send_interakt_whatsapp(mob, "paymentinfo", wa_params) 
