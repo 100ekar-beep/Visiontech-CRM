@@ -91,7 +91,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- INTERAKT WHATSAPP API SETUP (VS CODE EXACT LOGIC) ---
+# --- INTERAKT WHATSAPP API SETUP ---
 INTERAKT_API_KEY = "S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo="
 
 def get_mobile_number(category, name):
@@ -116,14 +116,17 @@ def send_interakt_whatsapp(mobile, template_name, params):
     mob = str(mobile).replace("+91", "").replace(" ", "").strip()
     if len(mob) < 10: return
     
+    # --- NAYI LINE: Khali strings ko "-" se replace kar rahe hain taaki API 400 error na de ---
+    clean_params = [str(p).strip() if str(p).strip() else "-" for p in params]
+    
     payload = {
         "countryCode": "+91",
         "phoneNumber": mob,
         "type": "Template",
         "template": {
             "name": template_name,
-            "languageCode": "hi", # VS Code language template
-            "bodyValues": params
+            "languageCode": "hi",
+            "bodyValues": clean_params
         }
     }
     try:
@@ -273,11 +276,12 @@ def team_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success (Exact VS Code Params) ---
                 try:
                     mob = get_mobile_number("Team Name", team_val)
                     if mob:
-                        send_interakt_whatsapp(mob, "teaminvoice_r7", [str(team_val), str(proj_id), str(site_id), str(site_name), str(total_calc)]) 
+                        # --- NAYI LINE: Converting total to int so format is clean, and sending list safely ---
+                        wa_params = [team_val, proj_id, site_id, site_name, str(int(total_calc))]
+                        send_interakt_whatsapp(mob, "teaminvoice_r7", wa_params) 
                 except:
                     pass
                 
@@ -376,12 +380,13 @@ def vendor_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp to Both Team and Vendor (Exact VS Code Params) ---
                 try:
                     team_mob = get_mobile_number("Team Name", team_val)
                     vend_mob = get_mobile_number("Vendor Name", vendor_val)
                     
-                    wa_params = [str(team_val), str(vendor_val), str(inv_no), str(inv_date), str(total_calc), str(team_val)]
+                    # --- NAYI LINE: Formatted date properly for Whatsapp ---
+                    wa_date_str = inv_date.strftime("%d/%m/%Y")
+                    wa_params = [team_val, vendor_val, inv_no, wa_date_str, str(int(total_calc)), team_val]
                     
                     if team_mob:
                         send_interakt_whatsapp(team_mob, "vendorinvoice", wa_params)
@@ -445,12 +450,14 @@ def payment_dialog(row_data=None, mode="Team"):
                 else:
                     supabase.table("billing_payments").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success (Exact VS Code Params) ---
                 try:
                     cat = "Team Name" if mode == "Team" else "Vendor Name"
                     mob = get_mobile_number(cat, pay_to)
                     if mob:
-                        send_interakt_whatsapp(mob, "paymentinfo", [str(pay_to), str(pay_from), str(pay_type), str(pay_amt), str(pay_date)]) 
+                        # --- NAYI LINE: Formatted date properly for Whatsapp ---
+                        wa_date_str = pay_date.strftime("%d/%m/%Y")
+                        wa_params = [pay_to, pay_from, pay_type, str(int(pay_amt)), wa_date_str]
+                        send_interakt_whatsapp(mob, "paymentinfo", wa_params) 
                 except:
                     pass
 
