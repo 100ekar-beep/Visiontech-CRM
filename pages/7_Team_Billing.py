@@ -136,7 +136,8 @@ def team_invoice_dialog(row_data=None):
         except Exception:
             pass
 
-    inv_date = c3.date_input("Invoice Date", value=def_date)
+    # --- NAYI LINE: Date input format DD/MM/YYYY ---
+    inv_date = c3.date_input("Invoice Date", value=def_date, format="DD/MM/YYYY")
     
     c4, c5, c6, c7 = st.columns(4)
     proj_id = c4.text_input("Project ID", value=row_data.get("project_id", "") if not is_new else "")
@@ -147,7 +148,6 @@ def team_invoice_dialog(row_data=None):
     c8, c9, c10, c11 = st.columns(4)
     remark = c8.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    # --- NAYI LINE: Fetching basic_amount & calculating reverse GST % for edit ---
     b_amt = row_data.get("basic_amount") if not is_new else None
     g_amt = row_data.get("gst_amount") if not is_new else None
     
@@ -180,8 +180,8 @@ def team_invoice_dialog(row_data=None):
                 "invoice_type": "Team",
                 "team_name": team_val,
                 "amount": total_calc,
-                "basic_amount": safe_basic, # --- NAYI LINE ---
-                "gst_amount": gst_amt,      # --- NAYI LINE ---
+                "basic_amount": safe_basic,
+                "gst_amount": gst_amt,
                 "date": str(inv_date),
                 "project_id": proj_id,
                 "site_id": site_id,
@@ -231,13 +231,13 @@ def vendor_invoice_dialog(row_data=None):
         except Exception:
             pass
 
-    inv_date = c3.date_input("Invoice Date", value=def_date)
+    # --- NAYI LINE: Date input format DD/MM/YYYY ---
+    inv_date = c3.date_input("Invoice Date", value=def_date, format="DD/MM/YYYY")
     
     c4, c5, c6, c7 = st.columns(4)
     team_val = c4.selectbox("Link to Team *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     remark = c5.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    # --- NAYI LINE: Fetching basic_amount & calculating reverse GST % for edit ---
     b_amt = row_data.get("basic_amount") if not is_new else None
     g_amt = row_data.get("gst_amount") if not is_new else None
     
@@ -274,8 +274,8 @@ def vendor_invoice_dialog(row_data=None):
                 "invoice_type": "Vendor",
                 "team_name": team_val,
                 "amount": total_calc,
-                "basic_amount": safe_basic, # --- NAYI LINE ---
-                "gst_amount": gst_amt,      # --- NAYI LINE ---
+                "basic_amount": safe_basic,
+                "gst_amount": gst_amt,
                 "date": str(inv_date),
                 "project_id": "", "site_id": "", "site_name": "", "cluster": "",
                 "invoice_no": inv_no,
@@ -314,7 +314,10 @@ def payment_dialog(row_data=None, mode="Team"):
     p4, p5, p6 = st.columns(3)
     start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
     pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
-    pay_date = p5.date_input("Payment Date", value=def_date)
+    
+    # --- NAYI LINE: Date input format DD/MM/YYYY ---
+    pay_date = p5.date_input("Payment Date", value=def_date, format="DD/MM/YYYY")
+    
     pay_remark = p6.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -379,7 +382,6 @@ with tab1:
             if not df_inv.empty:
                 df_inv.insert(0, "Select", False)
                 
-                # --- NAYI LINE: Mapping basic & gst amount to display ---
                 if "basic_amount" in df_inv.columns:
                     df_inv["Basic Amount"] = df_inv["basic_amount"]
                 else:
@@ -389,6 +391,10 @@ with tab1:
                     df_inv["GST Amount"] = df_inv["gst_amount"]
                 else:
                     df_inv["GST Amount"] = ""
+                
+                # --- NAYI LINE: Format string to actual Python Dates for proper UI parsing in DD/MM/YYYY ---
+                if "date" in df_inv.columns:
+                    df_inv["date"] = pd.to_datetime(df_inv["date"], errors="coerce").dt.date
                 
                 display_cols = ["Select", "id", "team_name", "invoice_no", "date", "project_id", "site_id", "site_name", "cluster", "Basic Amount", "GST Amount", "amount", "vendor_name", "remark"]
                 actual_disp_cols = [c for c in display_cols if c in df_inv.columns]
@@ -400,10 +406,10 @@ with tab1:
                     height=500,
                     column_config={
                         "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-                        "id": None, # Hidden
+                        "id": None, 
                         "team_name": "Team Name",
                         "invoice_no": "Invoice No.",
-                        "date": "Invoice Date",
+                        "date": st.column_config.DateColumn("Invoice Date", format="DD/MM/YYYY"), # --- NAYI LINE ---
                         "project_id": "Project ID",
                         "site_id": "Site ID",
                         "site_name": "Site Name",
@@ -482,6 +488,11 @@ with tab2:
 
             if not df_pay.empty:
                 df_pay.insert(0, "Select", False)
+                
+                # --- NAYI LINE: Format string to actual Python Dates for proper UI parsing in DD/MM/YYYY ---
+                if "date" in df_pay.columns:
+                    df_pay["date"] = pd.to_datetime(df_pay["date"], errors="coerce").dt.date
+                
                 edited_pay_df = st.data_editor(
                     df_pay,
                     hide_index=True,
@@ -489,6 +500,7 @@ with tab2:
                     height=500,
                     column_config={
                         "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+                        "date": st.column_config.DateColumn("Payment Date", format="DD/MM/YYYY"), # --- NAYI LINE ---
                         "amount": st.column_config.NumberColumn("AMOUNT", format="₹ %d")
                     },
                     key="pay_editor"
@@ -549,12 +561,21 @@ with tab3:
                     df_inv_rep = df_inv_rep[["project_id", "site_id", "site_name", "amount", "date"]]
                 else:
                     df_inv_rep = df_inv_rep[["invoice_no", "date", "team_name", "amount"]]
+                
+                # --- NAYI LINE: Format string strictly to DD/MM/YYYY for Report Tables & Export ---
+                if "date" in df_inv_rep.columns:
+                    df_inv_rep["date"] = pd.to_datetime(df_inv_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
             res_pay = supabase.table("billing_payments").select("*").eq("mode", rep_mode).eq("pay_to", sel_name).execute()
             if res_pay.data:
                 df_pay_rep = pd.DataFrame(res_pay.data)
                 tot_pay = df_pay_rep["amount"].sum()
                 df_pay_rep = df_pay_rep[["date", "pay_from", "pay_type", "amount", "remark"]]
+                
+                # --- NAYI LINE: Format string strictly to DD/MM/YYYY for Report Tables & Export ---
+                if "date" in df_pay_rep.columns:
+                    df_pay_rep["date"] = pd.to_datetime(df_pay_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
+                    
         except Exception as e:
             st.error(f"Error fetching data: {e}")
 
