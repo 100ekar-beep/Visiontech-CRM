@@ -118,6 +118,24 @@ def team_invoice_dialog(row_data=None):
     c1, c2, c3 = st.columns(3)
     team_val = c1.selectbox("Team Name *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     inv_no = c2.text_input("Invoice No *", value=def_inv)
+    
+    # --- NAYI LINE: Duplicate Invoice Check Logic ---
+    is_duplicate = False
+    if inv_no:
+        try:
+            dup_res = supabase.table("billing_invoices").select("id").eq("invoice_no", inv_no).execute()
+            if dup_res.data:
+                if is_new:
+                    is_duplicate = True
+                else:
+                    if any(r['id'] != row_data['id'] for r in dup_res.data):
+                        is_duplicate = True
+            
+            if is_duplicate:
+                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in VISPL CRM.</span>", unsafe_allow_html=True)
+        except Exception:
+            pass
+
     inv_date = c3.date_input("Invoice Date", value=def_date)
     
     c4, c5, c6, c7 = st.columns(4)
@@ -145,6 +163,8 @@ def team_invoice_dialog(row_data=None):
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
         if not inv_no:
             st.error("⚠️ Invoice No is required!")
+        elif is_duplicate:
+            st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
                 "invoice_type": "Team",
@@ -182,6 +202,24 @@ def vendor_invoice_dialog(row_data=None):
     c1, c2, c3 = st.columns(3)
     vendor_val = c1.selectbox("Vendor Name *", options=vendor_list, index=vendor_list.index(def_vendor) if def_vendor in vendor_list else 0)
     inv_no = c2.text_input("Invoice No *", value=def_inv)
+    
+    # --- NAYI LINE: Duplicate Invoice Check Logic ---
+    is_duplicate = False
+    if inv_no:
+        try:
+            dup_res = supabase.table("billing_invoices").select("id").eq("invoice_no", inv_no).execute()
+            if dup_res.data:
+                if is_new:
+                    is_duplicate = True
+                else:
+                    if any(r['id'] != row_data['id'] for r in dup_res.data):
+                        is_duplicate = True
+            
+            if is_duplicate:
+                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in VISPL CRM.</span>", unsafe_allow_html=True)
+        except Exception:
+            pass
+
     inv_date = c3.date_input("Invoice Date", value=def_date)
     
     c4, c5, c6, c7 = st.columns(4)
@@ -208,6 +246,8 @@ def vendor_invoice_dialog(row_data=None):
     if st.button("💾 Save Vendor Invoice", type="primary", use_container_width=True):
         if not inv_no:
             st.error("⚠️ Invoice No is required!")
+        elif is_duplicate:
+            st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
                 "invoice_type": "Vendor",
@@ -315,14 +355,35 @@ with tab1:
 
             if not df_inv.empty:
                 df_inv.insert(0, "Select", False)
+                
+                # --- NAYI LINE: Required Formatted Columns logic ---
+                for c in ["Basic Amount", "GST Amount"]:
+                    if c not in df_inv.columns:
+                        df_inv[c] = "" # DB structure untouched, mapped empty fields to show in table
+                
+                display_cols = ["Select", "id", "team_name", "invoice_no", "date", "project_id", "site_id", "site_name", "cluster", "Basic Amount", "GST Amount", "amount", "vendor_name", "remark"]
+                actual_disp_cols = [c for c in display_cols if c in df_inv.columns]
+                
                 edited_df = st.data_editor(
-                    df_inv,
+                    df_inv[actual_disp_cols],
                     hide_index=True,
                     use_container_width=True,
                     height=500,
                     column_config={
                         "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-                        "amount": st.column_config.NumberColumn("AMOUNT", format="₹ %d")
+                        "id": None, # Kept for backend functionality but hidden from UI
+                        "team_name": "Team Name",
+                        "invoice_no": "Invoice No.",
+                        "date": "Invoice Date",
+                        "project_id": "Project ID",
+                        "site_id": "Site ID",
+                        "site_name": "Site Name",
+                        "cluster": "Cluster",
+                        "Basic Amount": "Basic Amount",
+                        "GST Amount": "GST Amount",
+                        "amount": st.column_config.NumberColumn("Total Amount", format="₹ %d"),
+                        "vendor_name": "Vendor",
+                        "remark": "Remark"
                     }
                 )
                 
@@ -330,19 +391,23 @@ with tab1:
                 if not sel_rows.empty:
                     st.markdown("---")
                     row_dict = sel_rows.iloc[0].to_dict()
+                    
+                    # Ensure original raw values are passed to dialog even after UI renaming
+                    orig_dict = df_inv[df_inv['id'] == row_dict['id']].iloc[0].to_dict()
+                    
                     col_act1, col_act2, _ = st.columns([2, 2, 8])
                     
                     with col_act1:
                         if st.button("👁️ Edit Selected", type="primary", use_container_width=True, key="edit_inv_btn"):
-                            if row_dict.get("invoice_type") == "Team":
-                                team_invoice_dialog(row_dict)
+                            if orig_dict.get("invoice_type") == "Team":
+                                team_invoice_dialog(orig_dict)
                             else:
-                                vendor_invoice_dialog(row_dict)
+                                vendor_invoice_dialog(orig_dict)
                                 
                     with col_act2:
                         if st.button("🗑️ Delete Selected", type="secondary", use_container_width=True, key="del_inv_btn"):
                             try:
-                                supabase.table("billing_invoices").delete().eq("id", row_dict["id"]).execute()
+                                supabase.table("billing_invoices").delete().eq("id", orig_dict["id"]).execute()
                                 st.success("✅ Deleted successfully!")
                                 st.rerun()
                             except Exception as e:
@@ -585,7 +650,6 @@ with tab3:
                             fill = not fill
                         pdf.ln(5)
                 
-                # --- NAYI LINE: Removed Emojis from PDF Generation ---
                 create_table("INVOICES (BILLED)", df_inv_rep, secondary_color)
                 create_table("PAYMENTS (PAID)", df_pay_rep, green_color)
                 
