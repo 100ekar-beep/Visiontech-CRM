@@ -90,7 +90,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- NAYI LINE: AMOUNT TO WORDS CONVERTER (INDIAN SYSTEM) ---
+# --- AMOUNT TO WORDS CONVERTER (INDIAN SYSTEM) ---
 def number_to_words(n):
     if n is None or pd.isna(n):
         return ""
@@ -193,7 +193,6 @@ def team_invoice_dialog(row_data=None):
     basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
     safe_basic = basic_amt if basic_amt is not None else 0.0
     
-    # --- NAYI LINE: Basic Amount in words ---
     if safe_basic > 0:
         c9.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_basic)}</div>", unsafe_allow_html=True)
 
@@ -205,7 +204,6 @@ def team_invoice_dialog(row_data=None):
     
     c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
     
-    # --- NAYI LINE: Grand Total Amount in words ---
     st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>", unsafe_allow_html=True)
     
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
@@ -288,7 +286,6 @@ def vendor_invoice_dialog(row_data=None):
     basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
     safe_basic = basic_amt if basic_amt is not None else 0.0
     
-    # --- NAYI LINE: Basic Amount in words ---
     if safe_basic > 0:
         c6.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_basic)}</div>", unsafe_allow_html=True)
 
@@ -299,7 +296,6 @@ def vendor_invoice_dialog(row_data=None):
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
     
-    # --- NAYI LINE: Grand Total Amount in words ---
     st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
             <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.0f}</span></div>
@@ -359,7 +355,6 @@ def payment_dialog(row_data=None, mode="Team"):
     pay_amt = p4.number_input("Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
     safe_pay_amt = pay_amt if pay_amt is not None else 0.0
     
-    # --- NAYI LINE: Payment Amount in words ---
     if safe_pay_amt > 0:
         p4.markdown(f"<div style='color:#ef4444; font-weight:800; font-size:0.85rem; margin-top:-10px; margin-bottom:10px;'>{number_to_words(safe_pay_amt)}</div>", unsafe_allow_html=True)
     
@@ -601,13 +596,27 @@ with tab3:
             if res_inv.data:
                 df_inv_rep = pd.DataFrame(res_inv.data)
                 tot_inv = df_inv_rep["amount"].sum()
-                if rep_mode == "Team":
-                    df_inv_rep = df_inv_rep[["project_id", "site_id", "site_name", "amount", "date"]]
-                else:
-                    df_inv_rep = df_inv_rep[["invoice_no", "date", "team_name", "amount"]]
                 
-                if "date" in df_inv_rep.columns:
-                    df_inv_rep["date"] = pd.to_datetime(df_inv_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
+                # --- NAYI LINE: Mapping required columns exactly for Reports ---
+                req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "gst_amount", "amount"]
+                for c in req_cols:
+                    if c not in df_inv_rep.columns:
+                        df_inv_rep[c] = ""
+                df_inv_rep = df_inv_rep[req_cols]
+                
+                df_inv_rep.rename(columns={
+                    "invoice_no": "Invoice No.",
+                    "date": "Invoice Date",
+                    "project_id": "Project ID",
+                    "site_id": "Site ID",
+                    "site_name": "Site Name",
+                    "basic_amount": "Basic Amt",
+                    "gst_amount": "GST",
+                    "amount": "Total"
+                }, inplace=True)
+                
+                if "Invoice Date" in df_inv_rep.columns:
+                    df_inv_rep["Invoice Date"] = pd.to_datetime(df_inv_rep["Invoice Date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
             res_pay = supabase.table("billing_payments").select("*").eq("mode", rep_mode).eq("pay_to", sel_name).execute()
             if res_pay.data:
@@ -711,17 +720,22 @@ with tab3:
                         
                         pdf.set_fill_color(*header_color)
                         pdf.set_text_color(255, 255, 255)
-                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_font("Arial", 'B', 8)
                         
                         cols = df.columns.tolist()
-                        col_width = 190 / len(cols)
                         
-                        for col in cols:
-                            pdf.cell(col_width, 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
+                        # --- NAYI LINE: Custom column widths to perfectly fit the 8 Invoice columns in A4 PDF ---
+                        if len(cols) == 8:
+                            col_widths = [20, 20, 25, 28, 27, 22, 20, 28]
+                        else:
+                            col_widths = [190 / len(cols)] * len(cols)
+                            
+                        for i, col in enumerate(cols):
+                            pdf.cell(col_widths[i], 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
                         pdf.ln()
                         
                         pdf.set_text_color(0, 0, 0)
-                        pdf.set_font("Arial", '', 8)
+                        pdf.set_font("Arial", '', 7.5)
                         
                         fill = False
                         for _, row in df.iterrows():
@@ -730,13 +744,23 @@ with tab3:
                             else:
                                 pdf.set_fill_color(255, 255, 255)
                                 
-                            for col in cols:
+                            for i, col in enumerate(cols):
                                 val = row[col]
-                                if 'amount' in str(col).lower():
-                                    val_str = f"Rs. {float(val):,.0f}" if pd.notna(val) else ""
+                                col_lower = str(col).lower()
+                                
+                                # --- NAYI LINE: Smart formatting for Basic, GST and Total amounts in PDF ---
+                                if 'amt' in col_lower or 'total' in col_lower or 'gst' in col_lower or 'basic' in col_lower or 'amount' in col_lower:
+                                    try:
+                                        if pd.notna(val) and str(val).strip() != "":
+                                            val_str = f"Rs. {float(val):,.0f}"
+                                        else:
+                                            val_str = ""
+                                    except:
+                                        val_str = str(val)[:30]
                                 else:
-                                    val_str = str(val)[:30] 
-                                pdf.cell(col_width, 7, val_str, border=1, align='C', fill=fill)
+                                    val_str = str(val)[:30] if pd.notna(val) else ""
+                                    
+                                pdf.cell(col_widths[i], 7, val_str, border=1, align='C', fill=fill)
                             pdf.ln()
                             fill = not fill
                         pdf.ln(5)
