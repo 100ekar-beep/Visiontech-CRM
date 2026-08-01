@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import io
 import os
+import math
 from supabase import create_client, Client
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
@@ -105,7 +106,7 @@ pay_from_list = get_dropdown_data("Payment From") or ["Bank", "Cash"]
 pay_type_list = get_dropdown_data("Payment Type") or ["NEFT", "RTGS", "UPI"]
 
 
-# --- 5. POPUP DIALOGS FOR INVOICES (BLANK INPUTS & NO DECIMALS) ---
+# --- 5. POPUP DIALOGS FOR INVOICES ---
 @st.dialog("📝 Team Invoice Entry", width="large")
 def team_invoice_dialog(row_data=None):
     is_new = row_data is None
@@ -119,7 +120,6 @@ def team_invoice_dialog(row_data=None):
     team_val = c1.selectbox("Team Name *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     inv_no = c2.text_input("Invoice No *", value=def_inv)
     
-    # --- NAYI LINE: Duplicate Invoice Check Logic ---
     is_duplicate = False
     if inv_no:
         try:
@@ -147,9 +147,19 @@ def team_invoice_dialog(row_data=None):
     c8, c9, c10, c11 = st.columns(4)
     remark = c8.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
-    basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
-    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
+    # --- NAYI LINE: Fetching basic_amount & calculating reverse GST % for edit ---
+    b_amt = row_data.get("basic_amount") if not is_new else None
+    g_amt = row_data.get("gst_amount") if not is_new else None
+    
+    start_basic = float(b_amt) if b_amt is not None and not math.isnan(b_amt) else None
+    
+    if start_basic and start_basic > 0 and g_amt is not None and not math.isnan(g_amt):
+        start_gst_perc = (float(g_amt) / start_basic) * 100
+    else:
+        start_gst_perc = None
+
+    basic_amt = c9.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
+    gst_perc = c10.number_input("GST (%)", min_value=0.0, step=1.0, value=start_gst_perc, placeholder="0")
     
     safe_basic = basic_amt if basic_amt is not None else 0.0
     safe_gst = gst_perc if gst_perc is not None else 0.0
@@ -170,6 +180,8 @@ def team_invoice_dialog(row_data=None):
                 "invoice_type": "Team",
                 "team_name": team_val,
                 "amount": total_calc,
+                "basic_amount": safe_basic, # --- NAYI LINE ---
+                "gst_amount": gst_amt,      # --- NAYI LINE ---
                 "date": str(inv_date),
                 "project_id": proj_id,
                 "site_id": site_id,
@@ -203,7 +215,6 @@ def vendor_invoice_dialog(row_data=None):
     vendor_val = c1.selectbox("Vendor Name *", options=vendor_list, index=vendor_list.index(def_vendor) if def_vendor in vendor_list else 0)
     inv_no = c2.text_input("Invoice No *", value=def_inv)
     
-    # --- NAYI LINE: Duplicate Invoice Check Logic ---
     is_duplicate = False
     if inv_no:
         try:
@@ -226,9 +237,19 @@ def vendor_invoice_dialog(row_data=None):
     team_val = c4.selectbox("Link to Team *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
     remark = c5.text_input("Remark", value=row_data.get("remark", "") if not is_new else "")
     
-    start_amount = float(row_data.get("amount", 0.0)) if not is_new else None
-    basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_amount, placeholder="0")
-    gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=None, placeholder="0")
+    # --- NAYI LINE: Fetching basic_amount & calculating reverse GST % for edit ---
+    b_amt = row_data.get("basic_amount") if not is_new else None
+    g_amt = row_data.get("gst_amount") if not is_new else None
+    
+    start_basic = float(b_amt) if b_amt is not None and not math.isnan(b_amt) else None
+    
+    if start_basic and start_basic > 0 and g_amt is not None and not math.isnan(g_amt):
+        start_gst_perc = (float(g_amt) / start_basic) * 100
+    else:
+        start_gst_perc = None
+
+    basic_amt = c6.number_input("Basic Amount (₹)", min_value=0.0, step=1.0, value=start_basic, placeholder="0")
+    gst_perc = c7.number_input("GST (%)", min_value=0.0, step=1.0, value=start_gst_perc, placeholder="0")
     
     safe_basic = basic_amt if basic_amt is not None else 0.0
     safe_gst = gst_perc if gst_perc is not None else 0.0
@@ -253,6 +274,8 @@ def vendor_invoice_dialog(row_data=None):
                 "invoice_type": "Vendor",
                 "team_name": team_val,
                 "amount": total_calc,
+                "basic_amount": safe_basic, # --- NAYI LINE ---
+                "gst_amount": gst_amt,      # --- NAYI LINE ---
                 "date": str(inv_date),
                 "project_id": "", "site_id": "", "site_name": "", "cluster": "",
                 "invoice_no": inv_no,
@@ -356,10 +379,16 @@ with tab1:
             if not df_inv.empty:
                 df_inv.insert(0, "Select", False)
                 
-                # --- NAYI LINE: Required Formatted Columns logic ---
-                for c in ["Basic Amount", "GST Amount"]:
-                    if c not in df_inv.columns:
-                        df_inv[c] = "" # DB structure untouched, mapped empty fields to show in table
+                # --- NAYI LINE: Mapping basic & gst amount to display ---
+                if "basic_amount" in df_inv.columns:
+                    df_inv["Basic Amount"] = df_inv["basic_amount"]
+                else:
+                    df_inv["Basic Amount"] = ""
+                    
+                if "gst_amount" in df_inv.columns:
+                    df_inv["GST Amount"] = df_inv["gst_amount"]
+                else:
+                    df_inv["GST Amount"] = ""
                 
                 display_cols = ["Select", "id", "team_name", "invoice_no", "date", "project_id", "site_id", "site_name", "cluster", "Basic Amount", "GST Amount", "amount", "vendor_name", "remark"]
                 actual_disp_cols = [c for c in display_cols if c in df_inv.columns]
@@ -371,7 +400,7 @@ with tab1:
                     height=500,
                     column_config={
                         "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-                        "id": None, # Kept for backend functionality but hidden from UI
+                        "id": None, # Hidden
                         "team_name": "Team Name",
                         "invoice_no": "Invoice No.",
                         "date": "Invoice Date",
@@ -379,8 +408,8 @@ with tab1:
                         "site_id": "Site ID",
                         "site_name": "Site Name",
                         "cluster": "Cluster",
-                        "Basic Amount": "Basic Amount",
-                        "GST Amount": "GST Amount",
+                        "Basic Amount": st.column_config.NumberColumn("Basic Amount", format="₹ %d"),
+                        "GST Amount": st.column_config.NumberColumn("GST Amount", format="₹ %d"),
                         "amount": st.column_config.NumberColumn("Total Amount", format="₹ %d"),
                         "vendor_name": "Vendor",
                         "remark": "Remark"
@@ -392,7 +421,6 @@ with tab1:
                     st.markdown("---")
                     row_dict = sel_rows.iloc[0].to_dict()
                     
-                    # Ensure original raw values are passed to dialog even after UI renaming
                     orig_dict = df_inv[df_inv['id'] == row_dict['id']].iloc[0].to_dict()
                     
                     col_act1, col_act2, _ = st.columns([2, 2, 8])
