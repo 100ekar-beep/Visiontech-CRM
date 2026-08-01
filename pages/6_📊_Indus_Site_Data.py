@@ -37,6 +37,22 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0;
         margin-bottom: 15px;
     }
+
+    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
+    section[data-testid="stSidebar"] { 
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important; 
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
+    }
+    div[data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    div[data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
+    div[data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
+    }
+    div[data-testid="stSidebarNav"] a span { color: inherit !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -135,9 +151,14 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button ---
         st.markdown("### 💬 Send Details via WhatsApp")
         
-        # Fetching Teams from Dropdown Master
-        team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").eq("is_active", True).execute()
-        team_dict = {r['option_value']: r['mobile'] for r in team_res.data} if team_res.data else {}
+        # Fetching Teams from Dropdown Master (Crash-Proof API: is_active filter removed)
+        team_res = None
+        try:
+            team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
+        except Exception as e:
+            st.error(f"Team Database Error: {e}")
+            
+        team_dict = {r['option_value']: r['mobile'] for r in team_res.data} if team_res and team_res.data else {}
         
         t_col1, t_col2 = st.columns([3, 2])
         sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
@@ -205,7 +226,7 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
                     st.session_state.route_list.append(norm_data)
                     st.success(f"Site {add_sid} added!")
                     st.rerun()
-                else: st.error("Site ID not found!")
+                else: st.error("Site ID not found or Database Error!")
 
     # --- Current Added Sites List ---
     if st.session_state.route_list:
