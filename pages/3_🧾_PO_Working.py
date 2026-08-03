@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import requests
+import urllib.parse # <--- FIXED: Missing import added
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
