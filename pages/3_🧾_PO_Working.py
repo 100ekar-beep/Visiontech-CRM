@@ -144,6 +144,116 @@ st.markdown("""
         font-weight: 800;
         letter-spacing: 0.5px;
     }
+
+    /* =========================================================
+       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING (PO WORKING)
+       ========================================================= */
+    .st-key-po_table_wrap {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
+        padding: 0px 0 !important;
+    }
+    /* Force inner rows to be wide so they NEVER squish */
+    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 1800px !important; /* Horizontal Scroll fix */
+        align-items: center !important;
+        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        padding: 6px 0 !important;
+        flex-wrap: nowrap !important;
+    }
+    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"]:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    /* Cell padding and border */
+    .st-key-po_table_wrap div[data-testid="column"] {
+        padding: 0 15px !important; 
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    .st-key-po_table_wrap div[data-testid="column"]:last-child {
+        border-right: none;
+    }
+    
+    .st-key-po_table_wrap .tbl-head {
+        background: transparent;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        white-space: nowrap !important;
+    }
+    /* Strict nowrap with ellipsis to prevent column bleeding */
+    .st-key-po_table_wrap .tbl-cell {
+        color: #e2e8f0;
+        font-size: 0.86rem;
+        white-space: normal !important;
+        word-break: break-word !important;
+        line-height: 1.4;
+        width: 100%;
+    }
+    .st-key-po_table_wrap .tbl-serial {
+        color: #64748b;
+        font-size: 0.85rem;
+        font-weight: 800;
+    }
+
+    /* Fixed native Action Buttons strictly constrained to their columns */
+    .st-key-po_table_wrap button {
+        height: 32px !important;
+        width: 100% !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        border-radius: 6px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: none !important;
+        pointer-events: auto !important; 
+        cursor: pointer !important;
+    }
+    .st-key-po_table_wrap button:hover {
+        background: #3b82f6 !important;
+        border-color: #60a5fa !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* ACTION COLUMNS MERGING & ALIGNMENT */
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(1) {
+        padding: 0 10px 0 15px !important;
+    }
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
+        color: #94a3b8; 
+    }
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) {
+        padding: 4px 4px !important;
+        border-right: none !important;
+    }
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) {
+        padding: 4px 15px 4px 4px !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    }
+
+    /* Round, color-coded, compact action icon buttons */
+    .st-key-po_table_wrap div[class*="st-key-vbtn_"] button,
+    .st-key-po_table_wrap div[class*="st-key-dbtn_"] button {
+        width: 100% !important; 
+        max-width: 34px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.95rem !important;
+        margin: 0 auto !important;
+    }
+    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
+    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -519,10 +629,8 @@ if search_query:
 # --- CREATE UNIQUE PO SUMMARY LIST ---
 if not df.empty:
     summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
-    summary_df.insert(0, "SR NO", range(1, len(summary_df) + 1))
-    summary_df.insert(0, "🎯 Select", False)
 else:
-    summary_df = pd.DataFrame(columns=["🎯 Select", "SR NO", "Project Name", "Site ID", "Site Name", "PO Number"])
+    summary_df = pd.DataFrame(columns=["Project Name", "Site ID", "Site Name", "PO Number"])
 
 # --- 7. PAGINATION LOGIC ---
 if 'po_current_page' not in st.session_state:
@@ -543,44 +651,64 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-edited_summary = st.data_editor(
-    df_page, 
-    use_container_width=True, 
-    hide_index=True,
-    height=400, 
-    column_config={
-        "🎯 Select": st.column_config.CheckboxColumn("Action", width="small", default=False),
-        "SR NO": st.column_config.NumberColumn("SR NO", width="small", alignment="center", format="%d"),
-        "Project Name": st.column_config.TextColumn("Project Name"),
-        "Site ID": st.column_config.TextColumn("Site ID"),
-        "Site Name": st.column_config.TextColumn("Site Name"),
-        "PO Number": st.column_config.TextColumn("PO Number")
-    }
-)
+# Total 7 cols (Sr No + 2 Buttons + 4 Data)
+COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.2, 1.8, 1.2] 
+COL_LABELS = ["#", "👁️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
 
-# --- ROW ACTION BUTTONS (VIEW & DELETE) ---
-selected_rows = edited_summary[edited_summary["🎯 Select"] == True]
-if not selected_rows.empty:
-    st.markdown("---")
-    col_act1, col_act2, _ = st.columns([1.5, 1.5, 7])
-    
-    row_to_action = selected_rows.iloc[0].to_dict()
-    selected_po = row_to_action['PO Number']
-    
-    with col_act1:
-        if st.button("👁️ View Details", type="primary", use_container_width=True):
-            view_po_details_dialog(row_to_action)
+with st.container(key="po_table_wrap", height=560):
+    if df_page.empty:
+        st.info("No PO records found.")
+    else:
+        # Header
+        h_cols = st.columns(COL_RATIOS)
+        for h_col, label in zip(h_cols, COL_LABELS):
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+        
+        # Rows
+        for page_pos, (_, row) in enumerate(df_page.iterrows()):
+            row_dict = row.to_dict()
+            po_num = str(row_dict.get('PO Number', '')).strip()
+            safe_po_key = urllib.parse.quote(po_num) # safe key for widgets
+            serial_no = start_idx + page_pos + 1
             
-    with col_act2:
-        if st.button("🗑️ Delete PO", type="primary", use_container_width=True):
-            try:
-                supabase.table("po_working").delete().eq("PO Number", selected_po).execute()
-                if 'po_working_df' in st.session_state:
-                    del st.session_state['po_working_df']
-                st.success(f"✅ PO {selected_po} Deleted Successfully from DB!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Database Error: {e}")
+            rcols = st.columns(COL_RATIOS)
+            
+            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+            
+            with rcols[1]:
+                with st.container(key=f"vbtn_{safe_po_key}"):
+                    if st.button("👁️", key=f"view_{safe_po_key}", help="View Details", use_container_width=True):
+                        view_po_details_dialog(row_dict)
+            with rcols[2]:
+                with st.container(key=f"dbtn_{safe_po_key}"):
+                    if st.button("🗑️", key=f"del_{safe_po_key}", help="Delete", use_container_width=True):
+                        st.session_state[f"confirm_del_{safe_po_key}"] = True
+                        
+            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
+
+            # Inline delete confirmation
+            if st.session_state.get(f"confirm_del_{safe_po_key}"):
+                wc1, wc2, wc3 = st.columns([6, 1, 1])
+                with wc1:
+                    st.warning(f"Delete PO '{po_num}'? This will remove all associated items.")
+                with wc2:
+                    if st.button("✅ Confirm", key=f"confirm_yes_{safe_po_key}", use_container_width=True):
+                        try:
+                            supabase.table("po_working").delete().eq("PO Number", po_num).execute()
+                            if 'po_working_df' in st.session_state:
+                                del st.session_state['po_working_df']
+                            st.session_state[f"confirm_del_{safe_po_key}"] = False
+                            st.success(f"✅ PO {po_num} Deleted Successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error Deleting Record: {e}")
+                with wc3:
+                    if st.button("❌ Cancel", key=f"confirm_no_{safe_po_key}", use_container_width=True):
+                        st.session_state[f"confirm_del_{safe_po_key}"] = False
+                        st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
