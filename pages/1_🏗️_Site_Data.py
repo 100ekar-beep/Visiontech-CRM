@@ -1212,6 +1212,75 @@ def bulk_upload_dialog():
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
+# --- 3.8.5 NEW: UPDATE PO STATUS DIALOG FUNCTION ---
+@st.dialog("📝 Update PO Status", width="large")
+def update_po_status_dialog():
+    st.caption("Upload Excel/TSV (Col 1: PO Number, Col 2: PO Status) to bulk update existing records in the database.")
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;'>UPDATE FILE <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    status_file = st.file_uploader("UPLOAD FILE", label_visibility="collapsed", type=["xlsx", "xls", "tsv", "csv"], key="po_status_file")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_c, col_s = st.columns(2)
+    with col_c:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+    with col_s:
+        if st.button("🚀 Process & Update", type="primary", use_container_width=True):
+            if not status_file:
+                st.error("⚠️ Update file upload karna compulsory hai!")
+            else:
+                try:
+                    if status_file.name.endswith(('.xlsx', '.xls')):
+                        df_status = pd.read_excel(status_file)
+                    else:
+                        sep = '\t' if status_file.name.endswith('.tsv') else ','
+                        df_status = pd.read_csv(status_file, sep=sep)
+                        
+                    if len(df_status.columns) < 2:
+                        st.error("❌ File me kam se kam 2 columns hone chahiye (PO Number aur Status)!")
+                        return
+                        
+                    # Assuming 1st column is PO Number and 2nd column is PO Status
+                    po_col = df_status.columns[0]
+                    status_col = df_status.columns[1]
+                    
+                    updated_count = 0
+                    not_found_count = 0
+                    
+                    for index, row in df_status.iterrows():
+                        po_no = str(row[po_col]).strip()
+                        new_status = str(row[status_col]).strip()
+                        
+                        if not po_no or po_no.lower() == 'nan':
+                            continue
+                            
+                        try:
+                            # 1. Check if PO exists in site_data (Search where 'PO No.' contains the PO Number)
+                            # Supabase 'ilike' allows partial match since 'PO No.' can be comma separated
+                            res = supabase.table("site_data").select("id, PO No.").ilike("PO No.", f"%{po_no}%").execute()
+                            
+                            if res.data and len(res.data) > 0:
+                                for record in res.data:
+                                    # Double check to avoid partial matching wrong numbers (e.g. 123 matching 12345)
+                                    po_list = [p.strip() for p in str(record.get('PO No.', '')).split(',')]
+                                    if po_no in po_list:
+                                        # Update the record
+                                        supabase.table("site_data").update({"PO Status": new_status}).eq("id", record['id']).execute()
+                                        updated_count += 1
+                            else:
+                                not_found_count += 1
+                        except Exception as e:
+                            pass
+                            
+                    if updated_count > 0:
+                        st.success(f"✅ Status Update Complete! {updated_count} records updated successfully. ({not_found_count} not found)")
+                    else:
+                        st.warning(f"⚠️ No records were updated. ({not_found_count} PO numbers not found in database)")
+                    
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error processing file: {e}")
+
 # --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
@@ -1237,7 +1306,7 @@ def export_dialog(df_export):
     )
 
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
-col_title, col_ref, col_add, col_upload, col_export = st.columns([3.5, 1, 1.5, 1.5, 1.5])
+col_title, col_ref, col_add, col_upload, col_update, col_export = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5])
 with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
 with col_ref:
@@ -1251,6 +1320,9 @@ with col_add:
 with col_upload:
     if st.button("📤 Bulk Upload", use_container_width=True):
         bulk_upload_dialog() 
+with col_update:
+    if st.button("📝 Update Status", type="primary", use_container_width=True):
+        update_po_status_dialog() 
 with col_export:
     if st.button("📥 Export Data", use_container_width=True):
         st.session_state.action = "export"
@@ -1267,9 +1339,9 @@ except Exception:
 
 columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Site Status", "Work Description", "Product", "PO No.", 
-    "PO Date", "PO Status", "RFAI Status", "WH Material", "Team Name", 
-    "Team Billing Status", "Extra Approval", "Vision Billing Status", 
+    "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
+    "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
+    "Team Name", "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status"
 ]
 
@@ -1343,11 +1415,11 @@ def status_badge(val):
 # Exact 26 columns ratios: 1 (Sr No) + 4 (Buttons) + 21 (Data)
 COL_RATIOS = [
     0.3, 0.35, 0.35, 0.35, 0.35, # 0-4 (Actions)
-    1.2, 1.0, 1.5, 1.2, 1.2,     # 5-9
-    1.5, 1.0, 1.2, 1.2, 1.0,     # 10-14
-    1.0, 1.0, 1.2, 2.0, 1.0,     # 15-19
-    1.2, 1.2, 1.2, 1.0, 1.2,     # 20-24
-    1.0                          # 25
+    1.2, 1.0, 1.5, 1.2, 1.2,     # 5-9 (Dept, Op, Proj Name, Proj ID, Site ID)
+    1.5, 1.0, 1.2, 1.2, 1.0,     # 10-14 (Site Name, Cluster, Status, PO No, PO Date)
+    1.0, 1.0, 1.2, 2.0, 1.0,     # 15-19 (PO Status, Product, RFAI, Work Desc, WH Mat)
+    1.2, 1.2, 1.2, 1.0, 1.2,     # 20-24 (Team, Team Bill, Vis Bill, Extra App, WCC No)
+    1.0                          # 25 (WCC Status)
 ]
 
 COL_LABELS = [
