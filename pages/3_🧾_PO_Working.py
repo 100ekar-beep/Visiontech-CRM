@@ -654,7 +654,7 @@ end_idx = start_idx + rows_per_page
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
 # Total 7 cols (Sr No + 2 Buttons + 4 Data)
-COL_RATIOS = [0.3, 0.20, 0.35, 1.8, 1.2, 1.8, 1.2] 
+COL_RATIOS = [0.3, 0.20, 0.20, 1.0, 1.0, 1.0, 1.0] 
 COL_LABELS = ["#", "👁️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
 
 with st.container(key="po_table_wrap", height=560):
