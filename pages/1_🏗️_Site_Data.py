@@ -145,6 +145,47 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
+
+    /* =========================================================
+       NEW: PER-ROW ACTION TABLE (View / Edit / Delete)
+       ========================================================= */
+    .row-table-header {
+        display: flex;
+        align-items: center;
+        background: rgba(255,255,255,0.06);
+        border-radius: 8px 8px 0 0;
+        padding: 8px 10px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        color: #94a3b8;
+        border-bottom: 1px solid rgba(255,255,255,0.15);
+    }
+    .row-table-row {
+        display: flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 0.88rem;
+    }
+    .row-table-row:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    .row-cell {
+        color: #e2e8f0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding-right: 8px;
+    }
+    /* Small compact action buttons inside the row table */
+    div[data-testid="stHorizontalBlock"] div.stButton > button.rowbtn,
+    .row-action-btn button {
+        padding: 0.15rem 0.4rem !important;
+        font-size: 0.75rem !important;
+        min-height: 0 !important;
+        border-radius: 6px !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -997,6 +1038,50 @@ def material_movement_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
 
+# --- 3.75 NEW: VIEW RECORD DIALOG FUNCTION (READ-ONLY) ---
+@st.dialog("👁️ View Site Data", width="large")
+def view_record_dialog(row_data):
+    st.caption("Read-only preview of this record")
+
+    st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.text_input("DEPARTMENT", value=row_data.get('Department', ''), disabled=True)
+    with c2: st.text_input("OPERATOR", value=row_data.get('Operator', ''), disabled=True)
+    with c3: st.text_input("PROJECT NAME", value=row_data.get('Project Name', ''), disabled=True)
+    with c4: st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
+
+    c5, c6, c7, c8 = st.columns(4)
+    with c5: st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True)
+    with c6: st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True)
+    with c7: st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True)
+    with c8: st.text_input("SITE STATUS", value=row_data.get('Site Status', ''), disabled=True)
+
+    st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
+    st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), disabled=True)
+
+    c9, c10, c11, c12 = st.columns(4)
+    with c9: st.text_input("PRODUCT", value=row_data.get('Product', ''), disabled=True)
+    with c10: st.text_input("RFAI STATUS", value=row_data.get('RFAI Status', ''), disabled=True)
+    with c11: st.text_input("WH MATERIAL", value=row_data.get('WH Material', ''), disabled=True)
+    with c12: st.text_input("TEAM NAME", value=row_data.get('Team Name', ''), disabled=True)
+
+    c13, c14, c15 = st.columns(3)
+    with c13: st.text_input("EXTRA APPROVAL", value=row_data.get('Extra Approval', ''), disabled=True)
+    with c14: st.text_input("TEAM BILLING STATUS", value=row_data.get('Team Billing Status', ''), disabled=True)
+    with c15: st.text_input("VISION BILLING STATUS", value=row_data.get('Vision Billing Status', ''), disabled=True)
+
+    st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
+    c16, c17, c18, c19, c20 = st.columns(5)
+    with c16: st.text_input("PO NO.", value=row_data.get('PO No.', ''), disabled=True)
+    with c17: st.text_input("PO DATE", value=row_data.get('PO Date', ''), disabled=True)
+    with c18: st.text_input("PO STATUS", value=row_data.get('PO Status', ''), disabled=True)
+    with c19: st.text_input("WCC NUMBER", value=row_data.get('WCC Number', ''), disabled=True)
+    with c20: st.text_input("WCC STATUS", value=row_data.get('WCC Status', ''), disabled=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Close", use_container_width=True):
+        st.rerun()
+
 # --- 3.8 BULK UPLOAD DIALOG FUNCTION ---
 @st.dialog("📤 Bulk Upload Site Data", width="large")
 def bulk_upload_dialog():
@@ -1140,52 +1225,80 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. ORIGINAL LAVISH DATA TABLE (st.data_editor) ---
+# --- 7. NEW: PER-ROW ACTION TABLE (View / Edit / Delete buttons on every row) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-edited_df = st.data_editor(
-    df_page, 
-    use_container_width=True, 
-    hide_index=True,
-    height=400, 
-    column_config={
-        "id": None, 
-        "🎯 Select": st.column_config.CheckboxColumn("Select", default=False)
-    }
-)
+if df_page.empty:
+    st.info("No records found.")
+else:
+    # Header row
+    h_action, h_pid, h_sid, h_sname, h_team, h_status = st.columns([1.6, 1.4, 1.2, 1.6, 1.3, 1.2])
+    h_action.markdown("<div class='row-table-header'>ACTIONS</div>", unsafe_allow_html=True)
+    h_pid.markdown("<div class='row-table-header'>PROJECT ID</div>", unsafe_allow_html=True)
+    h_sid.markdown("<div class='row-table-header'>SITE ID</div>", unsafe_allow_html=True)
+    h_sname.markdown("<div class='row-table-header'>SITE NAME</div>", unsafe_allow_html=True)
+    h_team.markdown("<div class='row-table-header'>TEAM</div>", unsafe_allow_html=True)
+    h_status.markdown("<div class='row-table-header'>STATUS</div>", unsafe_allow_html=True)
 
-# --- EDIT, DELETE & 3RD MATERIAL ACTION BUTTONS ---
-selected_rows = edited_df[edited_df["🎯 Select"] == True]
-if not selected_rows.empty:
-    st.markdown("---")
-    col_ed1, col_ed2, col_mat, col_ed3 = st.columns([1, 1, 1.2, 5.8])
-    
-    row_to_edit = selected_rows.iloc[0].to_dict()
-    is_wh_required = str(row_to_edit.get("WH Material", "")).strip().lower() == "required"
-    
-    with col_ed1:
-        if st.button("✏️ Edit Selected", type="primary", use_container_width=True):
-            if 'edit_po_count' in st.session_state:
-                del st.session_state['edit_po_count']
-            edit_record_dialog(row_to_edit)
-            
-    with col_ed2:
-        if st.button("🗑️ Delete Selected", type="primary", use_container_width=True):
-            try:
-                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
-                st.success("✅ Record Successfully Deleted!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Deleting Record: {e}")
-                
-    with col_mat:
-        if st.button("📦 Material", type="primary", use_container_width=True, disabled=not is_wh_required):
-            if 'mat_count' in st.session_state:
-                st.session_state.mat_count = 1
-            material_movement_dialog(row_to_edit)
-            
-        if not is_wh_required:
-            st.caption("🔒 WH Material not Required")
+    for _, row in df_page.iterrows():
+        row_dict = row.to_dict()
+        rid = row_dict.get("id")
+
+        c_action, c_pid, c_sid, c_sname, c_team, c_status = st.columns([1.6, 1.4, 1.2, 1.6, 1.3, 1.2])
+
+        with c_action:
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                    view_record_dialog(row_dict)
+            with b2:
+                if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                    if 'edit_po_count' in st.session_state:
+                        del st.session_state['edit_po_count']
+                    edit_record_dialog(row_dict)
+            with b3:
+                is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
+                if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                    st.session_state[f"confirm_del_{rid}"] = True
+
+        with c_pid:
+            st.markdown(f"<div class='row-cell'>{row_dict.get('Project ID','')}</div>", unsafe_allow_html=True)
+        with c_sid:
+            st.markdown(f"<div class='row-cell'>{row_dict.get('Site ID','')}</div>", unsafe_allow_html=True)
+        with c_sname:
+            st.markdown(f"<div class='row-cell'>{row_dict.get('Site Name','')}</div>", unsafe_allow_html=True)
+        with c_team:
+            st.markdown(f"<div class='row-cell'>{row_dict.get('Team Name','')}</div>", unsafe_allow_html=True)
+        with c_status:
+            st.markdown(f"<div class='row-cell'>{row_dict.get('Site Status','')}</div>", unsafe_allow_html=True)
+
+        # Inline delete confirmation for this row
+        if st.session_state.get(f"confirm_del_{rid}"):
+            wc1, wc2, wc3 = st.columns([3, 1, 1])
+            with wc1:
+                st.warning(f"Delete record '{row_dict.get('Site ID','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
+            with wc2:
+                if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
+                    try:
+                        supabase.table(table_name).delete().eq("id", rid).execute()
+                        st.session_state[f"confirm_del_{rid}"] = False
+                        st.success("✅ Record Successfully Deleted!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error Deleting Record: {e}")
+            with wc3:
+                if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
+                    st.session_state[f"confirm_del_{rid}"] = False
+                    st.rerun()
+
+        # Material button only if WH Material is Required (kept from original behavior)
+        if str(row_dict.get("WH Material", "")).strip().lower() == "required":
+            mcol1, mcol2 = st.columns([1, 9])
+            with mcol1:
+                if st.button("📦 Material", key=f"mat_{rid}", use_container_width=True):
+                    if 'mat_count' in st.session_state:
+                        st.session_state.mat_count = 1
+                    material_movement_dialog(row_dict)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
