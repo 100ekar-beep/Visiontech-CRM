@@ -334,9 +334,10 @@ def po_upload_dialog():
                 df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
                 df_proc = df_proc.dropna(subset=['Qty'])
                 
-                if 'Project Name' in df_proc.columns:
-                    proj_idx = df_proc.columns.get_loc('Project Name')
-                    df_proc = df_proc.iloc[:, :proj_idx+1]
+                # --- BUG FIX 1: Removed dangerous column slicing that was cutting off 'Site ID' ---
+                # if 'Project Name' in df_proc.columns:
+                #     proj_idx = df_proc.columns.get_loc('Project Name')
+                #     df_proc = df_proc.iloc[:, :proj_idx+1]
                     
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 po_no = po_number_input.strip()
@@ -375,7 +376,8 @@ def po_upload_dialog():
                 new_rows_to_add = []
                 
                 for idx, new_row in df_proc.iterrows():
-                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Item Num'] == new_row['Item Num'])
+                    # --- BUG FIX 2: Matching by 'Line Number' instead of 'Item Num' to uniquely identify all 50 sites ---
+                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Line Number'] == new_row['Line Number'])
                     
                     if match_mask.any():
                         match_idx = existing_df[match_mask].index[0]
