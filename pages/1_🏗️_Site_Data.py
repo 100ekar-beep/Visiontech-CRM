@@ -1212,12 +1212,12 @@ def bulk_upload_dialog():
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
-# --- 3.8.5 NEW: UPDATE PO STATUS DIALOG FUNCTION ---
+# --- 3.8.5 NEW: FIXED UPDATE PO STATUS DIALOG FUNCTION ---
 @st.dialog("📝 Update PO Status", width="large")
 def update_po_status_dialog():
-    st.caption("Upload Excel/TSV (Col 1: PO Number, Col 2: PO Status) to bulk update existing records in the database.")
+    st.caption("Upload Excel (Col 1: 'PO No.', Col 2: 'PO Status') to bulk update existing records.")
     st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;'>UPDATE FILE <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
-    status_file = st.file_uploader("UPLOAD FILE", label_visibility="collapsed", type=["xlsx", "xls", "tsv", "csv"], key="po_status_file")
+    status_file = st.file_uploader("UPLOAD FILE", label_visibility="collapsed", type=["xlsx", "xls"], key="po_status_file")
     
     st.markdown("<br>", unsafe_allow_html=True)
     col_c, col_s = st.columns(2)
@@ -1230,54 +1230,54 @@ def update_po_status_dialog():
                 st.error("⚠️ Update file upload karna compulsory hai!")
             else:
                 try:
-                    if status_file.name.endswith(('.xlsx', '.xls')):
-                        df_status = pd.read_excel(status_file)
-                    else:
-                        sep = '\t' if status_file.name.endswith('.tsv') else ','
-                        df_status = pd.read_csv(status_file, sep=sep)
+                    df_status = pd.read_excel(status_file)
                         
-                    if len(df_status.columns) < 2:
-                        st.error("❌ File me kam se kam 2 columns hone chahiye (PO Number aur Status)!")
+                    # Fixing common missing column issues
+                    if 'PO No.' not in df_status.columns or 'PO Status' not in df_status.columns:
+                        st.error("❌ File me exactly 'PO No.' aur 'PO Status' naam ke columns hone chahiye!")
                         return
-                        
-                    # Assuming 1st column is PO Number and 2nd column is PO Status
-                    po_col = df_status.columns[0]
-                    status_col = df_status.columns[1]
                     
                     updated_count = 0
                     not_found_count = 0
                     
+                    # Fetching all records once to prevent rate-limiting and make it super fast
+                    all_db_res = supabase.table("site_data").select("id, PO No.").execute()
+                    all_db_records = all_db_res.data if all_db_res.data else []
+                    
                     for index, row in df_status.iterrows():
-                        po_no = str(row[po_col]).strip()
-                        new_status = str(row[status_col]).strip()
+                        # Converting to float then int to handle Excel's 19030403505.0 issue, then to clean string
+                        try:
+                            po_no = str(int(float(row['PO No.']))).strip()
+                        except:
+                            po_no = str(row['PO No.']).strip()
+                            
+                        new_status = str(row['PO Status']).strip()
                         
-                        if not po_no or po_no.lower() == 'nan':
+                        if not po_no or po_no.lower() == 'nan' or po_no == '0':
                             continue
                             
-                        try:
-                            # 1. Check if PO exists in site_data (Search where 'PO No.' contains the PO Number)
-                            # Supabase 'ilike' allows partial match since 'PO No.' can be comma separated
-                            res = supabase.table("site_data").select("id, PO No.").ilike("PO No.", f"%{po_no}%").execute()
+                        match_found = False
+                        for record in all_db_records:
+                            db_po_string = str(record.get('PO No.', ''))
+                            # Splitting DB POs in case of comma separated values
+                            db_po_list = [p.strip() for p in db_po_string.split(',')]
                             
-                            if res.data and len(res.data) > 0:
-                                for record in res.data:
-                                    # Double check to avoid partial matching wrong numbers (e.g. 123 matching 12345)
-                                    po_list = [p.strip() for p in str(record.get('PO No.', '')).split(',')]
-                                    if po_no in po_list:
-                                        # Update the record
-                                        supabase.table("site_data").update({"PO Status": new_status}).eq("id", record['id']).execute()
-                                        updated_count += 1
-                            else:
-                                not_found_count += 1
-                        except Exception as e:
-                            pass
+                            if po_no in db_po_list:
+                                try:
+                                    supabase.table("site_data").update({"PO Status": new_status}).eq("id", record['id']).execute()
+                                    updated_count += 1
+                                    match_found = True
+                                except Exception:
+                                    pass
+                                    
+                        if not match_found:
+                            not_found_count += 1
                             
                     if updated_count > 0:
                         st.success(f"✅ Status Update Complete! {updated_count} records updated successfully. ({not_found_count} not found)")
                     else:
                         st.warning(f"⚠️ No records were updated. ({not_found_count} PO numbers not found in database)")
                     
-                    st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error processing file: {e}")
 
