@@ -147,51 +147,46 @@ st.markdown("""
     }
 
     /* =========================================================
-       NEW: PROPER BORDERED DATA TABLE WITH PER-ROW ACTION ICONS
-       Scoped strictly to the table container (.st-key-site_table_wrap)
-       so it never affects the Add/Edit/Material dialogs.
+       FIXED: HORIZONTAL SCROLLING DATA TABLE & PROPER BUTTONS
        ========================================================= */
     .st-key-site_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
-        overflow: auto !important;
-        padding: 0 !important;
+        overflow-x: auto !important; /* Forces horizontal scroll bar */
+        padding: 10px 0 !important;
     }
-    /* Force a minimum content width so a horizontal scrollbar appears
-       whenever the viewport/container is narrower than the table */
-    .st-key-site_table_wrap div[data-testid="stVerticalBlock"] {
-        min-width: 980px;
+    /* Force inner content width to 2200px so it never squishes columns */
+    .st-key-site_table_wrap > div > div[data-testid="stVerticalBlock"] {
+        min-width: 2200px !important;
+        padding: 0 10px !important;
         gap: 0 !important;
     }
-    /* Every st.columns row inside the table acts as a table row */
+    /* Row styling */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
+        align-items: center !important;
+        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        padding: 4px 0 !important;
         gap: 0 !important;
-        align-items: stretch !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(59,130,246,0.06);
+        background: rgba(255,255,255,0.04);
     }
-    /* Every st.column acts as a table cell, with a vertical divider */
+    /* Cell padding */
     .st-key-site_table_wrap div[data-testid="column"] {
-        padding: 6px 10px !important;
-        border-right: 1px solid rgba(255,255,255,0.06);
-        min-height: 44px;
+        padding: 0 6px !important;
         display: flex;
         align-items: center;
+        justify-content: flex-start;
     }
-    .st-key-site_table_wrap div[data-testid="column"]:last-child {
-        border-right: none;
-    }
+    
     .st-key-site_table_wrap .tbl-head {
-        background: rgba(255,255,255,0.07);
+        background: transparent;
         font-size: 0.72rem;
         font-weight: 800;
         letter-spacing: 0.6px;
         color: #94a3b8;
         text-transform: uppercase;
-        width: 100%;
     }
     .st-key-site_table_wrap .tbl-cell {
         color: #e2e8f0;
@@ -199,88 +194,34 @@ st.markdown("""
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        width: 100%;
     }
     .st-key-site_table_wrap .tbl-serial {
         color: #64748b;
         font-size: 0.8rem;
         font-weight: 700;
     }
-    /* Serial number (#) column: hug the left edge, minimal padding */
-    .st-key-site_table_wrap div[data-testid="column"]:first-child {
-        padding: 6px 4px 6px 10px !important;
-        flex: none !important;
-    }
-    
-    /* -------------------------------------------------------------
-       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4, 5)
-       ------------------------------------------------------------- */
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) .tbl-head {
-        color: #94a3b8; 
-    }
-    /* Remove borders and padding between action button columns to merge them */
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) {
-        padding: 4px 2px !important;
-        border-right: none !important;
-    }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) {
-        padding: 4px 10px 4px 2px !important;
-        border-right: 1px solid rgba(255,255,255,0.06) !important;
-    }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
-        padding-left: 10px !important;
-    }
 
-    /* Round, color-coded, compact action icon buttons */
-    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
-        width: 100% !important; 
-        max-width: 32px !important;
-        height: 30px !important;
+    /* Fixed native Action Buttons strictly constrained to their columns */
+    .st-key-site_table_wrap button {
+        height: 32px !important;
+        width: 100% !important;
         padding: 0 !important;
         min-height: 0 !important;
-        min-width: 0 !important;
         border-radius: 6px !important;
-        font-size: 0.9rem !important;
-        line-height: 1 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
         box-shadow: none !important;
-        transform: none !important;
-        margin: 0 auto !important;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        pointer-events: auto !important; /* Force clickability */
+        cursor: pointer !important;
     }
-    div[class*="st-key-vbtn_"] button {
-        background: rgba(34,197,94,0.15) !important;
-        border: 1px solid rgba(34,197,94,0.3) !important;
-    }
-    div[class*="st-key-ebtn_"] button {
-        background: rgba(59,130,246,0.15) !important;
-        border: 1px solid rgba(59,130,246,0.3) !important;
-    }
-    div[class*="st-key-dbtn_"] button {
-        background: rgba(239,68,68,0.15) !important;
-        border: 1px solid rgba(239,68,68,0.3) !important;
-    }
-    div[class*="st-key-mbtn_"] button {
-        background: rgba(168,85,247,0.15) !important;
-        border: 1px solid rgba(168,85,247,0.3) !important;
-    }
-    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button:hover,
-    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button:hover,
-    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button:hover,
-    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button:hover {
+    .st-key-site_table_wrap button:hover {
+        background: #3b82f6 !important;
+        border-color: #60a5fa !important;
         transform: translateY(-1px) !important;
-        filter: brightness(1.3);
     }
-    /* ------------------------------------------------------------- */
 
     /* Status badge pill */
     .status-badge {
@@ -1336,11 +1277,10 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PROPER BORDERED TABLE WITH PER-ROW ACTION ICONS (View / Edit / Delete / Material) ---
+# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
 def status_badge(val):
-    """Render a colored pill badge for status-like fields."""
     v = str(val).strip()
     if not v or v.lower() in ("nan", "none", "-"):
         return "<span class='tbl-cell'>-</span>"
@@ -1359,16 +1299,15 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# -------------------------------------------------------------
-# FIXED COLUMNS: Actions broken into 4 explicitly separated columns 
-# to force them on the left without nested flexbox issues!
-# -------------------------------------------------------------
-COL_RATIOS = [0.3, 0.4, 0.4, 0.4, 0.4, 1.2, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
-COL_LABELS = ["#", "ACTIONS", "", "", "", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", "TEAM", "RFAI STATUS"]
+# Exact 18 columns ratios: 1 (Sr No) + 4 (Buttons) + 13 (Data)
+COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 0.35, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+COL_LABELS = [
+    "#", "👁️", "✏️", "🗑️", "📦", 
+    "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", 
+    "DEPARTMENT", "OPERATOR", "PRODUCT", "PO NO.", "PO STATUS", 
+    "WCC NUMBER", "WCC STATUS", "TEAM"
+]
 
-# height enables Streamlit's native scroll container -> gives us the vertical
-# scrollbar; combined with the CSS min-width above it also scrolls horizontally
-# when the screen is narrower than the table. ~10 rows fit in view.
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
         st.info("No records found.")
@@ -1385,41 +1324,43 @@ with st.container(key="site_table_wrap", height=560):
             serial_no = start_idx + page_pos + 1
             is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
 
-            c_no, c_v, c_e, c_d, c_m, c_pid, c_sid, c_sname, c_cluster, c_status, c_team, c_rfai = st.columns(COL_RATIOS)
+            rcols = st.columns(COL_RATIOS)
 
-            c_no.markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
 
-            with c_v:
-                with st.container(key=f"vbtn_{rid}"):
-                    if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                        view_record_dialog(row_dict)
-            with c_e:
-                with st.container(key=f"ebtn_{rid}"):
-                    if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
-                        if 'edit_po_count' in st.session_state:
-                            del st.session_state['edit_po_count']
-                        edit_record_dialog(row_dict)
-            with c_d:
-                with st.container(key=f"dbtn_{rid}"):
-                    if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                        st.session_state[f"confirm_del_{rid}"] = True
-            with c_m:
+            with rcols[1]:
+                if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                    view_record_dialog(row_dict)
+            with rcols[2]:
+                if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                    if 'edit_po_count' in st.session_state:
+                        del st.session_state['edit_po_count']
+                    edit_record_dialog(row_dict)
+            with rcols[3]:
+                if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                    st.session_state[f"confirm_del_{rid}"] = True
+            with rcols[4]:
                 if is_wh_required:
-                    with st.container(key=f"mbtn_{rid}"):
-                        if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
-                            if 'mat_count' in st.session_state:
-                                st.session_state.mat_count = 1
-                            material_movement_dialog(row_dict)
+                    if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
+                        if 'mat_count' in st.session_state:
+                            st.session_state.mat_count = 1
+                        material_movement_dialog(row_dict)
 
-            c_pid.markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            c_sid.markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            c_sname.markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            c_cluster.markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            c_status.markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
-            c_team.markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            c_rfai.markdown(f"<div class='tbl-cell'>{row_dict.get('RFAI Status','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[14].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
+            rcols[15].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[16].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
 
-            # Inline delete confirmation for this row (still inside the bordered table)
+            # Inline delete confirmation
             if st.session_state.get(f"confirm_del_{rid}"):
                 wc1, wc2, wc3 = st.columns([6, 1, 1])
                 with wc1:
