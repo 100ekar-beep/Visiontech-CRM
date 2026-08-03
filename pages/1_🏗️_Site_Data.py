@@ -155,16 +155,19 @@ st.markdown("""
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
-        overflow: hidden;
+        overflow: auto !important;
         padding: 0 !important;
     }
-    .st-key-site_table_wrap div[data-testid="stVerticalBlockBorderWrapper"] > div {
+    /* Force a minimum content width so a horizontal scrollbar appears
+       whenever the viewport/container is narrower than the table */
+    .st-key-site_table_wrap div[data-testid="stVerticalBlock"] {
+        min-width: 980px;
         gap: 0 !important;
     }
     /* Every st.columns row inside the table acts as a table row */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
         gap: 0 !important;
-        align-items: center !important;
+        align-items: stretch !important;
         border-bottom: 1px solid rgba(255,255,255,0.08);
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
@@ -172,9 +175,9 @@ st.markdown("""
     }
     /* Every st.column acts as a table cell, with a vertical divider */
     .st-key-site_table_wrap div[data-testid="column"] {
-        padding: 8px 10px !important;
+        padding: 6px 10px !important;
         border-right: 1px solid rgba(255,255,255,0.06);
-        min-height: 42px;
+        min-height: 44px;
         display: flex;
         align-items: center;
     }
@@ -202,6 +205,15 @@ st.markdown("""
         font-size: 0.8rem;
         font-weight: 700;
     }
+    /* Serial number (#) column: hug the left edge, minimal padding */
+    .st-key-site_table_wrap div[data-testid="column"]:first-child {
+        padding: 6px 4px 6px 10px !important;
+        flex: none !important;
+    }
+    /* Actions column: no extra padding, buttons sit right after the # */
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
+        padding: 4px 2px !important;
+    }
     /* Status badge pill */
     .status-badge {
         display: inline-block;
@@ -218,20 +230,40 @@ st.markdown("""
     .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
     .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
 
+    /* --- Action buttons row (nested columns inside the Actions cell) ---
+       Kill all internal padding/borders/gaps so the icons sit flush together */
+    .st-key-site_table_wrap div[class*="st-key-actrow_"] {
+        width: 100%;
+    }
+    .st-key-site_table_wrap div[class*="st-key-actrow_"] div[data-testid="stHorizontalBlock"] {
+        gap: 3px !important;
+        border-bottom: none !important;
+        align-items: center !important;
+    }
+    .st-key-site_table_wrap div[class*="st-key-actrow_"] div[data-testid="column"] {
+        padding: 0 !important;
+        border-right: none !important;
+        min-height: 0 !important;
+        flex: none !important;
+        width: auto !important;
+    }
+
     /* Round, color-coded, compact action icon buttons (matched by container key prefix) */
     .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
-        width: 30px !important;
-        height: 30px !important;
+        width: 26px !important;
+        height: 26px !important;
         padding: 0 !important;
         min-height: 0 !important;
-        border-radius: 8px !important;
-        font-size: 0.85rem !important;
+        min-width: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.78rem !important;
         line-height: 1 !important;
         box-shadow: none !important;
         transform: none !important;
+        margin: 0 !important;
     }
     div[class*="st-key-vbtn_"] button {
         background: rgba(34,197,94,0.15) !important;
@@ -1319,10 +1351,13 @@ def status_badge(val):
     return f"<span class='status-badge {cls}'>{v}</span>"
 
 # Shared column ratios so header and body rows line up exactly like a real table
-COL_RATIOS = [0.4, 1.7, 1.1, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
+COL_RATIOS = [0.3, 1.3, 1.1, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
 COL_LABELS = ["#", "ACTIONS", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", "TEAM", "RFAI STATUS"]
 
-with st.container(key="site_table_wrap"):
+# height enables Streamlit's native scroll container -> gives us the vertical
+# scrollbar; combined with the CSS min-width above it also scrolls horizontally
+# when the screen is narrower than the table. ~10 rows fit in view.
+with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
         st.info("No records found.")
     else:
@@ -1343,30 +1378,31 @@ with st.container(key="site_table_wrap"):
             c_no.markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
 
             with c_action:
-                n_btns = 4 if is_wh_required else 3
-                btn_cols = st.columns(n_btns)
+                with st.container(key=f"actrow_{rid}"):
+                    n_btns = 4 if is_wh_required else 3
+                    btn_cols = st.columns(n_btns, gap="small")
 
-                with btn_cols[0]:
-                    with st.container(key=f"vbtn_{rid}"):
-                        if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                            view_record_dialog(row_dict)
-                with btn_cols[1]:
-                    with st.container(key=f"ebtn_{rid}"):
-                        if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
-                            if 'edit_po_count' in st.session_state:
-                                del st.session_state['edit_po_count']
-                            edit_record_dialog(row_dict)
-                with btn_cols[2]:
-                    with st.container(key=f"dbtn_{rid}"):
-                        if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                            st.session_state[f"confirm_del_{rid}"] = True
-                if is_wh_required:
-                    with btn_cols[3]:
-                        with st.container(key=f"mbtn_{rid}"):
-                            if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
-                                if 'mat_count' in st.session_state:
-                                    st.session_state.mat_count = 1
-                                material_movement_dialog(row_dict)
+                    with btn_cols[0]:
+                        with st.container(key=f"vbtn_{rid}"):
+                            if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                                view_record_dialog(row_dict)
+                    with btn_cols[1]:
+                        with st.container(key=f"ebtn_{rid}"):
+                            if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                                if 'edit_po_count' in st.session_state:
+                                    del st.session_state['edit_po_count']
+                                edit_record_dialog(row_dict)
+                    with btn_cols[2]:
+                        with st.container(key=f"dbtn_{rid}"):
+                            if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                                st.session_state[f"confirm_del_{rid}"] = True
+                    if is_wh_required:
+                        with btn_cols[3]:
+                            with st.container(key=f"mbtn_{rid}"):
+                                if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
+                                    if 'mat_count' in st.session_state:
+                                        st.session_state.mat_count = 1
+                                    material_movement_dialog(row_dict)
 
             c_pid.markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
             c_sid.markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
