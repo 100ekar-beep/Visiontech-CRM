@@ -1241,7 +1241,7 @@ def update_po_status_dialog():
                     not_found_count = 0
                     
                     # Fetching all records once to prevent rate-limiting and make it super fast
-                    all_db_res = supabase.table("site_data").select("id, PO No.").execute()
+                    all_db_res = supabase.table("site_data").select("*").execute()
                     all_db_records = all_db_res.data if all_db_res.data else []
                     
                     for index, row in df_status.iterrows():
