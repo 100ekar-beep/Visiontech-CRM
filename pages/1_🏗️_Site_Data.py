@@ -191,6 +191,7 @@ st.markdown("""
         letter-spacing: 0.6px;
         color: #94a3b8;
         text-transform: uppercase;
+        width: 100%;
     }
     .st-key-site_table_wrap .tbl-cell {
         color: #e2e8f0;
@@ -210,60 +211,51 @@ st.markdown("""
         padding: 6px 4px 6px 10px !important;
         flex: none !important;
     }
-    /* Actions column: no extra padding, buttons sit right after the # */
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
+    
+    /* -------------------------------------------------------------
+       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4, 5)
+       ------------------------------------------------------------- */
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) .tbl-head {
+        color: #94a3b8; 
+    }
+    /* Remove borders and padding between action button columns to merge them */
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3),
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) {
         padding: 4px 2px !important;
-    }
-    /* Status badge pill */
-    .status-badge {
-        display: inline-block;
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        white-space: nowrap;
-    }
-    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
-    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
-    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
-    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
-    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
-
-    /* --- Action buttons row (nested columns inside the Actions cell) ---
-       Kill all internal padding/borders/gaps so the icons sit flush together */
-    .st-key-site_table_wrap div[class*="st-key-actrow_"] {
-        width: 100%;
-    }
-    .st-key-site_table_wrap div[class*="st-key-actrow_"] div[data-testid="stHorizontalBlock"] {
-        gap: 3px !important;
-        border-bottom: none !important;
-        align-items: center !important;
-    }
-    .st-key-site_table_wrap div[class*="st-key-actrow_"] div[data-testid="column"] {
-        padding: 0 !important;
         border-right: none !important;
-        min-height: 0 !important;
-        flex: none !important;
-        width: auto !important;
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) {
+        padding: 4px 10px 4px 2px !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
+        padding-left: 10px !important;
     }
 
-    /* Round, color-coded, compact action icon buttons (matched by container key prefix) */
+    /* Round, color-coded, compact action icon buttons */
     .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
-        width: 26px !important;
-        height: 26px !important;
+        width: 100% !important; 
+        max-width: 32px !important;
+        height: 30px !important;
         padding: 0 !important;
         min-height: 0 !important;
         min-width: 0 !important;
         border-radius: 6px !important;
-        font-size: 0.78rem !important;
+        font-size: 0.9rem !important;
         line-height: 1 !important;
         box-shadow: none !important;
         transform: none !important;
-        margin: 0 !important;
+        margin: 0 auto !important;
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
     div[class*="st-key-vbtn_"] button {
         background: rgba(34,197,94,0.15) !important;
@@ -288,6 +280,23 @@ st.markdown("""
         transform: translateY(-1px) !important;
         filter: brightness(1.3);
     }
+    /* ------------------------------------------------------------- */
+
+    /* Status badge pill */
+    .status-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        white-space: nowrap;
+    }
+    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
+    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
+    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
+    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
+    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -1350,9 +1359,12 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Shared column ratios so header and body rows line up exactly like a real table
-COL_RATIOS = [0.3, 1.3, 1.1, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
-COL_LABELS = ["#", "ACTIONS", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", "TEAM", "RFAI STATUS"]
+# -------------------------------------------------------------
+# FIXED COLUMNS: Actions broken into 4 explicitly separated columns 
+# to force them on the left without nested flexbox issues!
+# -------------------------------------------------------------
+COL_RATIOS = [0.3, 0.4, 0.4, 0.4, 0.4, 1.2, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
+COL_LABELS = ["#", "ACTIONS", "", "", "", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", "TEAM", "RFAI STATUS"]
 
 # height enables Streamlit's native scroll container -> gives us the vertical
 # scrollbar; combined with the CSS min-width above it also scrolls horizontally
@@ -1364,7 +1376,7 @@ with st.container(key="site_table_wrap", height=560):
         # --- HEADER ROW ---
         h_cols = st.columns(COL_RATIOS)
         for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
 
         # --- DATA ROWS ---
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
@@ -1373,36 +1385,31 @@ with st.container(key="site_table_wrap", height=560):
             serial_no = start_idx + page_pos + 1
             is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
 
-            c_no, c_action, c_pid, c_sid, c_sname, c_cluster, c_status, c_team, c_rfai = st.columns(COL_RATIOS)
+            c_no, c_v, c_e, c_d, c_m, c_pid, c_sid, c_sname, c_cluster, c_status, c_team, c_rfai = st.columns(COL_RATIOS)
 
             c_no.markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
 
-            with c_action:
-                with st.container(key=f"actrow_{rid}"):
-                    n_btns = 4 if is_wh_required else 3
-                    btn_cols = st.columns(n_btns, gap="small")
-
-                    with btn_cols[0]:
-                        with st.container(key=f"vbtn_{rid}"):
-                            if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                                view_record_dialog(row_dict)
-                    with btn_cols[1]:
-                        with st.container(key=f"ebtn_{rid}"):
-                            if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
-                                if 'edit_po_count' in st.session_state:
-                                    del st.session_state['edit_po_count']
-                                edit_record_dialog(row_dict)
-                    with btn_cols[2]:
-                        with st.container(key=f"dbtn_{rid}"):
-                            if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                                st.session_state[f"confirm_del_{rid}"] = True
-                    if is_wh_required:
-                        with btn_cols[3]:
-                            with st.container(key=f"mbtn_{rid}"):
-                                if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
-                                    if 'mat_count' in st.session_state:
-                                        st.session_state.mat_count = 1
-                                    material_movement_dialog(row_dict)
+            with c_v:
+                with st.container(key=f"vbtn_{rid}"):
+                    if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                        view_record_dialog(row_dict)
+            with c_e:
+                with st.container(key=f"ebtn_{rid}"):
+                    if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                        if 'edit_po_count' in st.session_state:
+                            del st.session_state['edit_po_count']
+                        edit_record_dialog(row_dict)
+            with c_d:
+                with st.container(key=f"dbtn_{rid}"):
+                    if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                        st.session_state[f"confirm_del_{rid}"] = True
+            with c_m:
+                if is_wh_required:
+                    with st.container(key=f"mbtn_{rid}"):
+                        if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
+                            if 'mat_count' in st.session_state:
+                                st.session_state.mat_count = 1
+                            material_movement_dialog(row_dict)
 
             c_pid.markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
             c_sid.markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
