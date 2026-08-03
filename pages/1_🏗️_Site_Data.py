@@ -147,44 +147,114 @@ st.markdown("""
     }
 
     /* =========================================================
-       NEW: PER-ROW ACTION TABLE (View / Edit / Delete)
+       NEW: PROPER BORDERED DATA TABLE WITH PER-ROW ACTION ICONS
+       Scoped strictly to the table container (.st-key-site_table_wrap)
+       so it never affects the Add/Edit/Material dialogs.
        ========================================================= */
-    .row-table-header {
+    .st-key-site_table_wrap {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        overflow: hidden;
+        padding: 0 !important;
+    }
+    .st-key-site_table_wrap div[data-testid="stVerticalBlockBorderWrapper"] > div {
+        gap: 0 !important;
+    }
+    /* Every st.columns row inside the table acts as a table row */
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
+        gap: 0 !important;
+        align-items: center !important;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
+        background: rgba(59,130,246,0.06);
+    }
+    /* Every st.column acts as a table cell, with a vertical divider */
+    .st-key-site_table_wrap div[data-testid="column"] {
+        padding: 8px 10px !important;
+        border-right: 1px solid rgba(255,255,255,0.06);
+        min-height: 42px;
         display: flex;
         align-items: center;
-        background: rgba(255,255,255,0.06);
-        border-radius: 8px 8px 0 0;
-        padding: 8px 10px;
-        font-size: 0.78rem;
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:last-child {
+        border-right: none;
+    }
+    .st-key-site_table_wrap .tbl-head {
+        background: rgba(255,255,255,0.07);
+        font-size: 0.72rem;
         font-weight: 800;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
         color: #94a3b8;
-        border-bottom: 1px solid rgba(255,255,255,0.15);
+        text-transform: uppercase;
     }
-    .row-table-row {
-        display: flex;
-        align-items: center;
-        padding: 6px 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-        font-size: 0.88rem;
-    }
-    .row-table-row:hover {
-        background: rgba(255,255,255,0.04);
-    }
-    .row-cell {
+    .st-key-site_table_wrap .tbl-cell {
         color: #e2e8f0;
+        font-size: 0.86rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        padding-right: 8px;
+        width: 100%;
     }
-    /* Small compact action buttons inside the row table */
-    div[data-testid="stHorizontalBlock"] div.stButton > button.rowbtn,
-    .row-action-btn button {
-        padding: 0.15rem 0.4rem !important;
-        font-size: 0.75rem !important;
+    .st-key-site_table_wrap .tbl-serial {
+        color: #64748b;
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
+    /* Status badge pill */
+    .status-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        white-space: nowrap;
+    }
+    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
+    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
+    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
+    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
+    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+    /* Round, color-coded, compact action icon buttons (matched by container key prefix) */
+    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
+        width: 30px !important;
+        height: 30px !important;
+        padding: 0 !important;
         min-height: 0 !important;
-        border-radius: 6px !important;
+        border-radius: 8px !important;
+        font-size: 0.85rem !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    div[class*="st-key-vbtn_"] button {
+        background: rgba(34,197,94,0.15) !important;
+        border: 1px solid rgba(34,197,94,0.3) !important;
+    }
+    div[class*="st-key-ebtn_"] button {
+        background: rgba(59,130,246,0.15) !important;
+        border: 1px solid rgba(59,130,246,0.3) !important;
+    }
+    div[class*="st-key-dbtn_"] button {
+        background: rgba(239,68,68,0.15) !important;
+        border: 1px solid rgba(239,68,68,0.3) !important;
+    }
+    div[class*="st-key-mbtn_"] button {
+        background: rgba(168,85,247,0.15) !important;
+        border: 1px solid rgba(168,85,247,0.3) !important;
+    }
+    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button:hover,
+    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button:hover,
+    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button:hover,
+    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button:hover {
+        transform: translateY(-1px) !important;
+        filter: brightness(1.3);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1225,80 +1295,105 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PER-ROW ACTION TABLE (View / Edit / Delete buttons on every row) ---
+# --- 7. NEW: PROPER BORDERED TABLE WITH PER-ROW ACTION ICONS (View / Edit / Delete / Material) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-if df_page.empty:
-    st.info("No records found.")
-else:
-    # Header row
-    h_action, h_pid, h_sid, h_sname, h_team, h_status = st.columns([1.6, 1.4, 1.2, 1.6, 1.3, 1.2])
-    h_action.markdown("<div class='row-table-header'>ACTIONS</div>", unsafe_allow_html=True)
-    h_pid.markdown("<div class='row-table-header'>PROJECT ID</div>", unsafe_allow_html=True)
-    h_sid.markdown("<div class='row-table-header'>SITE ID</div>", unsafe_allow_html=True)
-    h_sname.markdown("<div class='row-table-header'>SITE NAME</div>", unsafe_allow_html=True)
-    h_team.markdown("<div class='row-table-header'>TEAM</div>", unsafe_allow_html=True)
-    h_status.markdown("<div class='row-table-header'>STATUS</div>", unsafe_allow_html=True)
+def status_badge(val):
+    """Render a colored pill badge for status-like fields."""
+    v = str(val).strip()
+    if not v or v.lower() in ("nan", "none", "-"):
+        return "<span class='tbl-cell'>-</span>"
+    vl = v.lower()
+    if "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<span class='status-badge {cls}'>{v}</span>"
 
-    for _, row in df_page.iterrows():
-        row_dict = row.to_dict()
-        rid = row_dict.get("id")
+# Shared column ratios so header and body rows line up exactly like a real table
+COL_RATIOS = [0.4, 1.7, 1.1, 1.0, 1.3, 1.0, 1.1, 1.1, 1.1]
+COL_LABELS = ["#", "ACTIONS", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", "TEAM", "RFAI STATUS"]
 
-        c_action, c_pid, c_sid, c_sname, c_team, c_status = st.columns([1.6, 1.4, 1.2, 1.6, 1.3, 1.2])
+with st.container(key="site_table_wrap"):
+    if df_page.empty:
+        st.info("No records found.")
+    else:
+        # --- HEADER ROW ---
+        h_cols = st.columns(COL_RATIOS)
+        for h_col, label in zip(h_cols, COL_LABELS):
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
-        with c_action:
-            b1, b2, b3 = st.columns(3)
-            with b1:
-                if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                    view_record_dialog(row_dict)
-            with b2:
-                if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
-                    if 'edit_po_count' in st.session_state:
-                        del st.session_state['edit_po_count']
-                    edit_record_dialog(row_dict)
-            with b3:
-                is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
-                if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                    st.session_state[f"confirm_del_{rid}"] = True
+        # --- DATA ROWS ---
+        for page_pos, (_, row) in enumerate(df_page.iterrows()):
+            row_dict = row.to_dict()
+            rid = row_dict.get("id")
+            serial_no = start_idx + page_pos + 1
+            is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
 
-        with c_pid:
-            st.markdown(f"<div class='row-cell'>{row_dict.get('Project ID','')}</div>", unsafe_allow_html=True)
-        with c_sid:
-            st.markdown(f"<div class='row-cell'>{row_dict.get('Site ID','')}</div>", unsafe_allow_html=True)
-        with c_sname:
-            st.markdown(f"<div class='row-cell'>{row_dict.get('Site Name','')}</div>", unsafe_allow_html=True)
-        with c_team:
-            st.markdown(f"<div class='row-cell'>{row_dict.get('Team Name','')}</div>", unsafe_allow_html=True)
-        with c_status:
-            st.markdown(f"<div class='row-cell'>{row_dict.get('Site Status','')}</div>", unsafe_allow_html=True)
+            c_no, c_action, c_pid, c_sid, c_sname, c_cluster, c_status, c_team, c_rfai = st.columns(COL_RATIOS)
 
-        # Inline delete confirmation for this row
-        if st.session_state.get(f"confirm_del_{rid}"):
-            wc1, wc2, wc3 = st.columns([3, 1, 1])
-            with wc1:
-                st.warning(f"Delete record '{row_dict.get('Site ID','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
-            with wc2:
-                if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
-                    try:
-                        supabase.table(table_name).delete().eq("id", rid).execute()
+            c_no.markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+
+            with c_action:
+                n_btns = 4 if is_wh_required else 3
+                btn_cols = st.columns(n_btns)
+
+                with btn_cols[0]:
+                    with st.container(key=f"vbtn_{rid}"):
+                        if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                            view_record_dialog(row_dict)
+                with btn_cols[1]:
+                    with st.container(key=f"ebtn_{rid}"):
+                        if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                            if 'edit_po_count' in st.session_state:
+                                del st.session_state['edit_po_count']
+                            edit_record_dialog(row_dict)
+                with btn_cols[2]:
+                    with st.container(key=f"dbtn_{rid}"):
+                        if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                            st.session_state[f"confirm_del_{rid}"] = True
+                if is_wh_required:
+                    with btn_cols[3]:
+                        with st.container(key=f"mbtn_{rid}"):
+                            if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
+                                if 'mat_count' in st.session_state:
+                                    st.session_state.mat_count = 1
+                                material_movement_dialog(row_dict)
+
+            c_pid.markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            c_sid.markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            c_sname.markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            c_cluster.markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            c_status.markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
+            c_team.markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            c_rfai.markdown(f"<div class='tbl-cell'>{row_dict.get('RFAI Status','') or '-'}</div>", unsafe_allow_html=True)
+
+            # Inline delete confirmation for this row (still inside the bordered table)
+            if st.session_state.get(f"confirm_del_{rid}"):
+                wc1, wc2, wc3 = st.columns([6, 1, 1])
+                with wc1:
+                    st.warning(f"Delete record '{row_dict.get('Site ID','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
+                with wc2:
+                    if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
+                        try:
+                            supabase.table(table_name).delete().eq("id", rid).execute()
+                            st.session_state[f"confirm_del_{rid}"] = False
+                            st.success("✅ Record Successfully Deleted!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error Deleting Record: {e}")
+                with wc3:
+                    if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
                         st.session_state[f"confirm_del_{rid}"] = False
-                        st.success("✅ Record Successfully Deleted!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error Deleting Record: {e}")
-            with wc3:
-                if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
-                    st.session_state[f"confirm_del_{rid}"] = False
-                    st.rerun()
-
-        # Material button only if WH Material is Required (kept from original behavior)
-        if str(row_dict.get("WH Material", "")).strip().lower() == "required":
-            mcol1, mcol2 = st.columns([1, 9])
-            with mcol1:
-                if st.button("📦 Material", key=f"mat_{rid}", use_container_width=True):
-                    if 'mat_count' in st.session_state:
-                        st.session_state.mat_count = 1
-                    material_movement_dialog(row_dict)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
