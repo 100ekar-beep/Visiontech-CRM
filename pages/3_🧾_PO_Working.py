@@ -244,7 +244,7 @@ st.markdown("""
     }
 
     /* Round, color-coded, compact action icon buttons */
-    .st-key-po_table_wrap div[class*="st-key-vbtn_"] button,
+    .st-key-po_table_wrap div[class*="st-key-ebtn_"] button,
     .st-key-po_table_wrap div[class*="st-key-dbtn_"] button {
         width: 100% !important; 
         max-width: 34px !important;
@@ -254,7 +254,7 @@ st.markdown("""
         font-size: 0.95rem !important;
         margin: 0 auto !important;
     }
-    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
+    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
     div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -334,7 +334,6 @@ def po_upload_dialog():
                 df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
                 df_proc = df_proc.dropna(subset=['Qty'])
                 
-                # --- FIXED: Restored exact business logic for Column Slicing from old code ---
                 if 'Project Name' in df_proc.columns:
                     proj_idx = df_proc.columns.get_loc('Project Name')
                     df_proc = df_proc.iloc[:, :proj_idx+1]
@@ -376,8 +375,7 @@ def po_upload_dialog():
                 new_rows_to_add = []
                 
                 for idx, new_row in df_proc.iterrows():
-                    # --- FIXED: Restored exact business logic for 'Item Num' matching from old code ---
-                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Item Num'] == new_row['Item Num'])
+                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Line Number'] == new_row['Line Number'])
                     
                     if match_mask.any():
                         match_idx = existing_df[match_mask].index[0]
@@ -455,7 +453,7 @@ def export_dialog(df_export):
     )
 
 # --- 4.5 DETAILED PO VIEW DIALOG FUNCTION ---
-@st.dialog("👁️ PO Detailed Working View", width="large")
+@st.dialog("✏️ Edit PO Detailed Working", width="large")
 def view_po_details_dialog(row_data):
     po_no = row_data['PO Number']
     site_id = row_data['Site ID']
@@ -657,7 +655,7 @@ df_page = summary_df.iloc[start_idx:end_idx].copy()
 
 # Total 7 cols (Sr No + 2 Buttons + 4 Data)
 COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.2, 1.8, 1.2] 
-COL_LABELS = ["#", "👁️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
+COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
 
 with st.container(key="po_table_wrap", height=560):
     if df_page.empty:
@@ -672,7 +670,6 @@ with st.container(key="po_table_wrap", height=560):
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             po_num = str(row_dict.get('PO Number', '')).strip()
-            # --- FIXED: Added serial_no to the key to prevent StreamlitDuplicateElementKey ---
             serial_no = start_idx + page_pos + 1
             safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
             
@@ -681,8 +678,8 @@ with st.container(key="po_table_wrap", height=560):
             rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
             
             with rcols[1]:
-                with st.container(key=f"vbtn_{safe_po_key}"):
-                    if st.button("👁️", key=f"view_{safe_po_key}", help="View Details", use_container_width=True):
+                with st.container(key=f"ebtn_{safe_po_key}"):
+                    if st.button("✏️", key=f"edit_{safe_po_key}", help="Edit Details", use_container_width=True):
                         view_po_details_dialog(row_dict)
             with rcols[2]:
                 with st.container(key=f"dbtn_{safe_po_key}"):
