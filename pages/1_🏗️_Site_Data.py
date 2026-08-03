@@ -100,7 +100,7 @@ st.markdown("""
     }
 
     /* =========================================================
-       NEW: PREMIUM SIDEBAR NAVIGATION BUTTONS
+       PREMIUM SIDEBAR NAVIGATION BUTTONS
        ========================================================= */
     
     /* Sidebar Background */
@@ -147,59 +147,60 @@ st.markdown("""
     }
 
     /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE & PROPER BUTTONS
+       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
        ========================================================= */
     .st-key-site_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
-        overflow-x: auto !important; /* Forces horizontal scroll bar */
-        padding: 10px 0 !important;
+        overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
+        padding: 0px 0 !important;
     }
-    /* Force inner content width to 3200px so it NEVER squishes or overlaps columns */
-    .st-key-site_table_wrap > div > div[data-testid="stVerticalBlock"] {
-        min-width: 3200px !important;
-        padding: 0 10px !important;
-        gap: 0 !important;
-    }
-    /* Row styling */
+    /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 2800px !important; /* Magic fix for horizontal scroll */
         align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
-        gap: 0 !important;
+        flex-wrap: nowrap !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
         background: rgba(255,255,255,0.04);
     }
-    /* Cell padding */
+    /* Cell padding and border */
     .st-key-site_table_wrap div[data-testid="column"] {
-        padding: 0 8px !important;
+        padding: 0 15px !important; /* Increased padding for proper spacing */
         display: flex;
         align-items: center;
         justify-content: flex-start;
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:last-child {
+        border-right: none;
     }
     
     .st-key-site_table_wrap .tbl-head {
         background: transparent;
         font-size: 0.75rem;
         font-weight: 800;
-        letter-spacing: 0.6px;
+        letter-spacing: 0.8px;
         color: #94a3b8;
         text-transform: uppercase;
-        white-space: nowrap;
+        white-space: nowrap !important;
     }
+    /* Strict nowrap with ellipsis to prevent column bleeding */
     .st-key-site_table_wrap .tbl-cell {
         color: #e2e8f0;
-        font-size: 0.88rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        font-size: 0.86rem;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100%;
     }
     .st-key-site_table_wrap .tbl-serial {
         color: #64748b;
-        font-size: 0.8rem;
-        font-weight: 700;
+        font-size: 0.85rem;
+        font-weight: 800;
     }
 
     /* Fixed native Action Buttons strictly constrained to their columns */
@@ -221,18 +222,61 @@ st.markdown("""
     .st-key-site_table_wrap button:hover {
         background: #3b82f6 !important;
         border-color: #60a5fa !important;
-        transform: translateY(-1px) !important;
+        transform: translateY(-2px) !important;
     }
 
+    /* -------------------------------------------------------------
+       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4, 5)
+       ------------------------------------------------------------- */
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(1) {
+        padding: 0 10px 0 15px !important;
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head,
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) .tbl-head {
+        color: #94a3b8; 
+    }
+    /* Remove borders and padding between action button columns to merge them visually */
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3),
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) {
+        padding: 4px 4px !important;
+        border-right: none !important;
+    }
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) {
+        padding: 4px 15px 4px 4px !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    }
+
+    /* Round, color-coded, compact action icon buttons */
+    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
+        width: 100% !important; 
+        max-width: 34px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.95rem !important;
+        margin: 0 auto !important;
+    }
+    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
+    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    div[class*="st-key-mbtn_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; }
+    
     /* Status badge pill */
     .status-badge {
         display: inline-block;
         padding: 4px 12px;
         border-radius: 20px;
         font-size: 0.75rem;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        white-space: nowrap;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        white-space: nowrap !important;
+        text-align: center;
     }
     .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
     .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
@@ -257,16 +301,13 @@ supabase: Client = init_connection()
 # -------------------------------------------------------------
 def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_desc, area, lat_val, long_val, tech, fse, aom):
     try:
-        # Corrected Table Name and Condition as per your screenshot
         res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").eq("option_value", team_name).execute()
         if not res.data:
             st.toast(f"⚠️ Team '{team_name}' not found in database.", icon="⚠️")
             return False
         
-        # Corrected Column name for mobile number
         mobile_no = res.data[0].get("mobile", "")
         
-        # Check if mobile number is empty, None, or says "EMPTY"
         if not mobile_no or str(mobile_no).strip().upper() == "EMPTY" or str(mobile_no).strip() == "nan":
             st.toast(f"⚠️ No valid mobile number for Team '{team_name}'", icon="⚠️")
             return False
@@ -285,7 +326,6 @@ def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_
     
     lat_long = f"{lat_val} {long_val}"
     
-    # Validation helper to ensure no empty values go to WhatsApp API
     def clean_val(v):
         val = str(v).strip()
         return val if val and val != "None" else "N/A"
@@ -1278,7 +1318,7 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIT-TO-WORD ---
+# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
 def status_badge(val):
@@ -1300,8 +1340,8 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Ratios adjusted to make columns wider and fit complete words cleanly without overlap
-COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 0.35, 1.8, 1.4, 1.8, 1.2, 1.4, 1.3, 1.2, 1.3, 1.4, 1.3, 1.4, 1.3, 1.5]
+# Exact 18 columns ratios: Total 18 cols
+COL_RATIOS = [0.3, 0.4, 0.4, 0.4, 0.4, 1.8, 1.5, 2.0, 1.2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.5, 1.5]
 COL_LABELS = [
     "#", "👁️", "✏️", "🗑️", "📦", 
     "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", 
@@ -1309,7 +1349,7 @@ COL_LABELS = [
     "WCC NUMBER", "WCC STATUS", "TEAM"
 ]
 
-with st.container(key="site_table_wrap", height=580):
+with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
         st.info("No records found.")
     else:
