@@ -3,7 +3,7 @@ import pandas as pd
 import math
 import io
 import requests
-import urllib.parse # <--- FIXED: Missing import added
+import urllib.parse
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -148,7 +148,7 @@ st.markdown("""
     }
 
     /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING (PO WORKING)
+       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH REDUCED SPACING (40% LESS)
        ========================================================= */
     .st-key-po_table_wrap {
         background: rgba(255,255,255,0.02);
@@ -157,9 +157,9 @@ st.markdown("""
         overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
         padding: 0px 0 !important;
     }
-    /* Force inner rows to be wide so they NEVER squish */
+    /* Adjusted width to exactly 40% less (1800px -> 1080px) */
     .st-key-po_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1800px !important; /* Horizontal Scroll fix */
+        min-width: 1080px !important; 
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -654,7 +654,7 @@ end_idx = start_idx + rows_per_page
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
 # Total 7 cols (Sr No + 2 Buttons + 4 Data)
-COL_RATIOS = [0.3, 0.20, 0.20, 1.0, 1.0, 1.0, 1.0] 
+COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.2, 1.8, 1.2] 
 COL_LABELS = ["#", "👁️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
 
 with st.container(key="po_table_wrap", height=560):
