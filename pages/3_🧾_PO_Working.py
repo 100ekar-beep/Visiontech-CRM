@@ -334,10 +334,10 @@ def po_upload_dialog():
                 df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
                 df_proc = df_proc.dropna(subset=['Qty'])
                 
-                # --- BUG FIX 1: Removed dangerous column slicing that was cutting off 'Site ID' ---
-                # if 'Project Name' in df_proc.columns:
-                #     proj_idx = df_proc.columns.get_loc('Project Name')
-                #     df_proc = df_proc.iloc[:, :proj_idx+1]
+                # --- FIXED: Restored exact business logic for Column Slicing from old code ---
+                if 'Project Name' in df_proc.columns:
+                    proj_idx = df_proc.columns.get_loc('Project Name')
+                    df_proc = df_proc.iloc[:, :proj_idx+1]
                     
                 df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
                 po_no = po_number_input.strip()
@@ -376,8 +376,8 @@ def po_upload_dialog():
                 new_rows_to_add = []
                 
                 for idx, new_row in df_proc.iterrows():
-                    # --- BUG FIX 2: Matching by 'Line Number' instead of 'Item Num' to uniquely identify all 50 sites ---
-                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Line Number'] == new_row['Line Number'])
+                    # --- FIXED: Restored exact business logic for 'Item Num' matching from old code ---
+                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Item Num'] == new_row['Item Num'])
                     
                     if match_mask.any():
                         match_idx = existing_df[match_mask].index[0]
@@ -672,8 +672,9 @@ with st.container(key="po_table_wrap", height=560):
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             po_num = str(row_dict.get('PO Number', '')).strip()
-            safe_po_key = urllib.parse.quote(po_num) # safe key for widgets
+            # --- FIXED: Added serial_no to the key to prevent StreamlitDuplicateElementKey ---
             serial_no = start_idx + page_pos + 1
+            safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
             
             rcols = st.columns(COL_RATIOS)
             
