@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import requests # <--- NEW: Added requests for WhatsApp API
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -93,7 +94,7 @@ st.markdown("""
     }
 
     /* =========================================================
-       NEW: PREMIUM SIDEBAR NAVIGATION BUTTONS
+       PREMIUM SIDEBAR NAVIGATION BUTTONS
        ========================================================= */
     
     /* Sidebar Background */
@@ -138,6 +139,141 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
+
+    /* =========================================================
+       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
+       ========================================================= */
+    .st-key-wh_table_wrap {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
+        padding: 0px 0 !important;
+    }
+    /* Force inner rows to be extremely wide so they NEVER squish or overlap */
+    .st-key-wh_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 3500px !important; /* MAGIC FIX FOR HORIZONTAL SCROLL */
+        align-items: center !important;
+        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        padding: 6px 0 !important;
+        flex-wrap: nowrap !important;
+    }
+    .st-key-wh_table_wrap div[data-testid="stHorizontalBlock"]:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    /* Cell padding and border */
+    .st-key-wh_table_wrap div[data-testid="column"] {
+        padding: 0 15px !important; /* Proper spacing */
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    .st-key-wh_table_wrap div[data-testid="column"]:last-child {
+        border-right: none;
+    }
+    
+    .st-key-wh_table_wrap .tbl-head {
+        background: transparent;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        white-space: nowrap !important;
+    }
+    /* Strict nowrap with ellipsis to prevent column bleeding */
+    .st-key-wh_table_wrap .tbl-cell {
+        color: #e2e8f0;
+        font-size: 0.86rem;
+        white-space: normal !important;
+        word-break: break-word !important;
+        line-height: 1.4;
+        width: 100%;
+    }
+    .st-key-wh_table_wrap .tbl-serial {
+        color: #64748b;
+        font-size: 0.85rem;
+        font-weight: 800;
+    }
+
+    /* Fixed native Action Buttons strictly constrained to their columns */
+    .st-key-wh_table_wrap button {
+        height: 32px !important;
+        width: 100% !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        border-radius: 6px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: none !important;
+        pointer-events: auto !important; /* Force clickability */
+        cursor: pointer !important;
+    }
+    .st-key-wh_table_wrap button:hover {
+        background: #3b82f6 !important;
+        border-color: #60a5fa !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* -------------------------------------------------------------
+       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4)
+       ------------------------------------------------------------- */
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(1) {
+        padding: 0 10px 0 15px !important;
+    }
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head {
+        color: #94a3b8; 
+    }
+    /* Remove borders and padding between action button columns to merge them visually */
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(2),
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(3) {
+        padding: 4px 4px !important;
+        border-right: none !important;
+    }
+    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(4) {
+        padding: 4px 15px 4px 4px !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    }
+
+    /* Round, color-coded, compact action icon buttons */
+    .st-key-wh_table_wrap div[class*="st-key-vbtn_"] button,
+    .st-key-wh_table_wrap div[class*="st-key-ebtn_"] button,
+    .st-key-wh_table_wrap div[class*="st-key-dbtn_"] button {
+        width: 100% !important; 
+        max-width: 34px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.95rem !important;
+        margin: 0 auto !important;
+    }
+    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
+    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    
+    /* Status badge pill */
+    .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        white-space: normal;
+        word-break: break-word;
+        text-align: center;
+    }
+    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
+    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
+    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
+    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
+    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -394,7 +530,7 @@ def add_warehouse_material_dialog():
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
 
-# --- 3.6 EDIT WAREHOUSE MATERIAL DIALOG FUNCTION (NEW) ---
+# --- 3.6 EDIT WAREHOUSE MATERIAL DIALOG FUNCTION ---
 @st.dialog("✏️ Edit Warehouse Material", width="large")
 def edit_warehouse_material_dialog(row_data):
     st.caption("Update transaction items and asset movements")
@@ -485,6 +621,38 @@ def edit_warehouse_material_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Updating Material: {e}")
 
+# --- 3.7 NEW: VIEW RECORD DIALOG FUNCTION (READ-ONLY) ---
+@st.dialog("👁️ View Warehouse Material", width="large")
+def view_record_dialog(row_data):
+    st.caption("Read-only preview of transaction items and asset movements")
+
+    st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    with c1: st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
+    with c2: st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True)
+    with c3: st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True)
+    with c4: st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True)
+    with c5: st.text_input("TEAM", value=row_data.get('Team', ''), disabled=True)
+    with c6: st.text_input("SRN STATUS", value=row_data.get('SRN Status', ''), disabled=True)
+
+    st.markdown('<div class="modal-section-title">📦 TRANSACTION & ASSET ITEMS</div>', unsafe_allow_html=True)
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    with mc1: st.text_input("TRANSACTION TYPE", value=row_data.get('Transaction Type', ''), disabled=True)
+    with mc2: st.text_input("BOQ NUMBER", value=row_data.get('BOQ Number', ''), disabled=True)
+    with mc3: st.text_input("ITEM CODE", value=row_data.get('Item Code', ''), disabled=True)
+    with mc4: st.text_input("ITEM DESCRIPTION", value=row_data.get('Item Description', ''), disabled=True)
+    with mc5: st.text_input("INDUS QTY", value=str(row_data.get('Indus Qty', '')), disabled=True)
+
+    mc6, mc7, mc8, mc9 = st.columns(4)
+    with mc6: st.text_input("MATERIAL STATUS", value=row_data.get('Material Status', ''), disabled=True)
+    with mc7: st.text_input("DISPATCH DATE", value=row_data.get('Dispatch Date', ''), disabled=True)
+    with mc8: st.text_input("STN STATUS", value=row_data.get('STN Status', ''), disabled=True)
+    with mc9: st.text_input("REMARKS", value=row_data.get('Remark', ''), disabled=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Close", use_container_width=True):
+        st.rerun()
+
 # --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
@@ -541,7 +709,6 @@ columns_list = [
     "STN Status", "Remark"
 ]
 
-# FIXED: Advanced Dictionary Mapper to solve Data Not Showing Issue
 if data:
     df_raw = pd.DataFrame(data)
     df = pd.DataFrame()
@@ -594,40 +761,110 @@ elif st.session_state.wh_current_page < 1:
 start_idx = (st.session_state.wh_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. ORIGINAL LAVISH DATA TABLE (st.data_editor) ---
+# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-edited_df = st.data_editor(
-    df_page, 
-    use_container_width=True, 
-    hide_index=True,
-    height=400, 
-    column_config={
-        "id": None, 
-        "🎯 Select": st.column_config.CheckboxColumn("Select", default=False)
-    }
-)
+def status_badge(val):
+    v = str(val).strip()
+    if not v or v.lower() in ("nan", "none", "-"):
+        return "<span class='tbl-cell'>-</span>"
+    vl = v.lower()
+    if "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<span class='status-badge {cls}'>{v}</span>"
 
-# --- EDIT & DELETE LOGIC FOR TABLE ROW ---
-selected_rows = edited_df[edited_df["🎯 Select"] == True]
-if not selected_rows.empty:
-    st.markdown("---")
-    col_ed1, col_ed2, _ = st.columns([1, 1, 7])
-    
-    row_to_edit = selected_rows.iloc[0].to_dict()
-    
-    with col_ed1:
-        if st.button("✏️ Edit Record", type="primary", use_container_width=True):
-            edit_warehouse_material_dialog(row_to_edit)
-            
-    with col_ed2:
-        if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
-            try:
-                supabase.table(table_name).delete().eq("id", row_to_edit["id"]).execute()
-                st.success("✅ Record Successfully Deleted!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Deleting Record: {e}")
+# Exact 19 columns ratios: Total 19 cols (1 Sr No + 3 Buttons + 15 Data)
+COL_RATIOS = [
+    0.3, 0.35, 0.35, 0.35,       # 0-3 (Sr No, Actions: View, Edit, Delete)
+    1.2, 1.0, 1.5, 1.0, 1.0,     # 4-8
+    1.0, 1.2, 1.0, 1.0, 1.5,     # 9-13
+    0.8, 1.2, 1.2, 1.0, 1.5      # 14-18
+]
+
+COL_LABELS = [
+    "#", "👁️", "✏️", "🗑️", 
+    "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM", 
+    "SRN STATUS", "TRANSACTION TYPE", "BOQ NUMBER", "ITEM CODE", 
+    "ITEM DESCRIPTION", "INDUS QTY", "MATERIAL STATUS", "DISPATCH DATE", 
+    "STN STATUS", "REMARK"
+]
+
+with st.container(key="wh_table_wrap", height=560):
+    if df_page.empty:
+        st.info("No records found.")
+    else:
+        # --- HEADER ROW ---
+        h_cols = st.columns(COL_RATIOS)
+        for h_col, label in zip(h_cols, COL_LABELS):
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+
+        # --- DATA ROWS ---
+        for page_pos, (_, row) in enumerate(df_page.iterrows()):
+            row_dict = row.to_dict()
+            rid = row_dict.get("id")
+            serial_no = start_idx + page_pos + 1
+
+            rcols = st.columns(COL_RATIOS)
+
+            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+
+            with rcols[1]:
+                with st.container(key=f"vbtn_{rid}"):
+                    if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
+                        view_record_dialog(row_dict)
+            with rcols[2]:
+                with st.container(key=f"ebtn_{rid}"):
+                    if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                        edit_warehouse_material_dialog(row_dict)
+            with rcols[3]:
+                with st.container(key=f"dbtn_{rid}"):
+                    if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
+                        st.session_state[f"confirm_del_{rid}"] = True
+
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Team','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(status_badge(row_dict.get('SRN Status', '')), unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Transaction Type','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('BOQ Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('Item Code','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('Item Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('Indus Qty','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[15].markdown(status_badge(row_dict.get('Material Status', '')), unsafe_allow_html=True)
+            rcols[16].markdown(f"<div class='tbl-cell'>{row_dict.get('Dispatch Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[17].markdown(status_badge(row_dict.get('STN Status', '')), unsafe_allow_html=True)
+            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Remark','') or '-'}</div>", unsafe_allow_html=True)
+
+            # Inline delete confirmation
+            if st.session_state.get(f"confirm_del_{rid}"):
+                wc1, wc2, wc3 = st.columns([6, 1, 1])
+                with wc1:
+                    st.warning(f"Delete record '{row_dict.get('Item Code','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
+                with wc2:
+                    if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
+                        try:
+                            supabase.table(table_name).delete().eq("id", rid).execute()
+                            st.session_state[f"confirm_del_{rid}"] = False
+                            st.success("✅ Record Successfully Deleted!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error Deleting Record: {e}")
+                with wc3:
+                    if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
+                        st.session_state[f"confirm_del_{rid}"] = False
+                        st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
