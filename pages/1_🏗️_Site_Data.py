@@ -158,7 +158,7 @@ st.markdown("""
     }
     /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 2800px !important; /* Magic fix for horizontal scroll */
+        min-width: 4800px !important; /* INCREASED MAGIC FIX FOR 26 COLUMNS */
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -1340,13 +1340,23 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Exact 18 columns ratios: Total 18 cols
-COL_RATIOS = [0.3, 0.4, 0.4, 0.4, 0.4, 1.8, 1.5, 2.0, 1.2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.2, 1.5, 1.5, 1.5]
+# Exact 26 columns ratios: 1 (Sr No) + 4 (Buttons) + 21 (Data)
+COL_RATIOS = [
+    0.3, 0.35, 0.35, 0.35, 0.35, # 0-4 (Actions)
+    1.2, 1.0, 1.5, 1.2, 1.2,     # 5-9
+    1.5, 1.0, 1.2, 1.2, 1.0,     # 10-14
+    1.0, 1.0, 1.2, 2.0, 1.0,     # 15-19
+    1.2, 1.2, 1.2, 1.0, 1.2,     # 20-24
+    1.0                          # 25
+]
+
 COL_LABELS = [
     "#", "👁️", "✏️", "🗑️", "📦", 
-    "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "SITE STATUS", 
-    "DEPARTMENT", "OPERATOR", "PRODUCT", "PO NO.", "PO STATUS", 
-    "WCC NUMBER", "WCC STATUS", "TEAM"
+    "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
+    "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
+    "PO STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", "WH MATERIAL", 
+    "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", "WCC NUMBER", 
+    "WCC STATUS"
 ]
 
 with st.container(key="site_table_wrap", height=560):
@@ -1387,19 +1397,27 @@ with st.container(key="site_table_wrap", height=560):
                             st.session_state.mat_count = 1
                         material_movement_dialog(row_dict)
 
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[12].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
             rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[14].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
-            rcols[15].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[16].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
-            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[15].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
+            rcols[16].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[17].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
+            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[20].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[21].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+            rcols[22].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+            rcols[23].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[24].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[25].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
 
             # Inline delete confirmation
             if st.session_state.get(f"confirm_del_{rid}"):
