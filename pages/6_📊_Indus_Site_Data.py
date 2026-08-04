@@ -28,7 +28,7 @@ st.markdown("""
     /* ========================================================
        100% GUARANTEED LAVISH GREEN WHATSAPP BUTTON FIX
        ======================================================== */
-    .st-key-wa_send_btn button {
+    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button {
         background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
         color: white !important; 
         border: 2px solid #128C7E !important; 
@@ -38,28 +38,29 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(37, 211, 102, 0.4) !important;
         width: 100% !important;
     }
-    .st-key-wa_send_btn button:hover {
+    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.6) !important;
         border-color: #075E54 !important;
     }
 
     /* ========================================================
-       FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
+       PERFECT SOLID BORDERS ONLY FOR TEXT INPUT BOXES
        ======================================================== */
-    .stTextInput > div > div {
-        border: 2px solid #3b82f6 !important; /* Thick Blue Border */
+    div[data-testid="stTextInput"] div[data-baseweb="input"],
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"] {
+        border: 2px solid #cbd5e1 !important; /* Elegant Default Border */
         border-radius: 8px !important;
         background-color: #ffffff !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
-    .stTextInput > div > div:focus-within {
-        border-color: #1e3a8a !important;
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+        border-color: #3b82f6 !important; /* Blue glow on click */
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
     }
-    .stTextInput input {
+    div[data-testid="stTextInput"] input {
         color: #0f172a !important;
         font-weight: 600 !important;
+        padding: 10px !important;
     }
     
     /* Inputs & Labels */
@@ -157,42 +158,36 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (Smart Column Detection) ---
+        # --- EXTREME BULLETPROOF TEAM FETCHING (EXACTLY AS PER SCREENSHOT) ---
         team_dict = {}
-        dropdown_data = []
         
-        # Double Bypass System to guarantee data fetch
+        # 1st Attempt: Native Supabase Client
         try:
-            res = supabase.table("dropdown_master").select("*").execute()
-            if res.data:
-                dropdown_data = res.data
+            team_res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").execute()
+            if team_res.data:
+                for r in team_res.data:
+                    opt_val = r.get("option_value")
+                    mob_val = r.get("mobile")
+                    if opt_val:
+                        team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
         except Exception:
+            pass # Silent catch for PGRST205
+            
+        # 2nd Attempt: Direct REST API Bypass (If 1st attempt fails due to Schema Cache)
+        if not team_dict:
             try:
                 headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
                 r = requests.get(f"{URL}/rest/v1/dropdown_master?select=*", headers=headers)
                 if r.status_code == 200:
-                    dropdown_data = r.json()
+                    for r_data in r.json():
+                        if str(r_data.get("category", "")).strip() == "Team Name":
+                            opt_val = r_data.get("option_value")
+                            mob_val = r_data.get("mobile")
+                            if opt_val:
+                                team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
             except Exception:
                 pass # Silent fail
-
-        # Extracting data intelligently
-        if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
-            for r in dropdown_data:
-                keys = list(r.keys())
                 
-                # Automatically detecting the columns regardless of exact naming (category, option_value, mobile number)
-                cat_key = next((k for k in keys if 'category' in k.lower()), 'category')
-                opt_key = next((k for k in keys if 'option' in k.lower() or 'value' in k.lower()), 'option_value')
-                # Finding mobile OR number column dynamically
-                mob_key = next((k for k in keys if 'mobile' in k.lower() or 'number' in k.lower() or 'phone' in k.lower()), 'mobile')
-                
-                cat_val = str(r.get(cat_key, '')).strip()
-                if cat_val.lower() == 'team name':
-                    team_name = r.get(opt_key)
-                    team_mobile = r.get(mob_key)
-                    if team_name:
-                        team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
-            
         row_in = res_data[0]
         
         # Mapping Data Safely for WhatsApp & Display
@@ -229,63 +224,62 @@ if sub_ind:
             sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            # Specific Container Key for WhatsApp Button CSS Styling
-            with st.container(key="wa_send_btn"):
-                if st.button("💬 Send Message to Team", use_container_width=True):
-                    if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
-                        st.warning("⚠️ Please select a valid team first!")
+            st.markdown('<div id="wa-btn"></div>', unsafe_allow_html=True) # Anchor point for CSS
+            if st.button("💬 Send Message to Team", use_container_width=True):
+                if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
+                    st.warning("⚠️ Please select a valid team first!")
+                else:
+                    mob = team_dict.get(sel_team, "")
+                    if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
+                        st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
                     else:
-                        mob = team_dict.get(sel_team, "")
-                        if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
-                            st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
+                        clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
+                        if len(clean_mob) >= 10:
+                            # --- INTERAKT API LOGIC ---
+                            url = "https://api.interakt.ai/v1/public/message/"
+                            headers = {
+                                "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
+                                "Content-Type": "application/json"
+                            }
+                            
+                            def clean_val(v):
+                                val = str(v).strip()
+                                return val if val and val != "None" and val != "nan" else "-"
+                            
+                            payload = {
+                                "countryCode": "+91",
+                                "phoneNumber": clean_mob,
+                                "callbackData": "site_detail_event",
+                                "type": "Template",
+                                "template": {
+                                    "name": "Site_Detail",
+                                    "languageCode": "mr",
+                                    "headerValues": [],
+                                    "bodyValues": [
+                                        clean_val(sel_team),      # {{1}} Team Name
+                                        clean_val(site_id_val),   # {{2}} Site ID
+                                        clean_val(site_name_val), # {{3}} Site Name
+                                        clean_val(district_val),  # {{4}} District / Area
+                                        clean_val(cluster_val),   # {{5}} Cluster
+                                        clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
+                                        clean_val(tech_full),     # {{7}} Technician Detail
+                                        clean_val(fse_full),      # {{8}} FSE Detail
+                                        clean_val(aom_full),      # {{9}} AOM Detail
+                                        clean_val(maps_link)      # {{10}} Google Location Link
+                                    ]
+                                }
+                            }
+                            
+                            try:
+                                response = requests.post(url, headers=headers, json=payload)
+                                if response.status_code in [200, 201, 202]:
+                                    st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
+                                else:
+                                    st.error(f"⚠️ WhatsApp API Error: {response.text}")
+                            except Exception as e:
+                                st.error(f"⚠️ Request Failed: {e}")
                         else:
-                            clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
-                            if len(clean_mob) >= 10:
-                                # --- INTERAKT API LOGIC ---
-                                url = "https://api.interakt.ai/v1/public/message/"
-                                headers = {
-                                    "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
-                                    "Content-Type": "application/json"
-                                }
-                                
-                                def clean_val(v):
-                                    val = str(v).strip()
-                                    return val if val and val != "None" and val != "nan" else "-"
-                                
-                                payload = {
-                                    "countryCode": "+91",
-                                    "phoneNumber": clean_mob,
-                                    "callbackData": "site_detail_event",
-                                    "type": "Template",
-                                    "template": {
-                                        "name": "Site_Detail",
-                                        "languageCode": "mr",
-                                        "headerValues": [],
-                                        "bodyValues": [
-                                            clean_val(sel_team),      # {{1}} Team Name
-                                            clean_val(site_id_val),   # {{2}} Site ID
-                                            clean_val(site_name_val), # {{3}} Site Name
-                                            clean_val(district_val),  # {{4}} District / Area
-                                            clean_val(cluster_val),   # {{5}} Cluster
-                                            clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
-                                            clean_val(tech_full),     # {{7}} Technician Detail
-                                            clean_val(fse_full),      # {{8}} FSE Detail
-                                            clean_val(aom_full),      # {{9}} AOM Detail
-                                            clean_val(maps_link)      # {{10}} Google Location Link
-                                        ]
-                                    }
-                                }
-                                
-                                try:
-                                    response = requests.post(url, headers=headers, json=payload)
-                                    if response.status_code in [200, 201, 202]:
-                                        st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
-                                    else:
-                                        st.error(f"⚠️ WhatsApp API Error: {response.text}")
-                                except Exception as e:
-                                    st.error(f"⚠️ Request Failed: {e}")
-                            else:
-                                st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
+                            st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
             
         st.divider()
 
