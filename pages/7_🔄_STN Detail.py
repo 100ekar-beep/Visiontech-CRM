@@ -1,12 +1,10 @@
 import streamlit as st
 import pandas as pd
 import requests 
-from supabase import create_client, Client
 
-# --- 1. SUPABASE CONNECTION ---
+# --- 1. SUPABASE CREDENTIALS ---
 URL = "https://sckyflvukpmdqmdzjzhs.supabase.co"
 KEY = "sb_publishable_rAiegSkKYvM0Z9n7sUAI1w_WTgm1S4I" 
-supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
@@ -120,18 +118,21 @@ if st.session_state.active_view == 'Pending':
     search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...")
     
     wh_data = []
+    
+    # 🚀 DIRECT REST API BYPASS (Completely bypasses Supabase client cache blocks)
     try:
-        res = supabase.table("warehouse_data").select("*").execute()
-        if res.data:
-            wh_data = res.data
-    except Exception:
-        try:
-            headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-            r = requests.get(f"{URL}/rest/v1/warehouse_data?select=*", headers=headers)
-            if r.status_code == 200:
-                wh_data = r.json()
-        except Exception as e:
-            st.error(f"Fetch Error: {e}")
+        headers = {
+            "apikey": KEY,
+            "Authorization": f"Bearer {KEY}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(f"{URL}/rest/v1/warehouse_data?select=*", headers=headers)
+        if response.status_code == 200:
+            wh_data = response.json()
+        else:
+            st.error(f"API Error Code {response.status_code}: {response.text}")
+    except Exception as e:
+        st.error(f"Connection Failed: {e}")
 
     if wh_data:
         df = pd.DataFrame(wh_data)
@@ -181,7 +182,7 @@ if st.session_state.active_view == 'Pending':
             st.write(list(df.columns))
             
     else:
-        st.warning("⚠️ Table 'warehouse_data' me abhi koi data nahi mila.")
+        st.warning("⚠️ Table 'warehouse_data' se data fetch nahi ho paya. Kripya check karein ki table me data mojood hai ya nahi.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
