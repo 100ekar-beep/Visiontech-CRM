@@ -11,22 +11,79 @@ supabase: Client = create_client(URL, KEY)
 # --- 2. PAGE CONFIGURATION ---
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
 
-# --- 3. CLEAN & SAFE CSS (Sidebar ko disturb nahi karegi) ---
+# --- 3. SESSION STATE FOR BUTTON NAVIGATION ---
+if 'active_view' not in st.session_state:
+    st.session_state.active_view = 'Pending'
+
+def change_view(view_name):
+    st.session_state.active_view = view_name
+
+# --- 4. EXACT SIDEBAR CSS FROM YOUR CODE + TOP BUTTON STYLING ---
 st.markdown("""
     <style>
-    /* Sirf Dataframe header ko style karenge */
-    [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
-    
-    /* Tabs ki formatting ko bold aur black karenge (Standard Style) */
-    button[data-baseweb="tab"] {
-        font-weight: 700 !important;
-        font-size: 17px !important;
+    /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION BUTTONS (From site_data.py)
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
+
+    /* =========================================================
+       TOP 3 MAIN BUTTONS (White Box, Black Border, Bold Text)
+       ========================================================= */
+    /* This targets only the buttons inside the main app screen */
+    div[data-testid="stMainBlockContainer"] div.stButton > button {
+        background-color: #ffffff !important;
         color: #000000 !important;
+        border: 2px solid #000000 !important;
+        font-weight: 900 !important; /* Bold */
+        border-radius: 6px !important;
+        padding: 10px 20px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: none !important;
     }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        border-bottom-color: #000000 !important;
-        background-color: #f8fafc !important;
+    div[data-testid="stMainBlockContainer"] div.stButton > button:hover {
+        background-color: #f1f5f9 !important;
+        border-color: #000000 !important;
     }
+    /* Active Button style */
+    div[data-testid="stMainBlockContainer"] div.stButton > button[kind="primary"] {
+        border: 4px solid #000000 !important;
+        background-color: #e2e8f0 !important;
+    }
+    
+    /* Dataframe Header */
+    [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -40,14 +97,32 @@ def get_actual_col(df_columns, possible_names):
 st.markdown("<h2 style='color: #000000; margin-bottom: 20px;'>🔄 STN Details & Processing</h2>", unsafe_allow_html=True)
 
 # =====================================================================
-# 🗂️ STANDARD TABS NAVIGATION
+# 🎛️ TOP NAVIGATION BUTTONS (BAJU-BAJU ALIGNMENT)
 # =====================================================================
-tab1, tab2, tab3 = st.tabs(["1. STN Pending", "2. STN Closed", "3. Material Return"])
+# First 3 columns take small equal space, 4th empty column takes the rest to push them together
+col1, col2, col3, empty_space = st.columns([1, 1, 1, 4])
+
+with col1:
+    if st.button("1. STN Pending", type="primary" if st.session_state.active_view == 'Pending' else "secondary", use_container_width=True):
+        change_view('Pending')
+        st.rerun()
+        
+with col2:
+    if st.button("2. STN Closed", type="primary" if st.session_state.active_view == 'Closed' else "secondary", use_container_width=True):
+        change_view('Closed')
+        st.rerun()
+        
+with col3:
+    if st.button("3. Material Return", type="primary" if st.session_state.active_view == 'Return' else "secondary", use_container_width=True):
+        change_view('Return')
+        st.rerun()
+
+st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
 
 # =====================================================================
-# ⏳ TAB 1: STN PENDING LOGIC
+# ⏳ VIEW 1: STN PENDING LOGIC
 # =====================================================================
-with tab1:
+if st.session_state.active_view == 'Pending':
     search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...")
     
     wh_data = []
@@ -61,7 +136,7 @@ with tab1:
         error_msg += f"Attempt 1 Failed: {e} | "
         if "Indus Data" in str(e) or "PGRST205" in str(e):
             try:
-                # Cache Bypass: Purane table naam se uthayega
+                # Cache Bypass: Auto-fallback to Indus Data
                 res = supabase.table("Indus Data").select("*").execute()
                 wh_data = res.data
             except Exception as e2:
@@ -79,8 +154,8 @@ with tab1:
             "Site Name": get_actual_col(df.columns, ["site_name", "site name"]),
             "Cluster": get_actual_col(df.columns, ["cluster"]),
             "ITEM DESCRIPTION": get_actual_col(df.columns, ["item_description", "item description", "description"]),
-            "Qty": get_actual_col(df.columns, ["qty", "quantity"]),
-            "Team Name": get_actual_col(df.columns, ["team_name", "team name"])
+            "Qty": get_actual_col(df.columns, ["qty", "quantity", "indus qty", "indus_qty"]),
+            "Team Name": get_actual_col(df.columns, ["team_name", "team name", "team"])
         }
         
         if stn_status_col and mat_status_col:
@@ -101,17 +176,16 @@ with tab1:
                 c_stats, c_down = st.columns([3, 1])
                 c_stats.success(f"✅ Showing {len(display_df)} Pending STN Record(s)")
                 
-                # Downloading in strictly .tsv format as previously requested
+                # Handling .tsv file extension as required by workflow
                 tsv_data = display_df.to_csv(index=False, sep='\t').encode('utf-8')
                 c_down.download_button("📥 Download TSV File", data=tsv_data, file_name="STN_Pending.tsv", mime="text/tab-separated-values", use_container_width=True)
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
             else:
-                st.info("⚠️ Data table me hai, par 'Required' aur 'Dispatched' status match hone wala koi record nahi mila.")
+                st.info("⚠️ Data database me mojood hai, par 'Required' aur 'Dispatched' status wali koi entry nahi mili.")
         else:
             st.error("⚠️ Data aa gaya hai, par Table me 'STN Status' ya 'Material Status' columns nahi mile.")
-            st.write("Current columns:", list(df.columns))
             
     else:
         st.error("❌ Data fetch nahi ho paya. Auto-fallback ne bhi kaam nahi kiya.")
@@ -119,13 +193,13 @@ with tab1:
             st.code(error_msg, language="bash")
 
 # =====================================================================
-# ✅ TAB 2: STN CLOSED LOGIC
+# ✅ VIEW 2: STN CLOSED LOGIC
 # =====================================================================
-with tab2:
-    st.info("🚀 STN Closed - Data yahan dikhega.")
+elif st.session_state.active_view == 'Closed':
+    st.info("🚀 STN Closed - Yahan aage ka logic aayega.")
 
 # =====================================================================
-# 🔙 TAB 3: MATERIAL RETURN LOGIC
+# 🔙 VIEW 3: MATERIAL RETURN LOGIC
 # =====================================================================
-with tab3:
-    st.info("🔙 Fresh Material Return - Data yahan dikhega.")
+elif st.session_state.active_view == 'Return':
+    st.info("🔙 Fresh Material Return - Yahan aage ka logic aayega.")
