@@ -157,32 +157,22 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams with 100% Silent Error Handling (No red box)
+        # Fetching Teams with 100% Robust Logic (No DB filters, case-insensitive mapping)
         team_dict = {}
         try:
-            # Step 1: Try dropdown_master
-            team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
+            # Step 1: Fetch ALL data from dropdown_master without filtering to avoid Case Sensitivity issues
+            team_res = supabase.table("dropdown_master").select("*").execute()
             if team_res.data:
                 for r in team_res.data:
-                    opt_val = r.get('option_value')
-                    mob_val = r.get('mobile')
-                    if opt_val:
-                        team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
-        except Exception:
-            pass # COMPLETELY SILENT (Supabase cache issue ignored)
-
-        # Step 2: Fallback to project_master if dropdown_master failed or is empty
-        if not team_dict:
-            try:
-                team_fallback = supabase.table("project_master").select("name, phone").execute()
-                if team_fallback.data:
-                    for r in team_fallback.data:
-                        opt_val = r.get('name')
-                        mob_val = r.get('phone')
+                    # Case insensitive check for 'Team Name'
+                    cat_val = str(r.get('category', r.get('Category', ''))).strip().lower()
+                    if cat_val == 'team name':
+                        opt_val = r.get('option_value', r.get('Option Value', ''))
+                        mob_val = r.get('mobile', r.get('Mobile', ''))
                         if opt_val:
                             team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
-            except Exception:
-                pass
+        except Exception:
+            pass # Silent error handle
             
         row_in = res_data[0]
         
@@ -208,70 +198,76 @@ if sub_ind:
         lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
         lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
-        # Variables for WhatsApp Template
+        # Variables for WhatsApp Template (2 spaces exactly between lat and long)
         lat_long_spaced = f"{lat}  {lon}" if lat and lon else "N/A"
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
         t_col1, t_col2 = st.columns([3, 2])
-        sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
+        
+        # Displaying Dropdown with Fallback Message
+        if not team_dict:
+            sel_team = t_col1.selectbox("Select Team", ["-- No Teams Found in Database --"], label_visibility="collapsed")
+        else:
+            sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            # "key" parameter se specific CSS binding ki gayi hai
-            if st.button("💬 Send Message to Team", key="wa_send_btn", use_container_width=True):
-                if sel_team == "-- Select Team --":
-                    st.warning("⚠️ Please select a team first!")
-                else:
-                    mob = team_dict.get(sel_team, "")
-                    if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
-                        st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
+            # Use specific st.container key for CSS Targeting
+            with st.container(key="wa_send_btn"):
+                if st.button("💬 Send Message to Team", use_container_width=True):
+                    if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
+                        st.warning("⚠️ Please select a valid team first!")
                     else:
-                        clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
-                        if len(clean_mob) >= 10:
-                            # --- INTERAKT API LOGIC ---
-                            url = "https://api.interakt.ai/v1/public/message/"
-                            headers = {
-                                "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
-                                "Content-Type": "application/json"
-                            }
-                            
-                            def clean_val(v):
-                                val = str(v).strip()
-                                return val if val and val != "None" and val != "nan" else "-"
-                            
-                            payload = {
-                                "countryCode": "+91",
-                                "phoneNumber": clean_mob,
-                                "callbackData": "site_detail_event",
-                                "type": "Template",
-                                "template": {
-                                    "name": "Site_Detail",
-                                    "languageCode": "mr",
-                                    "headerValues": [],
-                                    "bodyValues": [
-                                        clean_val(sel_team),      # {{1}} Team Name
-                                        clean_val(site_id_val),   # {{2}} Site ID
-                                        clean_val(site_name_val), # {{3}} Site Name
-                                        clean_val(district_val),  # {{4}} District / Area
-                                        clean_val(cluster_val),   # {{5}} Cluster
-                                        clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
-                                        clean_val(tech_full),     # {{7}} Technician Detail
-                                        clean_val(fse_full),      # {{8}} FSE Detail
-                                        clean_val(aom_full),      # {{9}} AOM Detail
-                                        clean_val(maps_link)      # {{10}} Google Location Link
-                                    ]
-                                }
-                            }
-                            
-                            try:
-                                response = requests.post(url, headers=headers, json=payload)
-                                if response.status_code in [200, 201, 202]:
-                                    st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
-                                else:
-                                    st.error(f"⚠️ WhatsApp API Error: {response.text}")
-                            except Exception as e:
-                                st.error(f"⚠️ Request Failed: {e}")
+                        mob = team_dict.get(sel_team, "")
+                        if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
+                            st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
                         else:
-                            st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
+                            clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
+                            if len(clean_mob) >= 10:
+                                # --- INTERAKT API LOGIC ---
+                                url = "https://api.interakt.ai/v1/public/message/"
+                                headers = {
+                                    "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
+                                    "Content-Type": "application/json"
+                                }
+                                
+                                def clean_val(v):
+                                    val = str(v).strip()
+                                    return val if val and val != "None" and val != "nan" else "-"
+                                
+                                payload = {
+                                    "countryCode": "+91",
+                                    "phoneNumber": clean_mob,
+                                    "callbackData": "site_detail_event",
+                                    "type": "Template",
+                                    "template": {
+                                        "name": "Site_Detail",
+                                        "languageCode": "mr",
+                                        "headerValues": [],
+                                        "bodyValues": [
+                                            clean_val(sel_team),      # {{1}} Team Name
+                                            clean_val(site_id_val),   # {{2}} Site ID
+                                            clean_val(site_name_val), # {{3}} Site Name
+                                            clean_val(district_val),  # {{4}} District / Area
+                                            clean_val(cluster_val),   # {{5}} Cluster
+                                            clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
+                                            clean_val(tech_full),     # {{7}} Technician Detail
+                                            clean_val(fse_full),      # {{8}} FSE Detail
+                                            clean_val(aom_full),      # {{9}} AOM Detail
+                                            clean_val(maps_link)      # {{10}} Google Location Link
+                                        ]
+                                    }
+                                }
+                                
+                                try:
+                                    response = requests.post(url, headers=headers, json=payload)
+                                    if response.status_code in [200, 201, 202]:
+                                        st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
+                                    else:
+                                        st.error(f"⚠️ WhatsApp API Error: {response.text}")
+                                except Exception as e:
+                                    st.error(f"⚠️ Request Failed: {e}")
+                            else:
+                                st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
             
         st.divider()
 
