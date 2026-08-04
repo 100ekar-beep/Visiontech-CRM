@@ -157,22 +157,35 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams with 100% Robust Logic (No DB filters, case-insensitive mapping)
+        # --- EXTREME BULLETPROOF TEAM FETCHING ---
         team_dict = {}
         try:
-            # Step 1: Fetch ALL data from dropdown_master without filtering to avoid Case Sensitivity issues
-            team_res = supabase.table("dropdown_master").select("*").execute()
+            # 1. First Attempt: Exact Match using Supabase Query
+            team_res = supabase.table("dropdown_master").select("option_value,mobile").eq("category", "Team Name").execute()
             if team_res.data:
                 for r in team_res.data:
-                    # Case insensitive check for 'Team Name'
-                    cat_val = str(r.get('category', r.get('Category', ''))).strip().lower()
-                    if cat_val == 'team name':
-                        opt_val = r.get('option_value', r.get('Option Value', ''))
-                        mob_val = r.get('mobile', r.get('Mobile', ''))
-                        if opt_val:
-                            team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
+                    opt_val = r.get('option_value')
+                    if opt_val:
+                        team_dict[str(opt_val).strip()] = str(r.get('mobile', '')).strip()
+            
+            # 2. Second Attempt: If empty, fetch all and filter in Python
+            # Ye database me trailing spaces ya case-sensitivity ke issues ko bypass kar dega
+            if not team_dict:
+                all_res = supabase.table("dropdown_master").select("*").execute()
+                if all_res.data:
+                    for r in all_res.data:
+                        # Extracting keys dynamically to prevent Column Name space issues (e.g. 'category ')
+                        cat_key = next((k for k in r.keys() if k.strip().lower() == 'category'), 'category')
+                        opt_key = next((k for k in r.keys() if k.strip().lower() == 'option_value'), 'option_value')
+                        mob_key = next((k for k in r.keys() if k.strip().lower() == 'mobile'), 'mobile')
+                        
+                        cat_val = str(r.get(cat_key, '')).strip().lower()
+                        if cat_val == 'team name':
+                            opt_val = r.get(opt_key)
+                            if opt_val:
+                                team_dict[str(opt_val).strip()] = str(r.get(mob_key, '')).strip()
         except Exception:
-            pass # Silent error handle
+            pass # Completely silent to prevent ugly red error boxes
             
         row_in = res_data[0]
         
@@ -204,14 +217,13 @@ if sub_ind:
         
         t_col1, t_col2 = st.columns([3, 2])
         
-        # Displaying Dropdown with Fallback Message
         if not team_dict:
             sel_team = t_col1.selectbox("Select Team", ["-- No Teams Found in Database --"], label_visibility="collapsed")
         else:
             sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            # Use specific st.container key for CSS Targeting
+            # Specific Container Key for WhatsApp Button CSS Styling
             with st.container(key="wa_send_btn"):
                 if st.button("💬 Send Message to Team", use_container_width=True):
                     if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
