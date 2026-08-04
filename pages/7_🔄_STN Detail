@@ -1,0 +1,193 @@
+import streamlit as st
+import pandas as pd
+from supabase import create_client, Client
+from datetime import datetime
+
+# --- 1. SUPABASE CONNECTION ---
+URL = "https://sckyflvukpmdqmdzjzhs.supabase.co"
+KEY = "sb_publishable_rAiegSkKYvM0Z9n7sUAI1w_WTgm1S4I" 
+supabase: Client = create_client(URL, KEY)
+
+# --- 2. PAGE CONFIGURATION ---
+st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
+
+# --- 3. LAVISH CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+    
+    /* Primary Buttons */
+    button[data-testid="baseButton-primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important; border: none !important; border-radius: 8px !important;
+        font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
+        box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4) !important;
+        transition: all 0.3s ease;
+    }
+    button[data-testid="baseButton-primary"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.5) !important;
+    }
+
+    /* Secondary Buttons */
+    button[data-testid="baseButton-secondary"] {
+        background: white !important;
+        color: #1e3a8a !important; border: 2px solid #cbd5e1 !important; border-radius: 8px !important;
+        font-weight: 700 !important; padding: 0.6rem 1.2rem !important;
+    }
+
+    /* ========================================================
+       PERFECT SOLID BORDERS FOR TEXT INPUT BOXES
+       ======================================================== */
+    div[data-testid="stTextInput"] div[data-baseweb="input"],
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"],
+    div[data-testid="stNumberInput"] div[data-baseweb="input"] {
+        border: 2px solid #cbd5e1 !important; /* Elegant Default Border */
+        border-radius: 8px !important;
+        background-color: #ffffff !important;
+    }
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    div[data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within {
+        border-color: #3b82f6 !important; /* Blue glow on click */
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+    }
+    div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input {
+        color: #0f172a !important;
+        font-weight: 600 !important;
+        padding: 10px !important;
+    }
+    
+    /* Inputs & Labels */
+    label p, label[data-testid="stWidgetLabel"] p { color: #475569 !important; font-weight: 700 !important; font-size: 0.9rem !important; text-transform: uppercase; }
+    [data-testid="stDataFrame"] th { background-color: #1E3A8A !important; color: white !important; font-weight: 700 !important; }
+
+    /* Expanders */
+    [data-testid="stExpander"] { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
+    
+    /* Premium Data Cards */
+    .stn-card {
+        background: #ffffff; 
+        border-radius: 12px; 
+        padding: 20px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
+        border: 2px solid #94a3b8 !important; /* Solid Border */
+        margin-bottom: 15px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+# =====================================================================
+# 🔄 STN PAGE HEADER
+# =====================================================================
+
+st.markdown("<h1 style='text-align: center; color: #1E3A8A; margin-bottom: 30px;'>🔄 STN (Site Transfer Note) Details</h1>", unsafe_allow_html=True)
+
+# Tabs for easy navigation
+tab1, tab2 = st.tabs(["🔍 Search & View STN", "➕ Add New STN"])
+
+# =====================================================================
+# TAB 1: SEARCH & VIEW STN
+# =====================================================================
+with tab1:
+    with st.form("search_stn_form"):
+        st.markdown("### 🔎 Find Existing STN")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            search_stn_no = st.text_input("📝 STN Number")
+        with col2:
+            search_site_id = st.text_input("📍 Site ID")
+        with col3:
+            st.write("") # Spacing
+            st.write("")
+            btn_search = st.form_submit_button("🔍 Search Database")
+            
+    if btn_search:
+        try:
+            # Table name assumed as 'stn_data', modify if your table name is different
+            query = supabase.table("stn_data").select("*")
+            if search_stn_no:
+                query = query.ilike("stn_number", f"%{search_stn_no.strip()}%")
+            if search_site_id:
+                query = query.ilike("site_id", f"%{search_site_id.strip()}%")
+                
+            res = query.execute()
+            
+            if res.data:
+                st.success(f"✅ {len(res.data)} STN Record(s) Found!")
+                df_stn = pd.DataFrame(res.data)
+                st.dataframe(df_stn, use_container_width=True, hide_index=True)
+            else:
+                st.info("⚠️ No STN records found matching your criteria.")
+        except Exception as e:
+            st.error(f"Database Error: Agar 'stn_data' table nahi bani hai, toh kripya Supabase me table create karein. Error: {e}")
+
+# =====================================================================
+# TAB 2: ADD NEW STN FORM
+# =====================================================================
+with tab2:
+    st.markdown("<div class='stn-card'>", unsafe_allow_html=True)
+    st.markdown("### 📝 Create New STN Record")
+    
+    with st.form("add_stn_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            new_stn_no = st.text_input("📝 STN Number *", placeholder="Enter STN Number")
+        with c2:
+            new_stn_date = st.date_input("📅 STN Date", value=datetime.today())
+        with c3:
+            stn_status = st.selectbox("📊 STN Status", ["Required", "Dispatched", "Received", "Pending", "Cancelled"])
+            
+        st.markdown("---")
+        
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            site_id = st.text_input("📍 Target Site ID *", placeholder="Enter Site ID")
+        with c5:
+            site_name = st.text_input("🏢 Site Name", placeholder="Enter Site Name")
+        with c6:
+            transporter = st.text_input("🚚 Transporter/Vehicle No", placeholder="Vehicle Info")
+            
+        st.markdown("---")
+        st.markdown("#### 📋 Material Details")
+        
+        c7, c8, c9 = st.columns([1, 2, 1])
+        with c7:
+            item_code = st.text_input("🔢 Item Code")
+        with c8:
+            item_desc = st.text_input("📄 Item Description")
+        with c9:
+            qty = st.number_input("⚖️ Quantity", min_value=1, step=1)
+            
+        remarks = st.text_area("✍️ Remarks / Note", placeholder="Any additional details here...")
+        
+        st.write("")
+        submit_stn = st.form_submit_button("💾 Save STN Data", type="primary")
+        
+        if submit_stn:
+            if not new_stn_no or not site_id:
+                st.warning("⚠️ STN Number aur Site ID dalna compulsory hai!")
+            else:
+                try:
+                    # Preparing data map to insert
+                    insert_data = {
+                        "stn_number": new_stn_no.strip(),
+                        "stn_date": new_stn_date.strftime("%Y-%m-%d"),
+                        "stn_status": stn_status,
+                        "site_id": site_id.strip(),
+                        "site_name": site_name.strip(),
+                        "transporter": transporter.strip(),
+                        "item_code": item_code.strip(),
+                        "item_description": item_desc.strip(),
+                        "quantity": qty,
+                        "remarks": remarks.strip()
+                    }
+                    
+                    # Inserting data into Supabase (assumes table name is 'stn_data')
+                    response = supabase.table("stn_data").insert(insert_data).execute()
+                    st.success(f"✅ STN {new_stn_no} saved successfully!")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error Saving Data: Agar Supabase me 'stn_data' table nahi hai, toh please pehle use banayein. Details: {e}")
+                    
+    st.markdown("</div>", unsafe_allow_html=True)
