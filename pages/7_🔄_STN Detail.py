@@ -1,25 +1,37 @@
 import streamlit as st
 import pandas as pd
-import requests 
+import math
+import io
+from supabase import create_client, Client
 
-# --- 1. SUPABASE CREDENTIALS ---
-URL = "https://sckyflvukpmdqmdzjzhs.supabase.co"
-KEY = "sb_publishable_rAiegSkKYvM0Z9n7sUAI1w_WTgm1S4I" 
-
-# --- 2. PAGE CONFIGURATION ---
+# --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
 
-# --- 3. SESSION STATE FOR BUTTON NAVIGATION ---
+# --- 2. SUPABASE CONNECTION ---
+# ⚠️ IMPORTANT: warehouse_data table lives in the SAME project as site_data.
+# This must match the URL/KEY used in your Site Data Hub page.
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
+
+@st.cache_resource
+def init_connection():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase: Client = init_connection()
+
+# --- 3. SESSION STATE FOR TAB NAVIGATION ---
 if 'active_view' not in st.session_state:
     st.session_state.active_view = 'Pending'
+if 'stn_current_page' not in st.session_state:
+    st.session_state.stn_current_page = 1
 
 def change_view(view_name):
     st.session_state.active_view = view_name
+    st.session_state.stn_current_page = 1
 
-# --- 4. EXACT SIDEBAR & TOP BUTTON STYLING ---
+# --- 4. STYLING (same design language as Site Data Hub) ---
 st.markdown("""
     <style>
-    /* Premium Sidebar Styling */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -50,11 +62,9 @@ st.markdown("""
         border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
-    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* Top 3 Navigation Buttons */
+    /* Top 3 Tab Buttons */
     div[data-testid="stMainBlockContainer"] div.stButton > button {
         background-color: #ffffff !important;
         color: #000000 !important;
@@ -73,12 +83,81 @@ st.markdown("""
         border: 4px solid #000000 !important;
         background-color: #e2e8f0 !important;
     }
-    
+
+    /* Table wrapper (horizontal + vertical scroll) */
+    .st-key-stn_table_wrap {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(0,0,0,0.15);
+        border-radius: 10px;
+        overflow: auto !important;
+        padding: 0px 0 !important;
+    }
+    .st-key-stn_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 1400px !important;
+        align-items: center !important;
+        border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+        padding: 6px 0 !important;
+        flex-wrap: nowrap !important;
+    }
+    .st-key-stn_table_wrap div[data-testid="stHorizontalBlock"]:hover {
+        background: rgba(59,130,246,0.06);
+    }
+    .st-key-stn_table_wrap div[data-testid="column"] {
+        padding: 0 15px !important;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border-right: 1px solid rgba(0,0,0,0.06);
+    }
+    .st-key-stn_table_wrap div[data-testid="column"]:last-child { border-right: none; }
+
+    .st-key-stn_table_wrap .tbl-head {
+        background: transparent;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        color: #334155;
+        text-transform: uppercase;
+        white-space: nowrap !important;
+    }
+    .st-key-stn_table_wrap .tbl-cell {
+        color: #0f172a;
+        font-size: 0.88rem;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100%;
+    }
+    .st-key-stn_table_wrap .tbl-serial {
+        color: #64748b;
+        font-size: 0.85rem;
+        font-weight: 800;
+    }
+
+    .st-key-stn_table_wrap button {
+        height: 32px !important;
+        width: 100% !important;
+        max-width: 34px !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        border-radius: 6px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-shadow: none !important;
+        margin: 0 auto !important;
+    }
+    div[class*="st-key-svbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
+    div[class*="st-key-sebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-sdbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+
+    .page-count { text-align: center; font-size: 1.05rem; font-weight: 600; color: #334155; margin-top: 10px; }
+
     [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# Smart Column Matcher
+# --- 5. HELPERS ---
 def get_actual_col(df_columns, possible_names):
     cleaned_cols = {str(col).strip().lower().replace("_", " "): col for col in df_columns}
     for p in possible_names:
@@ -87,135 +166,241 @@ def get_actual_col(df_columns, possible_names):
             return cleaned_cols[p_clean]
     return None
 
-st.markdown("<h2 style='color: #000000; margin-bottom: 20px;'>🔄 STN Details & Processing</h2>", unsafe_allow_html=True)
+@st.dialog("👁️ View STN Record", width="large")
+def view_stn_dialog(row_data):
+    st.caption("Read-only preview of this record")
+    c1, c2, c3 = st.columns(3)
+    with c1: st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
+    with c2: st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True)
+    with c3: st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True)
 
-# =====================================================================
-# 🎛️ TOP NAVIGATION BUTTONS
-# =====================================================================
+    c4, c5, c6 = st.columns(3)
+    with c4: st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True)
+    with c5: st.text_input("TEAM NAME", value=row_data.get('Team', ''), disabled=True)
+    with c6: st.text_input("QTY", value=str(row_data.get('Indus Qty', '')), disabled=True)
+
+    st.text_input("ITEM DESCRIPTION", value=row_data.get('Item Description', ''), disabled=True)
+
+    c7, c8 = st.columns(2)
+    with c7: st.text_input("STN STATUS", value=row_data.get('STN Status', ''), disabled=True)
+    with c8: st.text_input("MATERIAL STATUS", value=row_data.get('Material Status', ''), disabled=True)
+
+    if st.button("Close", use_container_width=True):
+        st.rerun()
+
+@st.dialog("✏️ Edit STN Record", width="large")
+def edit_stn_dialog(row_data):
+    st.caption("Update this warehouse/STN record")
+
+    c1, c2, c3 = st.columns(3)
+    with c1: proj_id = st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
+    with c2: site_id = st.text_input("SITE ID", value=row_data.get('Site ID', ''))
+    with c3: site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''))
+
+    c4, c5, c6 = st.columns(3)
+    with c4: cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''))
+    with c5: team = st.text_input("TEAM NAME", value=row_data.get('Team', ''))
+    with c6: qty = st.number_input("QTY", value=int(row_data.get('Indus Qty') or 0), min_value=0)
+
+    item_desc = st.text_input("ITEM DESCRIPTION", value=row_data.get('Item Description', ''))
+
+    c7, c8 = st.columns(2)
+    with c7:
+        stn_status = st.selectbox("STN STATUS", ["Required", "Not Required", "Closed"],
+                                   index=["Required", "Not Required", "Closed"].index(row_data.get('STN Status')) if row_data.get('STN Status') in ["Required", "Not Required", "Closed"] else 0)
+    with c8:
+        material_status = st.selectbox("MATERIAL STATUS", ["Dispatched", "Pending", "Received"],
+                                        index=["Dispatched", "Pending", "Received"].index(row_data.get('Material Status')) if row_data.get('Material Status') in ["Dispatched", "Pending", "Received"] else 0)
+
+    if st.button("💾 Update Record", type="primary", use_container_width=True):
+        try:
+            supabase.table("warehouse_data").update({
+                "Site ID": site_id,
+                "Site Name": site_name,
+                "Cluster": cluster,
+                "Team": team,
+                "Indus Qty": qty,
+                "Item Description": item_desc,
+                "STN Status": stn_status,
+                "Material Status": material_status
+            }).eq("id", row_data['id']).execute()
+            st.success("✅ Record Updated!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error updating record: {e}")
+
+@st.dialog("📥 Export STN Data", width="large")
+def export_stn_dialog(export_df):
+    st.caption("Download filtered STN Pending records as Excel file.")
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        export_df.to_excel(writer, index=False, sheet_name='STN Pending')
+    st.download_button(
+        label="📊 Download Excel File",
+        data=buffer.getvalue(),
+        file_name="STN_Pending_Export.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        type="primary"
+    )
+
+# --- 6. HEADER ---
+st.markdown("<h2 style='color:#000000; margin-bottom:20px;'>🔄 STN Details & Processing</h2>", unsafe_allow_html=True)
+
+# --- 7. TOP NAVIGATION TABS ---
 col1, col2, col3, empty_space = st.columns([1, 1, 1, 4])
-
 with col1:
     if st.button("1. STN Pending", type="primary" if st.session_state.active_view == 'Pending' else "secondary", use_container_width=True):
-        change_view('Pending')
-        st.rerun()
-        
+        change_view('Pending'); st.rerun()
 with col2:
     if st.button("2. STN Closed", type="primary" if st.session_state.active_view == 'Closed' else "secondary", use_container_width=True):
-        change_view('Closed')
-        st.rerun()
-        
+        change_view('Closed'); st.rerun()
 with col3:
     if st.button("3. Material Return", type="primary" if st.session_state.active_view == 'Return' else "secondary", use_container_width=True):
-        change_view('Return')
-        st.rerun()
+        change_view('Return'); st.rerun()
 
 st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
 
 # =====================================================================
-# ⏳ VIEW 1: STN PENDING LOGIC
+# ⏳ VIEW 1: STN PENDING
 # =====================================================================
 if st.session_state.active_view == 'Pending':
-    search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...")
-    
-    wh_data = []
-    
-    # 🚀 DIRECT REST API BYPASS targeting 'warehouse_data'
+
     try:
-        headers = {
-            "apikey": KEY,
-            "Authorization": f"Bearer {KEY}",
-            "Content-Type": "application/json"
-        }
-        api_url = f"{URL}/rest/v1/warehouse_data?select=*"
-        response = requests.get(api_url, headers=headers)
-
-        # ------------------ 🐞 DEBUG BLOCK (remove later) ------------------
-        with st.expander("🐞 DEBUG INFO (click to expand)", expanded=True):
-            st.write("**Request URL:**", api_url)
-            st.write("**Status Code:**", response.status_code)
-            st.write("**Response Headers (subset):**", {
-                "content-type": response.headers.get("content-type"),
-                "content-range": response.headers.get("content-range"),
-            })
-            st.code(response.text[:3000] if response.text else "(empty body)")
-        # --------------------------------------------------------------------
-
-        if response.status_code == 200:
-            wh_data = response.json()
-        else:
-            st.error(f"API Error Code {response.status_code}: {response.text}")
+        response = supabase.table("warehouse_data").select("*").execute()
+        wh_data = response.data if response.data else []
     except Exception as e:
-        st.error(f"Connection Failed: {e}")
+        st.error(f"❌ Connection Failed: {e}")
+        wh_data = []
 
     if wh_data:
-        df = pd.DataFrame(wh_data)
+        df_raw = pd.DataFrame(wh_data)
 
-        # 🐞 DEBUG: show actual columns + row count fetched from Supabase
-        with st.expander("🐞 DEBUG: Raw columns fetched", expanded=True):
-            st.write("Row count:", len(df))
-            st.write("Columns:", list(df.columns))
-            st.dataframe(df.head(5), use_container_width=True)
-        
-        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "STN Status"])
-        mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "Material Status"])
-        
-        col_map = {
-            "Project ID": get_actual_col(df.columns, ["project_id", "project id", "Project ID"]),
-            "Site ID": get_actual_col(df.columns, ["site_id", "site id", "Site ID"]),
-            "Site Name": get_actual_col(df.columns, ["site_name", "site name", "Site Name"]),
-            "Cluster": get_actual_col(df.columns, ["cluster", "Cluster"]),
-            "ITEM DESCRIPTION": get_actual_col(df.columns, ["item_description", "item description", "description", "Item Description"]),
-            "Qty": get_actual_col(df.columns, ["qty", "quantity", "indus qty", "indus_qty", "Indus Qty"]),
-            "Team Name": get_actual_col(df.columns, ["team_name", "team name", "team", "Team"])
-        }
-        
-        if stn_status_col and mat_status_col:
-            # 🐞 DEBUG: show unique values in the status columns (case/space issues show up here)
-            with st.expander("🐞 DEBUG: Unique status values", expanded=True):
-                st.write(f"Unique values in '{stn_status_col}':", df[stn_status_col].astype(str).unique().tolist())
-                st.write(f"Unique values in '{mat_status_col}':", df[mat_status_col].astype(str).unique().tolist())
+        stn_col = get_actual_col(df_raw.columns, ["STN Status", "stn_status"])
+        mat_col = get_actual_col(df_raw.columns, ["Material Status", "material_status"])
 
-            # STRICT FILTERING: Material Status = Dispatched AND STN Status = Required
-            df_filtered = df[
-                (df[mat_status_col].astype(str).str.strip().str.lower() == 'dispatched') & 
-                (df[stn_status_col].astype(str).str.strip().str.lower() == 'required')
+        if stn_col and mat_col:
+            # LOGIC 1: STN STATUS = Required   LOGIC 2: MATERIAL STATUS = Dispatched
+            df = df_raw[
+                (df_raw[stn_col].astype(str).str.strip().str.lower() == 'required') &
+                (df_raw[mat_col].astype(str).str.strip().str.lower() == 'dispatched')
             ].copy()
-            
-            if not df_filtered.empty:
-                if search_query:
-                    search_mask = df_filtered.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-                    df_filtered = df_filtered[search_mask]
-                
-                display_df = pd.DataFrame()
-                for display_name, actual_col in col_map.items():
-                    display_df[display_name] = df_filtered[actual_col] if actual_col else "N/A"
-                        
-                c_stats, c_down = st.columns([3, 1])
-                c_stats.success(f"✅ Showing {len(display_df)} Pending STN Record(s)")
-                
-                # TSV Download Format
-                tsv_data = display_df.to_csv(index=False, sep='\t').encode('utf-8')
-                c_down.download_button("📥 Download TSV File", data=tsv_data, file_name="STN_Pending.tsv", mime="text/tab-separated-values", use_container_width=True)
-                
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-            else:
-                st.info("⚠️ Table me aisi koi row nahi mili jiska Material Status 'Dispatched' aur STN Status 'Required' dono ho.")
         else:
-            st.error("⚠️ Table me 'STN Status' ya 'Material Status' columns nahi mile.")
-            st.write(list(df.columns))
-            
+            st.error("⚠️ 'STN Status' ya 'Material Status' column table me nahi mila.")
+            df = pd.DataFrame()
     else:
-        st.warning("⚠️ Table 'warehouse_data' se data fetch nahi ho paya ya table empty hai.")
+        df = pd.DataFrame()
+        st.warning("⚠️ 'warehouse_data' table se koi record nahi mila.")
+
+    # --- Search box + Export button (top row) ---
+    col_search, col_export = st.columns([4, 1])
+    with col_search:
+        search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...", label_visibility="collapsed")
+    with col_export:
+        export_clicked = st.button("📥 Export to Excel", use_container_width=True)
+
+    if not df.empty and search_query:
+        mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        df = df[mask]
+
+    st.markdown(f"<p style='color:#334155; font-weight:600; margin-top:10px;'>Showing {len(df)} Pending STN Record(s)</p>", unsafe_allow_html=True)
+
+    if export_clicked:
+        if not df.empty:
+            export_stn_dialog(df)
+        else:
+            st.warning("⚠️ Export karne ke liye koi data nahi hai.")
+
+    # --- Pagination ---
+    rows_per_page = 10
+    total_rows = len(df)
+    total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
+    if st.session_state.stn_current_page > total_pages:
+        st.session_state.stn_current_page = total_pages
+    elif st.session_state.stn_current_page < 1:
+        st.session_state.stn_current_page = 1
+
+    start_idx = (st.session_state.stn_current_page - 1) * rows_per_page
+    end_idx = start_idx + rows_per_page
+    df_page = df.iloc[start_idx:end_idx].copy() if not df.empty else df
+
+    # --- Column layout: # | View | Edit | Delete | Project ID | Site ID | Site Name | Cluster | Item Description | Qty | Team ---
+    COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 1.2, 1.0, 1.5, 1.2, 2.2, 0.7, 1.2]
+    COL_LABELS = ["#", "👁️", "✏️", "🗑️", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "ITEM DESCRIPTION", "QTY", "TEAM NAME"]
+
+    with st.container(key="stn_table_wrap", height=560):
+        if df_page.empty:
+            st.info("⚠️ Koi Pending STN record nahi mila (STN Status = Required aur Material Status = Dispatched wali koi row nahi).")
+        else:
+            h_cols = st.columns(COL_RATIOS)
+            for h_col, label in zip(h_cols, COL_LABELS):
+                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+            for page_pos, (_, row) in enumerate(df_page.iterrows()):
+                row_dict = row.to_dict()
+                rid = row_dict.get("id")
+                serial_no = start_idx + page_pos + 1
+
+                rcols = st.columns(COL_RATIOS)
+                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+
+                with rcols[1]:
+                    if st.button("👁️", key=f"svbtn_{rid}", help="View", use_container_width=True):
+                        view_stn_dialog(row_dict)
+                with rcols[2]:
+                    if st.button("✏️", key=f"sebtn_{rid}", help="Edit", use_container_width=True):
+                        edit_stn_dialog(row_dict)
+                with rcols[3]:
+                    if st.button("🗑️", key=f"sdbtn_{rid}", help="Delete", use_container_width=True):
+                        st.session_state[f"stn_confirm_del_{rid}"] = True
+
+                rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Item Description','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Indus Qty','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Team','') or '-'}</div>", unsafe_allow_html=True)
+
+                if st.session_state.get(f"stn_confirm_del_{rid}"):
+                    wc1, wc2, wc3 = st.columns([6, 1, 1])
+                    with wc1:
+                        st.warning(f"Delete record for Site ID '{row_dict.get('Site ID','')}' / Item '{row_dict.get('Item Description','')}'? This cannot be undone.")
+                    with wc2:
+                        if st.button("✅ Confirm", key=f"stn_confirm_yes_{rid}", use_container_width=True):
+                            try:
+                                supabase.table("warehouse_data").delete().eq("id", rid).execute()
+                                st.session_state[f"stn_confirm_del_{rid}"] = False
+                                st.success("✅ Record Deleted!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error deleting record: {e}")
+                    with wc3:
+                        if st.button("❌ Cancel", key=f"stn_confirm_no_{rid}", use_container_width=True):
+                            st.session_state[f"stn_confirm_del_{rid}"] = False
+                            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+    with col_p1:
+        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.stn_current_page == 1)):
+            st.session_state.stn_current_page -= 1
+            st.rerun()
+    with col_p2:
+        st.markdown(f"<div class='page-count'>Page {st.session_state.stn_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
+    with col_p3:
+        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.stn_current_page == total_pages)):
+            st.session_state.stn_current_page += 1
+            st.rerun()
 
 # =====================================================================
-# ✅ VIEW 2: STN CLOSED LOGIC
+# ✅ VIEW 2: STN CLOSED
 # =====================================================================
 elif st.session_state.active_view == 'Closed':
     st.info("🚀 STN Closed - Yahan aage ka logic aayega.")
 
 # =====================================================================
-# 🔙 VIEW 3: MATERIAL RETURN LOGIC
+# 🔙 VIEW 3: MATERIAL RETURN
 # =====================================================================
 elif st.session_state.active_view == 'Return':
     st.info("🔙 Fresh Material Return - Yahan aage ka logic aayega.")
