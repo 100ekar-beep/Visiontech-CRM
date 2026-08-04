@@ -25,34 +25,17 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4) !important;
     }
     
-    /* Lavish Green WhatsApp Button Custom Styling */
-    button:has(p:contains("Send WhatsApp Message")), 
-    button:has(div:contains("Send WhatsApp Message")) {
+    /* WhatsApp Green Button Class */
+    .btn-whatsapp button {
         background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
-        color: white !important; 
-        border: 2px solid #128C7E !important; 
-        border-radius: 8px !important;
-        font-weight: 800 !important; 
-        padding: 0.6rem 1.2rem !important;
-        box-shadow: 0 4px 10px rgba(37, 211, 102, 0.4) !important;
+        color: white !important; border: none !important; border-radius: 8px !important;
+        font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
+        box-shadow: 0 4px 6px -1px rgba(37, 211, 102, 0.4) !important;
+        width: 100% !important;
     }
-    button:has(p:contains("Send WhatsApp Message")):hover, 
-    button:has(div:contains("Send WhatsApp Message")):hover {
+    .btn-whatsapp button:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.6) !important;
-        border-color: #075E54 !important;
-    }
-    
-    /* Beautiful Solid Borders for Input Search Boxes */
-    div[data-testid="stTextInput"] div[data-baseweb="input"] > div {
-        border: 2px solid #3b82f6 !important;
-        border-radius: 8px !important;
-        background-color: #ffffff !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
-    }
-    div[data-testid="stTextInput"] div[data-baseweb="input"] > div:focus-within {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+        box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.5) !important;
     }
     
     /* Inputs & Labels */
@@ -94,6 +77,21 @@ st.markdown("""
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
+    
+    /* ========================================================
+       FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED)
+       ======================================================== */
+    /* Target all text inputs to ensure they have a visible border */
+    div[data-testid="stTextInput"] div[data-baseweb="input"] > div {
+        border: 2px solid #cbd5e1 !important; /* Thick greyish-blue border */
+        border-radius: 8px !important;
+        background-color: #ffffff !important;
+    }
+    /* Add a blue highlight when the input is clicked (focused) */
+    div[data-testid="stTextInput"] div[data-baseweb="input"] > div:focus-within {
+        border-color: #3b82f6 !important; 
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -150,32 +148,19 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams from DB (100% Crash-Proof with Error Suppression)
+        # Fetching Teams from Dropdown Master
         team_dict = {}
         try:
-            # First attempt: Dropdown Master
-            try:
-                team_res_1 = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
-                if team_res_1.data:
-                    for r in team_res_1.data:
-                        opt_val = r.get('option_value')
-                        if opt_val: team_dict[opt_val] = r.get('mobile', '')
-            except Exception:
-                pass
-                
-            # Fallback: project_master if dropdown_master fails or is empty
-            if not team_dict:
-                try:
-                    team_res_2 = supabase.table("project_master").select("name, phone").execute()
-                    if team_res_2.data:
-                        for r in team_res_2.data:
-                            opt_val = r.get('name')
-                            if opt_val: team_dict[opt_val] = r.get('phone', '')
-                except Exception:
-                    pass
-        except Exception:
-            pass # Suppress all backend connection errors completely
-        
+            team_res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").execute()
+            if team_res.data:
+                for r in team_res.data:
+                    opt_val = r.get('option_value')
+                    mob_val = r.get('mobile')
+                    if opt_val:
+                        team_dict[opt_val] = mob_val if mob_val else ""
+        except Exception as e:
+            st.error(f"Error fetching teams from database: {e}")
+            
         row_in = res_data[0]
         
         # Mapping Data Safely for WhatsApp & Display
@@ -205,12 +190,11 @@ if sub_ind:
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
         t_col1, t_col2 = st.columns([3, 2])
-        
-        # Dropdown with bordered styling matches
         sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            if st.button("💬 Send WhatsApp Message", use_container_width=True):
+            st.markdown('<div class="btn-whatsapp">', unsafe_allow_html=True)
+            if st.button("💬 Send Message to Team", use_container_width=True):
                 if sel_team == "-- Select Team --":
                     st.warning("⚠️ Please select a team first!")
                 else:
@@ -265,6 +249,7 @@ if sub_ind:
                                 st.error(f"⚠️ Request Failed: {e}")
                         else:
                             st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
+            st.markdown('</div>', unsafe_allow_html=True)
             
         st.divider()
 
