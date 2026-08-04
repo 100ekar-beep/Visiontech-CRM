@@ -80,7 +80,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Smart Column Matcher (handles spaces, casing, and underscores automatically)
+# Smart Column Matcher
 def get_actual_col(df_columns, possible_names):
     cleaned_cols = {str(col).strip().lower().replace("_", " "): col for col in df_columns}
     for p in possible_names:
@@ -121,9 +121,9 @@ if st.session_state.active_view == 'Pending':
     
     wh_data = []
     
-    # Strictly fetching from warehouse_data table as requested
+    # Fetching from 'Indus Data' table as hinted by Supabase schema cache
     try:
-        res = supabase.table("warehouse_data").select("*").execute()
+        res = supabase.table("Indus Data").select("*").execute()
         if res.data:
             wh_data = res.data
     except Exception as e:
@@ -132,7 +132,6 @@ if st.session_state.active_view == 'Pending':
     if wh_data:
         df = pd.DataFrame(wh_data)
         
-        # Flexible Column Mapping
         stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status"])
         mat_status_col = get_actual_col(df.columns, ["material_status", "material status"])
         
@@ -164,7 +163,6 @@ if st.session_state.active_view == 'Pending':
                 c_stats, c_down = st.columns([3, 1])
                 c_stats.success(f"✅ Showing {len(display_df)} Pending STN Record(s)")
                 
-                # TSV Download Format
                 tsv_data = display_df.to_csv(index=False, sep='\t').encode('utf-8')
                 c_down.download_button("📥 Download TSV File", data=tsv_data, file_name="STN_Pending.tsv", mime="text/tab-separated-values", use_container_width=True)
                 
@@ -177,7 +175,7 @@ if st.session_state.active_view == 'Pending':
             st.write(list(df.columns))
             
     else:
-        st.warning("⚠️ Table 'warehouse_data' me abhi koi data nahi mila ya table empty hai.")
+        st.warning("⚠️ Table 'Indus Data' me abhi koi data nahi mila ya table empty hai.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
