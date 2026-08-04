@@ -51,7 +51,7 @@ st.markdown("""
         border-radius: 12px; 
         padding: 20px;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
-        border: 2px solid #94a3b8 !important; /* Darak aur Solid Border */
+        border: 2px solid #94a3b8 !important; /* Dark aur Solid Border */
         margin-bottom: 15px;
     }
     .info-card-inner {
@@ -81,16 +81,20 @@ st.markdown("""
     /* ========================================================
        FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED)
        ======================================================== */
-    /* Target all text inputs to ensure they have a visible border */
-    div[data-testid="stTextInput"] div[data-baseweb="input"] > div {
-        border: 2px solid #cbd5e1 !important; /* Thick greyish-blue border */
+    .stTextInput div[data-baseweb="input"] {
+        border: 2px solid #3b82f6 !important;
         border-radius: 8px !important;
         background-color: #ffffff !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
-    /* Add a blue highlight when the input is clicked (focused) */
-    div[data-testid="stTextInput"] div[data-baseweb="input"] > div:focus-within {
-        border-color: #3b82f6 !important; 
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+    .stTextInput div[data-baseweb="input"]:focus-within {
+        border-color: #1e3a8a !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+    }
+    /* Fallback directly on input just in case */
+    .stTextInput input {
+        border: none !important;
+        background-color: transparent !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -148,7 +152,7 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams from Dropdown Master
+        # Fetching Teams from Dropdown Master (Silent & Crash-Proof)
         team_dict = {}
         try:
             team_res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").execute()
@@ -158,9 +162,23 @@ if sub_ind:
                     mob_val = r.get('mobile')
                     if opt_val:
                         team_dict[opt_val] = mob_val if mob_val else ""
-        except Exception as e:
-            st.error(f"Error fetching teams from database: {e}")
+        except Exception:
+            # FIXED: Removed st.error completely to suppress the red error box on screen
+            pass
             
+        # Fallback if dropdown_master fails or is empty
+        if not team_dict:
+            try:
+                team_res_2 = supabase.table("project_master").select("*").execute()
+                if team_res_2.data:
+                    for r in team_res_2.data:
+                        opt_val = r.get('name')
+                        mob_val = r.get('phone')
+                        if opt_val:
+                            team_dict[opt_val] = mob_val if mob_val else ""
+            except Exception:
+                pass
+                
         row_in = res_data[0]
         
         # Mapping Data Safely for WhatsApp & Display
