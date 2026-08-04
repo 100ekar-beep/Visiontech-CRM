@@ -126,7 +126,20 @@ if st.session_state.active_view == 'Pending':
             "Authorization": f"Bearer {KEY}",
             "Content-Type": "application/json"
         }
-        response = requests.get(f"{URL}/rest/v1/Indus%20Data?select=*", headers=headers)
+        api_url = f"{URL}/rest/v1/Indus%20Data?select=*"
+        response = requests.get(api_url, headers=headers)
+
+        # ------------------ 🐞 DEBUG BLOCK (remove later) ------------------
+        with st.expander("🐞 DEBUG INFO (click to expand)", expanded=True):
+            st.write("**Request URL:**", api_url)
+            st.write("**Status Code:**", response.status_code)
+            st.write("**Response Headers (subset):**", {
+                "content-type": response.headers.get("content-type"),
+                "content-range": response.headers.get("content-range"),
+            })
+            st.code(response.text[:3000] if response.text else "(empty body)")
+        # --------------------------------------------------------------------
+
         if response.status_code == 200:
             wh_data = response.json()
         else:
@@ -136,6 +149,12 @@ if st.session_state.active_view == 'Pending':
 
     if wh_data:
         df = pd.DataFrame(wh_data)
+
+        # 🐞 DEBUG: show actual columns + row count fetched from Supabase
+        with st.expander("🐞 DEBUG: Raw columns fetched", expanded=True):
+            st.write("Row count:", len(df))
+            st.write("Columns:", list(df.columns))
+            st.dataframe(df.head(5), use_container_width=True)
         
         stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "STN Status"])
         mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "Material Status"])
@@ -151,6 +170,11 @@ if st.session_state.active_view == 'Pending':
         }
         
         if stn_status_col and mat_status_col:
+            # 🐞 DEBUG: show unique values in the status columns (case/space issues show up here)
+            with st.expander("🐞 DEBUG: Unique status values", expanded=True):
+                st.write(f"Unique values in '{stn_status_col}':", df[stn_status_col].astype(str).unique().tolist())
+                st.write(f"Unique values in '{mat_status_col}':", df[mat_status_col].astype(str).unique().tolist())
+
             # STRICT FILTERING: Material Status = Dispatched AND STN Status = Required
             df_filtered = df[
                 (df[mat_status_col].astype(str).str.strip().str.lower() == 'dispatched') & 
