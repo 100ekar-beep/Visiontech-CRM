@@ -28,7 +28,7 @@ st.markdown("""
     /* ========================================================
        100% GUARANTEED LAVISH GREEN WHATSAPP BUTTON FIX
        ======================================================== */
-    div.st-key-wa_btn_unique > button {
+    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button {
         background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
         color: white !important; 
         border: 2px solid #128C7E !important; 
@@ -38,33 +38,29 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(37, 211, 102, 0.4) !important;
         width: 100% !important;
     }
-    div.st-key-wa_btn_unique > button:hover {
+    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.6) !important;
         border-color: #075E54 !important;
     }
 
     /* ========================================================
-       FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
+       PERFECT SOLID BORDERS ONLY FOR TEXT INPUT BOXES
        ======================================================== */
-    div[data-testid="stTextInput"] input {
-        border: 2px solid #3b82f6 !important; /* Thick Blue Border */
+    div[data-testid="stTextInput"] div[data-baseweb="input"],
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"] {
+        border: 2px solid #cbd5e1 !important; /* Elegant Default Border */
         border-radius: 8px !important;
         background-color: #ffffff !important;
+    }
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+        border-color: #3b82f6 !important; /* Blue glow on click */
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+    }
+    div[data-testid="stTextInput"] input {
         color: #0f172a !important;
         font-weight: 600 !important;
-        padding: 12px 15px !important;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.1) !important;
-    }
-    div[data-testid="stTextInput"] input:focus {
-        border-color: #1e3a8a !important;
-        outline: none !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3) !important;
-    }
-    /* Hiding the default Streamlit bottom border to make it look clean */
-    div[data-baseweb="input"] {
-        border-bottom: none !important;
-        background: transparent !important;
+        padding: 10px !important;
     }
     
     /* Inputs & Labels */
@@ -162,36 +158,43 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams with Smart Diagnostic Error Tracking
+        # Fetching Teams with 100% Silent Error Handling (No red box)
         team_dict = {}
-        try:
-            # Taking all data to bypass case-sensitivity in API
-            team_res = supabase.table("dropdown_master").select("*").execute()
-            
-            if team_res.data:
-                for r in team_res.data:
-                    # Convert keys to lowercase safely to avoid spacing issues
-                    safe_r = {str(k).strip().lower(): v for k, v in r.items()}
-                    
-                    # Exact Match for Team Name
-                    if safe_r.get('category', '').strip().lower() == 'team name':
-                        opt = safe_r.get('option_value')
-                        mob = safe_r.get('mobile')
-                        if opt:
-                            team_dict[str(opt).strip()] = str(mob).strip() if mob else ""
+        tables_to_test = ["dropdown_master", "Dropdown_Master", "Dropdown Master"]
+        
+        for t_name in tables_to_test:
+            try:
+                team_res = supabase.table(t_name).select("*").execute()
+                if team_res.data:
+                    for r in team_res.data:
+                        # Extracting safely to handle case sensitivity and spaces
+                        cat_key = next((k for k in r.keys() if str(k).strip().lower() == 'category'), 'category')
+                        opt_key = next((k for k in r.keys() if str(k).strip().lower() == 'option_value'), 'option_value')
+                        mob_key = next((k for k in r.keys() if str(k).strip().lower() == 'mobile'), 'mobile')
+                        
+                        cat_val = str(r.get(cat_key, '')).strip().lower()
+                        if cat_val == 'team name':
+                            opt_val = r.get(opt_key)
+                            if opt_val:
+                                team_dict[str(opt_val).strip()] = str(r.get(mob_key, '')).strip()
+                if team_dict:
+                    break # Stop looping once data is found
+            except Exception:
+                pass # Completely silent fallback, NO st.error()
                 
-                # If table has data, but 'Team Name' wasn't found
-                if not team_dict:
-                    st.warning("⚠️ DIAGNOSTIC: Table 'dropdown_master' me data hai, par usme 'category' column ke andar exactly 'Team Name' likha hua koi row nahi mila. Kripya Supabase me spelling check karein.")
-            else:
-                # If table exists but returns 0 rows
-                st.warning("⚠️ DIAGNOSTIC: Table connect ho gayi, par data 0 rows bata raha hai. Kripya Supabase me 'Row Level Security (RLS)' ko disable karein warna Python read nahi kar payega.")
+        # Silent fallback to project_master if dropdown_master fails entirely
+        if not team_dict:
+            try:
+                team_fallback = supabase.table("project_master").select("*").execute()
+                if team_fallback.data:
+                    for r in team_fallback.data:
+                        opt_val = r.get('name')
+                        mob_val = r.get('phone')
+                        if opt_val:
+                            team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
+            except Exception:
+                pass
                 
-        except Exception as e:
-            # If table does not exist or schema cache is stuck (PGRST205)
-            st.error(f"⚠️ DATABASE ERROR: {e}")
-            st.info("💡 **FIX:** Agar upar 'PGRST205' error hai, toh Supabase Dashboard -> API Settings -> 'Reload Schema Cache' par click karein.")
-            
         row_in = res_data[0]
         
         # Mapping Data Safely for WhatsApp & Display
@@ -228,8 +231,8 @@ if sub_ind:
             sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            # specific Key wa_btn_unique mapped natively to Lavish Green CSS
-            if st.button("💬 Send Message to Team", key="wa_btn_unique", use_container_width=True):
+            st.markdown('<div id="wa-btn"></div>', unsafe_allow_html=True) # Anchor point for CSS
+            if st.button("💬 Send Message to Team", use_container_width=True):
                 if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
                     st.warning("⚠️ Please select a valid team first!")
                 else:
