@@ -91,7 +91,7 @@ st.markdown("""
         padding: 0px 0 !important;
     }
     .st-key-srn_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1200px !important;
+        min-width: 1400px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(0,0,0,0.08) !important;
         padding: 6px 0 !important;
@@ -182,7 +182,7 @@ def view_srn_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
-# --- EDIT DIALOG WITH 2 NEW INPUT BOXES (SRN Description & Qty) ---
+# --- EDIT DIALOG ---
 @st.dialog("✏️ Edit SRN Record", width="large")
 def edit_srn_dialog(row_data):
     st.caption("Update this warehouse/SRN record")
@@ -204,7 +204,6 @@ def edit_srn_dialog(row_data):
         material_status = st.selectbox("MATERIAL STATUS", ["Dispatched", "Pending", "Received"],
                                         index=["Dispatched", "Pending", "Received"].index(row_data.get('Material Status')) if row_data.get('Material Status') in ["Dispatched", "Pending", "Received"] else 0)
 
-    # 🌟 TWO NEW BOXES REQUIREMENT: 1st Large width (SRN Description), 2nd Small width (Qty)
     st.markdown("<hr style='margin:15px 0;'>", unsafe_allow_html=True)
     st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>📝 SRN DETAILS & QTY ENTRY</p>", unsafe_allow_html=True)
     
@@ -214,7 +213,6 @@ def edit_srn_dialog(row_data):
     with box_c2:
         srn_qty_val = st.number_input("QTY", value=int(row_data.get('SRN Qty') or 0), min_value=0, step=1)
 
-    # SUBMITTED / SHIFTING DROPDOWN
     st.markdown("<p style='font-weight:700; color:#0f172a; margin-top:10px; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
     action_options = ["-- Select Action --", "SRN Submitted"]
     selected_action = st.selectbox("Select action to shift record", action_options, label_visibility="collapsed")
@@ -289,7 +287,6 @@ if st.session_state.srn_active_view == 'SRN Detail':
         mat_col = get_actual_col(df_raw.columns, ["Material Status", "material_status"])
 
         if srn_col and mat_col:
-            # LOGIC: SRN Status = Required AND Material Status = Dispatched
             df = df_raw[
                 (df_raw[srn_col].astype(str).str.strip().str.lower() == 'required') &
                 (df_raw[mat_col].astype(str).str.strip().str.lower() == 'dispatched')
@@ -333,9 +330,9 @@ if st.session_state.srn_active_view == 'SRN Detail':
     end_idx = start_idx + rows_per_page
     df_page = df.iloc[start_idx:end_idx].copy() if not df.empty else df
 
-    # --- Requested Columns: Project ID | Site ID | Site Name | Cluster | Team Name ---
-    COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 1.2, 1.0, 1.5, 1.2, 1.2]
-    COL_LABELS = ["#", "👁️", "✏️", "🗑️", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME"]
+    # --- Updated Columns including SRN Description & Qty ---
+    COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 1.2, 1.0, 1.5, 1.2, 1.2, 1.8, 0.6]
+    COL_LABELS = ["#", "👁️", "✏️", "🗑️", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "SRN DESCRIPTION", "QTY"]
 
     with st.container(key="srn_table_wrap", height=560):
         if df_page.empty:
@@ -368,6 +365,8 @@ if st.session_state.srn_active_view == 'SRN Detail':
                 rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
                 rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
                 rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Team','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('SRN Description','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('SRN Qty','') or '-'}</div>", unsafe_allow_html=True)
 
                 if st.session_state.get(f"srn_confirm_del_{rid}"):
                     wc1, wc2, wc3 = st.columns([6, 1, 1])
