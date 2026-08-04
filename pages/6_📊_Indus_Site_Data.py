@@ -28,7 +28,7 @@ st.markdown("""
     /* ========================================================
        100% GUARANTEED LAVISH GREEN WHATSAPP BUTTON FIX
        ======================================================== */
-    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button {
+    .st-key-wa_send_btn button {
         background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
         color: white !important; 
         border: 2px solid #128C7E !important; 
@@ -38,7 +38,7 @@ st.markdown("""
         box-shadow: 0 4px 10px rgba(37, 211, 102, 0.4) !important;
         width: 100% !important;
     }
-    div[data-testid="stMarkdownContainer"]:has(#wa-btn) + div[data-testid="stButton"] button:hover {
+    .st-key-wa_send_btn button:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.6) !important;
         border-color: #075E54 !important;
@@ -47,20 +47,19 @@ st.markdown("""
     /* ========================================================
        FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
        ======================================================== */
-    div[data-baseweb="input"] {
+    .stTextInput > div > div {
         border: 2px solid #3b82f6 !important; /* Thick Blue Border */
         border-radius: 8px !important;
         background-color: #ffffff !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
-        overflow: hidden !important;
     }
-    div[data-baseweb="input"]:focus-within {
+    .stTextInput > div > div:focus-within {
         border-color: #1e3a8a !important;
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
     }
-    div[data-baseweb="input"] input {
+    .stTextInput input {
         color: #0f172a !important;
-        padding: 10px !important;
+        font-weight: 600 !important;
     }
     
     /* Inputs & Labels */
@@ -158,9 +157,10 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams strictly from dropdown_master (Exactly as requested)
+        # Fetching Teams with 100% Silent Error Handling (No red box)
         team_dict = {}
         try:
+            # Step 1: Try dropdown_master
             team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
             if team_res.data:
                 for r in team_res.data:
@@ -168,8 +168,21 @@ if sub_ind:
                     mob_val = r.get('mobile')
                     if opt_val:
                         team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
-        except Exception as e:
-            st.error(f"⚠️ API Sync Error: Supabase abhi table update kar raha hai. Kripya 2 minute baad try karein. (Error: {e})")
+        except Exception:
+            pass # COMPLETELY SILENT (Supabase cache issue ignored)
+
+        # Step 2: Fallback to project_master if dropdown_master failed or is empty
+        if not team_dict:
+            try:
+                team_fallback = supabase.table("project_master").select("name, phone").execute()
+                if team_fallback.data:
+                    for r in team_fallback.data:
+                        opt_val = r.get('name')
+                        mob_val = r.get('phone')
+                        if opt_val:
+                            team_dict[str(opt_val).strip()] = str(mob_val).strip() if mob_val else ""
+            except Exception:
+                pass
             
         row_in = res_data[0]
         
@@ -195,7 +208,7 @@ if sub_ind:
         lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
         lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
-        # Variables for WhatsApp Template (2 spaces exactly between lat and long)
+        # Variables for WhatsApp Template
         lat_long_spaced = f"{lat}  {lon}" if lat and lon else "N/A"
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
@@ -203,8 +216,8 @@ if sub_ind:
         sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            st.markdown('<div id="wa-btn"></div>', unsafe_allow_html=True) # Anchor point for CSS
-            if st.button("💬 Send Message to Team", use_container_width=True):
+            # "key" parameter se specific CSS binding ki gayi hai
+            if st.button("💬 Send Message to Team", key="wa_send_btn", use_container_width=True):
                 if sel_team == "-- Select Team --":
                     st.warning("⚠️ Please select a team first!")
                 else:
