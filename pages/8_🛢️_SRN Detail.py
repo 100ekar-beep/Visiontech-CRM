@@ -207,11 +207,17 @@ def edit_srn_dialog(row_data):
     st.markdown("<hr style='margin:15px 0;'>", unsafe_allow_html=True)
     st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>📝 SRN DETAILS & QTY ENTRY</p>", unsafe_allow_html=True)
     
+    # Safe handling for Qty to prevent casting errors on null/empty fields
+    try:
+        default_qty = int(float(str(row_data.get('SRN Qty') or 0)))
+    except:
+        default_qty = 0
+
     box_c1, box_c2 = st.columns([4, 1])
     with box_c1:
-        srn_desc_val = st.text_input("SRN DESCRIPTION / NUMBER", value=row_data.get('SRN Description', ''), placeholder="Enter SRN details...")
+        srn_desc_val = st.text_input("SRN DESCRIPTION / NUMBER", value=row_data.get('SRN Description', '') or '', placeholder="Enter SRN details...")
     with box_c2:
-        srn_qty_val = st.number_input("QTY", value=int(row_data.get('SRN Qty') or 0), min_value=0, step=1)
+        srn_qty_val = st.number_input("QTY", value=default_qty, min_value=0, step=1)
 
     st.markdown("<p style='font-weight:700; color:#0f172a; margin-top:10px; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
     action_options = ["-- Select Action --", "SRN Submitted"]
