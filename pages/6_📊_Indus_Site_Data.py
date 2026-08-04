@@ -157,35 +157,31 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- EXTREME BULLETPROOF TEAM FETCHING ---
+        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING VIA REST API ---
         team_dict = {}
         try:
-            # 1. First Attempt: Exact Match using Supabase Query
-            team_res = supabase.table("dropdown_master").select("option_value,mobile").eq("category", "Team Name").execute()
-            if team_res.data:
-                for r in team_res.data:
-                    opt_val = r.get('option_value')
-                    if opt_val:
-                        team_dict[str(opt_val).strip()] = str(r.get('mobile', '')).strip()
+            headers = {
+                "apikey": KEY,
+                "Authorization": f"Bearer {KEY}"
+            }
+            # Fetching all data from dropdown_master via REST to bypass Python Client Cache issues
+            api_url = f"{URL}/rest/v1/dropdown_master?select=*"
+            response = requests.get(api_url, headers=headers)
             
-            # 2. Second Attempt: If empty, fetch all and filter in Python
-            # Ye database me trailing spaces ya case-sensitivity ke issues ko bypass kar dega
-            if not team_dict:
-                all_res = supabase.table("dropdown_master").select("*").execute()
-                if all_res.data:
-                    for r in all_res.data:
-                        # Extracting keys dynamically to prevent Column Name space issues (e.g. 'category ')
-                        cat_key = next((k for k in r.keys() if k.strip().lower() == 'category'), 'category')
-                        opt_key = next((k for k in r.keys() if k.strip().lower() == 'option_value'), 'option_value')
-                        mob_key = next((k for k in r.keys() if k.strip().lower() == 'mobile'), 'mobile')
-                        
-                        cat_val = str(r.get(cat_key, '')).strip().lower()
-                        if cat_val == 'team name':
-                            opt_val = r.get(opt_key)
-                            if opt_val:
-                                team_dict[str(opt_val).strip()] = str(r.get(mob_key, '')).strip()
+            if response.status_code == 200:
+                data = response.json()
+                for r in data:
+                    cat_key = next((k for k in r.keys() if k.strip().lower() == 'category'), 'category')
+                    opt_key = next((k for k in r.keys() if k.strip().lower() == 'option_value'), 'option_value')
+                    mob_key = next((k for k in r.keys() if k.strip().lower() == 'mobile'), 'mobile')
+                    
+                    cat_val = str(r.get(cat_key, '')).strip().lower()
+                    if cat_val == 'team name':
+                        opt_val = r.get(opt_key)
+                        if opt_val:
+                            team_dict[str(opt_val).strip()] = str(r.get(mob_key, '')).strip()
         except Exception:
-            pass # Completely silent to prevent ugly red error boxes
+            pass # Silent fail
             
         row_in = res_data[0]
         
