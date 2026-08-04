@@ -121,28 +121,34 @@ if st.session_state.active_view == 'Pending':
     
     wh_data = []
     
-    # Fetching from 'Indus Data' table as hinted by Supabase schema cache
+    # 💡 BULLETPROOF FETCH: Direct REST API Bypass for warehouse_data to avoid schema cache issue
     try:
-        res = supabase.table("Indus Data").select("*").execute()
+        res = supabase.table("warehouse_data").select("*").execute()
         if res.data:
             wh_data = res.data
-    except Exception as e:
-        st.error(f"Supabase Fetch Error: {e}")
+    except Exception:
+        try:
+            headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+            r = requests.get(f"{URL}/rest/v1/warehouse_data?select=*", headers=headers)
+            if r.status_code == 200:
+                wh_data = r.json()
+        except Exception as e:
+            st.error(f"Fetch Error: {e}")
 
     if wh_data:
         df = pd.DataFrame(wh_data)
         
-        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status"])
-        mat_status_col = get_actual_col(df.columns, ["material_status", "material status"])
+        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "stnstatus"])
+        mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "materialstatus"])
         
         col_map = {
-            "Project ID": get_actual_col(df.columns, ["project_id", "project id"]),
-            "Site ID": get_actual_col(df.columns, ["site_id", "site id"]),
-            "Site Name": get_actual_col(df.columns, ["site_name", "site name"]),
-            "Cluster": get_actual_col(df.columns, ["cluster"]),
-            "ITEM DESCRIPTION": get_actual_col(df.columns, ["item_description", "item description", "description"]),
-            "Qty": get_actual_col(df.columns, ["qty", "quantity", "indus qty", "indus_qty"]),
-            "Team Name": get_actual_col(df.columns, ["team_name", "team name", "team"])
+            "Project ID": get_actual_col(df.columns, ["project_id", "project id", "Project ID"]),
+            "Site ID": get_actual_col(df.columns, ["site_id", "site id", "Site ID"]),
+            "Site Name": get_actual_col(df.columns, ["site_name", "site name", "Site Name"]),
+            "Cluster": get_actual_col(df.columns, ["cluster", "Cluster"]),
+            "ITEM DESCRIPTION": get_actual_col(df.columns, ["item_description", "item description", "description", "Item Description"]),
+            "Qty": get_actual_col(df.columns, ["qty", "quantity", "indus qty", "indus_qty", "Indus Qty"]),
+            "Team Name": get_actual_col(df.columns, ["team_name", "team name", "team", "Team"])
         }
         
         if stn_status_col and mat_status_col:
@@ -169,13 +175,13 @@ if st.session_state.active_view == 'Pending':
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
             else:
-                st.info("⚠️ Data table me hai, par 'Required' aur 'Dispatched' status match hone wali koi entry nahi mili.")
+                st.info("⚠️ Warehouse data me 'Required' aur 'Dispatched' status wali koi entry nahi mili.")
         else:
-            st.error("⚠️ Table me 'STN Status' ya 'Material Status' columns nahi mile. Aapke table ke columns ye hain:")
+            st.error("⚠️ Warehouse table me 'STN Status' ya 'Material Status' columns nahi mile. Available columns:")
             st.write(list(df.columns))
             
     else:
-        st.warning("⚠️ Table 'Indus Data' me abhi koi data nahi mila ya table empty hai.")
+        st.warning("⚠️ Table 'warehouse_data' me abhi koi data nahi mila.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
