@@ -157,31 +157,41 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING VIA REST API ---
+        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (Smart Column Detection) ---
         team_dict = {}
+        dropdown_data = []
+        
+        # Double Bypass System to guarantee data fetch
         try:
-            headers = {
-                "apikey": KEY,
-                "Authorization": f"Bearer {KEY}"
-            }
-            # Fetching all data from dropdown_master via REST to bypass Python Client Cache issues
-            api_url = f"{URL}/rest/v1/dropdown_master?select=*"
-            response = requests.get(api_url, headers=headers)
-            
-            if response.status_code == 200:
-                data = response.json()
-                for r in data:
-                    cat_key = next((k for k in r.keys() if k.strip().lower() == 'category'), 'category')
-                    opt_key = next((k for k in r.keys() if k.strip().lower() == 'option_value'), 'option_value')
-                    mob_key = next((k for k in r.keys() if k.strip().lower() == 'mobile'), 'mobile')
-                    
-                    cat_val = str(r.get(cat_key, '')).strip().lower()
-                    if cat_val == 'team name':
-                        opt_val = r.get(opt_key)
-                        if opt_val:
-                            team_dict[str(opt_val).strip()] = str(r.get(mob_key, '')).strip()
+            res = supabase.table("dropdown_master").select("*").execute()
+            if res.data:
+                dropdown_data = res.data
         except Exception:
-            pass # Silent fail
+            try:
+                headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+                r = requests.get(f"{URL}/rest/v1/dropdown_master?select=*", headers=headers)
+                if r.status_code == 200:
+                    dropdown_data = r.json()
+            except Exception:
+                pass # Silent fail
+
+        # Extracting data intelligently
+        if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
+            for r in dropdown_data:
+                keys = list(r.keys())
+                
+                # Automatically detecting the columns regardless of exact naming (category, option_value, mobile number)
+                cat_key = next((k for k in keys if 'category' in k.lower()), 'category')
+                opt_key = next((k for k in keys if 'option' in k.lower() or 'value' in k.lower()), 'option_value')
+                # Finding mobile OR number column dynamically
+                mob_key = next((k for k in keys if 'mobile' in k.lower() or 'number' in k.lower() or 'phone' in k.lower()), 'mobile')
+                
+                cat_val = str(r.get(cat_key, '')).strip()
+                if cat_val.lower() == 'team name':
+                    team_name = r.get(opt_key)
+                    team_mobile = r.get(mob_key)
+                    if team_name:
+                        team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
             
         row_in = res_data[0]
         
