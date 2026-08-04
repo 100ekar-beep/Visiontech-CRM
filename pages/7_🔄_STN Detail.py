@@ -120,8 +120,6 @@ if st.session_state.active_view == 'Pending':
     search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...")
     
     wh_data = []
-    
-    # 💡 BULLETPROOF FETCH: Direct REST API Bypass for warehouse_data to avoid schema cache issue
     try:
         res = supabase.table("warehouse_data").select("*").execute()
         if res.data:
@@ -138,8 +136,8 @@ if st.session_state.active_view == 'Pending':
     if wh_data:
         df = pd.DataFrame(wh_data)
         
-        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "stnstatus"])
-        mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "materialstatus"])
+        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "STN Status"])
+        mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "Material Status"])
         
         col_map = {
             "Project ID": get_actual_col(df.columns, ["project_id", "project id", "Project ID"]),
@@ -152,9 +150,10 @@ if st.session_state.active_view == 'Pending':
         }
         
         if stn_status_col and mat_status_col:
+            # EXACT FILTERING: Material Status = Dispatched AND STN Status = Required
             df_filtered = df[
-                (df[stn_status_col].astype(str).str.strip().str.lower() == 'required') & 
-                (df[mat_status_col].astype(str).str.strip().str.lower() == 'dispatched')
+                (df[mat_status_col].astype(str).str.strip().str.lower() == 'dispatched') & 
+                (df[stn_status_col].astype(str).str.strip().str.lower() == 'required')
             ].copy()
             
             if not df_filtered.empty:
@@ -175,9 +174,9 @@ if st.session_state.active_view == 'Pending':
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
             else:
-                st.info("⚠️ Warehouse data me 'Required' aur 'Dispatched' status wali koi entry nahi mili.")
+                st.info("⚠️ Aisi koi row nahi mili jiska Material Status 'Dispatched' aur STN Status 'Required' dono ho.")
         else:
-            st.error("⚠️ Warehouse table me 'STN Status' ya 'Material Status' columns nahi mile. Available columns:")
+            st.error("⚠️ Table me 'STN Status' ya 'Material Status' columns nahi mile.")
             st.write(list(df.columns))
             
     else:
