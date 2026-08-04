@@ -14,7 +14,7 @@ supabase: Client = create_client(URL, KEY)
 # --- 2. PAGE CONFIGURATION ---
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
 
-# --- 3. LAVISH CUSTOM CSS (EXACTLY SAME AS PREVIOUS) ---
+# --- 3. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
@@ -80,6 +80,39 @@ st.markdown("""
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
+    
+    /* ========================================================
+       PREMIUM, LAVISH & LARGE TABS STYLING
+       ======================================================== */
+    div[data-baseweb="tab-list"] {
+        gap: 15px;
+        border-bottom: 3px solid #cbd5e1 !important;
+        padding-bottom: 0px !important;
+    }
+    button[data-baseweb="tab"] {
+        background-color: #f8fafc !important;
+        border: 2px solid #cbd5e1 !important;
+        border-bottom: none !important;
+        border-radius: 12px 12px 0px 0px !important;
+        padding: 15px 30px !important;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        color: #475569 !important;
+        transition: all 0.3s ease !important;
+    }
+    button[data-baseweb="tab"]:hover {
+        background-color: #e2e8f0 !important;
+        transform: translateY(-2px);
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 -4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] p {
+        color: white !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -97,29 +130,36 @@ def get_actual_col(df_columns, possible_names):
 
 st.markdown("<h1 style='text-align: center; color: #1E3A8A; margin-bottom: 30px;'>🔄 STN Details & Processing</h1>", unsafe_allow_html=True)
 
-# 3 Requested Tabs
+# 3 Requested Tabs - Now Lavish and Big!
 tab1, tab2, tab3 = st.tabs(["⏳ 1. STN Pending", "✅ 2. STN Closed", "🔙 3. Fresh Material Return to WH"])
 
 # =====================================================================
 # TAB 1: STN PENDING LOGIC
 # =====================================================================
 with tab1:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("### ⏳ Pending STN Records")
     
     # Upper Search Box
     search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, Item Description etc...")
     
     try:
-        # Fetching data from Warehouse table (Double bypass fetch for reliability)
+        # 100% BULLETPROOF FETCHING LOGIC (With Proper Try-Except Bypass)
         wh_data = []
-        res = supabase.table("warehouse_data").select("*").execute()
-        if res.data:
-            wh_data = res.data
-        else:
-            headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-            r = requests.get(f"{URL}/rest/v1/warehouse_data?select=*", headers=headers)
-            if r.status_code == 200:
-                wh_data = r.json()
+        try:
+            # Attempt 1: Native Supabase Client
+            res = supabase.table("warehouse_data").select("*").execute()
+            if res.data:
+                wh_data = res.data
+        except Exception:
+            # Attempt 2: Direct REST API if Schema Cache fails (PGRST205)
+            try:
+                headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+                r = requests.get(f"{URL}/rest/v1/warehouse_data?select=*", headers=headers)
+                if r.status_code == 200:
+                    wh_data = r.json()
+            except Exception:
+                pass # Silent fallback
 
         if wh_data:
             df = pd.DataFrame(wh_data)
@@ -243,7 +283,7 @@ with tab1:
             else:
                 st.error("⚠️ System error: 'STN Status' ya 'Material Status' columns database table me nahi mile. Spelings check karein.")
         else:
-            st.info("⚠️ Table 'warehouse_data' me abhi koi data nahi hai.")
+            st.info("⚠️ Table 'warehouse_data' me abhi koi data nahi hai ya Supabase fetch block kar raha hai.")
             
     except Exception as e:
         st.error(f"Database Fetch Error: {e}")
@@ -252,10 +292,12 @@ with tab1:
 # TAB 2: STN CLOSED LOGIC
 # =====================================================================
 with tab2:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.info("🚀 STN Closed - Logic to be updated as per your instruction.")
 
 # =====================================================================
 # TAB 3: FRESH MATERIAL RETURN LOGIC
 # =====================================================================
 with tab3:
+    st.markdown("<br>", unsafe_allow_html=True)
     st.info("🔙 Fresh Material Return - Logic to be updated as per your instruction.")
