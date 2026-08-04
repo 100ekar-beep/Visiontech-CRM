@@ -119,7 +119,7 @@ if st.session_state.active_view == 'Pending':
     
     wh_data = []
     
-    # 🚀 DIRECT REST API BYPASS (Completely bypasses Supabase client cache blocks)
+    # 🚀 DIRECT REST API BYPASS targeting the correct 'warehouse_data' table
     try:
         headers = {
             "apikey": KEY,
@@ -182,7 +182,7 @@ if st.session_state.active_view == 'Pending':
             st.write(list(df.columns))
             
     else:
-        st.warning("⚠️ Table 'warehouse_data' se data fetch nahi ho paya. Kripya check karein ki table me data mojood hai ya nahi.")
+        st.warning("⚠️ Table 'warehouse_data' me abhi data empty hai ya fetch nahi ho paya.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
