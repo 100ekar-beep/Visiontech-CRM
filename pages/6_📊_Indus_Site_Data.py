@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+import requests # API Call ke liye
 from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
@@ -24,6 +25,19 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4) !important;
     }
     
+    /* WhatsApp Green Button Class */
+    .btn-whatsapp button {
+        background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
+        color: white !important; border: none !important; border-radius: 8px !important;
+        font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
+        box-shadow: 0 4px 6px -1px rgba(37, 211, 102, 0.4) !important;
+        width: 100% !important;
+    }
+    .btn-whatsapp button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(37, 211, 102, 0.5) !important;
+    }
+    
     /* Inputs & Labels */
     label p, label[data-testid="stWidgetLabel"] p { color: #475569 !important; font-weight: 700 !important; font-size: 0.9rem !important; text-transform: uppercase; }
     [data-testid="stDataFrame"] th { background-color: #1E3A8A !important; color: white !important; font-weight: 700 !important; }
@@ -31,11 +45,21 @@ st.markdown("""
     /* Expanders */
     [data-testid="stExpander"] { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
     
-    /* Custom Info Cards */
+    /* Custom Info Cards WITH SOLID BORDER FIX */
     .info-card {
-        background: white; border-radius: 12px; padding: 20px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0;
+        background: #ffffff; 
+        border-radius: 12px; 
+        padding: 20px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
+        border: 2px solid #94a3b8 !important; /* Darak aur Solid Border */
         margin-bottom: 15px;
+    }
+    .info-card-inner {
+        border: 1px solid #cbd5e1;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background-color: #f8fafc;
     }
 
     /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
@@ -105,81 +129,149 @@ if sub_ind:
         df_ind = pd.DataFrame(res_data)
         st.dataframe(df_ind, use_container_width=True, hide_index=True)
         st.divider()
-        st.subheader("📌 Vertical Site Details")
+        
+        # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
+        st.markdown("### 💬 Assign Team & Send WhatsApp")
+        
+        # Fetching Teams from Dropdown Master (Crash-Proof API)
+        team_res = None
+        try:
+            # First attempt: Dropdown Master
+            team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
+            if not team_res.data:
+                # Fallback: project_master or Master_Teams if dropdown_master fails or is empty
+                try:
+                     team_res = supabase.table("project_master").select("name, phone").execute()
+                except:
+                     pass
+        except Exception as e:
+            st.error(f"Team Database Error: {e}")
+            
+        team_dict = {}
+        if team_res and team_res.data:
+            for r in team_res.data:
+                # Handle different possible column names
+                opt_val = r.get('option_value', r.get('name', ''))
+                mob_val = r.get('mobile', r.get('phone', ''))
+                if opt_val:
+                    team_dict[opt_val] = mob_val
+        
         row_in = res_data[0]
         
-        # Mapping Data Safely for multiple possible column names
+        # Mapping Data Safely for WhatsApp & Display
         site_id_val = row_in.get('Indus ID', row_in.get('Site ID', row_in.get('indus_id', '-')))
         site_name_val = row_in.get('Site Name', row_in.get('site_name', '-'))
         area_val = row_in.get('Area', row_in.get('Area Name', row_in.get('Site Address', '-')))
+        district_val = row_in.get('District', area_val) # Fallback to area if district not found
         cluster_val = row_in.get('Cluster', '-')
         
         tech_name = row_in.get('Technician Detail', row_in.get('Tech Name', '-'))
         tech_num = row_in.get('Technician Number', row_in.get('Tech Number', '-'))
+        tech_full = f"{tech_name} ({tech_num})" if tech_num and tech_num != '-' else tech_name
         
         fse_name = row_in.get('FSE Detail', row_in.get('FSE Name', row_in.get('FSE', '-')))
         fse_num = row_in.get('FSE Number', '-')
+        fse_full = f"{fse_name} ({fse_num})" if fse_num and fse_num != '-' else fse_name
         
         aom_name = row_in.get('AOM Detail', row_in.get('AOM Name', '-'))
         aom_num = row_in.get('AOM Number', '-')
+        aom_full = f"{aom_name} ({aom_num})" if aom_num and aom_num != '-' else aom_name
         
         lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
         lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
-        def call_html(label, name, num):
-            if num and str(num).strip() not in ['-', '', 'None', 'nan']:
-                return f'{label}: **{name}** ({num}) <a href="tel:{num}"><button style="background-color:#3b82f6;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:bold;box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 Call</button></a>'
-            return f'{label}: **{name}** (-)'
-        
-        # Displaying Only Requested Columns
-        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
-        v1, v2 = st.columns(2)
-        with v1:
-            st.markdown(f"🛰️ **Area** :- {area_val}")
-            st.markdown(call_html("👨‍🔧 **Technician Detail**", tech_name, tech_num), unsafe_allow_html=True)
-            st.markdown(call_html("👨‍💼 **AOM Detail**", aom_name, aom_num), unsafe_allow_html=True)
-        with v2:
-            st.markdown(f"📍 **Cluster** :- {cluster_val}")
-            st.markdown(call_html("👷 **FSE Detail**", fse_name, fse_num), unsafe_allow_html=True)
-            if lat and lon and str(lat).strip() not in ['-', '', 'None', 'nan']:
-                maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-                st.markdown(f"📍 **Lat/Long** :- {lat} / {lon} <a href='{maps_url}' target='_blank'><button style='background-color:#ef4444;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:bold;box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>📍 View Map</button></a>", unsafe_allow_html=True)
-            else: 
-                st.markdown(f"📍 **Lat/Long** :- {lat if lat else '-'} / {lon if lon else '-'}")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # --- NEW LOGIC: Team Dropdown & WhatsApp Button ---
-        st.markdown("### 💬 Send Details via WhatsApp")
-        
-        # Fetching Teams from Dropdown Master (Crash-Proof API: is_active filter removed)
-        team_res = None
-        try:
-            team_res = supabase.table("dropdown_master").select("option_value, mobile").eq("category", "Team Name").execute()
-        except Exception as e:
-            st.error(f"Team Database Error: {e}")
-            
-        team_dict = {r['option_value']: r['mobile'] for r in team_res.data} if team_res and team_res.data else {}
+        # Variables for WhatsApp Template
+        lat_long_spaced = f"{lat}  {lon}" if lat and lon else "N/A"
+        maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
         t_col1, t_col2 = st.columns([3, 2])
         sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
-        if sel_team != "-- Select Team --":
-            mob = team_dict.get(sel_team, "")
-            if mob:
-                clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
-                if len(clean_mob) >= 10:
-                    maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
-                    wa_msg = f"Site Details:\n\n*Site ID:* {site_id_val}\n*Site Name:* {site_name_val}\n*Lat:* {lat}\n*Long:* {lon}\n\n*Location Map:*\n{maps_link}"
-                    wa_encoded = urllib.parse.quote(wa_msg)
-                    wa_url = f"https://wa.me/91{clean_mob}?text={wa_encoded}"
-                    
-                    t_col2.markdown(f'<a href="{wa_url}" target="_blank"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:8px 15px; border-radius:8px; font-weight:800; font-size:16px; cursor:pointer; box-shadow: 0 4px 6px -1px rgba(37, 211, 102, 0.4);">💬 Send WhatsApp</button></a>', unsafe_allow_html=True)
+        with t_col2:
+            st.markdown('<div class="btn-whatsapp">', unsafe_allow_html=True)
+            if st.button("💬 Send Message to Team", use_container_width=True):
+                if sel_team == "-- Select Team --":
+                    st.warning("⚠️ Please select a team first!")
                 else:
-                    t_col2.error("Invalid Mobile Number in Database.")
-            else:
-                t_col2.warning("Mobile number not found for this team.")
-                
-    else: 
+                    mob = team_dict.get(sel_team, "")
+                    if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
+                        st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
+                    else:
+                        clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
+                        if len(clean_mob) >= 10:
+                            # --- INTERAKT API LOGIC ---
+                            url = "https://api.interakt.ai/v1/public/message/"
+                            headers = {
+                                "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
+                                "Content-Type": "application/json"
+                            }
+                            
+                            def clean_val(v):
+                                val = str(v).strip()
+                                return val if val and val != "None" and val != "nan" else "-"
+                            
+                            payload = {
+                                "countryCode": "+91",
+                                "phoneNumber": clean_mob,
+                                "callbackData": "site_detail_event",
+                                "type": "Template",
+                                "template": {
+                                    "name": "Site_Detail",
+                                    "languageCode": "mr",
+                                    "headerValues": [],
+                                    "bodyValues": [
+                                        clean_val(sel_team),      # {{1}} Team Name
+                                        clean_val(site_id_val),   # {{2}} Site ID
+                                        clean_val(site_name_val), # {{3}} Site Name
+                                        clean_val(district_val),  # {{4}} District / Area
+                                        clean_val(cluster_val),   # {{5}} Cluster
+                                        clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
+                                        clean_val(tech_full),     # {{7}} Technician Detail
+                                        clean_val(fse_full),      # {{8}} FSE Detail
+                                        clean_val(aom_full),      # {{9}} AOM Detail
+                                        clean_val(maps_link)      # {{10}} Google Location Link
+                                    ]
+                                }
+                            }
+                            
+                            try:
+                                response = requests.post(url, headers=headers, json=payload)
+                                if response.status_code in [200, 201, 202]:
+                                    st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
+                                else:
+                                    st.error(f"⚠️ WhatsApp API Error: {response.text}")
+                            except Exception as e:
+                                st.error(f"⚠️ Request Failed: {e}")
+                        else:
+                            st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        st.divider()
+
+        # --- Displaying Site Details ---
+        st.subheader("📌 Vertical Site Details")
+        
+        def call_html(label, name, num):
+            if num and str(num).strip() not in ['-', '', 'None', 'nan']:
+                return f'<div class="info-card-inner">{label}:<br><b>{name}</b> ({num}) <br><a href="tel:{num}" style="text-decoration:none;"><button style="margin-top:5px; background-color:#3b82f6;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:bold;box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 Call</button></a></div>'
+            return f'<div class="info-card-inner">{label}:<br><b>{name}</b> (-)</div>'
+        
+        st.markdown("<div class='info-card'>", unsafe_allow_html=True)
+        v1, v2 = st.columns(2)
+        with v1:
+            st.markdown(f"<div class='info-card-inner'>🛰️ <b>Area</b> :- {area_val}</div>", unsafe_allow_html=True)
+            st.markdown(call_html("👨‍🔧 <b>Technician Detail</b>", tech_name, tech_num), unsafe_allow_html=True)
+            st.markdown(call_html("👨‍💼 <b>AOM Detail</b>", aom_name, aom_num), unsafe_allow_html=True)
+        with v2:
+            st.markdown(f"<div class='info-card-inner'>📍 <b>Cluster</b> :- {cluster_val}</div>", unsafe_allow_html=True)
+            st.markdown(call_html("👷 <b>FSE Detail</b>", fse_name, fse_num), unsafe_allow_html=True)
+            if lat and lon and str(lat).strip() not in ['-', '', 'None', 'nan']:
+                st.markdown(f"<div class='info-card-inner'>📍 <b>Lat/Long</b> :- {lat} / {lon} <br><a href='{maps_link}' target='_blank' style='text-decoration:none;'><button style='margin-top:5px; background-color:#ef4444;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:bold;box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>📍 View Map</button></a></div>", unsafe_allow_html=True)
+            else: 
+                st.markdown(f"<div class='info-card-inner'>📍 <b>Lat/Long</b> :- {lat if lat else '-'} / {lon if lon else '-'}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    elif res_ind is not None: 
         st.info("No data found matching your search in the Database. Kripya Site ID theek se check karein.")
 
 st.divider()
