@@ -150,7 +150,7 @@ if st.session_state.active_view == 'Pending':
         }
         
         if stn_status_col and mat_status_col:
-            # EXACT FILTERING: Material Status = Dispatched AND STN Status = Required
+            # STRICT FILTERING: Material Status = Dispatched AND STN Status = Required
             df_filtered = df[
                 (df[mat_status_col].astype(str).str.strip().str.lower() == 'dispatched') & 
                 (df[stn_status_col].astype(str).str.strip().str.lower() == 'required')
@@ -168,13 +168,14 @@ if st.session_state.active_view == 'Pending':
                 c_stats, c_down = st.columns([3, 1])
                 c_stats.success(f"✅ Showing {len(display_df)} Pending STN Record(s)")
                 
+                # TSV Download Format
                 tsv_data = display_df.to_csv(index=False, sep='\t').encode('utf-8')
                 c_down.download_button("📥 Download TSV File", data=tsv_data, file_name="STN_Pending.tsv", mime="text/tab-separated-values", use_container_width=True)
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
             else:
-                st.info("⚠️ Aisi koi row nahi mili jiska Material Status 'Dispatched' aur STN Status 'Required' dono ho.")
+                st.info("⚠️ Table me aisi koi row nahi mili jiska Material Status 'Dispatched' aur STN Status 'Required' dono ho.")
         else:
             st.error("⚠️ Table me 'STN Status' ya 'Material Status' columns nahi mile.")
             st.write(list(df.columns))
