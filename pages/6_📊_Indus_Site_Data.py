@@ -17,7 +17,7 @@ st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
     
-    /* Buttons */
+    /* Primary Buttons */
     button[data-testid="baseButton-primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%) !important;
         color: white !important; border: none !important; border-radius: 8px !important;
@@ -47,19 +47,19 @@ st.markdown("""
     /* ========================================================
        FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
        ======================================================== */
-    div[data-baseweb="input"] {
+    div[data-testid="stTextInput"] div[data-baseweb="input"], 
+    div[data-testid="stTextInput"] div[data-baseweb="base-input"] {
         border: 2px solid #3b82f6 !important; /* Thick Blue Border */
         border-radius: 8px !important;
         background-color: #ffffff !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
-        overflow: hidden !important;
     }
-    div[data-baseweb="input"]:focus-within {
+    div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
         border-color: #1e3a8a !important;
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
     }
-    div[data-baseweb="input"] input {
+    div[data-testid="stTextInput"] input {
         color: #0f172a !important;
+        font-weight: 600 !important;
         padding: 10px !important;
     }
     
@@ -158,19 +158,23 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams strictly from dropdown_master exactly as user specified
+        # Fetching Teams strictly from dropdown_master (100% Crash Proof)
         team_dict = {}
-        try:
-            team_res = supabase.table("dropdown_master").select("*").execute()
-            if team_res.data:
-                for r in team_res.data:
-                    cat_val = str(r.get('category', '')).strip().lower()
-                    if cat_val == 'team name':
-                        opt_val = r.get('option_value')
-                        if opt_val:
-                            team_dict[str(opt_val).strip()] = str(r.get('mobile', '')).strip()
-        except Exception as e:
-            st.error(f"Error fetching teams from Database: {e}")
+        tables_to_test = ["dropdown_master", "Dropdown_Master"] # Handling case sensitivity
+        for table_name in tables_to_test:
+            try:
+                team_res = supabase.table(table_name).select("*").execute()
+                if team_res.data:
+                    for r in team_res.data:
+                        cat_val = str(r.get('category', '')).strip().lower()
+                        if cat_val == 'team name':
+                            opt_val = r.get('option_value')
+                            if opt_val:
+                                team_dict[str(opt_val).strip()] = str(r.get('mobile', '')).strip()
+                break # If successful, stop trying other table names
+            except Exception:
+                # Completely silent fallback - no st.error will be printed
+                pass
             
         row_in = res_data[0]
         
