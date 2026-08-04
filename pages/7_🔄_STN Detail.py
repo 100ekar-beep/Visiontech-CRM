@@ -8,8 +8,6 @@ from supabase import create_client, Client
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
 
 # --- 2. SUPABASE CONNECTION ---
-# ⚠️ IMPORTANT: warehouse_data table lives in the SAME project as site_data.
-# This must match the URL/KEY used in your Site Data Hub page.
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
 
@@ -29,7 +27,7 @@ def change_view(view_name):
     st.session_state.active_view = view_name
     st.session_state.stn_current_page = 1
 
-# --- 4. STYLING (same design language as Site Data Hub) ---
+# --- 4. STYLING ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] {
@@ -84,7 +82,7 @@ st.markdown("""
         background-color: #e2e8f0 !important;
     }
 
-    /* Table wrapper (horizontal + vertical scroll) */
+    /* Table wrapper */
     .st-key-stn_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(0,0,0,0.15);
@@ -152,7 +150,6 @@ st.markdown("""
     div[class*="st-key-sdbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
 
     .page-count { text-align: center; font-size: 1.05rem; font-weight: 600; color: #334155; margin-top: 10px; }
-
     [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -188,6 +185,7 @@ def view_stn_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
+# --- EDIT DIALOG WITH NEW SHIFTING DROPDOWN ---
 @st.dialog("✏️ Edit STN Record", width="large")
 def edit_stn_dialog(row_data):
     st.caption("Update this warehouse/STN record")
@@ -212,9 +210,16 @@ def edit_stn_dialog(row_data):
         material_status = st.selectbox("MATERIAL STATUS", ["Dispatched", "Pending", "Received"],
                                         index=["Dispatched", "Pending", "Received"].index(row_data.get('Material Status')) if row_data.get('Material Status') in ["Dispatched", "Pending", "Received"] else 0)
 
+    # 🌟 NEW DROPDOWN REQUIREMENT ADDED HERE
+    st.markdown("<hr style='margin:15px 0;'>", unsafe_allow_html=True)
+    st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
+    
+    action_options = ["-- Select Action --", "STN Closed", "Fresh Material return to WH"]
+    selected_action = st.selectbox("Select action to shift record", action_options, label_visibility="collapsed")
+
     if st.button("💾 Update Record", type="primary", use_container_width=True):
         try:
-            supabase.table("warehouse_data").update({
+            update_dict = {
                 "Site ID": site_id,
                 "Site Name": site_name,
                 "Cluster": cluster,
@@ -223,8 +228,16 @@ def edit_stn_dialog(row_data):
                 "Item Description": item_desc,
                 "STN Status": stn_status,
                 "Material Status": material_status
-            }).eq("id", row_data['id']).execute()
-            st.success("✅ Record Updated!")
+            }
+
+            # If user selected an action, automatically adjust fields to shift tabs
+            if selected_action == "STN Closed":
+                update_dict["STN Status"] = "Closed"
+            elif selected_action == "Fresh Material return to WH":
+                update_dict["Material Status"] = "Returned" # Or adjust according to your table schema if needed
+
+            supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
+            st.success("✅ Record Updated and Shifted Successfully!")
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error updating record: {e}")
@@ -280,7 +293,7 @@ if st.session_state.active_view == 'Pending':
         mat_col = get_actual_col(df_raw.columns, ["Material Status", "material_status"])
 
         if stn_col and mat_col:
-            # LOGIC 1: STN STATUS = Required   LOGIC 2: MATERIAL STATUS = Dispatched
+            # PENDING TAB: STN Status = Required AND Material Status = Dispatched
             df = df_raw[
                 (df_raw[stn_col].astype(str).str.strip().str.lower() == 'required') &
                 (df_raw[mat_col].astype(str).str.strip().str.lower() == 'dispatched')
@@ -292,7 +305,7 @@ if st.session_state.active_view == 'Pending':
         df = pd.DataFrame()
         st.warning("⚠️ 'warehouse_data' table se koi record nahi mila.")
 
-    # --- Search box + Export button (top row) ---
+    # --- Search box + Export button ---
     col_search, col_export = st.columns([4, 1])
     with col_search:
         search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...", label_visibility="collapsed")
@@ -324,7 +337,6 @@ if st.session_state.active_view == 'Pending':
     end_idx = start_idx + rows_per_page
     df_page = df.iloc[start_idx:end_idx].copy() if not df.empty else df
 
-    # --- Column layout: # | View | Edit | Delete | Project ID | Site ID | Site Name | Cluster | Item Description | Qty | Team ---
     COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 1.2, 1.0, 1.5, 1.2, 2.2, 0.7, 1.2]
     COL_LABELS = ["#", "👁️", "✏️", "🗑️", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "ITEM DESCRIPTION", "QTY", "TEAM NAME"]
 
@@ -394,13 +406,35 @@ if st.session_state.active_view == 'Pending':
             st.rerun()
 
 # =====================================================================
-# ✅ VIEW 2: STN CLOSED
+# ✅ VIEW 2: STN CLOSED (Filters records where STN Status = Closed)
 # =====================================================================
 elif st.session_state.active_view == 'Closed':
-    st.info("🚀 STN Closed - Yahan aage ka logic aayega.")
+    st.markdown("### ✅ Closed STN Records")
+    try:
+        res_closed = supabase.table("warehouse_data").select("*").eq("STN Status", "Closed").execute()
+        closed_data = res_closed.data if res_closed.data else []
+    except Exception:
+        closed_data = []
+    
+    if closed_data:
+        df_closed = pd.DataFrame(closed_data)
+        st.dataframe(df_closed, use_container_width=True, hide_index=True)
+    else:
+        st.info("No closed STN records found.")
 
 # =====================================================================
-# 🔙 VIEW 3: MATERIAL RETURN
+# 🔙 VIEW 3: MATERIAL RETURN (Filters records where Material Status = Returned)
 # =====================================================================
 elif st.session_state.active_view == 'Return':
-    st.info("🔙 Fresh Material Return - Yahan aage ka logic aayega.")
+    st.markdown("### 🔙 Fresh Material Return to WH Records")
+    try:
+        res_ret = supabase.table("warehouse_data").select("*").eq("Material Status", "Returned").execute()
+        ret_data = res_ret.data if res_ret.data else []
+    except Exception:
+        ret_data = []
+        
+    if ret_data:
+        df_ret = pd.DataFrame(ret_data)
+        st.dataframe(df_ret, use_container_width=True, hide_index=True)
+    else:
+        st.info("No material return records found.")
