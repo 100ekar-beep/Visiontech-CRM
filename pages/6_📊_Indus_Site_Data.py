@@ -17,7 +17,7 @@ st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
     
-    /* Primary Buttons */
+    /* Buttons */
     button[data-testid="baseButton-primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%) !important;
         color: white !important; border: none !important; border-radius: 8px !important;
@@ -45,29 +45,22 @@ st.markdown("""
     }
 
     /* ========================================================
-       100% GUARANTEED SOLID BORDERS FOR ALL INPUT BOXES
+       FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
        ======================================================== */
-    div[data-testid="stTextInput"] input {
+    div[data-baseweb="input"] {
         border: 2px solid #3b82f6 !important; /* Thick Blue Border */
         border-radius: 8px !important;
         background-color: #ffffff !important;
-        color: #0f172a !important;
-        padding: 12px 15px !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        overflow: hidden !important;
     }
-    div[data-testid="stTextInput"] input:focus {
+    div[data-baseweb="input"]:focus-within {
         border-color: #1e3a8a !important;
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
-        outline: none !important;
     }
-    /* Remove wrapper clipping */
-    div[data-baseweb="input"] {
-        border: none !important;
-        background: transparent !important;
-    }
-    div[data-baseweb="base-input"] {
-        border: none !important;
-        background: transparent !important;
+    div[data-baseweb="input"] input {
+        color: #0f172a !important;
+        padding: 10px !important;
     }
     
     /* Inputs & Labels */
@@ -165,22 +158,19 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # Fetching Teams from DB (100% Crash-Proof with Silent Fallback)
+        # Fetching Teams strictly from dropdown_master exactly as user specified
         team_dict = {}
         try:
             team_res = supabase.table("dropdown_master").select("*").execute()
             if team_res.data:
                 for r in team_res.data:
-                    # Checking category carefully
-                    cat_val = str(r.get('category', r.get('Category', ''))).strip().lower()
+                    cat_val = str(r.get('category', '')).strip().lower()
                     if cat_val == 'team name':
-                        opt_val = r.get('option_value', r.get('Option Value', ''))
-                        mob_val = r.get('mobile', r.get('Mobile', ''))
+                        opt_val = r.get('option_value')
                         if opt_val:
-                            team_dict[opt_val] = mob_val if mob_val else ""
-        except Exception:
-            # Silent fallback if table doesn't exist to prevent red error box
-            pass
+                            team_dict[str(opt_val).strip()] = str(r.get('mobile', '')).strip()
+        except Exception as e:
+            st.error(f"Error fetching teams from Database: {e}")
             
         row_in = res_data[0]
         
@@ -206,13 +196,11 @@ if sub_ind:
         lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
         lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
-        # Variables for WhatsApp Template (Strict 2 space format between lat & long)
+        # Variables for WhatsApp Template
         lat_long_spaced = f"{lat}  {lon}" if lat and lon else "N/A"
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
         t_col1, t_col2 = st.columns([3, 2])
-        
-        # Dropdown for Team Name
         sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
