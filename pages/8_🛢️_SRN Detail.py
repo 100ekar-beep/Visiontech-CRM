@@ -182,6 +182,7 @@ def view_srn_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
+# --- EDIT DIALOG WITH 2 NEW INPUT BOXES (SRN Description & Qty) ---
 @st.dialog("✏️ Edit SRN Record", width="large")
 def edit_srn_dialog(row_data):
     st.caption("Update this warehouse/SRN record")
@@ -203,10 +204,18 @@ def edit_srn_dialog(row_data):
         material_status = st.selectbox("MATERIAL STATUS", ["Dispatched", "Pending", "Received"],
                                         index=["Dispatched", "Pending", "Received"].index(row_data.get('Material Status')) if row_data.get('Material Status') in ["Dispatched", "Pending", "Received"] else 0)
 
-    # 🌟 SUBMITTED / SHIFTING DROPDOWN
+    # 🌟 TWO NEW BOXES REQUIREMENT: 1st Large width (SRN Description), 2nd Small width (Qty)
     st.markdown("<hr style='margin:15px 0;'>", unsafe_allow_html=True)
-    st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>📝 SRN DETAILS & QTY ENTRY</p>", unsafe_allow_html=True)
     
+    box_c1, box_c2 = st.columns([4, 1])
+    with box_c1:
+        srn_desc_val = st.text_input("SRN DESCRIPTION / NUMBER", value=row_data.get('SRN Description', ''), placeholder="Enter SRN details...")
+    with box_c2:
+        srn_qty_val = st.number_input("QTY", value=int(row_data.get('SRN Qty') or 0), min_value=0, step=1)
+
+    # SUBMITTED / SHIFTING DROPDOWN
+    st.markdown("<p style='font-weight:700; color:#0f172a; margin-top:10px; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
     action_options = ["-- Select Action --", "SRN Submitted"]
     selected_action = st.selectbox("Select action to shift record", action_options, label_visibility="collapsed")
 
@@ -218,14 +227,16 @@ def edit_srn_dialog(row_data):
                 "Cluster": cluster,
                 "Team": team,
                 "SRN Status": srn_status,
-                "Material Status": material_status
+                "Material Status": material_status,
+                "SRN Description": srn_desc_val,
+                "SRN Qty": srn_qty_val
             }
 
             if selected_action == "SRN Submitted":
                 update_dict["SRN Status"] = "Submitted"
 
             supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
-            st.success("✅ Record Updated and Shifted Successfully!")
+            st.success("✅ Record Updated and Saved Successfully!")
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error updating record: {e}")
@@ -390,7 +401,7 @@ if st.session_state.srn_active_view == 'SRN Detail':
             st.rerun()
 
 # =====================================================================
-# 📦 VIEW 2: SRN SUBMITED (Filters records where SRN Status = Submitted)
+# 📦 VIEW 2: SRN SUBMITED
 # =====================================================================
 elif st.session_state.srn_active_view == 'SRN Submited':
     st.markdown("### ✅ Submitted SRN Records")
