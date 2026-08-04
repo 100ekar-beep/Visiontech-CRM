@@ -18,12 +18,10 @@ if 'active_view' not in st.session_state:
 def change_view(view_name):
     st.session_state.active_view = view_name
 
-# --- 4. EXACT SIDEBAR CSS FROM YOUR CODE + TOP BUTTON STYLING ---
+# --- 4. EXACT SIDEBAR & TOP BUTTON STYLING ---
 st.markdown("""
     <style>
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS (From site_data.py)
-       ========================================================= */
+    /* Premium Sidebar Styling */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -58,15 +56,12 @@ st.markdown("""
         color: inherit !important;
     }
 
-    /* =========================================================
-       TOP 3 MAIN BUTTONS (White Box, Black Border, Bold Text)
-       ========================================================= */
-    /* This targets only the buttons inside the main app screen */
+    /* Top 3 Navigation Buttons */
     div[data-testid="stMainBlockContainer"] div.stButton > button {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #000000 !important;
-        font-weight: 900 !important; /* Bold */
+        font-weight: 900 !important;
         border-radius: 6px !important;
         padding: 10px 20px !important;
         transition: all 0.2s ease !important;
@@ -76,30 +71,29 @@ st.markdown("""
         background-color: #f1f5f9 !important;
         border-color: #000000 !important;
     }
-    /* Active Button style */
     div[data-testid="stMainBlockContainer"] div.stButton > button[kind="primary"] {
         border: 4px solid #000000 !important;
         background-color: #e2e8f0 !important;
     }
     
-    /* Dataframe Header */
     [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# Helper function
+# Smart Column Matcher (handles spaces, casing, and underscores automatically)
 def get_actual_col(df_columns, possible_names):
-    for col in df_columns:
-        if str(col).strip().lower() in [p.lower() for p in possible_names]:
-            return col
+    cleaned_cols = {str(col).strip().lower().replace("_", " "): col for col in df_columns}
+    for p in possible_names:
+        p_clean = p.strip().lower().replace("_", " ")
+        if p_clean in cleaned_cols:
+            return cleaned_cols[p_clean]
     return None
 
 st.markdown("<h2 style='color: #000000; margin-bottom: 20px;'>🔄 STN Details & Processing</h2>", unsafe_allow_html=True)
 
 # =====================================================================
-# 🎛️ TOP NAVIGATION BUTTONS (BAJU-BAJU ALIGNMENT)
+# 🎛️ TOP NAVIGATION BUTTONS
 # =====================================================================
-# First 3 columns take small equal space, 4th empty column takes the rest to push them together
 col1, col2, col3, empty_space = st.columns([1, 1, 1, 4])
 
 with col1:
@@ -126,27 +120,21 @@ if st.session_state.active_view == 'Pending':
     search_query = st.text_input("🔍 Search within Pending STN", placeholder="Enter Project ID, Site Name, etc...")
     
     wh_data = []
-    error_msg = ""
     
-    # 💡 SMART FETCH: Handling the Supabase Cache Error automatically
+    # Strictly fetching from warehouse_data table as requested
     try:
         res = supabase.table("warehouse_data").select("*").execute()
-        wh_data = res.data
+        if res.data:
+            wh_data = res.data
     except Exception as e:
-        error_msg += f"Attempt 1 Failed: {e} | "
-        if "Indus Data" in str(e) or "PGRST205" in str(e):
-            try:
-                # Cache Bypass: Auto-fallback to Indus Data
-                res = supabase.table("Indus Data").select("*").execute()
-                wh_data = res.data
-            except Exception as e2:
-                error_msg += f"Attempt 2 (Indus Data) Failed: {e2}"
+        st.error(f"Supabase Fetch Error: {e}")
 
     if wh_data:
         df = pd.DataFrame(wh_data)
         
-        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status", "stnstatus"])
-        mat_status_col = get_actual_col(df.columns, ["material_status", "material status", "materialstatus"])
+        # Flexible Column Mapping
+        stn_status_col = get_actual_col(df.columns, ["stn_status", "stn status"])
+        mat_status_col = get_actual_col(df.columns, ["material_status", "material status"])
         
         col_map = {
             "Project ID": get_actual_col(df.columns, ["project_id", "project id"]),
@@ -176,21 +164,20 @@ if st.session_state.active_view == 'Pending':
                 c_stats, c_down = st.columns([3, 1])
                 c_stats.success(f"✅ Showing {len(display_df)} Pending STN Record(s)")
                 
-                # Handling .tsv file extension as required by workflow
+                # TSV Download Format
                 tsv_data = display_df.to_csv(index=False, sep='\t').encode('utf-8')
                 c_down.download_button("📥 Download TSV File", data=tsv_data, file_name="STN_Pending.tsv", mime="text/tab-separated-values", use_container_width=True)
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
             else:
-                st.info("⚠️ Data database me mojood hai, par 'Required' aur 'Dispatched' status wali koi entry nahi mili.")
+                st.info("⚠️ Data table me hai, par 'Required' aur 'Dispatched' status match hone wali koi entry nahi mili.")
         else:
-            st.error("⚠️ Data aa gaya hai, par Table me 'STN Status' ya 'Material Status' columns nahi mile.")
+            st.error("⚠️ Table me 'STN Status' ya 'Material Status' columns nahi mile. Aapke table ke columns ye hain:")
+            st.write(list(df.columns))
             
     else:
-        st.error("❌ Data fetch nahi ho paya. Auto-fallback ne bhi kaam nahi kiya.")
-        if error_msg:
-            st.code(error_msg, language="bash")
+        st.warning("⚠️ Table 'warehouse_data' me abhi koi data nahi mila ya table empty hai.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
