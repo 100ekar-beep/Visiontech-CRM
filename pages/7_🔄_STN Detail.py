@@ -119,14 +119,14 @@ if st.session_state.active_view == 'Pending':
     
     wh_data = []
     
-    # 🚀 DIRECT REST API BYPASS targeting 'Indus Data' (using %20 for space)
+    # 🚀 DIRECT REST API BYPASS targeting 'warehouse_data'
     try:
         headers = {
             "apikey": KEY,
             "Authorization": f"Bearer {KEY}",
             "Content-Type": "application/json"
         }
-        api_url = f"{URL}/rest/v1/Indus%20Data?select=*"
+        api_url = f"{URL}/rest/v1/warehouse_data?select=*"
         response = requests.get(api_url, headers=headers)
 
         # ------------------ 🐞 DEBUG BLOCK (remove later) ------------------
@@ -206,7 +206,7 @@ if st.session_state.active_view == 'Pending':
             st.write(list(df.columns))
             
     else:
-        st.warning("⚠️ Table 'Indus Data' se data fetch nahi ho paya ya table empty hai.")
+        st.warning("⚠️ Table 'warehouse_data' se data fetch nahi ho paya ya table empty hai.")
 
 # =====================================================================
 # ✅ VIEW 2: STN CLOSED LOGIC
