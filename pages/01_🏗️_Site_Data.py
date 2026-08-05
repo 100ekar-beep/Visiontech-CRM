@@ -287,7 +287,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -627,6 +627,34 @@ def add_record_dialog():
                     st.session_state.add_mat_count -= 1
 
         st.markdown("<br>", unsafe_allow_html=True)
+
+        # -------------------------------------------------------------
+        # NEW COMMISSIONING EMAIL LOGIC (ADD DIALOG)
+        # -------------------------------------------------------------
+        comm_req = "Not Required"
+        comm_desc = ""
+        comm_make = "Select"
+        
+        if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
+            st.markdown("""
+                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <h4 style="color: #60a5fa; margin-top: 0; font-size: 1.05rem;">📧 Commissioning Email Notification</h4>
+            """, unsafe_allow_html=True)
+            
+            comm_req = st.radio("Email For Commissioning Action:", ["Not Required", "Required"], horizontal=True, key="add_comm_radio")
+            
+            if comm_req == "Required":
+                c_desc, c_make = st.columns([2, 1])
+                with c_desc:
+                    comm_desc = st.text_input("Description", placeholder="Enter description details here...", key="add_comm_desc")
+                with c_make:
+                    make_opts = get_opts("Make", all_dd)
+                    if len(make_opts) <= 1:
+                        make_opts = ["Select", "Delta", "Emerson", "ZTE", "Eltek", "Other"]
+                    comm_make = st.selectbox("Make", make_opts, key="add_comm_make")
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+        # -------------------------------------------------------------
         
         # --- SUBMIT LOGIC ---
         col_btn1, col_btn2 = st.columns([8, 2])
@@ -725,6 +753,11 @@ def add_record_dialog():
                                 pass
                     # -------------------------------------------------
                     
+                    # --- NEW COMMISSIONING EMAIL TRIGGER ---
+                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and comm_req == "Required":
+                        st.toast(f"📧 Ready to trigger Commissioning Email for Make: {comm_make}. (Logic Pending)", icon="📨")
+                    # -------------------------------------------------
+
                     st.success("✅ Record Successfully Added!")
                     st.rerun() 
                 except Exception as e:
@@ -882,6 +915,34 @@ def edit_record_dialog(row_data):
             
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # -------------------------------------------------------------
+        # NEW COMMISSIONING EMAIL LOGIC (EDIT DIALOG)
+        # -------------------------------------------------------------
+        comm_req = "Not Required"
+        comm_desc = ""
+        comm_make = "Select"
+        
+        if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
+            st.markdown("""
+                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                    <h4 style="color: #60a5fa; margin-top: 0; font-size: 1.05rem;">📧 Commissioning Email Notification</h4>
+            """, unsafe_allow_html=True)
+            
+            comm_req = st.radio("Email For Commissioning Action:", ["Not Required", "Required"], horizontal=True, key="ed_comm_radio")
+            
+            if comm_req == "Required":
+                c_desc, c_make = st.columns([2, 1])
+                with c_desc:
+                    comm_desc = st.text_input("Description", placeholder="Enter description details here...", key="ed_comm_desc")
+                with c_make:
+                    make_opts = get_opts("Make", all_dd)
+                    if len(make_opts) <= 1:
+                        make_opts = ["Select", "Delta", "Emerson", "ZTE", "Eltek", "Other"]
+                    comm_make = st.selectbox("Make", make_opts, key="ed_comm_make")
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+        # -------------------------------------------------------------
+
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
             submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
@@ -944,6 +1005,11 @@ def edit_record_dialog(row_data):
                         )
                     # ----------------------------------------------------
                     
+                    # --- NEW COMMISSIONING EMAIL TRIGGER ---
+                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and comm_req == "Required":
+                        st.toast(f"📧 Ready to trigger Commissioning Email for Make: {comm_make}. (Logic Pending)", icon="📨")
+                    # -------------------------------------------------
+
                     st.success("✅ Record Successfully Updated!")
                     st.rerun() 
                 except Exception as e:
