@@ -1292,7 +1292,7 @@ def commissioning_email_dialog():
             comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
             comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
             
-        # PRAMOD BHAU: DYNAMIC EMAIL FETCHING LOGIC
+        # PRAMOD BHAU: DYNAMIC EMAIL FETCHING LOGIC (From 2 tables)
         auto_to = ""
         auto_cc = ""
         if comm_make != "Select":
@@ -1300,28 +1300,33 @@ def commissioning_email_dialog():
                 to_list = []
                 cc_list = []
                 
-                # Fetch Make Emails (For TO and specific CCs)
-                res_make = supabase.table("Email_Master").select("*").ilike("Name", comm_make).execute()
+                # 1. Fetch from Make_Email_Master (Filters by Project Name AND Make)
+                res_make = supabase.table("Make_Email_Master").select("*").eq("Project Name", proj_name).ilike("Make", comm_make).execute()
                 if res_make.data:
                     for row in res_make.data:
-                        etype = str(row.get("Type", "")).upper()
-                        em = str(row.get("Email", "")).strip()
-                        if em:
-                            if "CC" in etype:
-                                cc_list.append(em)
-                            else:
-                                to_list.append(em) 
+                        m_to = str(row.get("Make_TO", "")).strip()
+                        m_cc = str(row.get("Make_CC", "")).strip()
+                        
+                        if m_to and m_to.lower() != "nan":
+                            to_list.extend([e.strip() for e in m_to.split(',') if e.strip()])
+                        if m_cc and m_cc.lower() != "nan":
+                            cc_list.extend([e.strip() for e in m_cc.split(',') if e.strip()])
                                 
-                # Fetch Cluster FSE & AOM Emails (For CC)
-                res_cluster = supabase.table("Email_Master").select("*").ilike("Name", cluster).execute()
+                # 2. Fetch Cluster FSE & AOM Emails from Cluster_Email_Master
+                res_cluster = supabase.table("Cluster_Email_Master").select("*").ilike("Cluster", cluster).execute()
                 if res_cluster.data:
                     for row in res_cluster.data:
-                        em = str(row.get("Email", "")).strip()
-                        if em:
-                            cc_list.append(em)
+                        fse_email = str(row.get("FSE Email", "")).strip()
+                        aom_email = str(row.get("AOM Email", "")).strip()
+                        
+                        if fse_email and fse_email.lower() != "nan":
+                            cc_list.extend([e.strip() for e in fse_email.split(',') if e.strip()])
+                        if aom_email and aom_email.lower() != "nan":
+                            cc_list.extend([e.strip() for e in aom_email.split(',') if e.strip()])
                             
-                auto_to = ", ".join(to_list)
-                auto_cc = ", ".join(cc_list)
+                # Remove duplicates while preserving order
+                auto_to = ", ".join(list(dict.fromkeys(to_list)))
+                auto_cc = ", ".join(list(dict.fromkeys(cc_list)))
             except Exception as e:
                 pass # Suppress error if table doesn't exist yet
                 
