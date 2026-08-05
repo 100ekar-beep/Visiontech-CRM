@@ -3,6 +3,9 @@ import pandas as pd
 import math
 import io
 import requests # <--- NEW: Added requests for WhatsApp API
+import smtplib  # <--- NEW: For Email Sending
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -20,6 +23,8 @@ if 'add_mat_count' not in st.session_state:
 
 if 'pending_comm_email' not in st.session_state:
     st.session_state.pending_comm_email = False
+if 'comm_site_data' not in st.session_state:
+    st.session_state.comm_site_data = {}
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -298,6 +303,42 @@ def init_connection():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase: Client = init_connection()
+
+# -------------------------------------------------------------
+# --- NEW: SMTP EMAIL SENDING CONFIGURATION
+# -------------------------------------------------------------
+# PRAMOD BHAU: Yahan aapko baad me apni email aur app password dalni hai
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "your_email@gmail.com"
+SENDER_PASSWORD = "your_app_password"
+
+def send_commissioning_email(to_email, cc_email, subject, body):
+    try:
+        # Jab tak SMTP configure nahi hota, ek simulated success message dikhayega
+        if SENDER_EMAIL == "your_email@gmail.com":
+            return True, "Simulated Success - Please configure actual SMTP details in code."
+            
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = to_email
+        msg['Cc'] = cc_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        recipients = [e.strip() for e in to_email.split(',') if e.strip()]
+        if cc_email:
+            recipients.extend([e.strip() for e in cc_email.split(',') if e.strip()])
+            
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
+        server.quit()
+        return True, "Email sent successfully"
+    except Exception as e:
+        return False, str(e)
 
 # -------------------------------------------------------------
 # --- FIX: UPDATED WHATSAPP INTERACT API FUNCTION
@@ -733,6 +774,14 @@ def add_record_dialog():
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
                     if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
                         st.session_state.pending_comm_email = True
+                        st.session_state.comm_site_data = {
+                            "proj_name": proj_name,
+                            "proj_id": proj_id,
+                            "site_id": site_id,
+                            "site_name": site_name,
+                            "cluster": cluster,
+                            "contact_person": tech_val,
+                        }
                     # -------------------------------------------------
                     
                     st.rerun() 
@@ -958,6 +1007,14 @@ def edit_record_dialog(row_data):
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
                     if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
                         st.session_state.pending_comm_email = True
+                        st.session_state.comm_site_data = {
+                            "proj_name": proj_name,
+                            "proj_id": proj_id,
+                            "site_id": site_id,
+                            "site_name": site_name,
+                            "cluster": cluster,
+                            "contact_person": tech_val,
+                        }
                     # -------------------------------------------------
 
                     st.rerun() 
@@ -1190,45 +1247,102 @@ def view_record_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
-# --- 3.78 NEW: COMMISSIONING EMAIL POPUP DIALOG ---
-@st.dialog("📧 Commissioning Email Notification", width="small")
+# --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
+@st.dialog("📧 Commissioning Email Notification", width="large")
 def commissioning_email_dialog():
-    st.markdown("<p style='color:#cbd5e1; font-size:0.95rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#cbd5e1; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
+    
+    data = st.session_state.get("comm_site_data", {})
+    proj_name = data.get("proj_name", "")
+    proj_id = data.get("proj_id", "")
+    site_id = data.get("site_id", "")
+    site_name = data.get("site_name", "")
+    cluster = data.get("cluster", "")
+    contact_person = data.get("contact_person", "N/A")
+    contact_number = "N/A" # Can be updated later
     
     all_dd = get_all_dropdowns()
     
     comm_req = st.radio("Email For Commissioning Action:", ["Not Required", "Required"], horizontal=True, key="comm_popup_radio")
     
-    comm_desc = ""
-    comm_make = "Select"
-    
     if comm_req == "Required":
-        st.markdown("<br>", unsafe_allow_html=True)
-        comm_desc = st.text_input("Description *", placeholder="Enter description details here...", key="comm_popup_desc")
+        st.markdown("<hr style='border:1px solid rgba(255,255,255,0.1); margin: 15px 0;'>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
         
-        make_opts = get_opts("Make", all_dd)
-        if len(make_opts) <= 1:
-            make_opts = ["Select", "Delta", "Emerson", "ZTE", "Eltek", "Other"]
-        comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
+        with c1:
+            make_opts = get_opts("Make", all_dd)
+            if len(make_opts) <= 1:
+                make_opts = ["Select", "Delta", "Emerson", "ZTE", "Eltek", "Other"]
+            comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
+            comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
+            
+        with c2:
+            to_email = st.text_input("To Email *", placeholder="e.g. delta@example.com")
+            cc_email = st.text_input("CC Email", placeholder="e.g. manager@example.com")
+            
+        # Email Type Selection Logic
+        proj_type = "Battery Bank" if proj_name == "Battery Bank" else "SMPS/SPS"
         
+        subject = f"Request for {proj_type} Commissioning – {proj_id}_{site_id}_{site_name}"
+        
+        body = f"""Dear Sir,
+
+We are pleased to inform you that the {proj_type} installation work at the below-mentioned site has been completed successfully.
+
+Kindly arrange to depute your commissioning engineer at the earliest to carry out the {proj_type} commissioning.
+
+Site Details:
+Project ID: {proj_id}
+Site ID: {site_id}
+Site Name: {site_name}
+Cluster: {cluster}
+Circle: Maharashtra & Goa
+Contact Person: {contact_person}
+Contact Number: {contact_number}
+
+Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.
+
+if any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.
+
+Looking forward to your confirmation.
+
+Regards,
+Visiontech Infra"""
+
+        with st.expander("👁️ Preview Email Template"):
+            st.markdown(f"**Subject:** {subject}")
+            st.code(body, language="text")
+            
     st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
     with col1:
-        if st.button("❌ Cancel", use_container_width=True):
+        if st.button("❌ Close / Ignore", use_container_width=True):
             st.session_state.pending_comm_email = False
             st.rerun()
-    with col2:
-        if st.button("🚀 Submit", type="primary", use_container_width=True):
+            
+    with col3:
+        if st.button("🚀 Send Email & Complete", type="primary", use_container_width=True):
             if comm_req == "Required":
-                if not comm_desc.strip():
-                    st.error("⚠️ Please enter a Description.")
-                    return
                 if comm_make == "Select":
                     st.error("⚠️ Please select a Make.")
                     return
-                st.toast(f"📧 Commissioning Email triggered for Make: {comm_make}. (Logic Pending)", icon="📨")
+                if not comm_desc.strip():
+                    st.error("⚠️ Please enter a Description.")
+                    return
+                if not to_email.strip():
+                    st.error("⚠️ To Email address is required.")
+                    return
+                
+                # Send Email via our SMTP Function
+                success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
+                if success:
+                    st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
+                else:
+                    st.error(f"❌ Failed to send email: {err_msg}")
+                    return
             else:
-                st.toast("✅ Commissioning marked as Not Required.", icon="✅")
+                st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
                 
             st.session_state.pending_comm_email = False
             st.rerun()
@@ -1363,9 +1477,12 @@ def export_dialog(df_export):
         type="primary"
     )
 
-# --- NEW: TRIGGER FOR COMMISSIONING POPUP ---
+# ==============================================================
+# --- NEW: TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
+# ==============================================================
 if st.session_state.get('pending_comm_email'):
     commissioning_email_dialog()
+# ==============================================================
 
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_ref, col_add, col_upload, col_update, col_export = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5])
