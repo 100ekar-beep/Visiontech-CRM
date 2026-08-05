@@ -311,7 +311,7 @@ supabase: Client = init_connection()
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
-SENDER_PASSWORD = "your_app_password"
+SENDER_PASSWORD = "dveu zzkd rvji zodj"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
