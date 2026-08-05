@@ -307,16 +307,16 @@ supabase: Client = init_connection()
 # -------------------------------------------------------------
 # --- NEW: SMTP EMAIL SENDING CONFIGURATION
 # -------------------------------------------------------------
-# PRAMOD BHAU: Yahan aapko baad me apni email aur app password dalni hai
+# PRAMOD BHAU: Yahan aapko baad me apni app password dalni hai
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "your_email@gmail.com"
+SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
 SENDER_PASSWORD = "your_app_password"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
-        if SENDER_EMAIL == "your_email@gmail.com":
-            return True, "Simulated Success - Please configure actual SMTP details in code."
+        if SENDER_PASSWORD == "your_app_password":
+            return True, "Simulated Success - Please configure actual SMTP password in code."
             
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -1349,6 +1349,7 @@ Project ID: {proj_id}
 Site ID: {site_id}
 Site Name: {site_name}
 Cluster: {cluster}
+Product Detial :- {comm_desc}
 Technician Detail : {tech_val}
 FSE Detail : {fse_val}
 Team Name : {team_name}
