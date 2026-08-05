@@ -315,7 +315,6 @@ SENDER_PASSWORD = "your_app_password"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
-        # Jab tak SMTP configure nahi hota, ek simulated success message dikhayega
         if SENDER_EMAIL == "your_email@gmail.com":
             return True, "Simulated Success - Please configure actual SMTP details in code."
             
@@ -780,7 +779,9 @@ def add_record_dialog():
                             "site_id": site_id,
                             "site_name": site_name,
                             "cluster": cluster,
-                            "contact_person": tech_val,
+                            "team_name": team_name,
+                            "tech_val": tech_val,
+                            "fse_val": fse_val,
                         }
                     # -------------------------------------------------
                     
@@ -1013,7 +1014,9 @@ def edit_record_dialog(row_data):
                             "site_id": site_id,
                             "site_name": site_name,
                             "cluster": cluster,
-                            "contact_person": tech_val,
+                            "team_name": team_name,
+                            "tech_val": tech_val,
+                            "fse_val": fse_val,
                         }
                     # -------------------------------------------------
 
@@ -1258,8 +1261,21 @@ def commissioning_email_dialog():
     site_id = data.get("site_id", "")
     site_name = data.get("site_name", "")
     cluster = data.get("cluster", "")
-    contact_person = data.get("contact_person", "N/A")
-    contact_number = "N/A" # Can be updated later
+    tech_val = data.get("tech_val", "N/A")
+    fse_val = data.get("fse_val", "N/A")
+    team_name = data.get("team_name", "N/A")
+    
+    # Fetch Team Mobile
+    team_mobile = "N/A"
+    if team_name and team_name != "Select":
+        try:
+            t_res = supabase.table("dropdown_master").select("mobile").eq("category", "Team Name").eq("option_value", team_name).execute()
+            if t_res.data:
+                mob = t_res.data[0].get("mobile", "")
+                if mob and str(mob).upper() != "EMPTY":
+                    team_mobile = str(mob).strip()
+        except:
+            pass
     
     all_dd = get_all_dropdowns()
     
@@ -1276,13 +1292,45 @@ def commissioning_email_dialog():
             comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
             comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
             
+        # PRAMOD BHAU: DYNAMIC EMAIL FETCHING LOGIC
+        auto_to = ""
+        auto_cc = ""
+        if comm_make != "Select":
+            try:
+                to_list = []
+                cc_list = []
+                
+                # Fetch Make Emails (For TO and specific CCs)
+                res_make = supabase.table("Email_Master").select("*").ilike("Name", comm_make).execute()
+                if res_make.data:
+                    for row in res_make.data:
+                        etype = str(row.get("Type", "")).upper()
+                        em = str(row.get("Email", "")).strip()
+                        if em:
+                            if "CC" in etype:
+                                cc_list.append(em)
+                            else:
+                                to_list.append(em) 
+                                
+                # Fetch Cluster FSE & AOM Emails (For CC)
+                res_cluster = supabase.table("Email_Master").select("*").ilike("Name", cluster).execute()
+                if res_cluster.data:
+                    for row in res_cluster.data:
+                        em = str(row.get("Email", "")).strip()
+                        if em:
+                            cc_list.append(em)
+                            
+                auto_to = ", ".join(to_list)
+                auto_cc = ", ".join(cc_list)
+            except Exception as e:
+                pass # Suppress error if table doesn't exist yet
+                
         with c2:
-            to_email = st.text_input("To Email *", placeholder="e.g. delta@example.com")
-            cc_email = st.text_input("CC Email", placeholder="e.g. manager@example.com")
+            to_email = st.text_input("To Email *", value=auto_to, placeholder="Auto-fetched from DB or enter manually")
+            cc_email = st.text_input("CC Email", value=auto_cc, placeholder="Auto-fetched from DB or enter manually")
             
-        # Email Type Selection Logic
+        # DYNAMIC EMAIL BODY GENERATION
         proj_type = "Battery Bank" if proj_name == "Battery Bank" else "SMPS/SPS"
-        
         subject = f"Request for {proj_type} Commissioning – {proj_id}_{site_id}_{site_name}"
         
         body = f"""Dear Sir,
@@ -1296,13 +1344,14 @@ Project ID: {proj_id}
 Site ID: {site_id}
 Site Name: {site_name}
 Cluster: {cluster}
-Circle: Maharashtra & Goa
-Contact Person: {contact_person}
-Contact Number: {contact_number}
+Technician Detail : {tech_val}
+FSE Detail : {fse_val}
+Team Name : {team_name}
+Team Number : {team_mobile}
 
 Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.
 
-if any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.
+If any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.
 
 Looking forward to your confirmation.
 
@@ -1334,7 +1383,6 @@ Visiontech Infra"""
                     st.error("⚠️ To Email address is required.")
                     return
                 
-                # Send Email via our SMTP Function
                 success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
                 if success:
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
