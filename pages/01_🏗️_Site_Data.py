@@ -305,13 +305,12 @@ def init_connection():
 supabase: Client = init_connection()
 
 # -------------------------------------------------------------
-# --- NEW: SMTP EMAIL SENDING CONFIGURATION
+# --- SMTP EMAIL SENDING CONFIGURATION
 # -------------------------------------------------------------
-# PRAMOD BHAU: Yahan aapko baad me apni app password dalni hai
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
-SENDER_PASSWORD = "dveu zzkd rvji zodj"
+SENDER_PASSWORD = "your_app_password"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
@@ -340,7 +339,7 @@ def send_commissioning_email(to_email, cc_email, subject, body):
         return False, str(e)
 
 # -------------------------------------------------------------
-# --- FIX: UPDATED WHATSAPP INTERACT API FUNCTION
+# --- WHATSAPP INTERACT API FUNCTION
 # -------------------------------------------------------------
 def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_desc, area, lat_val, long_val, tech, fse, aom):
     try:
@@ -400,7 +399,6 @@ def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_
             return False
     except Exception as e:
         return False
-# -------------------------------------------------------------
 
 # --- 3.1 HELPER FOR DYNAMIC DROPDOWNS ---
 def get_all_dropdowns():
@@ -582,7 +580,7 @@ def add_record_dialog():
                     st.session_state.po_count -= 1
             
         # -------------------------------------------------------------
-        # NEW SECTION: WAREHOUSE MATERIAL TRACKING IN ADD RECORD
+        # WAREHOUSE MATERIAL TRACKING IN ADD RECORD
         # -------------------------------------------------------------
         st.markdown('<div class="modal-section-title">📦 WAREHOUSE MATERIAL TRACKING (OPTIONAL)</div>', unsafe_allow_html=True)
         
@@ -728,9 +726,10 @@ def add_record_dialog():
                 }
                 
                 try:
-                    supabase.table("site_data").insert(insert_data).execute()
+                    res = supabase.table("site_data").insert(insert_data).execute()
+                    new_id = res.data[0]['id'] if res.data else None
                     
-                    # --- NEW: SEND WHATSAPP MESSAGE ON FIRST ASSIGNMENT ---
+                    # --- SEND WHATSAPP MESSAGE ON FIRST ASSIGNMENT ---
                     if team_name and team_name != "Select":
                         send_whatsapp_to_team(
                             team_name=team_name, site_id=site_id, site_name=site_name, 
@@ -738,9 +737,8 @@ def add_record_dialog():
                             area=area_val, lat_val=lat_val, long_val=long_val, 
                             tech=tech_val, fse=fse_val, aom=aom_val
                         )
-                    # ------------------------------------------------------
                     
-                    # --- FIX: SAVE OPTIONAL WAREHOUSE MATERIAL ---
+                    # --- SAVE OPTIONAL WAREHOUSE MATERIAL ---
                     for i in range(len(a_mat_item_codes)):
                         if a_mat_item_codes[i].strip() != "" and a_mat_boqs[i].strip() != "":
                             insert_wh = {
@@ -766,7 +764,6 @@ def add_record_dialog():
                                     supabase.table("warehouse_data").insert(insert_wh).execute()
                             except Exception:
                                 pass
-                    # -------------------------------------------------
                     
                     st.success("✅ Record Successfully Added!")
                     
@@ -774,6 +771,7 @@ def add_record_dialog():
                     if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
                         st.session_state.pending_comm_email = True
                         st.session_state.comm_site_data = {
+                            "db_id": new_id,
                             "proj_name": proj_name,
                             "proj_id": proj_id,
                             "site_id": site_id,
@@ -783,7 +781,6 @@ def add_record_dialog():
                             "tech_val": tech_val,
                             "fse_val": fse_val,
                         }
-                    # -------------------------------------------------
                     
                     st.rerun() 
                 except Exception as e:
@@ -960,9 +957,7 @@ def edit_record_dialog(row_data):
                     has_error = True
                     
             if not has_error:
-                # --- NEW: PURANI TEAM KA NAAM FETCH KARNA ---
                 old_team_name = row_data.get('Team Name', '')
-                # ---------------------------------------------
                 
                 update_data = {
                     "Department": dept if dept != "Select" else "",
@@ -993,7 +988,6 @@ def edit_record_dialog(row_data):
                 try:
                     supabase.table("site_data").update(update_data).eq("id", row_data['id']).execute()
                     
-                    # --- NEW: SEND WHATSAPP ONLY IF TEAM IS CHANGED ---
                     if team_name and team_name != "Select" and team_name != old_team_name:
                         send_whatsapp_to_team(
                             team_name=team_name, site_id=site_id, site_name=site_name, 
@@ -1001,14 +995,16 @@ def edit_record_dialog(row_data):
                             area=area_val, lat_val=lat_val, long_val=long_val, 
                             tech=tech_val, fse=fse_val, aom=aom_val
                         )
-                    # ----------------------------------------------------
                     
                     st.success("✅ Record Successfully Updated!")
                     
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
+                    already_sent_flag = str(row_data.get("Commissioning Email Sent", "")).strip().lower()
+                    
+                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and already_sent_flag != "yes":
                         st.session_state.pending_comm_email = True
                         st.session_state.comm_site_data = {
+                            "db_id": row_data['id'],
                             "proj_name": proj_name,
                             "proj_id": proj_id,
                             "site_id": site_id,
@@ -1256,6 +1252,7 @@ def commissioning_email_dialog():
     st.markdown("<p style='color:#cbd5e1; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
     
     data = st.session_state.get("comm_site_data", {})
+    db_id = data.get("db_id")
     proj_name = data.get("proj_name", "")
     proj_id = data.get("proj_id", "")
     site_id = data.get("site_id", "")
@@ -1292,7 +1289,6 @@ def commissioning_email_dialog():
             comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
             comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
             
-        # PRAMOD BHAU: DYNAMIC EMAIL FETCHING LOGIC (From 2 tables)
         auto_to = ""
         auto_cc = ""
         if comm_make != "Select":
@@ -1328,7 +1324,7 @@ def commissioning_email_dialog():
                 auto_to = ", ".join(list(dict.fromkeys(to_list)))
                 auto_cc = ", ".join(list(dict.fromkeys(cc_list)))
             except Exception as e:
-                pass # Suppress error if table doesn't exist yet
+                pass 
                 
         with c2:
             to_email = st.text_input("To Email *", value=auto_to, placeholder="Auto-fetched from DB or enter manually")
@@ -1392,11 +1388,18 @@ Visiontech Infra"""
                 success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
                 if success:
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
+                    # FLAG UPDATE TO DB SO IT NEVER OPENS AGAIN
+                    if db_id:
+                        try:
+                            supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
+                        except Exception as e:
+                            st.toast("⚠️ Note: 'Commissioning Email Sent' column not found in Supabase. Please create it.", icon="⚠️")
                 else:
                     st.error(f"❌ Failed to send email: {err_msg}")
                     return
             else:
                 st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
+                # Flag DB mein update nahi kiya, isliye next update par dobara pop-up khulega
                 
             st.session_state.pending_comm_email = False
             st.rerun()
@@ -1458,7 +1461,6 @@ def update_po_status_dialog():
                 try:
                     df_status = pd.read_excel(status_file)
                         
-                    # Fixing common missing column issues
                     if 'PO No.' not in df_status.columns or 'PO Status' not in df_status.columns:
                         st.error("❌ File me exactly 'PO No.' aur 'PO Status' naam ke columns hone chahiye!")
                         return
@@ -1466,12 +1468,10 @@ def update_po_status_dialog():
                     updated_count = 0
                     not_found_count = 0
                     
-                    # Fetching all records once to prevent rate-limiting and make it super fast
                     all_db_res = supabase.table("site_data").select("*").execute()
                     all_db_records = all_db_res.data if all_db_res.data else []
                     
                     for index, row in df_status.iterrows():
-                        # Converting to float then int to handle Excel's 19030403505.0 issue, then to clean string
                         try:
                             po_no = str(int(float(row['PO No.']))).strip()
                         except:
@@ -1485,7 +1485,6 @@ def update_po_status_dialog():
                         match_found = False
                         for record in all_db_records:
                             db_po_string = str(record.get('PO No.', ''))
-                            # Splitting DB POs in case of comma separated values
                             db_po_list = [p.strip() for p in db_po_string.split(',')]
                             
                             if po_no in db_po_list:
@@ -1532,7 +1531,7 @@ def export_dialog(df_export):
     )
 
 # ==============================================================
-# --- NEW: TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
+# --- TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
 # ==============================================================
 if st.session_state.get('pending_comm_email'):
     commissioning_email_dialog()
@@ -1570,12 +1569,13 @@ try:
 except Exception:
     data = []
 
+# DHYAN DEIN: "Commissioning Email Sent" list mein include kiya gaya hai tracking ke liye
 columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
     "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
     "Team Name", "Team Billing Status", "Vision Billing Status", "Extra Approval", 
-    "WCC Number", "WCC Status"
+    "WCC Number", "WCC Status", "Commissioning Email Sent"
 ]
 
 if data:
