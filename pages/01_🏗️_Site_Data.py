@@ -323,7 +323,8 @@ def send_commissioning_email(to_email, cc_email, subject, body):
         msg['Cc'] = cc_email
         msg['Subject'] = subject
         
-        msg.attach(MIMEText(body, 'plain'))
+        # CHANGED to 'html' to support bold headers as requested
+        msg.attach(MIMEText(body, 'html'))
         
         recipients = [e.strip() for e in to_email.split(',') if e.strip()]
         if cc_email:
@@ -780,6 +781,8 @@ def add_record_dialog():
                             "team_name": team_name,
                             "tech_val": tech_val,
                             "fse_val": fse_val,
+                            "lat_val": lat_val,
+                            "long_val": long_val,
                         }
                     
                     st.rerun() 
@@ -1013,6 +1016,8 @@ def edit_record_dialog(row_data):
                             "team_name": team_name,
                             "tech_val": tech_val,
                             "fse_val": fse_val,
+                            "lat_val": lat_val,
+                            "long_val": long_val,
                         }
                     # -------------------------------------------------
 
@@ -1261,6 +1266,8 @@ def commissioning_email_dialog():
     tech_val = data.get("tech_val", "N/A")
     fse_val = data.get("fse_val", "N/A")
     team_name = data.get("team_name", "N/A")
+    lat_val = data.get("lat_val", "N/A")
+    long_val = data.get("long_val", "N/A")
     
     # Fetch Team Mobile
     team_mobile = "N/A"
@@ -1330,39 +1337,42 @@ def commissioning_email_dialog():
             to_email = st.text_input("To Email *", value=auto_to, placeholder="Auto-fetched from DB or enter manually")
             cc_email = st.text_input("CC Email", value=auto_cc, placeholder="Auto-fetched from DB or enter manually")
             
-        # DYNAMIC EMAIL BODY GENERATION
+        # DYNAMIC EMAIL BODY GENERATION (HTML for Bold Support)
         proj_type = "Battery Bank" if proj_name == "Battery Bank" else "SMPS/SPS"
         subject = f"Request for {proj_type} Commissioning – {proj_id}_{site_id}_{site_name}"
         
-        body = f"""Dear Sir,
+        body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
+<p>Dear Sir,</p>
 
-We are pleased to inform you that the {proj_type} installation work at the below-mentioned site has been completed successfully.
+<p>We are pleased to inform you that the {proj_type} installation work at the below-mentioned site has been completed successfully.</p>
 
-Kindly arrange to depute your commissioning engineer at the earliest to carry out the {proj_type} commissioning.
+<p>Kindly arrange to depute your commissioning engineer at the earliest to carry out the {proj_type} commissioning.</p>
 
-Site Details:
-Project ID: {proj_id}
-Site ID: {site_id}
-Site Name: {site_name}
-Cluster: {cluster}
-Product Detial :- {comm_desc}
-Technician Detail : {tech_val}
-FSE Detail : {fse_val}
-Team Name : {team_name}
-Team Number : {team_mobile}
+<p><b>Site Details:</b><br>
+<b>Project ID:</b> {proj_id}<br>
+<b>Site ID:</b> {site_id}<br>
+<b>Site Name:</b> {site_name}<br>
+<b>Cluster:</b> {cluster}<br>
+<b>Lat Long :-</b> ({lat_val} / {long_val})<br>
+<b>Product Detial :-</b> {comm_desc}<br>
+<b>Technician Detail :</b> {tech_val}<br>
+<b>FSE Detail :</b> {fse_val}<br>
+<b>Team Name :</b> {team_name}<br>
+<b>Team Number :</b> {team_mobile}</p>
 
-Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.
+<p>Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.</p>
 
-If any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.
+<p>If any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.</p>
 
-Looking forward to your confirmation.
+<p>Looking forward to your confirmation.</p>
 
-Regards,
-Visiontech Infra"""
+<p>Regards,<br>
+Visiontech Infra</p>
+</div>"""
 
         with st.expander("👁️ Preview Email Template"):
             st.markdown(f"**Subject:** {subject}")
-            st.code(body, language="text")
+            st.markdown(body, unsafe_allow_html=True)
             
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -1388,7 +1398,6 @@ Visiontech Infra"""
                 success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
                 if success:
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
-                    # FLAG UPDATE TO DB SO IT NEVER OPENS AGAIN
                     if db_id:
                         try:
                             supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
@@ -1399,7 +1408,6 @@ Visiontech Infra"""
                     return
             else:
                 st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
-                # Flag DB mein update nahi kiya, isliye next update par dobara pop-up khulega
                 
             st.session_state.pending_comm_email = False
             st.rerun()
@@ -1569,7 +1577,6 @@ try:
 except Exception:
     data = []
 
-# DHYAN DEIN: "Commissioning Email Sent" list mein include kiya gaya hai tracking ke liye
 columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
