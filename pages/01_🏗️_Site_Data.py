@@ -1303,7 +1303,7 @@ def commissioning_email_dialog():
         with c1:
             make_opts = get_opts("Make", all_dd)
             if len(make_opts) <= 1:
-                make_opts = ["Select", "Delta", "Emerson", "ZTE", "Eltek", "Other"]
+                make_opts = ["Select", "Amraraja", "Vertiv", "Exide", "HBL", "Other"]
             comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
             comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
             
