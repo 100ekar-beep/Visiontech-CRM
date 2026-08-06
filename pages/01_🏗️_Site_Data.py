@@ -323,7 +323,7 @@ def send_commissioning_email(to_email, cc_email, subject, body):
         msg['Cc'] = cc_email
         msg['Subject'] = subject
         
-        # CHANGED to 'html' to support bold headers as requested
+        # HTML MIME Type is used here so bold tags work perfectly
         msg.attach(MIMEText(body, 'html'))
         
         recipients = [e.strip() for e in to_email.split(',') if e.strip()]
@@ -728,7 +728,7 @@ def add_record_dialog():
                 
                 try:
                     res = supabase.table("site_data").insert(insert_data).execute()
-                    new_id = res.data[0]['id'] if res.data else None
+                    new_id = res.data[0].get('id') if (hasattr(res, 'data') and res.data) else None
                     
                     # --- SEND WHATSAPP MESSAGE ON FIRST ASSIGNMENT ---
                     if team_name and team_name != "Select":
@@ -1002,7 +1002,12 @@ def edit_record_dialog(row_data):
                     st.success("✅ Record Successfully Updated!")
                     
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    already_sent_flag = str(row_data.get("Commissioning Email Sent", "")).strip().lower()
+                    # Strictly fetch fresh flag status from Supabase so popup doesn't appear wrongly
+                    try:
+                        fresh_check = supabase.table("site_data").select("Commissioning Email Sent").eq("id", row_data['id']).execute()
+                        already_sent_flag = str(fresh_check.data[0].get("Commissioning Email Sent", "")).strip().lower() if fresh_check.data else ""
+                    except:
+                        already_sent_flag = ""
                     
                     if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and already_sent_flag != "yes":
                         st.session_state.pending_comm_email = True
@@ -1400,9 +1405,12 @@ Visiontech Infra</p>
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
                     if db_id:
                         try:
+                            # SUPABASE ME SAVE KAREGA YAHAN
                             supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
                         except Exception as e:
-                            st.toast("⚠️ Note: 'Commissioning Email Sent' column not found in Supabase. Please create it.", icon="⚠️")
+                            # AGAR COLUMN NAHI MILA TOH ROK DEGA
+                            st.error("🚨 DATABASE ERROR: Aapke Supabase 'site_data' me 'Commissioning Email Sent' naam ka Text column missng hai. Email chala gaya par ye Database me save nahi ho paya. Kripya naya column banayein taki pop-up dobara na aaye.")
+                            st.stop()
                 else:
                     st.error(f"❌ Failed to send email: {err_msg}")
                     return
