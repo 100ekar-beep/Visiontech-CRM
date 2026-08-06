@@ -311,8 +311,9 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
 
-# PRAMOD BHAU: YAHAN APNA ASLI 16-DIGIT APP PASSWORD DAALIYE (Bina kisi space ke)
-SENDER_PASSWORD = "abcdefghijklmnop"
+# 🛑 PRAMOD BHAU: YAHAN APNA 16-DIGIT KA GOOGLE APP PASSWORD DAALIYE 🛑
+# Normal Gmail password yahan kaam nahi karega.
+SENDER_PASSWORD = "ngamnbrvtlrnfrzm"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
@@ -1404,9 +1405,10 @@ Visiontech Infra</p>
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
                     if db_id:
                         try:
+                            # SUPABASE ME SAVE KAREGA YAHAN
                             supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
                         except Exception as e:
-                            st.toast("⚠️ Note: Data email sent flag could not be saved to DB.", icon="⚠️")
+                            pass # Silently fail but close the dialog so it doesn't freeze
                 else:
                     st.error(f"❌ Failed to send email: {err_msg}")
                     return
