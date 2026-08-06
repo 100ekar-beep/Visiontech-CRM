@@ -311,8 +311,8 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
 
-# PRAMOD BHAU: YAHAN APNA ASLI 16-DIGIT APP PASSWORD DAALIYE (Eg. "abcdefghijklmnop")
-SENDER_PASSWORD = "your_app_password"
+# PRAMOD BHAU: YAHAN APNA ASLI 16-DIGIT APP PASSWORD DAALIYE (Bina kisi space ke)
+SENDER_PASSWORD = "your_app_password_here"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
@@ -1001,13 +1001,10 @@ def edit_record_dialog(row_data):
                     st.success("✅ Record Successfully Updated!")
                     
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
+                    # Strictly fetch fresh flag status from Supabase so popup doesn't appear wrongly
                     try:
-                        fresh_check = supabase.table("site_data").select("*").eq("id", row_data['id']).execute()
-                        if fresh_check.data:
-                            row_fetched = fresh_check.data[0]
-                            already_sent_flag = str(row_fetched.get("Commissioning Email Sent", "")).strip().lower()
-                        else:
-                            already_sent_flag = ""
+                        fresh_check = supabase.table("site_data").select("Commissioning Email Sent").eq("id", row_data['id']).execute()
+                        already_sent_flag = str(fresh_check.data[0].get("Commissioning Email Sent", "")).strip().lower() if fresh_check.data else ""
                     except:
                         already_sent_flag = ""
                     
@@ -1407,11 +1404,9 @@ Visiontech Infra</p>
                     st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
                     if db_id:
                         try:
-                            # SUPABASE ME SAVE KAREGA YAHAN
                             supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
                         except Exception as e:
-                            # ERROR AAYE TO FREEZE NAHI HOGA, BAS TOAST DEKAR CLOSE HOGA
-                            st.toast("⚠️ DB Note: 'Commissioning Email Sent' column missng. Pls add to database.", icon="⚠️")
+                            st.toast("⚠️ Note: Data email sent flag could not be saved to DB.", icon="⚠️")
                 else:
                     st.error(f"❌ Failed to send email: {err_msg}")
                     return
