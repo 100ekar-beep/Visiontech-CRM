@@ -310,13 +310,12 @@ supabase: Client = init_connection()
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
+
+# PRAMOD BHAU: YAHAN APNA ASLI 16-DIGIT APP PASSWORD DAALIYE (Eg. "abcdefghijklmnop")
 SENDER_PASSWORD = "your_app_password"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
-        if SENDER_PASSWORD == "your_app_password":
-            return True, "Simulated Success - Please configure actual SMTP password in code."
-            
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
         msg['To'] = to_email
@@ -337,7 +336,7 @@ def send_commissioning_email(to_email, cc_email, subject, body):
         server.quit()
         return True, "Email sent successfully"
     except Exception as e:
-        return False, str(e)
+        return False, f"SMTP Error: {str(e)}"
 
 # -------------------------------------------------------------
 # --- WHATSAPP INTERACT API FUNCTION
@@ -1002,10 +1001,13 @@ def edit_record_dialog(row_data):
                     st.success("✅ Record Successfully Updated!")
                     
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    # Strictly fetch fresh flag status from Supabase so popup doesn't appear wrongly
                     try:
-                        fresh_check = supabase.table("site_data").select("Commissioning Email Sent").eq("id", row_data['id']).execute()
-                        already_sent_flag = str(fresh_check.data[0].get("Commissioning Email Sent", "")).strip().lower() if fresh_check.data else ""
+                        fresh_check = supabase.table("site_data").select("*").eq("id", row_data['id']).execute()
+                        if fresh_check.data:
+                            row_fetched = fresh_check.data[0]
+                            already_sent_flag = str(row_fetched.get("Commissioning Email Sent", "")).strip().lower()
+                        else:
+                            already_sent_flag = ""
                     except:
                         already_sent_flag = ""
                     
@@ -1408,9 +1410,8 @@ Visiontech Infra</p>
                             # SUPABASE ME SAVE KAREGA YAHAN
                             supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
                         except Exception as e:
-                            # AGAR COLUMN NAHI MILA TOH ROK DEGA
-                            st.error("🚨 DATABASE ERROR: Aapke Supabase 'site_data' me 'Commissioning Email Sent' naam ka Text column missng hai. Email chala gaya par ye Database me save nahi ho paya. Kripya naya column banayein taki pop-up dobara na aaye.")
-                            st.stop()
+                            # ERROR AAYE TO FREEZE NAHI HOGA, BAS TOAST DEKAR CLOSE HOGA
+                            st.toast("⚠️ DB Note: 'Commissioning Email Sent' column missng. Pls add to database.", icon="⚠️")
                 else:
                     st.error(f"❌ Failed to send email: {err_msg}")
                     return
