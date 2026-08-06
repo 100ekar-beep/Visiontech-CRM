@@ -312,7 +312,7 @@ SMTP_PORT = 587
 SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
 
 # PRAMOD BHAU: YAHAN APNA ASLI 16-DIGIT APP PASSWORD DAALIYE (Bina kisi space ke)
-SENDER_PASSWORD = "your_app_password_here"
+SENDER_PASSWORD = "abcdefghijklmnop"
 
 def send_commissioning_email(to_email, cc_email, subject, body):
     try:
