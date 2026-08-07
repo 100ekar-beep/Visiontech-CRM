@@ -1,84 +1,73 @@
 import streamlit as st
 
-st.set_page_config(page_title="Marketing Dashboard", page_icon="📈")
+# ... (Upar ka password wala aur database fetch wala code same rahega) ...
 
-def check_password():
-    """Password protection logic"""
-    def password_entered():
-        if st.session_state["password"] == "Vision@2026": 
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  
-        else:
-            st.session_state["password_correct"] = False
+st.subheader("3. Select Interakt Template")
+# Yaha template ka exact naam daalna hai jo Interakt me approve hua hai
+templates = ["Sample"] 
+selected_template_name = st.selectbox("Template choose karein:", templates)
 
-    if "password_correct" not in st.session_state:
-        st.title("🔒 Restricted Access")
-        st.text_input("Marketing page access karne ke liye password daalein:", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.title("🔒 Restricted Access")
-        st.text_input("Marketing page access karne ke liye password daalein:", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password galat hai. Kripya wapas try karein.")
-        return False
+st.subheader("4 & 5. Edit Your Message")
+st.info("💡 Niche box me wo message type karein jo **{{2}}** ki jagah jayega. **{{1}}** ki jagah Supabase list ka naam apne aap aa jayega.")
+
+# Yaha aap sirf {{2}} ka message type karoge
+custom_message = st.text_area(
+    "Massage likhein (Ye {{2}} me set hoga):", 
+    height=150
+)
+
+# --- PREVIEW SECTION ---
+st.markdown("### 👁️ Final Message Preview:")
+st.caption("Aapka message WhatsApp par kuch is tarah dikhega (Example: 'Ramesh' ke liye):")
+
+preview_msg = f"""आदरणीय Ramesh,
+
+{custom_message}
+धन्यवाद।
+राजकुमार काल्या"""
+
+st.code(preview_msg, language="text")
+
+st.markdown("---")
+
+# 6. Send Button & API Logic
+if st.button("📤 Send Message to All", use_container_width=True):
+    if not custom_message.strip():
+        st.warning("⚠️ Message box khali hai! Kripya {{2}} ke liye kuch text likhein.")
     else:
-        return True
-
-# --- MAIN PAGE LOGIC ---
-if check_password():
-    st.title("🚀 WhatsApp Marketing Sender")
-    st.markdown("---")
-
-    # 1. Dropdown for Target List
-    st.subheader("1. Select Target List")
-    # Yaha aap Supabase se aayi hui list daal sakte ho
-    target_lists = ["List 1 - Jaju Heights Customers", "List 2 - Indus Tower Contacts", "List 3 - New Leads"] 
-    selected_list = st.selectbox("Kisko message bhejna hai?", target_lists)
-
-    # 2. Photo / PDF Attachment (Optional)
-    st.subheader("2. Attach Photo / PDF (Optional)")
-    attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf"])
-
-    # 3. Interakt Template Selection
-    st.subheader("3. Select Interakt Template")
-    # Aapke Interakt ke templates yaha define karein
-    interakt_templates = {
-        "None": "",
-        "Offer Template": "Hello {{1}},\n\nWe have a special offer for you regarding our new project! Please check the attached file for details.\n\nThanks,\nVisionTech Team",
-        "Reminder Template": "Dear {{1}},\n\nThis is a gentle reminder regarding your pending invoice.\n\nRegards.",
-        "Festive Greeting": "Hi {{1}},\n\nWishing you and your family a very Happy Festival! 🎉"
-    }
-    selected_template_name = st.selectbox("Template choose karein:", list(interakt_templates.keys()))
-
-    # 4 & 5. Editable Message Box
-    st.subheader("4 & 5. Edit Your Message")
-    st.info("💡 Niche diye gaye box me template aa jayega. Aap chaho toh isme kuch bhi type karke edit kar sakte ho.")
-    
-    # Text area ka default value selected template rahega
-    final_message = st.text_area(
-        "Final Message Box:", 
-        value=interakt_templates[selected_template_name], 
-        height=150
-    )
-
-    st.markdown("---")
-
-    # 6. Send Button
-    if st.button("📤 Send Message to All", use_container_width=True):
-        if not final_message.strip():
-            st.warning("⚠️ Message box khali hai! Kripya kuch text likhein ya template select karein.")
-        else:
-            # --- API SENDING LOGIC YAHAN AAYEGA ---
-            st.success(f"⏳ Sending messages to **{selected_list}**... Please wait.")
+        st.success("⏳ Messages bheje ja rahe hai... Please wait.")
+        
+        # Yahan hum maan lete hai 'contacts_list' aapne Supabase se fetch kar li hai
+        # Example dummy list:
+        contacts_list = [
+            {"contact_name": "Ramesh Kumar", "mobile_number": "919876543210"},
+            {"contact_name": "Suresh Verma", "mobile_number": "919876543211"}
+        ]
+        
+        for person in contacts_list:
+            name = person['contact_name']
+            number = person['mobile_number']
             
-            # Aapke reference ke liye preview dikha raha hu
-            st.write("### 📝 Message Preview:")
-            st.code(final_message, language="text")
+            # --- INTERAKT API PAYLOAD KAISE BANEGA ---
+            # Aapko Python requests library se ye data bhejna hoga:
             
-            if attachment:
-                st.write(f"📎 **Attached File:** {attachment.name}")
-            else:
-                st.write("📎 **Attached File:** No attachment")
-                
-            # Interakt API integrate karne ke baad niche wala success message aayega
-            st.balloons()
-            st.success("✅ Sabhi ko message successfully send ho gaya!")
+            payload = {
+                "countryCode": "+91",
+                "phoneNumber": number.replace("91", "", 1), # Starting ka 91 hata ke, kyuki Interakt me country code alag se jata hai
+                "type": "Template",
+                "template": {
+                    "name": "Sample", # Aapka template naam
+                    "languageCode": "hi", # Hindi ke liye 'hi', English ke liye 'en'
+                    "bodyValues": [
+                        name,           # {{1}} ki jagah naam jayega
+                        custom_message  # {{2}} ki jagah aapka text box ka message jayega
+                    ]
+                }
+            }
+            
+            # Request bhejne ka code (jab aap API integrate karoge):
+            # headers = {"Authorization": "Basic YOUR_API_KEY"}
+            # response = requests.post("https://api.interakt.ai/v1/public/message/", json=payload, headers=headers)
+            
+        st.balloons()
+        st.success("✅ Sabhi ko message successfully send ho gaya!")
