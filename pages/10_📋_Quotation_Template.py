@@ -140,7 +140,11 @@ def template_dialog(template_data=None):
             except:
                 st.session_state[t_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
 
-    # --- NAYI LINE: Stable State Editor Engine (Prevents Popup Close Bug) ---
+    # --- FAILSAFE: Agar purana Session State without 'Qty' ho, toh zabardasti column dalo ---
+    if "Qty" not in st.session_state[t_key].columns:
+        st.session_state[t_key].insert(2, "Qty", 1)
+
+    # --- Stable State Editor Engine (Prevents Popup Close Bug) ---
     if widget_t_key in st.session_state:
         w_state = st.session_state[widget_t_key]
         edits = w_state.get("edited_rows", {})
@@ -193,7 +197,7 @@ def template_dialog(template_data=None):
         hide_index=True,
         height=300,
         column_config={
-            # --- NAYI LINE: Clean Material Item column with proper width ---
+            # --- Column Config Updated to strictly show Qty in middle ---
             "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=1, default=1, alignment="center", width="small"),
