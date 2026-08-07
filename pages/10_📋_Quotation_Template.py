@@ -122,18 +122,23 @@ def template_dialog(template_data=None):
 
     if t_key not in st.session_state:
         if is_new:
-            st.session_state[t_key] = pd.DataFrame(columns=["Item Code", "Description", "Price"])
+            st.session_state[t_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
         else:
             try:
                 raw_data = template_data.get("Items Data", "[]")
                 items_list = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
                 temp_df = pd.DataFrame(items_list)
+                
+                # Qty Handle karna agar purane template mein na ho
+                if "Qty" not in temp_df.columns:
+                    temp_df.insert(2, "Qty", 1)
+                    
                 # Map code back to Display format for dropdown
                 if "Item Code" in temp_df.columns:
                     temp_df["Item Code"] = temp_df["Item Code"].map(code_to_display).fillna(temp_df["Item Code"])
                 st.session_state[t_key] = temp_df
             except:
-                st.session_state[t_key] = pd.DataFrame(columns=["Item Code", "Description", "Price"])
+                st.session_state[t_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
 
     # --- NAYI LINE: Stable State Editor Engine (Prevents Popup Close Bug) ---
     if widget_t_key in st.session_state:
@@ -167,7 +172,7 @@ def template_dialog(template_data=None):
                                     curr_df.at[idx, "Price"] = match.iloc[0]["Price"]
             if adds:
                 for row in adds:
-                    new_row = {"Item Code": row.get("Item Code"), "Description": "", "Price": 0}
+                    new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0}
                     if "Item Code" in row and pd.notna(row["Item Code"]):
                         disp = str(row["Item Code"])
                         if "[" in disp or " | " in disp:
@@ -191,6 +196,7 @@ def template_dialog(template_data=None):
             # --- NAYI LINE: Clean Material Item column with proper width ---
             "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
+            "Qty": st.column_config.NumberColumn("QTY", min_value=1, default=1, alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small")
         }
     )
@@ -209,6 +215,7 @@ def template_dialog(template_data=None):
                 clean_items.append({
                     "Item Code": c_code,
                     "Description": str(r["Description"]),
+                    "Qty": int(r["Qty"]) if "Qty" in r and pd.notna(r["Qty"]) else 1,
                     "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0
                 })
         
