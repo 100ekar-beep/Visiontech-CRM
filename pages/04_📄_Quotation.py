@@ -139,7 +139,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -203,7 +203,7 @@ def fetch_quotations():
         res = supabase.table("quotations").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
-            # --- NAYI LINE: Robust Cluster mapping from site_data using Project ID ---
+            # --- Robust Cluster mapping from site_data using Project ID ---
             if not df.empty and "Project ID" in df.columns and not df_projects.empty:
                 proj_cluster_map = dict(zip(df_projects["Project ID"], df_projects["Cluster"]))
                 df["Cluster"] = df["Project ID"].map(proj_cluster_map).fillna("")
@@ -326,12 +326,15 @@ def quotation_dialog(quotation_data=None):
                     raw_items = json.loads(t["Items Data"]) if isinstance(t["Items Data"], str) else t["Items Data"]
                     loaded_rows = []
                     for ri in raw_items:
+                        # --- NAYI LINE: Fetch correct Qty from template instead of hardcoding 1 ---
+                        qty_val = int(ri.get("Qty", 1))
+                        price_val = int(ri.get("Price", 0))
                         loaded_rows.append({
                             "Item Code": ri.get("Item Code", ""),
                             "Description": ri.get("Description", ""),
-                            "Qty": 1,
-                            "Price": ri.get("Price", 0),
-                            "Total": ri.get("Price", 0) * 1
+                            "Qty": qty_val,
+                            "Price": price_val,
+                            "Total": price_val * qty_val
                         })
                     if loaded_rows:
                         st.session_state[editor_key] = pd.DataFrame(loaded_rows)
@@ -555,7 +558,7 @@ if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
 
-# --- NAYI LINE: Exact columns requested for Main Screen (Date, Project ID, Site ID, Site Name, Cluster, Project Name, Quotation Amount) ---
+# --- Exact columns requested for Main Screen ---
 disp_cols = ["Date", "Project ID", "Site ID", "Site Name", "Cluster", "Project Name", "Quotation Amount"]
 
 if not df_display.empty:
