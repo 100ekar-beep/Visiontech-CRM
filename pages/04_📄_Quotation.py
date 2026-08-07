@@ -139,7 +139,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -247,7 +247,19 @@ def quotation_dialog(quotation_data=None):
     quo_id = None
     default_name = f"Quotation {len(st.session_state.quotations_df) + 100}" if is_new else quotation_data.get("Quotation Name", "")
     default_date = datetime.date.today() if is_new else pd.to_datetime(quotation_data.get("Date", datetime.date.today())).date()
-    default_proj = quotation_data.get("Project ID", "") if quotation_data else (project_list[0] if project_list else "")
+    
+    # --- MODIFIED LOGIC: Default blank for new, filter out already used Project IDs ---
+    default_proj = quotation_data.get("Project ID", "") if quotation_data else ""
+    
+    used_projs = []
+    if not st.session_state.quotations_df.empty and "Project ID" in st.session_state.quotations_df.columns:
+        used_projs = st.session_state.quotations_df["Project ID"].dropna().unique().tolist()
+        
+    available_opts = [p for p in project_list if p not in used_projs]
+    if not is_new and default_proj and default_proj not in available_opts:
+        available_opts.append(default_proj)
+        
+    dynamic_options = [""] + available_opts
     
     # Top Section
     col1, col2, col3, col4 = st.columns(4)
@@ -256,7 +268,8 @@ def quotation_dialog(quotation_data=None):
     with col2:
         quo_date = st.date_input("QUOTATION DATE *", value=default_date)
     with col3:
-        sel_proj = st.selectbox("PROJECT ID *", options=[""] + project_list, index=project_list.index(default_proj)+1 if default_proj in project_list else 0)
+        sel_idx = dynamic_options.index(default_proj) if default_proj in dynamic_options else 0
+        sel_proj = st.selectbox("PROJECT ID *", options=dynamic_options, index=sel_idx)
     
     auto_site_id = ""
     auto_site_name = ""
@@ -326,7 +339,6 @@ def quotation_dialog(quotation_data=None):
                     raw_items = json.loads(t["Items Data"]) if isinstance(t["Items Data"], str) else t["Items Data"]
                     loaded_rows = []
                     for ri in raw_items:
-                        # --- NAYI LINE: Fetch correct Qty from template instead of hardcoding 1 ---
                         qty_val = int(ri.get("Qty", 1))
                         price_val = int(ri.get("Price", 0))
                         loaded_rows.append({
