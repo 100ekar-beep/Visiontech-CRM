@@ -119,14 +119,15 @@ if not df_items.empty:
     
     item_display_list = df_items["Display"].tolist()
     item_code_list = df_items["Item Code"].tolist()
-    combined_item_options = list(dict.fromkeys(item_display_list + item_code_list))
+    # PREVENT DISAPPEARING BUG: Add empty string as valid option
+    combined_item_options = [""] + list(dict.fromkeys(item_display_list + item_code_list))
     
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
     display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
     code_to_desc = dict(zip(df_items["Item Code"], df_items["Description"]))
     code_to_price = dict(zip(df_items["Item Code"], df_items["Price"]))
 else:
-    combined_item_options = []
+    combined_item_options = [""]
     display_to_desc = {}
     display_to_price = {}
     code_to_desc = {}
@@ -135,14 +136,14 @@ else:
 if 'templates_df' not in st.session_state:
     st.session_state.templates_df = fetch_templates()
 
-# --- 5. TEMPLATE DIALOG (FIXED FOR BLANK FORM ON NEW) ---
+# --- 5. TEMPLATE DIALOG (FIXED FOR DISAPPEARING ROWS) ---
 @st.dialog("📋 Quotation Template Builder", width="large")
 def template_dialog(template_data=None):
     st.caption("Configure items for this quotation template")
     
     is_new = template_data is None
     
-    # 🌟 FIX 1: Clean session keys when creating a brand new template so it appears blank
+    # 🌟 FIX: Clean session keys when creating a brand new template so it appears blank
     if is_new:
         if "builder_items_df" in st.session_state:
             del st.session_state["builder_items_df"]
@@ -158,7 +159,8 @@ def template_dialog(template_data=None):
     
     if "builder_items_df" not in st.session_state:
         if is_new:
-            st.session_state.builder_items_df = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
+            # FIX: Initialize with empty string to force correct dtypes and prevent None/NaN inference
+            st.session_state.builder_items_df = pd.DataFrame([{"Item Code": "", "Description": "", "Qty": 1, "Price": 0}])
         else:
             try:
                 raw_items = json.loads(template_data["Items Data"]) if isinstance(template_data["Items Data"], str) else template_data["Items Data"]
@@ -184,7 +186,7 @@ def template_dialog(template_data=None):
                     })
                 st.session_state.builder_items_df = pd.DataFrame(loaded_rows)
             except:
-                st.session_state.builder_items_df = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
+                st.session_state.builder_items_df = pd.DataFrame([{"Item Code": "", "Description": "", "Qty": 1, "Price": 0}])
 
     editor_widget_key = "builder_data_editor_widget"
     if editor_widget_key in st.session_state:
@@ -203,28 +205,31 @@ def template_dialog(template_data=None):
                         for col, val in changes.items():
                             curr_df.at[idx, col] = val
                         
-                        # 🌟 FIX 2: Keep the display format in UI state so it doesn't disappear
+                        # 🌟 FIX: DO NOT .strip() the value from 'changes'. Store it exactly as it matches the options list!
                         if "Item Code" in changes:
-                            disp = str(changes["Item Code"]).strip()
-                            curr_df.at[idx, "Item Code"] = disp
-                            if disp in display_to_desc:
-                                curr_df.at[idx, "Description"] = display_to_desc[disp]
-                                curr_df.at[idx, "Price"] = display_to_price[disp]
-                            elif disp in code_to_desc:
-                                curr_df.at[idx, "Description"] = code_to_desc[disp]
-                                curr_df.at[idx, "Price"] = code_to_price[disp]
+                            disp = changes["Item Code"]
+                            if pd.notna(disp) and disp != "":
+                                curr_df.at[idx, "Item Code"] = disp
+                                if disp in display_to_desc:
+                                    curr_df.at[idx, "Description"] = display_to_desc[disp]
+                                    curr_df.at[idx, "Price"] = display_to_price[disp]
+                                elif disp in code_to_desc:
+                                    curr_df.at[idx, "Description"] = code_to_desc[disp]
+                                    curr_df.at[idx, "Price"] = code_to_price[disp]
             if adds:
                 for row in adds:
-                    new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0}
+                    # FIX: Use empty string "" instead of None to prevent pandas dtype conversion issues
+                    new_row = {"Item Code": "", "Description": "", "Qty": 1, "Price": 0}
                     if "Item Code" in row and pd.notna(row["Item Code"]):
-                        disp = str(row["Item Code"]).strip()
-                        new_row["Item Code"] = disp
-                        if disp in display_to_desc:
-                            new_row["Description"] = display_to_desc[disp]
-                            new_row["Price"] = display_to_price[disp]
-                        elif disp in code_to_desc:
-                            new_row["Description"] = code_to_desc[disp]
-                            new_row["Price"] = code_to_price[disp]
+                        disp = row["Item Code"]
+                        if disp != "":
+                            new_row["Item Code"] = disp
+                            if disp in display_to_desc:
+                                new_row["Description"] = display_to_desc[disp]
+                                new_row["Price"] = display_to_price[disp]
+                            elif disp in code_to_desc:
+                                new_row["Description"] = code_to_desc[disp]
+                                new_row["Price"] = code_to_price[disp]
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.builder_items_df = curr_df
             del st.session_state[editor_widget_key]
@@ -243,6 +248,13 @@ def template_dialog(template_data=None):
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small")
         }
     )
+
+    with col_add_btn:
+        if st.button("➕ Add New Row", use_container_width=True):
+            # FIX: Initialize with empty string "" instead of None
+            new_item = pd.DataFrame([{"Item Code": "", "Description": "", "Qty": 1, "Price": 0}])
+            st.session_state.builder_items_df = pd.concat([st.session_state.builder_items_df, new_item], ignore_index=True)
+            st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Template", type="primary", use_container_width=True):
