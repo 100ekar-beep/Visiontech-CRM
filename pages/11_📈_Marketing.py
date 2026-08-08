@@ -85,8 +85,10 @@ if check_password():
             st.error("⚠️ Supabase connection fail. Kripya secrets.toml check karein.")
 
     with col2:
-        st.markdown("### 📎 2. Attach Photo / PDF (Optional)")
-        attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf"])
+        # YAHAN CHANGE KIYA HAI: File uploader ki jagah Public URL link box diya hai
+        st.markdown("### 📎 2. Attach Photo / PDF Link (Optional)")
+        media_url = st.text_input("Apni Image/PDF ka Public URL (Link) yahan paste karein:", placeholder="https://example.com/photo.jpg")
+        st.caption("⚠️ WhatsApp API me direct file nahi jati, yahan image/pdf ka public internet link daalna zaroori hai.")
 
     st.markdown("---")
 
@@ -106,7 +108,6 @@ if check_password():
     with head_col1:
         st.markdown("### ✏️ 4 & 5. Edit Your Message")
     with head_col2:
-        # Clear button ko right side align kar diya gaya hai premium look ke liye
         st.button("🧹 Clear Message", on_click=clear_message, use_container_width=True)
 
     st.info("💡 Niche box me wo message type karein jo **{{2}}** ki jagah jayega. **{{1}}** ki jagah Supabase list ka naam apne aap aa jayega.")
@@ -175,6 +176,10 @@ if check_password():
                             ]
                         }
                     }
+                    
+                    # YAHAN CHANGE KIYA HAI: Agar media link diya hai toh API payload me jod do
+                    if media_url.strip():
+                        payload["template"]["headerValues"] = [media_url.strip()]
                     
                     # --- LIVE INTERAKT API CALL ---
                     try:
