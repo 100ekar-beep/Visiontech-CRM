@@ -564,7 +564,11 @@ if check_password():
                 pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
                 pdf.cell(65, 6, safe_status, 1, 1, 'L', fill=True)
                 
-            return pdf.output(dest='S').encode('latin1')
+            pdf_out = pdf.output(dest='S')
+            if isinstance(pdf_out, str):
+                return pdf_out.encode('latin1')
+            else:
+                return bytes(pdf_out)
 
         pdf_bytes = generate_pdf()
         
