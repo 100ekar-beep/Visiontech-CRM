@@ -1,11 +1,11 @@
 import streamlit as st
 import requests
 import time
-import os
 from supabase import create_client, Client
 from fpdf import FPDF
 import base64
 from datetime import datetime, timezone, timedelta
+import os
 
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
@@ -57,11 +57,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# --- HINDI (DEVANAGARI) UNICODE FONT PATH FOR PDF ---
-# Download "NotoSansDevanagari-Regular.ttf" from https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari
-# and place it inside a "fonts" folder next to this script.
-FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "NotoSansDevanagari-Regular.ttf")
 
 # --- SUPABASE CONNECTION ---
 @st.cache_resource
@@ -339,16 +334,38 @@ if check_password():
         st.dataframe(table_data, use_container_width=True)
         
         class PDF(FPDF):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Automatically register Hindi Unicode font if present in root
+                font_path = "NotoSansDevanagari-VariableFont_wdth,wght.ttf"
+                if os.path.exists(font_path):
+                    try:
+                        self.add_font("HindiFont", "", font_path, uni=True)
+                        self.hindi_font_available = True
+                    except Exception:
+                        self.hindi_font_available = False
+                else:
+                    self.hindi_font_available = False
+
             def header(self):
                 self.set_fill_color(30, 27, 75)
                 self.rect(10, 10, 190, 24, 'F')
                 
-                self.set_font('Arial', 'B', 15)
+                # Check font availability for header
+                if getattr(self, 'hindi_font_available', False):
+                    self.set_font('HindiFont', 'B', 13)
+                else:
+                    self.set_font('Arial', 'B', 14)
+                    
                 self.set_text_color(56, 189, 248)
                 self.set_xy(10, 13)
                 self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
                 
-                self.set_font('Arial', 'B', 9)
+                if getattr(self, 'hindi_font_available', False):
+                    self.set_font('HindiFont', '', 9)
+                else:
+                    self.set_font('Arial', '', 9)
+                    
                 self.set_text_color(226, 232, 240)
                 self.set_xy(10, 22)
                 self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
@@ -356,7 +373,10 @@ if check_password():
 
             def footer(self):
                 self.set_y(-15)
-                self.set_font('Arial', 'I', 8)
+                if getattr(self, 'hindi_font_available', False):
+                    self.set_font('HindiFont', '', 8)
+                else:
+                    self.set_font('Arial', 'I', 8)
                 self.set_text_color(148, 163, 184)
                 self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
@@ -364,27 +384,12 @@ if check_password():
             pdf = PDF()
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
-
-            # --- LOAD UNICODE DEVANAGARI FONT (fixes Hindi not showing in PDF) ---
-            hindi_font_available = False
-            if os.path.exists(FONT_PATH):
-                try:
-                    pdf.add_font('NotoDevanagari', '', FONT_PATH, uni=True)
-                except TypeError:
-                    # newer fpdf2 versions don't accept the 'uni' kwarg
-                    pdf.add_font('NotoDevanagari', '', FONT_PATH)
-                hindi_font_available = True
-            else:
-                st.error(
-                    "🚨 Hindi font file nahi mili! Kripya 'NotoSansDevanagari-Regular.ttf' ko "
-                    "apne project ke 'fonts' folder me daalein (path: fonts/NotoSansDevanagari-Regular.ttf). "
-                    "Font yaha se download karein: https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari"
-                )
-
-            hindi_font_name = 'NotoDevanagari' if hindi_font_available else 'Arial'
+            
+            # Select font based on availability
+            h_font = 'HindiFont' if getattr(pdf, 'hindi_font_available', False) else 'Arial'
             
             # CAMPAIGN SUMMARY METRICS CENTERED HEADING
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, 'B', 12)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
             pdf.ln(2)
@@ -401,11 +406,11 @@ if check_password():
             pdf.set_line_width(0.6)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, 'B', 9)
             pdf.set_text_color(180, 83, 9)
             pdf.cell(box_width, 5, 'Total Target Numbers', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, 'B', 12)
             pdf.set_text_color(146, 64, 14)
             pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
             
@@ -415,11 +420,11 @@ if check_password():
             pdf.set_draw_color(22, 163, 74)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, 'B', 9)
             pdf.set_text_color(21, 128, 61)
             pdf.cell(box_width, 5, 'Successfully Sent', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, 'B', 12)
             pdf.set_text_color(20, 83, 45)
             pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
             
@@ -429,53 +434,57 @@ if check_password():
             pdf.set_draw_color(234, 88, 12)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, 'B', 9)
             pdf.set_text_color(194, 65, 12)
             pdf.cell(box_width, 5, 'Failed', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, 'B', 12)
             pdf.set_text_color(154, 52, 18)
             pdf.cell(box_width, 6, str(rep['failed']), 0, 0, 'C')
             
             pdf.set_y(y_pos + box_height + 10)
             
             # Message Preview Section Box
-            pdf.set_font('Arial', 'B', 11)
+            pdf.set_font(h_font, 'B', 11)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(0, 8, 'MESSAGE SENT PREVIEW:', 0, 1, 'L')
             
             pdf.set_fill_color(255, 255, 255)
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
-
-            # Directly use the real Hindi text now (no more Roman transliteration hack)
-            safe_msg = rep['message']
-
-            pdf.set_font(hindi_font_name, '', 9)
+            
+            msg_text = rep['message']
+            if not getattr(pdf, 'hindi_font_available', False):
+                msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
+                
+            pdf.set_font(h_font, '', 9)
             pdf.set_text_color(51, 65, 85)
-            pdf.multi_cell(190, 5, safe_msg, border=1, fill=True)
+            pdf.multi_cell(190, 5, msg_text, border=1, fill=True)
             
             pdf.ln(8)
             
             # Detailed Table Heading
-            pdf.set_font('Arial', 'B', 11)
+            pdf.set_font(h_font, 'B', 11)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
             
             # Table Header with Vibrant Theme Colors
             pdf.set_fill_color(30, 27, 75)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, 'B', 9)
             pdf.cell(15, 7, 'Sr', 1, 0, 'C', fill=True)
             pdf.cell(65, 7, 'Contact Name', 1, 0, 'C', fill=True)
             pdf.cell(45, 7, 'Mobile Number', 1, 0, 'C', fill=True)
             pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
             
             # Table Rows
+            pdf.set_font(h_font, '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                # Directly use the real Hindi name now (no more Roman transliteration hack)
-                safe_name = item["Name"]
-                safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
+                c_name = item["Name"]
+                c_status = item["Status"]
+                if not getattr(pdf, 'hindi_font_available', False):
+                    c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
+                    c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
                 
                 if idx % 2 == 0:
                     pdf.set_fill_color(241, 245, 249)
@@ -483,19 +492,12 @@ if check_password():
                     pdf.set_fill_color(255, 255, 255)
                     
                 pdf.set_text_color(51, 65, 85)
-
-                pdf.set_font('Arial', '', 9)
                 pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
-
-                pdf.set_font(hindi_font_name, '', 9)
-                pdf.cell(65, 6, safe_name, 1, 0, 'L', fill=True)
-
-                pdf.set_font('Arial', '', 9)
+                pdf.cell(65, 6, c_name, 1, 0, 'L', fill=True)
                 pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
-                pdf.cell(65, 6, safe_status, 1, 1, 'L', fill=True)
+                pdf.cell(65, 6, c_status, 1, 1, 'L', fill=True)
                 
-            raw_output = pdf.output(dest='S')
-            return raw_output.encode('latin1') if isinstance(raw_output, str) else bytes(raw_output)
+            return pdf.output(dest='S').encode('latin1')
 
         pdf_bytes = generate_pdf()
         
