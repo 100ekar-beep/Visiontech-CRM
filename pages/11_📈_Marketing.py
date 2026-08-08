@@ -336,7 +336,7 @@ if check_password():
         class PDF(FPDF):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
-                # Automatically register Hindi Unicode font if present in root
+                self.hindi_font_available = False
                 font_path = "NotoSansDevanagari-VariableFont_wdth,wght.ttf"
                 if os.path.exists(font_path):
                     try:
@@ -344,15 +344,12 @@ if check_password():
                         self.hindi_font_available = True
                     except Exception:
                         self.hindi_font_available = False
-                else:
-                    self.hindi_font_available = False
 
             def header(self):
                 self.set_fill_color(30, 27, 75)
                 self.rect(10, 10, 190, 24, 'F')
                 
-                # Check font availability for header
-                if getattr(self, 'hindi_font_available', False):
+                if self.hindi_font_available:
                     self.set_font('HindiFont', 'B', 13)
                 else:
                     self.set_font('Arial', 'B', 14)
@@ -361,7 +358,7 @@ if check_password():
                 self.set_xy(10, 13)
                 self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
                 
-                if getattr(self, 'hindi_font_available', False):
+                if self.hindi_font_available:
                     self.set_font('HindiFont', '', 9)
                 else:
                     self.set_font('Arial', '', 9)
@@ -373,7 +370,7 @@ if check_password():
 
             def footer(self):
                 self.set_y(-15)
-                if getattr(self, 'hindi_font_available', False):
+                if self.hindi_font_available:
                     self.set_font('HindiFont', '', 8)
                 else:
                     self.set_font('Arial', 'I', 8)
@@ -385,8 +382,7 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
-            # Select font based on availability
-            h_font = 'HindiFont' if getattr(pdf, 'hindi_font_available', False) else 'Arial'
+            h_font = 'HindiFont' if pdf.hindi_font_available else 'Arial'
             
             # CAMPAIGN SUMMARY METRICS CENTERED HEADING
             pdf.set_font(h_font, 'B', 12)
@@ -394,13 +390,12 @@ if check_password():
             pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
             pdf.ln(2)
             
-            # 3 Colorful Metric Boxes (Yellow, Green, Orange)
             box_width = 58
             box_height = 20
             start_x = 10
             y_pos = pdf.get_y()
             
-            # Box 1: Yellow (Total Target Numbers)
+            # Box 1: Yellow
             pdf.set_fill_color(254, 243, 199)
             pdf.set_draw_color(217, 119, 6)
             pdf.set_line_width(0.6)
@@ -414,7 +409,7 @@ if check_password():
             pdf.set_text_color(146, 64, 14)
             pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
             
-            # Box 2: Green (Successfully Sent)
+            # Box 2: Green
             start_x += box_width + 8
             pdf.set_fill_color(220, 252, 231)
             pdf.set_draw_color(22, 163, 74)
@@ -428,7 +423,7 @@ if check_password():
             pdf.set_text_color(20, 83, 45)
             pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
             
-            # Box 3: Orange (Failed)
+            # Box 3: Orange
             start_x += box_width + 8
             pdf.set_fill_color(254, 215, 170)
             pdf.set_draw_color(234, 88, 12)
@@ -454,7 +449,7 @@ if check_password():
             pdf.set_line_width(0.4)
             
             msg_text = rep['message']
-            if not getattr(pdf, 'hindi_font_available', False):
+            if not pdf.hindi_font_available:
                 msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
                 
             pdf.set_font(h_font, '', 9)
@@ -468,7 +463,7 @@ if check_password():
             pdf.set_text_color(30, 41, 59)
             pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
             
-            # Table Header with Vibrant Theme Colors
+            # Table Header
             pdf.set_fill_color(30, 27, 75)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font(h_font, 'B', 9)
@@ -482,7 +477,7 @@ if check_password():
             for idx, item in enumerate(rep["logs"], 1):
                 c_name = item["Name"]
                 c_status = item["Status"]
-                if not getattr(pdf, 'hindi_font_available', False):
+                if not pdf.hindi_font_available:
                     c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
                     c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
                 
