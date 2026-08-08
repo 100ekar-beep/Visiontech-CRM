@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import time
 from supabase import create_client, Client
+from fpdf import FPDF
+import base64
 
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
@@ -42,7 +44,7 @@ def check_password():
     elif not st.session_state["password_correct"]:
         st.title("🔒 Restricted Access")
         st.text_input("Marketing page access karne ke liye password daalein:", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password galat hai. Kripya wapas try karein.")
+        st.error("😕 Password galत hai. Kripya wapas try karein.")
         return False
     else:
         return True
@@ -86,7 +88,6 @@ if check_password():
             st.error("⚠️ Supabase connection fail. Kripya secrets.toml check karein.")
 
     with col2:
-        # YAHAN WAPAS UPLOAD BUTTON LAGA DIYA HAI
         st.markdown("### 📎 2. Attach Photo / PDF (Optional)")
         attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf"])
         st.caption("✅ Aapki file automatically internet par upload ho kar link ban jayegi.")
@@ -149,28 +150,25 @@ if check_password():
             st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... Please wait.")
             
             if supabase:
-                # --- NEW AUTO-URL GENERATOR LOGIC ---
+                # --- AUTO-URL GENERATOR LOGIC ---
                 media_url = ""
                 if attachment:
                     with st.spinner("⏳ File ko Supabase par upload karke Auto-Link banaya ja raha hai..."):
                         try:
-                            # Unique naam banana taaki purani file se clash na ho
                             file_ext = attachment.name.split('.')[-1]
                             unique_filename = f"{int(time.time())}.{file_ext}"
                             
-                            # Supabase me upload karna
                             supabase.storage.from_("whatsapp_media").upload(
                                 unique_filename,
                                 attachment.getvalue(),
                                 {"content-type": attachment.type}
                             )
-                            # Public URL nikalna
                             media_url = supabase.storage.from_("whatsapp_media").get_public_url(unique_filename)
                             st.toast("✅ File Upload Success!")
                         except Exception as e:
                             st.error(f"🚨 File upload fail ho gaya: {e}")
                             st.warning("👉🏻 Kripya dhyaan dein: Kya aapne Supabase me 'whatsapp_media' naam ka PUBLIC bucket banaya hai?")
-                            st.stop()  # Agar upload fail ho toh message bhejna rok dega
+                            st.stop()
 
                 contact_data = supabase.table("whatsapp_contacts").select("contact_name, mobile_number").eq("list_name", selected_list).eq("is_active", True).execute()
                 contacts_list = contact_data.data
@@ -179,6 +177,7 @@ if check_password():
                 
                 success_count = 0
                 error_count = 0
+                report_logs = []  # Detailed log track karne ke liye
 
                 clean_custom_message = " ".join(custom_message.split())
 
@@ -200,7 +199,6 @@ if check_password():
                         }
                     }
                     
-                    # Agar Auto-Link ban gaya hai, toh Interakt API ko de do
                     if media_url:
                         payload["template"]["headerValues"] = [media_url]
                     
@@ -217,13 +215,26 @@ if check_password():
                         
                         if api_response.status_code in [200, 201, 202]:
                             success_count += 1
+                            report_logs.append({"Name": name, "Mobile": number, "Status": "Send Successfully"})
                         else:
                             error_count += 1
-                            st.error(f"⚠️ {name} ko message fail hua: {api_response.text}")
+                            err_msg = api_response.json().get("message", api_response.text) if api_response.content else "Failed"
+                            report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {err_msg}"})
                     except Exception as e:
                         error_count += 1
-                        st.error(f"🚨 API Error ({name}): {e}")
+                        report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
                 
+                # --- SESSION STATE ME LOGS STORE KARNA REPORT DIKHAANE KE LIYE ---
+                st.session_state["last_report"] = {
+                    "list_name": selected_list,
+                    "template": selected_template_name,
+                    "message": preview_msg,
+                    "total": len(contacts_list),
+                    "success": success_count,
+                    "failed": error_count,
+                    "logs": report_logs
+                }
+
                 st.write("---")
                 if success_count > 0:
                     st.balloons()
@@ -232,3 +243,109 @@ if check_password():
                     st.warning(f"⚠️ {error_count} logon ko message nahi gaya. Upar errors check karein.")
             else:
                 st.error("Database connection issue. Messages send nahi huye.")
+
+    # ==========================================
+    # --- REPORT & METRICS SECTION ---
+    # ==========================================
+    if "last_report" in st.session_state:
+        rep = st.session_state["last_report"]
+        
+        st.markdown("---")
+        st.markdown("<h2>📊 Live Campaign Execution Report</h2>", unsafe_allow_html=True)
+        
+        # 3 Metrics Cards (Total, Success, Failed)
+        m_col1, m_col2, m_col3 = st.columns(3)
+        with m_col1:
+            st.metric(label="📱 Total Numbers Targeted", value=rep["total"])
+        with m_col2:
+            st.metric(label="✅ Successfully Sent", value=rep["success"])
+        with m_col3:
+            st.metric(label="❌ Failed", value=rep["failed"])
+            
+        st.markdown("### 📝 Detailed Status Table:")
+        
+        # Table data formatting
+        table_data = []
+        for idx, item in enumerate(rep["logs"], 1):
+            table_data.append({
+                "Sr No": idx,
+                "Contact Name": item["Name"],
+                "Mobile Number": item["Mobile"],
+                "Delivery Status": item["Status"]
+            })
+            
+        st.dataframe(table_data, use_container_width=True)
+        
+        # --- PDF GENERATOR LOGIC ---
+        class PDF(FPDF):
+            def header(self):
+                self.set_font('Arial', 'B', 16)
+                self.cell(0, 10, 'WhatsApp Marketing Campaign Report', 0, 1, 'C')
+                self.set_font('Arial', '', 10)
+                self.cell(0, 6, f'Target List: {rep["list_name"]} | Template: {rep["template"]}', 0, 1, 'C')
+                self.ln(5)
+
+            def footer(self):
+                self.set_y(-15)
+                self.set_font('Arial', 'I', 8)
+                self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+        def generate_pdf():
+            pdf = PDF()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            
+            # Summary Box
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 8, 'Campaign Summary:', 0, 1)
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(0, 6, f"Total Target Numbers: {rep['total']}", 0, 1)
+            pdf.cell(0, 6, f"Successfully Sent: {rep['success']}", 0, 1)
+            pdf.cell(0, 6, f"Failed: {rep['failed']}", 0, 1)
+            pdf.ln(5)
+            
+            # Message Sent Content
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
+            pdf.set_font('Arial', '', 9)
+            
+            # Unicode characters handling for safe PDF generation
+            safe_msg = rep['message'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 5, safe_msg)
+            pdf.ln(8)
+            
+            # Detailed Table
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(0, 8, 'Detailed Contact Delivery Status:', 0, 1)
+            
+            # Table Header
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(15, 7, 'Sr', 1, 0, 'C')
+            pdf.cell(60, 7, 'Contact Name', 1, 0, 'C')
+            pdf.cell(40, 7, 'Mobile', 1, 0, 'C')
+            pdf.cell(75, 7, 'Status', 1, 1, 'C')
+            
+            # Table Rows
+            pdf.set_font('Arial', '', 9)
+            for idx, item in enumerate(rep["logs"], 1):
+                safe_name = item["Name"].encode('latin-1', 'replace').decode('latin-1')
+                safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
+                
+                pdf.cell(15, 6, str(idx), 1, 0, 'C')
+                pdf.cell(60, 6, safe_name, 1, 0, 'L')
+                pdf.cell(40, 6, str(item["Mobile"]), 1, 0, 'C')
+                pdf.cell(75, 6, safe_status, 1, 1, 'L')
+                
+            return pdf.output(dest='S').encode('latin1')
+
+        pdf_bytes = generate_pdf()
+        
+        st.markdown("---")
+        st.download_button(
+            label="📥 Download Professional PDF Report for Client",
+            data=pdf_bytes,
+            file_name=f"WhatsApp_Report_{rep['list_name']}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary"
+        )
