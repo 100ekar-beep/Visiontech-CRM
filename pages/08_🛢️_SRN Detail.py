@@ -154,6 +154,23 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 5. HELPERS ---
 def get_actual_col(df_columns, possible_names):
     cleaned_cols = {str(col).strip().lower().replace("_", " "): col for col in df_columns}
@@ -280,7 +297,8 @@ st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-botto
 if st.session_state.srn_active_view == 'SRN Detail':
 
     try:
-        response = supabase.table("warehouse_data").select("*").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        response = supabase.table("warehouse_data").select("*").eq("workspace", active_ws).execute()
         wh_data = response.data if response.data else []
     except Exception as e:
         st.error(f"❌ Connection Failed: {e}")
@@ -411,7 +429,8 @@ if st.session_state.srn_active_view == 'SRN Detail':
 elif st.session_state.srn_active_view == 'SRN Submited':
     st.markdown("### ✅ Submitted SRN Records")
     try:
-        res_sub = supabase.table("warehouse_data").select("*").eq("SRN Status", "Submitted").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        res_sub = supabase.table("warehouse_data").select("*").eq("SRN Status", "Submitted").eq("workspace", active_ws).execute()
         sub_data = res_sub.data if res_sub.data else []
     except Exception:
         sub_data = []
