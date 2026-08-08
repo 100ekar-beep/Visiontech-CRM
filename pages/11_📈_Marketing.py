@@ -5,14 +5,16 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
 
 # --- SUPABASE CONNECTION ---
-# st.secrets se securely connect karna (pichle discussion ke anusar)
+# st.secrets se securely connect karna aur error pakadna
 @st.cache_resource
 def init_connection():
     try:
         url: str = st.secrets["supabase"]["url"]
         key: str = st.secrets["supabase"]["key"]
         return create_client(url, key)
-    except Exception:
+    except Exception as e:
+        # Ye line screen par asli error dikhayegi
+        st.error(f"🚨 Asli Error Ye Hai: {e}") 
         return None
 
 supabase = init_connection()
@@ -54,6 +56,15 @@ def check_password():
 # ==========================================
 
 if check_password():
+    
+    # --- SIDEBAR LOGIC ---
+    with st.sidebar:
+        st.markdown("### ⚙️ Quick Actions")
+        # Sidebar button bilkul Send button ki tarah style kiya gaya hai (primary & full width)
+        if st.button("🚪 Logout", use_container_width=True, type="primary"):
+            st.session_state["password_correct"] = False
+            st.rerun()
+
     # Premium Header
     st.markdown("<h1 style='text-align: center; color: #1f77b4;'>🚀 WhatsApp Marketing Sender</h1>", unsafe_allow_html=True)
     st.markdown("---")
