@@ -258,6 +258,7 @@ if check_password():
                         }
                     }
                     
+                    # Safe Header Values Handling to prevent Media Url missing error
                     if media_url:
                         payload["template"]["headerValues"] = [media_url]
                     
