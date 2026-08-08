@@ -10,7 +10,7 @@ import os
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
 
-# --- LAVISH COLORFUL CUSTOM CSS (All Text Bold & White + Input Box Fix) ---
+# --- LAVISH COLORFUL CUSTOM CSS (All Text Bold & White + Input Box Fix + Premium Sidebar) ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); font-family: 'Inter', sans-serif; }
@@ -70,6 +70,19 @@ st.markdown("""
         color: #38bdf8 !important;
         font-weight: 900 !important;
     }
+
+    /* PREMIUM SIDEBAR */
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%); border-right: 1px solid rgba(255, 255, 255, 0.05); }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    [data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
     </style>
 """, unsafe_allow_html=True)
 
