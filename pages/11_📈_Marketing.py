@@ -349,20 +349,14 @@ if check_password():
                 self.set_fill_color(30, 27, 75)
                 self.rect(10, 10, 190, 24, 'F')
                 
-                if self.hindi_font_available:
-                    self.set_font('HindiFont', 'B', 13)
-                else:
-                    self.set_font('Arial', 'B', 14)
+                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                self.set_font(f_name, 'B', 13 if self.hindi_font_available else 14)
                     
                 self.set_text_color(56, 189, 248)
                 self.set_xy(10, 13)
                 self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
                 
-                if self.hindi_font_available:
-                    self.set_font('HindiFont', '', 9)
-                else:
-                    self.set_font('Arial', '', 9)
-                    
+                self.set_font(f_name, '', 9)
                 self.set_text_color(226, 232, 240)
                 self.set_xy(10, 22)
                 self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
@@ -370,10 +364,8 @@ if check_password():
 
             def footer(self):
                 self.set_y(-15)
-                if self.hindi_font_available:
-                    self.set_font('HindiFont', '', 8)
-                else:
-                    self.set_font('Arial', 'I', 8)
+                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                self.set_font(f_name, 'I' if not self.hindi_font_available else '', 8)
                 self.set_text_color(148, 163, 184)
                 self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
