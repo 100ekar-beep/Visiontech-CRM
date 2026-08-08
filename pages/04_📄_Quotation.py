@@ -156,7 +156,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -219,6 +219,10 @@ def fetch_quotations():
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
         res = supabase.table("quotations").select("*").eq("workspace", active_ws).execute()
+        if not res.data:
+            # Fallback for old data where workspace might be unassigned/null
+            res = supabase.table("quotations").select("*").is_("workspace", "null").execute()
+        
         if res.data:
             df = pd.DataFrame(res.data)
             # --- Robust Cluster mapping from site_data using Project ID ---
