@@ -114,6 +114,24 @@ def check_password():
     else:
         return True
 
+# --- SMART HINDI RESHAPER FOR FPDF (Fix for Chhoti Ee and Ligatures) ---
+def reshape_hindi_text(text):
+    if not text: return text
+    chars = list(str(text))
+    i = 0
+    while i < len(chars):
+        if chars[i] == 'ि':
+            # Find the preceding consonant to properly attach 'ि'
+            j = i - 1
+            while j > 0 and chars[j-1] == '्':
+                j -= 2
+            if j >= 0:
+                matra = chars.pop(i)
+                chars.insert(j, matra)
+        i += 1
+    return "".join(chars)
+
+
 # ==========================================
 # --- MAIN MARKETING DASHBOARD LOGIC ---
 # ==========================================
@@ -409,6 +427,13 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
+            # Smartly enable advanced text shaping if library supports it (requires uharfbuzz)
+            try:
+                if hasattr(pdf, 'set_text_shaping'):
+                    pdf.set_text_shaping(True)
+            except Exception:
+                pass
+            
             h_font = 'HindiFont' if pdf.hindi_font_available else 'Arial'
             
             # CAMPAIGN SUMMARY METRICS CENTERED HEADING
@@ -475,9 +500,11 @@ if check_password():
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
             
-            # Use original Hindi message if font available, else fallback
+            # Process Hindi message via Visual Reshaper to fix complex ligatures
             msg_text = rep['message']
-            if not pdf.hindi_font_available:
+            if pdf.hindi_font_available:
+                msg_text = reshape_hindi_text(msg_text)
+            else:
                 msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
                 
             pdf.set_font(h_font, '', 9)
@@ -505,7 +532,10 @@ if check_password():
             for idx, item in enumerate(rep["logs"], 1):
                 c_name = item["Name"]
                 c_status = item["Status"]
-                if not pdf.hindi_font_available:
+                if pdf.hindi_font_available:
+                    c_name = reshape_hindi_text(c_name)
+                    c_status = reshape_hindi_text(c_status)
+                else:
                     c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
                     c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
                 
