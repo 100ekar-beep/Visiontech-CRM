@@ -258,7 +258,6 @@ if check_password():
                         }
                     }
                     
-                    # Safe Header Values Handling to prevent Media Url missing error
                     if media_url:
                         payload["template"]["headerValues"] = [media_url]
                     
@@ -340,16 +339,29 @@ if check_password():
         st.dataframe(table_data, use_container_width=True)
         
         class PDF(FPDF):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.hindi_font_available = False
+                font_path = "NotoSansDevanagari-VariableFont_wdth,wght.ttf"
+                if os.path.exists(font_path):
+                    try:
+                        self.add_font("HindiFont", "", font_path, uni=True)
+                        self.hindi_font_available = True
+                    except Exception:
+                        self.hindi_font_available = False
+
             def header(self):
                 self.set_fill_color(30, 27, 75)
                 self.rect(10, 10, 190, 24, 'F')
                 
-                self.set_font('Arial', 'B', 14)
+                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                self.set_font(f_name, '', 13 if self.hindi_font_available else 14)
+                    
                 self.set_text_color(56, 189, 248)
                 self.set_xy(10, 13)
                 self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
                 
-                self.set_font('Arial', '', 9)
+                self.set_font(f_name, '', 9)
                 self.set_text_color(226, 232, 240)
                 self.set_xy(10, 22)
                 self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
@@ -357,7 +369,8 @@ if check_password():
 
             def footer(self):
                 self.set_y(-15)
-                self.set_font('Arial', 'I', 8)
+                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                self.set_font(f_name, '', 8)
                 self.set_text_color(148, 163, 184)
                 self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
@@ -366,8 +379,10 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
+            h_font = 'HindiFont' if pdf.hindi_font_available else 'Arial'
+            
             # CAMPAIGN SUMMARY METRICS CENTERED HEADING
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, '', 12)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
             pdf.ln(2)
@@ -383,11 +398,11 @@ if check_password():
             pdf.set_line_width(0.6)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, '', 9)
             pdf.set_text_color(180, 83, 9)
             pdf.cell(box_width, 5, 'Total Target Numbers', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, '', 12)
             pdf.set_text_color(146, 64, 14)
             pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
             
@@ -397,11 +412,11 @@ if check_password():
             pdf.set_draw_color(22, 163, 74)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, '', 9)
             pdf.set_text_color(21, 128, 61)
             pdf.cell(box_width, 5, 'Successfully Sent', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, '', 12)
             pdf.set_text_color(20, 83, 45)
             pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
             
@@ -411,18 +426,18 @@ if check_password():
             pdf.set_draw_color(234, 88, 12)
             pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
             pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, '', 9)
             pdf.set_text_color(194, 65, 12)
             pdf.cell(box_width, 5, 'Failed', 0, 1, 'C')
             pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font('Arial', 'B', 12)
+            pdf.set_font(h_font, '', 12)
             pdf.set_text_color(154, 52, 18)
             pdf.cell(box_width, 6, str(rep['failed']), 0, 0, 'C')
             
             pdf.set_y(y_pos + box_height + 10)
             
             # Message Preview Section Box
-            pdf.set_font('Arial', 'B', 11)
+            pdf.set_font(h_font, '', 11)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(0, 8, 'MESSAGE SENT PREVIEW:', 0, 1, 'L')
             
@@ -430,107 +445,38 @@ if check_password():
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
             
-            # Clean phonetic mapping for professional PDF display without rendering errors
-            hindi_char_map = {
-                'आ': 'Aa', 'अ': 'A', 'इ': 'I', 'ई': 'Ee', 'उ': 'U', 'ऊ': 'Oo', 'ए': 'E', 'ऐ': 'Ai', 'ओ': 'O', 'औ': 'Au',
-                'क': 'Ka', 'का': 'Kaa', 'कि': 'Ki', 'की': 'Kee', 'कु': 'Ku', 'कू': 'Koo', 'के': 'Ke', 'कै': 'Kai', 'को': 'Ko', 'कौ': 'Kau', 'कं': 'Kam', 'क्': 'K',
-                'ख': 'Kha', 'खा': 'Khaa', 'खि': 'Khi', 'खी': 'Khee', 'खु': 'Khu', 'खू': 'Khooo', 'खे': 'Khe', 'खो': 'Kho', 'ख्': 'Kh',
-                'ग': 'Ga', 'गा': 'Gaa', 'गि': 'Gi', 'गी': 'Gee', 'गु': 'Gu', 'गू': 'Goo', 'गे': 'Ge', 'गो': 'Go', 'ग्': 'G',
-                'घ': 'Gha', 'घा': 'Ghaa', 'घे': 'Ghe', 'घो': 'Gho', 'घ्': 'Gh',
-                'च': 'Cha', 'चा': 'Chaa', 'चि': 'Chi', 'ची': 'Chee', 'चु': 'Chu', 'चू': 'Choo', 'चे': 'Che', 'चो': 'Cho', 'च्': 'Ch',
-                'छ': 'Chha', 'छा': 'Chhaa', 'छी': 'Chhee', 'च्छ': 'Chh',
-                'ज': 'Ja', 'जा': 'Jaa', 'जि': 'Ji', 'जी': 'Jee', 'जु': 'Ju', 'जू': 'Joo', 'जे': 'Je', 'जो': 'Jo', 'ज्': 'J',
-                'झ': 'Jha', 'झा': 'Jhaa', 'झी': 'Jhee', 'झू': 'Jhoo', 'झें': 'Jhen', 'झ्र': 'Jhr',
-                'ट': 'Ta', 'टा': 'Taa', 'टी': 'Tee', 'टु': 'Tu', 'टू': 'Too', 'टे': 'Te', 'टो': 'To', 'ट्': 'T',
-                'ठ': 'Tha', 'ठा': 'Thaa', 'ठी': 'Thee', 'ठे': 'The', 'ठो': 'Tho',
-                'ड': 'Da', 'डा': 'Daa', 'डी': 'Dee', 'डु': 'Du', 'डू': 'Doo', 'डे': 'De', 'डो': 'Do', 'ड्': 'D',
-                'ढ': 'Dha', 'ढा': 'Dhaa', 'ढी': 'Dhee', 'ढे': 'Dhe', 'ढो': 'Dho',
-                'ण': 'Na', 'णा': 'Naa', 'णी': 'Nee', 'णें': 'Nen', 'णू': 'Noo',
-                'त': 'Ta', 'ता': 'Taa', 'ति': 'Ti', 'ती': 'Tee', 'तु': 'Tu', 'तू': 'Too', 'ते': 'Te', 'तो': 'To', 'त्': 'T',
-                'थ': 'Tha', 'था': 'Thaa', 'थि': 'Thi', 'थी': 'Thee', 'थु': 'Thu', 'थे': 'The', 'थो': 'Tho', 'थ्': 'Th',
-                'द': 'Da', 'दा': 'Daa', 'दि': 'Di', 'दी': 'Dee', 'दु': 'Du', 'दू': 'Doo', 'दे': 'De', 'दो': 'Do', 'द्': 'D',
-                'ध': 'Dha', 'धा': 'Dhaa', 'धि': 'Dhi', 'धी': 'Dhee', 'धु': 'Dhu', 'ध्रे': 'Dhre', 'धो': 'Dho', 'ध्': 'Dh',
-                'न': 'Na', 'ना': 'Naa', 'नि': 'Ni', 'नी': 'Nee', 'नु': 'Nu', 'नू': 'Noo', 'ने': 'Ne', 'नो': 'No', 'न्': 'N',
-                'प': 'Pa', 'पा': 'Paa', 'पि': 'Pi', 'पी': 'Pee', 'पु': 'Pu', 'पू': 'Poo', 'पे': 'Pe', 'पो': 'Po', 'प्': 'P',
-                'फ': 'Pha', 'फा': 'Phaa', 'फि': 'Phi', 'फी': 'Phee', 'फु': 'Phu', 'फे': 'Phe', 'फो': 'Pho',
-                'ब': 'Ba', 'बा': 'Baa', 'बि': 'Bi', 'बी': 'Bee', 'बु': 'Bu', 'बू': 'Boo', 'बे': 'Be', 'बो': 'Bo', 'ब्': 'B',
-                'भ': 'Bha', 'भा': 'Bhaa', 'भि': 'Bhi', 'भी': 'Bhee', 'भु': 'Bhu', 'भू': 'Bhoo', 'भे': 'Bhe', 'भो': 'Bho', 'भ्': 'Bh',
-                'म': 'Ma', 'मा': 'Maa', 'मि': 'Mi', 'मी': 'Mee', 'मु': 'Mu', 'मू': 'Moo', 'मे': 'Me', 'मो': 'Mo', 'म्': 'M',
-                'य': 'Ya', 'या': 'Yaa', 'यि': 'Yi', 'यी': 'Yee', 'ये': 'Ye', 'यो': 'Yo', 'य्': 'Y',
-                'र': 'Ra', 'रा': 'Raa', 'रि': 'Ri', 'री': 'Ree', 'रु': 'Ru', 'रू': 'Roo', 'रे': 'Re', 'रो': 'Ro', 'र्': 'R',
-                'ल': 'La', 'ला': 'Laa', 'लि': 'Li', 'ली': 'Lee', 'लु': 'Lu', 'लू': 'Loo', 'ले': 'Le', 'लो': 'Lo', 'ल्': 'L',
-                'व': 'Va', 'वा': 'Vaa', 'वि': 'Vi', 'वी': 'Vee', 'वु': 'Vu', 'वे': 'Ve', 'वो': 'Vo', 'व्': 'V',
-                'श': 'Sha', 'शा': 'Shaa', 'शि': 'Shi', 'शी': 'Shee', 'शु': 'Shu', 'शे': 'She', 'शो': 'Sho', 'श्': 'Sh',
-                'ष': 'Shha', 'षा': 'Shhaa', 'षि': 'Shhi', 'षी': 'Shhee', 'ष्': 'Shh',
-                'स': 'Sa', 'सा': 'Saa', 'सि': 'Si', 'सी': 'See', 'सु': 'Su', 'सू': 'Soo', 'से': 'Se', 'सो': 'So', 'स्': 'S',
-                'ह': 'Ha', 'हा': 'Haa', 'हि': 'Hi', 'ही': 'Hee', 'हु': 'Hu', 'हू': 'Hoo', 'हे': 'He', 'हो': 'Ho', 'ह्': 'H',
-                'क्ष': 'Ksha', 'क्षा': 'Kshaa', 'क्ष्': 'Ksh', 'त्र': 'Tra', 'त्रा': 'Traa', 'त्रि': 'Tri', 'त्र्': 'Tr',
-                'ज्ञ': 'Gya', 'ज्ञा': 'Gyaa', 'श्र': 'Shra', 'श्रि': 'Shri',
-                'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ः': 'h', '्': '',
-                '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9', '०': '0',
-                'ं': 'n', 'ँ': 'n', '्': '', '•': '-', '🔹': '-'
-            }
-            
-            raw_msg = rep['message']
-            translated_msg = ""
-            i = 0
-            while i < len(raw_msg):
-                matched = False
-                for length in [3, 2, 1]:
-                    if i + length <= len(raw_msg):
-                        chunk = raw_msg[i:i+length]
-                        if chunk in hindi_char_map:
-                            translated_msg += hindi_char_map[chunk]
-                            i += length
-                            matched = True
-                            break
-                if not matched:
-                    translated_msg += raw_msg[i]
-                    i += 1
-                    
-            safe_msg = translated_msg.encode('latin-1', 'replace').decode('latin-1')
-            
-            pdf.set_font('Arial', '', 9)
+            msg_text = rep['message']
+            if not pdf.hindi_font_available:
+                msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
+                
+            pdf.set_font(h_font, '', 9)
             pdf.set_text_color(51, 65, 85)
-            pdf.multi_cell(190, 5, safe_msg, border=1, fill=True)
+            pdf.multi_cell(190, 5, msg_text, border=1, fill=True)
             
             pdf.ln(8)
             
             # Detailed Table Heading
-            pdf.set_font('Arial', 'B', 11)
+            pdf.set_font(h_font, '', 11)
             pdf.set_text_color(30, 41, 59)
             pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
             
             # Table Header
             pdf.set_fill_color(30, 27, 75)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_font('Arial', 'B', 9)
+            pdf.set_font(h_font, '', 9)
             pdf.cell(15, 7, 'Sr', 1, 0, 'C', fill=True)
             pdf.cell(65, 7, 'Contact Name', 1, 0, 'C', fill=True)
             pdf.cell(45, 7, 'Mobile Number', 1, 0, 'C', fill=True)
             pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
             
             # Table Rows
-            pdf.set_font('Arial', '', 9)
+            pdf.set_font(h_font, '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                clean_name = item["Name"]
-                translated_name = ""
-                i = 0
-                while i < len(clean_name):
-                    matched = False
-                    for length in [3, 2, 1]:
-                        if i + length <= len(clean_name):
-                            chunk = clean_name[i:i+length]
-                            if chunk in hindi_char_map:
-                                translated_name += hindi_char_map[chunk]
-                                i += length
-                                matched = True
-                                break
-                    if not matched:
-                        translated_name += clean_name[i]
-                        i += 1
-                safe_name = translated_name.encode('latin-1', 'replace').decode('latin-1')
-                safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
+                c_name = item["Name"]
+                c_status = item["Status"]
+                if not pdf.hindi_font_available:
+                    c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
+                    c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
                 
                 if idx % 2 == 0:
                     pdf.set_fill_color(241, 245, 249)
@@ -539,9 +485,9 @@ if check_password():
                     
                 pdf.set_text_color(51, 65, 85)
                 pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
-                pdf.cell(65, 6, safe_name, 1, 0, 'L', fill=True)
+                pdf.cell(65, 6, c_name, 1, 0, 'L', fill=True)
                 pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
-                pdf.cell(65, 6, safe_status, 1, 1, 'L', fill=True)
+                pdf.cell(65, 6, c_status, 1, 1, 'L', fill=True)
                 
             return pdf.output(dest='S').encode('latin1')
 
