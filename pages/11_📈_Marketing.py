@@ -86,6 +86,23 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR RAJKUMAR KALYA ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') != 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning(f"Aap abhi **{st.session_state.get('active_workspace')}** workspace me hain. Ye Marketing feature exclusively **RAJKUMAR KALYA** profile ke liye lock kiya gaya hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'RAJKUMAR KALYA')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- SUPABASE CONNECTION ---
 @st.cache_resource
 def init_connection():
