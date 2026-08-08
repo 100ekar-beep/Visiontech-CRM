@@ -301,6 +301,16 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
 
+# --- TOP WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 12px 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h3 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 2px; font-size: 1.25rem;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display.upper()}
+        </h3>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 3. SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
@@ -1571,6 +1581,16 @@ def export_dialog(df_export):
 if st.session_state.get('pending_comm_email'):
     commissioning_email_dialog()
 # ==============================================================
+
+# --- TOP WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 12px 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h3 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 2px; font-size: 1.25rem;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display.upper()}
+        </h3>
+    </div>
+""", unsafe_allow_html=True)
 
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_ref, col_add, col_upload, col_update, col_export = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5])
