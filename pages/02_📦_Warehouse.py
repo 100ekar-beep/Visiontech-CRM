@@ -3,6 +3,9 @@ import pandas as pd
 import math
 import io
 import requests # <--- NEW: Added requests for WhatsApp API
+import smtplib  # <--- NEW: For Email Sending
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -277,8 +280,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -301,7 +321,8 @@ def get_opts(category, all_data):
 
 def get_site_projects():
     try:
-        res = supabase.table("site_data").select("*").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
         return res.data if res.data else []
     except Exception as e:
         st.toast(f"Database Error: {e}", icon="❌")
@@ -507,6 +528,7 @@ def add_warehouse_material_dialog():
                 try:
                     for i in range(len(w_item_codes)):
                         insert_dict = {
+                            "workspace": st.session_state.get('active_workspace', 'VISPL'),
                             "Project ID": proj_id,
                             "Site ID": site_id_val,
                             "Site Name": site_name_val,
@@ -697,7 +719,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- 5. FETCH & PREPARE DATA FROM WAREHOUSE ---
 table_name = "warehouse_data"
 try:
-    response = supabase.table(table_name).select("*").execute()
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
     data = response.data
 except Exception:
     data = []
