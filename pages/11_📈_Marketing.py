@@ -44,7 +44,7 @@ def check_password():
     elif not st.session_state["password_correct"]:
         st.title("🔒 Restricted Access")
         st.text_input("Marketing page access karne ke liye password daalein:", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password galत hai. Kripya wapas try karein.")
+        st.error("😕 Password galat hai. Kripya wapas try karein.")
         return False
     else:
         return True
@@ -62,8 +62,17 @@ if check_password():
             st.session_state["password_correct"] = False
             st.rerun()
 
-    # Premium Header
-    st.markdown("<h1 style='text-align: center; color: #1f77b4;'>🚀 WhatsApp Marketing Sender</h1>", unsafe_allow_html=True)
+    # Premium Header with Top Clear Button Option
+    head_title_col, head_btn_col = st.columns([5, 1])
+    with head_title_col:
+        st.markdown("<h1 style='text-align: left; color: #1f77b4; margin: 0;'>🚀 WhatsApp Marketing Sender</h1>", unsafe_allow_html=True)
+    with head_btn_col:
+        if st.button("🧹 Clear Page", use_container_width=True, type="primary"):
+            for key in list(st.session_state.keys()):
+                if key != "password_correct":
+                    del st.session_state[key]
+            st.rerun()
+
     st.markdown("---")
 
     col1, col2 = st.columns([1, 1])
@@ -98,7 +107,6 @@ if check_password():
     templates = ["Sample", "Text_Massage"] 
     selected_template_name = st.selectbox("Template choose karein:", templates)
 
-    # --- CLEAR BUTTON LOGIC SETUP ---
     if "msg_key" not in st.session_state:
         st.session_state["msg_key"] = ""
 
@@ -150,7 +158,6 @@ if check_password():
             st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... Please wait.")
             
             if supabase:
-                # --- AUTO-URL GENERATOR LOGIC ---
                 media_url = ""
                 if attachment:
                     with st.spinner("⏳ File ko Supabase par upload karke Auto-Link banaya ja raha hai..."):
@@ -177,7 +184,7 @@ if check_password():
                 
                 success_count = 0
                 error_count = 0
-                report_logs = []  # Detailed log track karne ke liye
+                report_logs = []
 
                 clean_custom_message = " ".join(custom_message.split())
 
@@ -202,7 +209,6 @@ if check_password():
                     if media_url:
                         payload["template"]["headerValues"] = [media_url]
                     
-                    # --- LIVE INTERAKT API CALL ---
                     try:
                         interakt_key = st.secrets["interakt"]["api_key"]
                         headers = {
@@ -224,7 +230,6 @@ if check_password():
                         error_count += 1
                         report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
                 
-                # --- SESSION STATE ME LOGS STORE KARNA REPORT DIKHAANE KE LIYE ---
                 st.session_state["last_report"] = {
                     "list_name": selected_list,
                     "template": selected_template_name,
@@ -253,7 +258,6 @@ if check_password():
         st.markdown("---")
         st.markdown("<h2>📊 Live Campaign Execution Report</h2>", unsafe_allow_html=True)
         
-        # 3 Metrics Cards (Total, Success, Failed)
         m_col1, m_col2, m_col3 = st.columns(3)
         with m_col1:
             st.metric(label="📱 Total Numbers Targeted", value=rep["total"])
@@ -264,7 +268,6 @@ if check_password():
             
         st.markdown("### 📝 Detailed Status Table:")
         
-        # Table data formatting
         table_data = []
         for idx, item in enumerate(rep["logs"], 1):
             table_data.append({
@@ -276,7 +279,6 @@ if check_password():
             
         st.dataframe(table_data, use_container_width=True)
         
-        # --- PDF GENERATOR LOGIC ---
         class PDF(FPDF):
             def header(self):
                 self.set_font('Arial', 'B', 16)
@@ -295,7 +297,6 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
-            # Summary Box
             pdf.set_font('Arial', 'B', 12)
             pdf.cell(0, 8, 'Campaign Summary:', 0, 1)
             pdf.set_font('Arial', '', 10)
@@ -304,28 +305,23 @@ if check_password():
             pdf.cell(0, 6, f"Failed: {rep['failed']}", 0, 1)
             pdf.ln(5)
             
-            # Message Sent Content
             pdf.set_font('Arial', 'B', 12)
             pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
             pdf.set_font('Arial', '', 9)
             
-            # Unicode characters handling for safe PDF generation
             safe_msg = rep['message'].encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 5, safe_msg)
             pdf.ln(8)
             
-            # Detailed Table
             pdf.set_font('Arial', 'B', 12)
             pdf.cell(0, 8, 'Detailed Contact Delivery Status:', 0, 1)
             
-            # Table Header
             pdf.set_font('Arial', 'B', 9)
             pdf.cell(15, 7, 'Sr', 1, 0, 'C')
             pdf.cell(60, 7, 'Contact Name', 1, 0, 'C')
             pdf.cell(40, 7, 'Mobile', 1, 0, 'C')
             pdf.cell(75, 7, 'Status', 1, 1, 'C')
             
-            # Table Rows
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
                 safe_name = item["Name"].encode('latin-1', 'replace').decode('latin-1')
