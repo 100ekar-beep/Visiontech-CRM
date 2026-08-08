@@ -94,10 +94,28 @@ if check_password():
     templates = ["Sample", "Text_Massage"] 
     selected_template_name = st.selectbox("Template choose karein:", templates)
 
-    st.markdown("### ✏️ 4 & 5. Edit Your Message")
+    # --- CLEAR BUTTON LOGIC SETUP ---
+    if "msg_key" not in st.session_state:
+        st.session_state["msg_key"] = ""
+
+    def clear_message():
+        st.session_state["msg_key"] = ""
+
+    # 4 & 5. Edit Your Message (With Inline Clear Button)
+    head_col1, head_col2 = st.columns([4, 1])
+    with head_col1:
+        st.markdown("### ✏️ 4 & 5. Edit Your Message")
+    with head_col2:
+        # Clear button ko right side align kar diya gaya hai premium look ke liye
+        st.button("🧹 Clear Message", on_click=clear_message, use_container_width=True)
+
     st.info("💡 Niche box me wo message type karein jo **{{2}}** ki jagah jayega. **{{1}}** ki jagah Supabase list ka naam apne aap aa jayega.")
 
-    custom_message = st.text_area("Massage likhein (Ye {{2}} me set hoga):", height=150)
+    custom_message = st.text_area(
+        "Massage likhein (Ye {{2}} me set hoga):", 
+        height=150,
+        key="msg_key"
+    )
 
     st.markdown("### 👁️ Final Message Preview:")
     st.caption("Aapka message WhatsApp par kuch is tarah dikhega (Example: 'Ramesh' ke liye):")
@@ -149,7 +167,6 @@ if check_password():
                         "phoneNumber": number.replace("91", "", 1) if number.startswith("91") else number,
                         "type": "Template",
                         "template": {
-                            # 🚨 YAHAN FIX KIYA HAI: UI ka naam lowercase me bhej rahe hain (eg: 'Text_Massage' ban jayega 'text_massage')
                             "name": selected_template_name.lower(),
                             "languageCode": "hi",
                             "bodyValues": [
