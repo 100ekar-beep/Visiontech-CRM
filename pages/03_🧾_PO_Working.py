@@ -259,8 +259,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 2.5 SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -269,10 +286,11 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE ---
+# --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
 if 'po_working_df' not in st.session_state:
     try:
-        res = supabase.table("po_working").select("*").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
         if res.data and len(res.data) > 0:
             df_fetched = pd.DataFrame(res.data)
             num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
@@ -407,6 +425,7 @@ def po_upload_dialog():
                     records_to_insert = []
                     for rec in new_rows_to_add:
                         clean_rec = {}
+                        clean_rec["workspace"] = st.session_state.get('active_workspace', 'VISPL')
                         for k, v in rec.items():
                             if k in num_columns_to_int:
                                 clean_rec[k] = int(v)
@@ -463,7 +482,8 @@ def view_po_details_dialog(row_data):
     cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
     if site_id:
         try:
-            res_site = supabase.table("site_data").select("Cluster, RFAI Status").eq("Site ID", site_id).execute()
+            active_ws = st.session_state.get('active_workspace', 'VISPL')
+            res_site = supabase.table("site_data").select("Cluster, RFAI Status").eq("Site ID", site_id).eq("workspace", active_ws).execute()
             if res_site.data:
                 cluster_val = res_site.data[0].get("Cluster", "-")
                 rfai_val = res_site.data[0].get("RFAI Status", "-")
