@@ -116,24 +116,29 @@ if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
     df_items["Display"] = df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)
     item_display_list = df_items["Display"].tolist()
+    item_code_list = df_items["Item Code"].astype(str).tolist()
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
     display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
+    code_to_desc = dict(zip(df_items["Item Code"].astype(str), df_items["Description"]))
+    code_to_price = dict(zip(df_items["Item Code"].astype(str), df_items["Price"]))
 else:
     item_display_list = []
+    item_code_list = []
     display_to_desc = {}
     display_to_price = {}
+    code_to_desc = {}
+    code_to_price = {}
 
 if 'templates_df' not in st.session_state:
     st.session_state.templates_df = fetch_templates()
 
-# --- 5. TEMPLATE DIALOG (FIXED FOR BLANK FORM ON NEW) ---
+# --- 5. TEMPLATE DIALOG ---
 @st.dialog("📋 Quotation Template Builder", width="large")
 def template_dialog(template_data=None):
     st.caption("Configure items for this quotation template")
     
     is_new = template_data is None
     
-    # 🌟 FIX: Clean session keys when creating a brand new template so it appears blank
     if is_new:
         if "builder_items_df" in st.session_state:
             del st.session_state["builder_items_df"]
@@ -181,6 +186,11 @@ def template_dialog(template_data=None):
                                 if disp in display_to_desc:
                                     curr_df.at[idx, "Description"] = display_to_desc[disp]
                                     curr_df.at[idx, "Price"] = display_to_price[disp]
+                            else:
+                                curr_df.at[idx, "Item Code"] = disp
+                                if disp in code_to_desc:
+                                    curr_df.at[idx, "Description"] = code_to_desc[disp]
+                                    curr_df.at[idx, "Price"] = code_to_price[disp]
             if adds:
                 for row in adds:
                     new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0}
@@ -192,6 +202,11 @@ def template_dialog(template_data=None):
                             if disp in display_to_desc:
                                 new_row["Description"] = display_to_desc[disp]
                                 new_row["Price"] = display_to_price[disp]
+                        else:
+                            new_row["Item Code"] = disp
+                            if disp in code_to_desc:
+                                new_row["Description"] = code_to_desc[disp]
+                                new_row["Price"] = code_to_price[disp]
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.builder_items_df = curr_df
             del st.session_state[editor_widget_key]
@@ -204,7 +219,7 @@ def template_dialog(template_data=None):
         hide_index=True,
         height=350,
         column_config={
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_display_list, required=True, width="medium"),
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_code_list, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small")
@@ -213,7 +228,8 @@ def template_dialog(template_data=None):
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Template", type="primary", use_container_width=True):
-        if not tpl_name.strip():
+        final_tpl_name = st.session_state.get('template_name_input', tpl_name).strip()
+        if not final_tpl_name:
             st.error("⚠️ Template Name is required!")
             return
             
@@ -230,7 +246,7 @@ def template_dialog(template_data=None):
                 
         payload = {
             "workspace": st.session_state.get('active_workspace', 'VISPL'),
-            "Template Name": tpl_name.strip(),
+            "Template Name": final_tpl_name,
             "Items Data": json.dumps(items_list)
         }
         
