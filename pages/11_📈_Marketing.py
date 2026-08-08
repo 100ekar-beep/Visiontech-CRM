@@ -138,7 +138,6 @@ if check_password():
                 success_count = 0
                 error_count = 0
 
-                # YAHAN CLEANING LOGIC ADD KIYA HAI - (Enters, Tabs, aur Extra spaces ko single space me badal dega)
                 clean_custom_message = " ".join(custom_message.split())
 
                 for person in contacts_list:
@@ -150,11 +149,12 @@ if check_password():
                         "phoneNumber": number.replace("91", "", 1) if number.startswith("91") else number,
                         "type": "Template",
                         "template": {
-                            "name": selected_template_name,
+                            # 🚨 YAHAN FIX KIYA HAI: UI ka naam lowercase me bhej rahe hain (eg: 'Text_Massage' ban jayega 'text_massage')
+                            "name": selected_template_name.lower(),
                             "languageCode": "hi",
                             "bodyValues": [
                                 name,           
-                                clean_custom_message  # Ab yahan cleaned message jayega API ko
+                                clean_custom_message  
                             ]
                         }
                     }
