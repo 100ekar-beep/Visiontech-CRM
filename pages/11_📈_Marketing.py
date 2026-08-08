@@ -202,7 +202,7 @@ if check_password():
         if not custom_message.strip():
             st.warning("⚠️ Message box khali hai! Kripya {{2}} ke liye kuch text likhein.")
         elif not selected_list:
-            st.warning("⚠️ Kripya pehle Dropdown से List select karein.")
+            st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
         else:
             ist_offset = timezone(timedelta(hours=5, minutes=30))
             current_dt_str = datetime.now(ist_offset).strftime("%d-%m-%Y %H:%M:%S")
@@ -334,7 +334,6 @@ if check_password():
         
         class PDF(FPDF):
             def header(self):
-                # Colorful Lavish Header Background Box
                 self.set_fill_color(30, 27, 75)
                 self.rect(10, 10, 190, 24, 'F')
                 
@@ -360,25 +359,61 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
-            # Summary Section Box with Colorful Background & Border
-            pdf.set_fill_color(248, 250, 252)
-            pdf.set_draw_color(59, 130, 246)
-            pdf.set_line_width(0.8)
-            pdf.rect(10, 38, 190, 28, 'DF')
-            
-            pdf.set_xy(14, 40)
-            pdf.set_font('Arial', 'B', 11)
+            # CAMPAIGN SUMMARY METRICS CENTERED HEADING
+            pdf.set_font('Arial', 'B', 12)
             pdf.set_text_color(30, 41, 59)
-            pdf.cell(180, 6, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'L')
+            pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
+            pdf.ln(2)
             
-            pdf.set_xy(14, 48)
-            pdf.set_font('Arial', '', 10)
-            pdf.set_text_color(71, 85, 105)
-            pdf.cell(60, 6, f"Total Target Numbers: {rep['total']}", 0, 0, 'L')
-            pdf.cell(60, 6, f"Successfully Sent: {rep['success']}", 0, 0, 'L')
-            pdf.cell(60, 6, f"Failed: {rep['failed']}", 0, 1, 'L')
+            # 3 Colorful Metric Boxes (Yellow, Green, Orange)
+            box_width = 58
+            box_height = 20
+            start_x = 10
+            y_pos = pdf.get_y()
             
-            pdf.ln(12)
+            # Box 1: Yellow (Total Target Numbers)
+            pdf.set_fill_color(254, 243, 199)
+            pdf.set_draw_color(217, 119, 6)
+            pdf.set_line_width(0.6)
+            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+            pdf.set_xy(start_x, y_pos + 3)
+            pdf.set_font('Arial', 'B', 9)
+            pdf.set_text_color(180, 83, 9)
+            pdf.cell(box_width, 5, 'Total Target Numbers', 0, 1, 'C')
+            pdf.set_xy(start_x, y_pos + 10)
+            pdf.set_font('Arial', 'B', 12)
+            pdf.set_text_color(146, 64, 14)
+            pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
+            
+            # Box 2: Green (Successfully Sent)
+            start_x += box_width + 8
+            pdf.set_fill_color(220, 252, 231)
+            pdf.set_draw_color(22, 163, 74)
+            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+            pdf.set_xy(start_x, y_pos + 3)
+            pdf.set_font('Arial', 'B', 9)
+            pdf.set_text_color(21, 128, 61)
+            pdf.cell(box_width, 5, 'Successfully Sent', 0, 1, 'C')
+            pdf.set_xy(start_x, y_pos + 10)
+            pdf.set_font('Arial', 'B', 12)
+            pdf.set_text_color(20, 83, 45)
+            pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
+            
+            # Box 3: Orange (Failed)
+            start_x += box_width + 8
+            pdf.set_fill_color(254, 215, 170)
+            pdf.set_draw_color(234, 88, 12)
+            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+            pdf.set_xy(start_x, y_pos + 3)
+            pdf.set_font('Arial', 'B', 9)
+            pdf.set_text_color(194, 65, 12)
+            pdf.cell(box_width, 5, 'Failed', 0, 1, 'C')
+            pdf.set_xy(start_x, y_pos + 10)
+            pdf.set_font('Arial', 'B', 12)
+            pdf.set_text_color(154, 52, 18)
+            pdf.cell(box_width, 6, str(rep['failed']), 0, 0, 'C')
+            
+            pdf.set_y(y_pos + box_height + 10)
             
             # Message Preview Section Box
             pdf.set_font('Arial', 'B', 11)
@@ -389,42 +424,66 @@ if check_password():
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
             
-            # Hindi clean phonetic roman representation map for professional readable English PDF rendering without question marks
-            hindi_transliteration_map = {
-                'आदरणीय': 'Aadarniy', 'सादर': 'Sadhar', 'जय': 'Jai', 'महेश': 'Mahesh',
-                'आगामी': 'Aagami', 'सत्र': 'Satr', 'के': 'ke', 'महासभा': 'Mahasabha',
-                'चुनाव': 'Chunaav', 'में': 'mein', 'हमें': 'hamein', 'ऐसे': 'aise',
-                'नेतृत्व': 'Netratva', 'चयन': 'Chayan', 'करना': 'karna', 'है': 'hai',
-                'जिसने': 'jisine', 'वर्षों': 'varsho', 'तक': 'tak', 'सेवा': 'seva',
-                'समर्पण': 'Samarpan', 'पारदर्शिता': 'Pardarshita', 'और': 'aur',
-                'परिणामों': 'Parinamo', 'साथ': 'saath', 'समाज': 'Samaj',
-                'विश्वास': 'Vishwas', 'अर्जित': 'Arjit', 'किया': 'kiya',
-                'टीम': 'Team', 'संदीप': 'Sandeep', 'काबरा': 'Kabra', 'सभी': 'sabhi',
-                'प्रत्याशी': 'Prathyashi', 'अनुभवी': 'Anubhavi', 'कर्मठ': 'Karmath',
-                'समाजहित': 'Samajhit', 'लिए': 'liye', 'पूर्णतः': 'Poornatah',
-                'समर्पित': 'Samarpit', 'आइए': 'Aaiye', 'एक': 'ek', 'सशक्त': 'Sashakt',
-                'सक्रिय': 'Sakriya', 'विकासशील': 'Vikasit', 'निर्माण': 'Nirman',
-                'हेतु': 'hetu', 'पुरी': 'poori', 'अपना': 'apna', 'अमूल्य': 'amulya',
-                'मत': 'mat', 'एवं': 'evam', 'समर्थन': 'samarthan', 'प्रदान': 'pradan',
-                'करें': 'karein', 'हमारा': 'hamara', 'प्रत्याशियों': 'prathyashiyo',
-                'सभापति': 'Sabapati', 'अजय': 'Ajay', 'महामंत्री': 'Mahamantri',
-                'नारायण': 'Narayan', 'राठी': 'Rathi', 'अर्थमंत्री': 'Arthamantri',
-                'विजय': 'Vijay', 'संगठन': 'Sangathan', 'मंत्री': 'Mantri',
-                'तथा': 'tatha', 'उपसभापति': 'Upsabapati', 'संयुक्त': 'Sanyukt',
-                'पद': 'pad', 'आपके': 'aapke', 'स्नेह': 'sneh', 'सहयोग': 'sahyog',
-                'आशीर्वाद': 'aashirwad', 'अभिलाषा': 'abhilasha', 'आपका': 'aapka',
-                'राजकुमार': 'Rajkumar', 'काल्या': 'Kalya', 'त्रिभुवन': 'Tribhuvan',
-                'धन्यवाद': 'Dhanyawad'
+            # Accurate Unicode replacement dictionary to support Hindi in FPDF Standard Fonts cleanly
+            hindi_char_map = {
+                'आ': 'Aa', 'अ': 'A', 'इ': 'I', 'ई': 'Ee', 'उ': 'U', 'ऊ': 'Oo', 'ए': 'E', 'ऐ': 'Ai', 'ओ': 'O', 'औ': 'Au',
+                'क': 'Ka', 'का': 'Kaa', 'कि': 'Ki', 'की': 'Kee', 'कु': 'Ku', 'कू': 'Koo', 'के': 'Ke', 'कै': 'Kai', 'को': 'Ko', 'कौ': 'Kau', 'कं': 'Kam', 'क्': 'K',
+                'ख': 'Kha', 'खा': 'Khaa', 'खि': 'Khi', 'खी': 'Khee', 'खु': 'Khu', 'खू': 'Khooo', 'खे': 'Khe', 'खो': 'Kho', 'ख्': 'Kh',
+                'ग': 'Ga', 'गा': 'Gaa', 'गि': 'Gi', 'गी': 'Gee', 'गु': 'Gu', 'गू': 'Goo', 'गे': 'Ge', 'गो': 'Go', 'ग्': 'G',
+                'घ': 'Gha', 'घा': 'Ghaa', 'घे': 'Ghe', 'घो': 'Gho', 'घ्': 'Gh',
+                'च': 'Cha', 'चा': 'Chaa', 'चि': 'Chi', 'ची': 'Chee', 'चु': 'Chu', 'चू': 'Choo', 'चे': 'Che', 'चो': 'Cho', 'च्': 'Ch',
+                'छ': 'Chha', 'छा': 'Chhaa', 'छी': 'Chhee', 'च्छ': 'Chh',
+                'ज': 'Ja', 'जा': 'Jaa', 'जि': 'Ji', 'जी': 'Jee', 'जु': 'Ju', 'जू': 'Joo', 'जे': 'Je', 'जो': 'Jo', 'ज्': 'J',
+                'झ': 'Jha', 'झा': 'Jhaa', 'झी': 'Jhee', 'झू': 'Jhoo', 'झें': 'Jhen', 'झ्र': 'Jhr',
+                'ट': 'Ta', 'टा': 'Taa', 'टी': 'Tee', 'टु': 'Tu', 'टू': 'Too', 'टे': 'Te', 'टो': 'To', 'ट्': 'T',
+                'ठ': 'Tha', 'ठा': 'Thaa', 'ठी': 'Thee', 'ठे': 'The', 'ठो': 'Tho',
+                'ड': 'Da', 'डा': 'Daa', 'डी': 'Dee', 'डु': 'Du', 'डू': 'Doo', 'डे': 'De', 'डो': 'Do', 'ड्': 'D',
+                'ढ': 'Dha', 'ढा': 'Dhaa', 'ढी': 'Dhee', 'ढे': 'Dhe', 'ढो': 'Dho',
+                'ण': 'Na', 'णा': 'Naa', 'णी': 'Nee', 'णें': 'Nen', 'णू': 'Noo',
+                'त': 'Ta', 'ता': 'Taa', 'ति': 'Ti', 'ती': 'Tee', 'तु': 'Tu', 'तू': 'Too', 'ते': 'Te', 'तो': 'To', 'त्': 'T',
+                'थ': 'Tha', 'था': 'Thaa', 'थि': 'Thi', 'थी': 'Thee', 'थु': 'Thu', 'थे': 'The', 'थो': 'Tho', 'थ्': 'Th',
+                'द': 'Da', 'दा': 'Daa', 'दि': 'Di', 'दी': 'Dee', 'दु': 'Du', 'दू': 'Doo', 'दे': 'De', 'दो': 'Do', 'द्': 'D',
+                'ध': 'Dha', 'धा': 'Dhaa', 'धि': 'Dhi', 'धी': 'Dhee', 'धु': 'Dhu', 'ध्रे': 'Dhre', 'धो': 'Dho', 'ध्': 'Dh',
+                'न': 'Na', 'ना': 'Naa', 'नि': 'Ni', 'नी': 'Nee', 'नु': 'Nu', 'नू': 'Noo', 'ने': 'Ne', 'नो': 'No', 'न्': 'N',
+                'प': 'Pa', 'पा': 'Paa', 'पि': 'Pi', 'पी': 'Pee', 'पु': 'Pu', 'पू': 'Poo', 'पे': 'Pe', 'पो': 'Po', 'प्': 'P',
+                'फ': 'Pha', 'फा': 'Phaa', 'फि': 'Phi', 'फी': 'Phee', 'फु': 'Phu', 'फे': 'Phe', 'फो': 'Pho',
+                'ब': 'Ba', 'बा': 'Baa', 'बि': 'Bi', 'बी': 'Bee', 'बु': 'Bu', 'बू': 'Boo', 'बे': 'Be', 'बो': 'Bo', 'ब्': 'B',
+                'भ': 'Bha', 'भा': 'Bhaa', 'भि': 'Bhi', 'भी': 'Bhee', 'भु': 'Bhu', 'भू': 'Bhoo', 'भे': 'Bhe', 'भो': 'Bho', 'भ्': 'Bh',
+                'म': 'Ma', 'मा': 'Maa', 'मि': 'Mi', 'मी': 'Mee', 'मु': 'Mu', 'मू': 'Moo', 'मे': 'Me', 'मो': 'Mo', 'म्': 'M',
+                'य': 'Ya', 'या': 'Yaa', 'यि': 'Yi', 'यी': 'Yee', 'ये': 'Ye', 'यो': 'Yo', 'य्': 'Y',
+                'र': 'Ra', 'रा': 'Raa', 'रि': 'Ri', 'री': 'Ree', 'रु': 'Ru', 'रू': 'Roo', 'रे': 'Re', 'रो': 'Ro', 'र्': 'R',
+                'ल': 'La', 'ला': 'Laa', 'लि': 'Li', 'ली': 'Lee', 'लु': 'Lu', 'लू': 'Loo', 'ले': 'Le', 'लो': 'Lo', 'ल्': 'L',
+                'व': 'Va', 'वा': 'Vaa', 'वि': 'Vi', 'वी': 'Vee', 'वु': 'Vu', 'वे': 'Ve', 'वो': 'Vo', 'व्': 'V',
+                'श': 'Sha', 'शा': 'Shaa', 'शि': 'Shi', 'शी': 'Shee', 'शु': 'Shu', 'शे': 'She', 'शो': 'Sho', 'श्': 'Sh',
+                'ष': 'Shha', 'षा': 'Shhaa', 'षि': 'Shhi', 'षी': 'Shhee', 'ष्': 'Shh',
+                'स': 'Sa', 'सा': 'Saa', 'सि': 'Si', 'सी': 'See', 'सु': 'Su', 'सू': 'Soo', 'से': 'Se', 'सो': 'So', 'स्': 'S',
+                'ह': 'Ha', 'हा': 'Haa', 'हि': 'Hi', 'ही': 'Hee', 'हु': 'Hu', 'हू': 'Hoo', 'हे': 'He', 'हो': 'Ho', 'ह्': 'H',
+                'क्ष': 'Ksha', 'क्षा': 'Kshaa', 'क्ष्': 'Ksh', 'त्र': 'Tra', 'त्रा': 'Traa', 'त्रि': 'Tri', 'त्र्': 'Tr',
+                'ज्ञ': 'Gya', 'ज्ञा': 'Gyaa', 'श्र': 'Shra', 'श्रि': 'Shri',
+                'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ः': 'h', '्': '',
+                '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9', '०': '0',
+                'ं': 'n', 'ँ': 'n', '्': ''
             }
             
             raw_msg = rep['message']
-            for h_word, eng_word in hindi_transliteration_map.items():
-                raw_msg = raw_msg.replace(h_word, eng_word)
-                
-            safe_msg = raw_msg.encode('latin-1', 'replace').decode('latin-1')
+            translated_msg = ""
+            i = 0
+            while i < len(raw_msg):
+                matched = False
+                for length in [3, 2, 1]:
+                    if i + length <= len(raw_msg):
+                        chunk = raw_msg[i:i+length]
+                        if chunk in hindi_char_map:
+                            translated_msg += hindi_char_map[chunk]
+                            i += length
+                            matched = True
+                            break
+                if not matched:
+                    translated_msg += raw_msg[i]
+                    i += 1
+                    
+            safe_msg = translated_msg.encode('latin-1', 'replace').decode('latin-1')
             
-            # Multi cell background box for preview
-            y_start = pdf.get_y()
             pdf.set_font('Arial', '', 9)
             pdf.set_text_color(51, 65, 85)
             pdf.multi_cell(190, 5, safe_msg, border=1, fill=True)
@@ -449,12 +508,24 @@ if check_password():
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
                 clean_name = item["Name"]
-                for h_word, eng_word in hindi_transliteration_map.items():
-                    clean_name = clean_name.replace(h_word, eng_word)
-                safe_name = clean_name.encode('latin-1', 'replace').decode('latin-1')
+                translated_name = ""
+                i = 0
+                while i < len(clean_name):
+                    matched = False
+                    for length in [3, 2, 1]:
+                        if i + length <= len(clean_name):
+                            chunk = clean_name[i:i+length]
+                            if chunk in hindi_char_map:
+                                translated_name += hindi_char_map[chunk]
+                                i += length
+                                matched = True
+                                break
+                    if not matched:
+                        translated_name += clean_name[i]
+                        i += 1
+                safe_name = translated_name.encode('latin-1', 'replace').decode('latin-1')
                 safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
                 
-                # Alternate row coloring for luxurious look
                 if idx % 2 == 0:
                     pdf.set_fill_color(241, 245, 249)
                 else:
