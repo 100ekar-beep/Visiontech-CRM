@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from supabase import create_client, Client
 
 # --- PAGE CONFIGURATION (Premium UI) ---
@@ -85,10 +86,10 @@ if check_password():
             st.error("⚠️ Supabase connection fail. Kripya secrets.toml check karein.")
 
     with col2:
-        # YAHAN CHANGE KIYA HAI: File uploader ki jagah Public URL link box diya hai
-        st.markdown("### 📎 2. Attach Photo / PDF Link (Optional)")
-        media_url = st.text_input("Apni Image/PDF ka Public URL (Link) yahan paste karein:", placeholder="https://example.com/photo.jpg")
-        st.caption("⚠️ WhatsApp API me direct file nahi jati, yahan image/pdf ka public internet link daalna zaroori hai.")
+        # YAHAN WAPAS UPLOAD BUTTON LAGA DIYA HAI
+        st.markdown("### 📎 2. Attach Photo / PDF (Optional)")
+        attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf"])
+        st.caption("✅ Aapki file automatically internet par upload ho kar link ban jayegi.")
 
     st.markdown("---")
 
@@ -103,7 +104,6 @@ if check_password():
     def clear_message():
         st.session_state["msg_key"] = ""
 
-    # 4 & 5. Edit Your Message (With Inline Clear Button)
     head_col1, head_col2 = st.columns([4, 1])
     with head_col1:
         st.markdown("### ✏️ 4 & 5. Edit Your Message")
@@ -149,6 +149,29 @@ if check_password():
             st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... Please wait.")
             
             if supabase:
+                # --- NEW AUTO-URL GENERATOR LOGIC ---
+                media_url = ""
+                if attachment:
+                    with st.spinner("⏳ File ko Supabase par upload karke Auto-Link banaya ja raha hai..."):
+                        try:
+                            # Unique naam banana taaki purani file se clash na ho
+                            file_ext = attachment.name.split('.')[-1]
+                            unique_filename = f"{int(time.time())}.{file_ext}"
+                            
+                            # Supabase me upload karna
+                            supabase.storage.from_("whatsapp_media").upload(
+                                unique_filename,
+                                attachment.getvalue(),
+                                {"content-type": attachment.type}
+                            )
+                            # Public URL nikalna
+                            media_url = supabase.storage.from_("whatsapp_media").get_public_url(unique_filename)
+                            st.toast("✅ File Upload Success!")
+                        except Exception as e:
+                            st.error(f"🚨 File upload fail ho gaya: {e}")
+                            st.warning("👉🏻 Kripya dhyaan dein: Kya aapne Supabase me 'whatsapp_media' naam ka PUBLIC bucket banaya hai?")
+                            st.stop()  # Agar upload fail ho toh message bhejna rok dega
+
                 contact_data = supabase.table("whatsapp_contacts").select("contact_name, mobile_number").eq("list_name", selected_list).eq("is_active", True).execute()
                 contacts_list = contact_data.data
                 
@@ -177,9 +200,9 @@ if check_password():
                         }
                     }
                     
-                    # YAHAN CHANGE KIYA HAI: Agar media link diya hai toh API payload me jod do
-                    if media_url.strip():
-                        payload["template"]["headerValues"] = [media_url.strip()]
+                    # Agar Auto-Link ban gaya hai, toh Interakt API ko de do
+                    if media_url:
+                        payload["template"]["headerValues"] = [media_url]
                     
                     # --- LIVE INTERAKT API CALL ---
                     try:
