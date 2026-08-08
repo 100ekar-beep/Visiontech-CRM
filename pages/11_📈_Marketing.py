@@ -424,7 +424,6 @@ if check_password():
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
             
-            # Robust Phonetic Hindi to Roman Mapping for Professional PDF readability
             hindi_char_map = {
                 'आ': 'Aa', 'अ': 'A', 'इ': 'I', 'ई': 'Ee', 'उ': 'U', 'ऊ': 'Oo', 'ए': 'E', 'ऐ': 'Ai', 'ओ': 'O', 'औ': 'Au',
                 'क': 'Ka', 'का': 'Kaa', 'कि': 'Ki', 'की': 'Kee', 'कु': 'Ku', 'कू': 'Koo', 'के': 'Ke', 'कै': 'Kai', 'को': 'Ko', 'कौ': 'Kau', 'कं': 'Kam', 'क्': 'K',
