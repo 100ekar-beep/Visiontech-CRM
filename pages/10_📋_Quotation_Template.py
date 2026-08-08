@@ -136,14 +136,14 @@ else:
 if 'templates_df' not in st.session_state:
     st.session_state.templates_df = fetch_templates()
 
-# --- 5. TEMPLATE DIALOG (FIXED FOR DISAPPEARING ROWS) ---
+# --- 5. TEMPLATE DIALOG (FIXED FOR DISAPPEARING ROWS & NAME ERROR) ---
 @st.dialog("📋 Quotation Template Builder", width="large")
 def template_dialog(template_data=None):
     st.caption("Configure items for this quotation template")
     
     is_new = template_data is None
     
-    # 🌟 FIX: Clean session keys when creating a brand new template so it appears blank
+    # Clean session keys when creating a brand new template so it appears blank
     if is_new:
         if "builder_items_df" in st.session_state:
             del st.session_state["builder_items_df"]
@@ -155,11 +155,15 @@ def template_dialog(template_data=None):
     tpl_name = st.text_input("QUOTATION TEMPLATE NAME *", value=default_name, key="template_name_input")
     
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="modal-section-title">📂 Template Items</div>', unsafe_allow_html=True)
+    
+    # 🌟 FIX: Add Columns for Title and Add Button to resolve the NameError
+    col_list_title, col_add_btn = st.columns([8, 2])
+    with col_list_title:
+        st.markdown('<div class="modal-section-title" style="margin-top:0;">📂 Template Items</div>', unsafe_allow_html=True)
     
     if "builder_items_df" not in st.session_state:
         if is_new:
-            # FIX: Initialize with empty string to force correct dtypes and prevent None/NaN inference
+            # Initialize with empty string to force correct dtypes and prevent None/NaN inference
             st.session_state.builder_items_df = pd.DataFrame([{"Item Code": "", "Description": "", "Qty": 1, "Price": 0}])
         else:
             try:
@@ -205,7 +209,7 @@ def template_dialog(template_data=None):
                         for col, val in changes.items():
                             curr_df.at[idx, col] = val
                         
-                        # 🌟 FIX: DO NOT .strip() the value from 'changes'. Store it exactly as it matches the options list!
+                        # DO NOT .strip() the value from 'changes'. Store it exactly as it matches the options list!
                         if "Item Code" in changes:
                             disp = changes["Item Code"]
                             if pd.notna(disp) and disp != "":
@@ -218,7 +222,7 @@ def template_dialog(template_data=None):
                                     curr_df.at[idx, "Price"] = code_to_price[disp]
             if adds:
                 for row in adds:
-                    # FIX: Use empty string "" instead of None to prevent pandas dtype conversion issues
+                    # Use empty string "" instead of None to prevent pandas dtype conversion issues
                     new_row = {"Item Code": "", "Description": "", "Qty": 1, "Price": 0}
                     if "Item Code" in row and pd.notna(row["Item Code"]):
                         disp = row["Item Code"]
@@ -251,7 +255,7 @@ def template_dialog(template_data=None):
 
     with col_add_btn:
         if st.button("➕ Add New Row", use_container_width=True):
-            # FIX: Initialize with empty string "" instead of None
+            # Initialize with empty string "" instead of None
             new_item = pd.DataFrame([{"Item Code": "", "Description": "", "Qty": 1, "Price": 0}])
             st.session_state.builder_items_df = pd.concat([st.session_state.builder_items_df, new_item], ignore_index=True)
             st.rerun()
