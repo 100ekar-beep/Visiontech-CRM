@@ -113,17 +113,20 @@ def fetch_templates():
 
 df_items = fetch_item_master()
 if not df_items.empty:
-    df_items["Description"] = df_items["Description"].fillna("")
-    df_items["Display"] = df_items["Item Code"].astype(str) + " | " + df_items["Description"].astype(str)
+    df_items["Item Code"] = df_items["Item Code"].astype(str).str.strip()
+    df_items["Description"] = df_items["Description"].fillna("").astype(str).str.strip()
+    df_items["Display"] = df_items["Item Code"] + " | " + df_items["Description"]
+    
     item_display_list = df_items["Display"].tolist()
-    item_code_list = df_items["Item Code"].astype(str).tolist()
+    item_code_list = df_items["Item Code"].tolist()
+    combined_item_options = list(dict.fromkeys(item_display_list + item_code_list))
+    
     display_to_desc = dict(zip(df_items["Display"], df_items["Description"]))
     display_to_price = dict(zip(df_items["Display"], df_items["Price"]))
-    code_to_desc = dict(zip(df_items["Item Code"].astype(str), df_items["Description"]))
-    code_to_price = dict(zip(df_items["Item Code"].astype(str), df_items["Price"]))
+    code_to_desc = dict(zip(df_items["Item Code"], df_items["Description"]))
+    code_to_price = dict(zip(df_items["Item Code"], df_items["Price"]))
 else:
-    item_display_list = []
-    item_code_list = []
+    combined_item_options = []
     display_to_desc = {}
     display_to_price = {}
     code_to_desc = {}
@@ -132,13 +135,14 @@ else:
 if 'templates_df' not in st.session_state:
     st.session_state.templates_df = fetch_templates()
 
-# --- 5. TEMPLATE DIALOG ---
+# --- 5. TEMPLATE DIALOG (FIXED FOR BLANK FORM ON NEW) ---
 @st.dialog("📋 Quotation Template Builder", width="large")
 def template_dialog(template_data=None):
     st.caption("Configure items for this quotation template")
     
     is_new = template_data is None
     
+    # 🌟 FIX 1: Clean session keys when creating a brand new template so it appears blank
     if is_new:
         if "builder_items_df" in st.session_state:
             del st.session_state["builder_items_df"]
@@ -158,7 +162,27 @@ def template_dialog(template_data=None):
         else:
             try:
                 raw_items = json.loads(template_data["Items Data"]) if isinstance(template_data["Items Data"], str) else template_data["Items Data"]
-                st.session_state.builder_items_df = pd.DataFrame(raw_items)
+                loaded_rows = []
+                for ri in raw_items:
+                    code_val = str(ri.get("Item Code", "")).strip()
+                    desc_val = str(ri.get("Description", "")).strip()
+                    qty_val = int(ri.get("Qty", 1))
+                    price_val = int(ri.get("Price", 0))
+                    
+                    # Ensure full display string loads so dropdown doesn't blank out
+                    disp_str = code_val
+                    if code_val in code_to_desc:
+                        disp_str = f"{code_val} | {code_to_desc[code_val]}"
+                    elif desc_val:
+                        disp_str = f"{code_val} | {desc_val}"
+                        
+                    loaded_rows.append({
+                        "Item Code": disp_str,
+                        "Description": desc_val,
+                        "Qty": qty_val,
+                        "Price": price_val
+                    })
+                st.session_state.builder_items_df = pd.DataFrame(loaded_rows)
             except:
                 st.session_state.builder_items_df = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price"])
 
@@ -178,35 +202,29 @@ def template_dialog(template_data=None):
                     if idx < len(curr_df):
                         for col, val in changes.items():
                             curr_df.at[idx, col] = val
+                        
+                        # 🌟 FIX 2: Keep the display format in UI state so it doesn't disappear
                         if "Item Code" in changes:
-                            disp = str(changes["Item Code"])
-                            if " | " in disp:
-                                code_only = disp.split(" | ")[0].strip()
-                                curr_df.at[idx, "Item Code"] = code_only
-                                if disp in display_to_desc:
-                                    curr_df.at[idx, "Description"] = display_to_desc[disp]
-                                    curr_df.at[idx, "Price"] = display_to_price[disp]
-                            else:
-                                curr_df.at[idx, "Item Code"] = disp
-                                if disp in code_to_desc:
-                                    curr_df.at[idx, "Description"] = code_to_desc[disp]
-                                    curr_df.at[idx, "Price"] = code_to_price[disp]
+                            disp = str(changes["Item Code"]).strip()
+                            curr_df.at[idx, "Item Code"] = disp
+                            if disp in display_to_desc:
+                                curr_df.at[idx, "Description"] = display_to_desc[disp]
+                                curr_df.at[idx, "Price"] = display_to_price[disp]
+                            elif disp in code_to_desc:
+                                curr_df.at[idx, "Description"] = code_to_desc[disp]
+                                curr_df.at[idx, "Price"] = code_to_price[disp]
             if adds:
                 for row in adds:
                     new_row = {"Item Code": row.get("Item Code"), "Description": "", "Qty": 1, "Price": 0}
                     if "Item Code" in row and pd.notna(row["Item Code"]):
-                        disp = str(row["Item Code"])
-                        if " | " in disp:
-                            code_only = disp.split(" | ")[0].strip()
-                            new_row["Item Code"] = code_only
-                            if disp in display_to_desc:
-                                new_row["Description"] = display_to_desc[disp]
-                                new_row["Price"] = display_to_price[disp]
-                        else:
-                            new_row["Item Code"] = disp
-                            if disp in code_to_desc:
-                                new_row["Description"] = code_to_desc[disp]
-                                new_row["Price"] = code_to_price[disp]
+                        disp = str(row["Item Code"]).strip()
+                        new_row["Item Code"] = disp
+                        if disp in display_to_desc:
+                            new_row["Description"] = display_to_desc[disp]
+                            new_row["Price"] = display_to_price[disp]
+                        elif disp in code_to_desc:
+                            new_row["Description"] = code_to_desc[disp]
+                            new_row["Price"] = code_to_price[disp]
                     curr_df = pd.concat([curr_df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.builder_items_df = curr_df
             del st.session_state[editor_widget_key]
@@ -219,7 +237,7 @@ def template_dialog(template_data=None):
         hide_index=True,
         height=350,
         column_config={
-            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=item_code_list, required=True, width="medium"),
+            "Item Code": st.column_config.SelectboxColumn("MATERIAL ITEM", options=combined_item_options, required=True, width="medium"),
             "Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
             "Qty": st.column_config.NumberColumn("QTY", min_value=0, default=1, format="%d", alignment="center", width="small"),
             "Price": st.column_config.NumberColumn("PRICE", min_value=0, format="₹ %d", alignment="center", width="small")
@@ -236,6 +254,7 @@ def template_dialog(template_data=None):
         items_list = []
         for _, r in edited_df.iterrows():
             if pd.notna(r["Item Code"]) and str(r["Item Code"]).strip() != "":
+                # 🌟 ONLY STRIP THE DISPLAY NAME INTO ACTUAL ITEM CODE WHEN SAVING TO DB
                 clean_code = str(r["Item Code"]).split(" | ")[0].strip()
                 items_list.append({
                     "Item Code": clean_code,
@@ -259,6 +278,8 @@ def template_dialog(template_data=None):
             st.session_state.templates_df = fetch_templates()
             if "builder_items_df" in st.session_state:
                 del st.session_state["builder_items_df"]
+            if "template_name_input" in st.session_state:
+                del st.session_state["template_name_input"]
             st.success("✅ Template Saved Successfully!")
             st.rerun()
         except Exception as e:
