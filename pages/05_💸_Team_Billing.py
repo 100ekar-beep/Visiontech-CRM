@@ -81,8 +81,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -199,7 +216,8 @@ def team_invoice_dialog(row_data=None):
     is_duplicate = False
     if inv_no:
         try:
-            dup_res = supabase.table("billing_invoices").select("id").eq("invoice_no", inv_no).execute()
+            ws_active = st.session_state.get('active_workspace', 'VISPL')
+            dup_res = supabase.table("billing_invoices").select("id").eq("workspace", ws_active).eq("invoice_no", inv_no).execute()
             if dup_res.data:
                 if is_new:
                     is_duplicate = True
@@ -208,7 +226,7 @@ def team_invoice_dialog(row_data=None):
                         is_duplicate = True
             
             if is_duplicate:
-                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in VISPL CRM.</span>", unsafe_allow_html=True)
+                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in CRM.</span>", unsafe_allow_html=True)
         except Exception:
             pass
 
@@ -255,6 +273,7 @@ def team_invoice_dialog(row_data=None):
             st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
+                "workspace": st.session_state.get('active_workspace', 'VISPL'),
                 "invoice_type": "Team",
                 "team_name": team_val,
                 "amount": total_calc,
@@ -317,7 +336,8 @@ def vendor_invoice_dialog(row_data=None):
     is_duplicate = False
     if inv_no:
         try:
-            dup_res = supabase.table("billing_invoices").select("id").eq("invoice_no", inv_no).execute()
+            ws_active = st.session_state.get('active_workspace', 'VISPL')
+            dup_res = supabase.table("billing_invoices").select("id").eq("workspace", ws_active).eq("invoice_no", inv_no).execute()
             if dup_res.data:
                 if is_new:
                     is_duplicate = True
@@ -326,7 +346,7 @@ def vendor_invoice_dialog(row_data=None):
                         is_duplicate = True
             
             if is_duplicate:
-                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in VISPL CRM.</span>", unsafe_allow_html=True)
+                st.markdown("<span style='color:#ef4444; font-weight:800; font-size:0.9rem;'>⚠️ This invoice number is already exist in CRM.</span>", unsafe_allow_html=True)
         except Exception:
             pass
 
@@ -373,6 +393,7 @@ def vendor_invoice_dialog(row_data=None):
             st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
+                "workspace": st.session_state.get('active_workspace', 'VISPL'),
                 "invoice_type": "Vendor",
                 "team_name": team_val,
                 "amount": total_calc,
@@ -446,6 +467,7 @@ def payment_dialog(row_data=None, mode="Team"):
         else:
             try:
                 payload = {
+                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "pay_from": pay_from,
                     "pay_to": pay_to,
                     "pay_type": pay_type,
@@ -495,7 +517,8 @@ with tab1:
     st.markdown("<br>", unsafe_allow_html=True)
 
     try:
-        inv_res = supabase.table("billing_invoices").select("*").order("id", desc=True).execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        inv_res = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
         if inv_res.data:
             df_inv = pd.DataFrame(inv_res.data)
             
@@ -601,7 +624,8 @@ with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
 
     try:
-        pay_res = supabase.table("billing_payments").select("*").order("id", desc=True).execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        pay_res = supabase.table("billing_payments").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
         if pay_res.data:
             df_pay = pd.DataFrame(pay_res.data)
             
@@ -680,8 +704,9 @@ with tab3:
         df_inv_rep, df_pay_rep = pd.DataFrame(), pd.DataFrame()
         
         try:
+            active_ws = st.session_state.get('active_workspace', 'VISPL')
             inv_col = "team_name" if rep_mode == "Team" else "vendor_name"
-            res_inv = supabase.table("billing_invoices").select("*").eq("invoice_type", rep_mode).eq(inv_col, sel_name).execute()
+            res_inv = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).eq("invoice_type", rep_mode).eq(inv_col, sel_name).execute()
             if res_inv.data:
                 df_inv_rep = pd.DataFrame(res_inv.data)
                 tot_inv = df_inv_rep["amount"].sum()
@@ -706,7 +731,7 @@ with tab3:
                 if "Invoice Date" in df_inv_rep.columns:
                     df_inv_rep["Invoice Date"] = pd.to_datetime(df_inv_rep["Invoice Date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
-            res_pay = supabase.table("billing_payments").select("*").eq("mode", rep_mode).eq("pay_to", sel_name).execute()
+            res_pay = supabase.table("billing_payments").select("*").eq("workspace", active_ws).eq("mode", rep_mode).eq("pay_to", sel_name).execute()
             if res_pay.data:
                 df_pay_rep = pd.DataFrame(res_pay.data)
                 tot_pay = df_pay_rep["amount"].sum()
