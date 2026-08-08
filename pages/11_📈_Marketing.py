@@ -4,10 +4,50 @@ import time
 from supabase import create_client, Client
 from fpdf import FPDF
 import base64
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
+
+# --- LAVISH COLORFUL CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    
+    /* Top Action Buttons & Primary Buttons Styling */
+    div.stButton > button {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+        color: white !important;
+        border: none;
+        border-radius: 8px;
+        font-weight: 800 !important;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+    }
+    
+    /* Colorful Metric Cards */
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    [data-testid="stMetricLabel"] {
+        color: #94a3b8 !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #38bdf8 !important;
+        font-weight: 800 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- SUPABASE CONNECTION ---
 @st.cache_resource
@@ -56,17 +96,17 @@ def check_password():
 
 if check_password():
     
-    # --- SIDEBAR LOGIC (Styled with Side Navigation look & Logout button) ---
+    # --- SIDEBAR LOGIC ---
     with st.sidebar:
         st.markdown("### ⚙️ Quick Actions")
         if st.button("🚪 Logout", use_container_width=True, type="primary"):
             st.session_state["password_correct"] = False
             st.rerun()
 
-    # Premium Header with Top Clear Button Option
+    # Premium Colorful Header with Top Clear Button Option
     head_title_col, head_btn_col = st.columns([5, 1])
     with head_title_col:
-        st.markdown("<h1 style='text-align: left; color: #1f77b4; margin: 0;'>🚀 WhatsApp Marketing Sender</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: left; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;'>🚀 WhatsApp Marketing Sender</h1>", unsafe_allow_html=True)
     with head_btn_col:
         if st.button("🧹 Clear Page", use_container_width=True, type="primary"):
             for key in list(st.session_state.keys()):
@@ -156,7 +196,9 @@ if check_password():
         elif not selected_list:
             st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
         else:
-            current_dt_str = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+            # IST (Indian Standard Time, UTC+5:30) Accurate Timestamp
+            ist_offset = timezone(timedelta(hours=5, minutes=30))
+            current_dt_str = datetime.now(ist_offset).strftime("%d-%m-%Y %H:%M:%S")
             st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... ({current_dt_str}) Please wait.")
             
             if supabase:
@@ -315,39 +357,8 @@ if check_password():
             pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
             pdf.set_font('Arial', '', 9)
             
-            # Transliteration/safe fallback map for standard fonts to preserve readability of Hindi messages in PDF report
-            hindi_transliteration_map = {
-                'आदरणीय': 'Aadarniy', 'सादर': 'Sadhar', 'जय': 'Jai', 'महेश': 'Mahesh',
-                'आगामी': 'Aagami', 'सत्र': 'Satr', 'के': 'ke', 'महासभा': 'Mahasabha',
-                'चुनाव': 'Chunaav', 'में': 'mein', 'हमें': 'hamein', 'ऐसे': 'aise',
-                'नेतृत्व': 'Netratva', 'चयन': 'Chayan', 'करना': 'karna', 'है': 'hai',
-                'जिसने': 'jisine', 'वर्षों': 'varsho', 'तक': 'tak', 'सेवा': 'seva',
-                'समर्पण': 'Samarpan', 'पारदर्शिता': 'Pardarshita', 'और': 'aur',
-                'परिणामों': 'Parinamo', 'साथ': 'saath', 'समाज': 'Samaj',
-                'विश्वास': 'Vishwas', 'अर्जित': 'Arjit', 'किया': 'kiya',
-                'टीम': 'Team', 'संदीप': 'Sandeep', 'काबरा': 'Kabra', 'सभी': 'sabhi',
-                'प्रत्याशी': 'Prathyashi', 'अनुभवी': 'Anubhavi', 'कर्मठ': 'Karmath',
-                'समाजहित': 'Samajhit', 'लिए': 'liye', 'पूर्णतः': 'Poornatah',
-                'समर्पित': 'Samarpit', 'आइए': 'Aaiye', 'एक': 'ek', 'सशक्त': 'Sashakt',
-                'सक्रिय': 'Sakriya', 'विकासशील': 'Vikasit', 'निर्माण': 'Nirman',
-                'हेतु': 'hetu', 'पुरी': 'poori', 'अपना': 'apna', 'अमूल्य': 'amulya',
-                'मत': 'mat', 'एवं': 'evam', 'समर्थन': 'samarthan', 'प्रदान': 'pradan',
-                'करें': 'karein', 'हमारा': 'hamara', 'प्रत्याशियों': 'prathyashiyo',
-                'सभापति': 'Sabapati', 'अजय': 'Ajay', 'महामंत्री': 'Mahamantri',
-                'नारायण': 'Narayan', 'राठी': 'Rathi', 'अर्थमंत्री': 'Arthamantri',
-                'विजय': 'Vijay', 'संगठन': 'Sangathan', 'मंत्री': 'Mantri',
-                'तथा': 'tatha', 'उपसभापति': 'Upsabapati', 'संयुक्त': 'Sanyukt',
-                'पद': 'pad', 'आपके': 'aapke', 'स्नेह': 'sneh', 'सहयोग': 'sahyog',
-                'आशीर्वाद': 'aashirwad', 'अभिलाषा': 'abhilasha', 'आपका': 'aapka',
-                'राजकुमार': 'Rajkumar', 'काल्या': 'Kalya', 'त्रिभुवन': 'Tribhuvan',
-                'धन्यवाद': 'Dhanyawad'
-            }
-            
-            raw_msg = rep['message']
-            for h_word, eng_word in hindi_transliteration_map.items():
-                raw_msg = raw_msg.replace(h_word, eng_word)
-                
-            safe_msg = raw_msg.encode('latin-1', 'replace').decode('latin-1')
+            # Using exact original Hindi text encoded safely without transliteration loss
+            safe_msg = rep['message'].encode('latin-1', 'replace').decode('latin-1')
             pdf.multi_cell(0, 5, safe_msg)
             pdf.ln(8)
             
@@ -362,10 +373,7 @@ if check_password():
             
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                clean_name = item["Name"]
-                for h_word, eng_word in hindi_transliteration_map.items():
-                    clean_name = clean_name.replace(h_word, eng_word)
-                safe_name = clean_name.encode('latin-1', 'replace').decode('latin-1')
+                safe_name = item["Name"].encode('latin-1', 'replace').decode('latin-1')
                 safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
                 
                 pdf.cell(15, 6, str(idx), 1, 0, 'C')
