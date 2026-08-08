@@ -309,8 +309,12 @@ if check_password():
             pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
             pdf.set_font('Arial', '', 9)
             
-            safe_msg = rep['message'].encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 5, safe_msg)
+            # Unicode clean fallback taaki PDF crash na ho aur question marks ke bajaye saaf text dikhe
+            clean_pdf_msg = rep['message'].encode('ascii', 'ignore').decode('ascii')
+            if not clean_pdf_msg.strip():
+                clean_pdf_msg = "[Hindi Text Content Sent via WhatsApp Template]"
+                
+            pdf.multi_cell(0, 5, clean_pdf_msg)
             pdf.ln(8)
             
             pdf.set_font('Arial', 'B', 12)
@@ -324,8 +328,10 @@ if check_password():
             
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                safe_name = item["Name"].encode('latin-1', 'replace').decode('latin-1')
-                safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
+                safe_name = item["Name"].encode('ascii', 'ignore').decode('ascii')
+                if not safe_name:
+                    safe_name = "Client Contact"
+                safe_status = item["Status"].encode('ascii', 'ignore').decode('ascii')
                 
                 pdf.cell(15, 6, str(idx), 1, 0, 'C')
                 pdf.cell(60, 6, safe_name, 1, 0, 'L')
