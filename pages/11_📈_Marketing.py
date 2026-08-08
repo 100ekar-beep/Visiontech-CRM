@@ -10,33 +10,52 @@ import os
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
 
-# --- LAVISH COLORFUL CUSTOM CSS (Including Text Area Dark Black Font Fix) ---
+# --- LAVISH COLORFUL CUSTOM CSS (All Text Bold & White + Input Box Fix) ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); font-family: 'Inter', sans-serif; }
     
+    /* ALL LABELS, HEADERS, PARAGRAPHS & SPANS BOLD AND WHITE */
+    .stApp label, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp li, div[data-testid="stMarkdownContainer"] > p, div[data-testid="stMetricLabel"] > label {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
+    
+    /* Ensure warning/info/success box text is also bold */
+    .stAlert p {
+        font-weight: 800 !important;
+    }
+
     /* Top Action Buttons & Primary Buttons Styling */
     div.stButton > button {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-        color: white !important;
         border: none;
         border-radius: 8px;
-        font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    div.stButton > button p, div.stButton > button span {
+        color: white !important;
+        font-weight: 800 !important;
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
     
-    /* FIX: Text Area Font Color Dark Black inside light background text box */
-    div[data-testid="stTextArea"] textarea {
+    /* FIX: Text Area & Inputs Font Color Dark Black inside light background text box */
+    div[data-testid="stTextArea"] textarea, div[data-testid="stTextInput"] input {
         color: #000000 !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
         background-color: #ffffff !important;
         -webkit-text-fill-color: #000000 !important;
+    }
+    
+    /* Keep Dropdown options text black and bold so it's readable */
+    div[data-baseweb="select"] * {
+        color: #000000 !important;
+        font-weight: 800 !important;
     }
 
     /* Colorful Metric Cards */
@@ -47,13 +66,9 @@ st.markdown("""
         border-radius: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    [data-testid="stMetricLabel"] {
-        color: #94a3b8 !important;
-        font-weight: 700 !important;
-    }
     [data-testid="stMetricValue"] {
         color: #38bdf8 !important;
-        font-weight: 800 !important;
+        font-weight: 900 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -154,57 +169,65 @@ if check_password():
     st.markdown("---")
 
     st.markdown("### 🗂️ 3. Select Interakt Template")
-    templates = ["Sample", "Text_Massage"] 
-    selected_template_name = st.selectbox("Template choose karein:", templates)
+    
+    # DYNAMIC TEMPLATE FETCHING FROM SUPABASE WITH MERGED DEFAULTS
+    template_data_dict = {"Sample": 2, "Text_Massage": 4} # Base Defaults
+    
+    if supabase:
+        try:
+            temp_resp = supabase.table("whatsapp_templates").select("template_name, variable_count").execute()
+            if temp_resp.data:
+                for row in temp_resp.data:
+                    template_data_dict[row["template_name"]] = row["variable_count"]
+        except Exception as e:
+            # Silently pass to fallback if RLS or query fails
+            pass
 
-    if "msg2_key" not in st.session_state:
-        st.session_state["msg2_key"] = ""
-    if "msg3_key" not in st.session_state:
-        st.session_state["msg3_key"] = ""
-    if "msg4_key" not in st.session_state:
-        st.session_state["msg4_key"] = ""
+    unique_templates = list(template_data_dict.keys())
+    selected_template_name = st.selectbox("Template choose karein:", unique_templates)
+    
+    # Get dynamic variable count for selected template
+    num_vars = int(template_data_dict.get(selected_template_name, 2))
+
+    # Initialize dynamic session states based on var count
+    for i in range(2, num_vars + 1):
+        if f"msg_var_{i}" not in st.session_state:
+            st.session_state[f"msg_var_{i}"] = ""
 
     def clear_message():
-        st.session_state["msg2_key"] = ""
-        st.session_state["msg3_key"] = ""
-        st.session_state["msg4_key"] = ""
+        for i in range(2, num_vars + 1):
+            st.session_state[f"msg_var_{i}"] = ""
 
     head_col1, head_col2 = st.columns([4, 1])
     with head_col1:
-        st.markdown("### ✏️ 4 & 5. Edit Your Message Paragraphs")
+        st.markdown("### ✏️ 4. Edit Your Message Variables")
     with head_col2:
         st.button("🧹 Clear Message", on_click=clear_message, use_container_width=True)
 
-    st.info("💡 Apne message ko niche alag-alag paragraphs (`{{2}}`, `{{3}}`, `{{4}}`) me enter karein.")
+    st.info(f"💡 Is template me **{num_vars} variables** hain. `{{{{1}}}}` naam ke liye fix hai, isliye niche {num_vars - 1} boxes diye gaye hain.")
 
-    msg_p1 = st.text_area("Paragraph 1 (Ye {{2}} me jayega):", height=80, key="msg2_key")
-    msg_p2 = st.text_area("Paragraph 2 (Ye {{3}} me jayega):", height=80, key="msg3_key")
-    msg_p3 = st.text_area("Paragraph 3 (Ye {{4}} me jayega):", height=80, key="msg4_key")
+    # DYNAMIC TEXT AREAS RENDERER
+    msg_inputs_list = []
+    for i in range(2, num_vars + 1):
+        val = st.text_area(f"Line/Paragraph for {{{{{i}}}}}:", height=80, key=f"msg_var_{i}")
+        msg_inputs_list.append(val)
 
     st.markdown("### 👁️ Final Message Preview:")
     st.caption("Aapka message WhatsApp par kuch is tarah dikhega (Example: 'Ramesh' ke liye):")
 
+    # Dynamic Preview Generator
+    dynamic_paragraphs = "\n\n".join(msg_inputs_list)
     preview_msg = f"""आदरणीय Ramesh,
-सादर जय महेश !
 
-{msg_p1}
+{dynamic_paragraphs}
 
-{msg_p2}
-
-{msg_p3}
-
-आपके स्नेह, सहयोग एवं आशीर्वाद की अभिलाषा में…
-आपका,
-राजकुमार काल्या
-टीम त्रिभुवन काबरा"""
+धन्यवाद/सादर।"""
 
     st.code(preview_msg, language="text")
     st.markdown("---")
 
     if st.button("📤 Send Message to All", use_container_width=True, type="primary"):
-        if not msg_p1.strip() and not msg_p2.strip():
-            st.warning("⚠️ Kripya kam se kam ek message box me kuch text likhein.")
-        elif not selected_list:
+        if not selected_list:
             st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
         else:
             ist_offset = timezone(timedelta(hours=5, minutes=30))
@@ -244,7 +267,9 @@ if check_password():
                     name = person['contact_name']
                     number = person['mobile_number']
                     
-                    # Interakt payload mapping for {{1}}, {{2}}, {{3}}, {{4}}
+                    # DYNAMIC BODY VALUES GENERATION
+                    final_body_values = [name] + [inp.strip() for inp in msg_inputs_list]
+                    
                     payload = {
                         "countryCode": "+91",
                         "phoneNumber": number.replace("91", "", 1) if number.startswith("91") else number,
@@ -252,12 +277,7 @@ if check_password():
                         "template": {
                             "name": selected_template_name.lower(),
                             "languageCode": "hi",
-                            "bodyValues": [
-                                name,              # {{1}}
-                                msg_p1.strip(),    # {{2}}
-                                msg_p2.strip(),    # {{3}}
-                                msg_p3.strip()     # {{4}}
-                            ]
+                            "bodyValues": final_body_values
                         }
                     }
                     
