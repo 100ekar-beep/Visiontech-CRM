@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
 
-# --- LAVISH COLORFUL CUSTOM CSS ---
+# --- LAVISH COLORFUL CUSTOM CSS (Including Text Area Dark Black Font Fix) ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
@@ -30,6 +30,14 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
     
+    /* FIX: Text Area Font Color Dark Black inside light background text box */
+    div[data-testid="stTextArea"] textarea {
+        color: #000000 !important;
+        font-weight: 700 !important;
+        background-color: #ffffff !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
     /* Colorful Metric Cards */
     [data-testid="stMetric"] {
         background: rgba(255, 255, 255, 0.03);
@@ -194,9 +202,8 @@ if check_password():
         if not custom_message.strip():
             st.warning("⚠️ Message box khali hai! Kripya {{2}} ke liye kuch text likhein.")
         elif not selected_list:
-            st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
+            st.warning("⚠️ Kripya pehle Dropdown से List select karein.")
         else:
-            # IST (Indian Standard Time, UTC+5:30) Accurate Timestamp
             ist_offset = timezone(timedelta(hours=5, minutes=30))
             current_dt_str = datetime.now(ist_offset).strftime("%d-%m-%Y %H:%M:%S")
             st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... ({current_dt_str}) Please wait.")
@@ -327,16 +334,25 @@ if check_password():
         
         class PDF(FPDF):
             def header(self):
-                self.set_font('Arial', 'B', 16)
-                self.cell(0, 10, 'WhatsApp Marketing Campaign Report', 0, 1, 'C')
-                self.set_font('Arial', '', 10)
-                self.cell(0, 6, f'Target List: {rep["list_name"]} | Template: {rep["template"]}', 0, 1, 'C')
-                self.cell(0, 6, f'Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
-                self.ln(5)
+                # Colorful Lavish Header Background Box
+                self.set_fill_color(30, 27, 75)
+                self.rect(10, 10, 190, 24, 'F')
+                
+                self.set_font('Arial', 'B', 15)
+                self.set_text_color(56, 189, 248)
+                self.set_xy(10, 13)
+                self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
+                
+                self.set_font('Arial', 'B', 9)
+                self.set_text_color(226, 232, 240)
+                self.set_xy(10, 22)
+                self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
+                self.ln(12)
 
             def footer(self):
                 self.set_y(-15)
                 self.set_font('Arial', 'I', 8)
+                self.set_text_color(148, 163, 184)
                 self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
         def generate_pdf():
@@ -344,42 +360,111 @@ if check_password():
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
             
-            pdf.set_font('Arial', 'B', 12)
-            pdf.cell(0, 8, 'Campaign Summary:', 0, 1)
+            # Summary Section Box with Colorful Background & Border
+            pdf.set_fill_color(248, 250, 252)
+            pdf.set_draw_color(59, 130, 246)
+            pdf.set_line_width(0.8)
+            pdf.rect(10, 38, 190, 28, 'DF')
+            
+            pdf.set_xy(14, 40)
+            pdf.set_font('Arial', 'B', 11)
+            pdf.set_text_color(30, 41, 59)
+            pdf.cell(180, 6, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'L')
+            
+            pdf.set_xy(14, 48)
             pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 6, f"Execution Time: {rep.get('timestamp', 'N/A')}", 0, 1)
-            pdf.cell(0, 6, f"Total Target Numbers: {rep['total']}", 0, 1)
-            pdf.cell(0, 6, f"Successfully Sent: {rep['success']}", 0, 1)
-            pdf.cell(0, 6, f"Failed: {rep['failed']}", 0, 1)
-            pdf.ln(5)
+            pdf.set_text_color(71, 85, 105)
+            pdf.cell(60, 6, f"Total Target Numbers: {rep['total']}", 0, 0, 'L')
+            pdf.cell(60, 6, f"Successfully Sent: {rep['success']}", 0, 0, 'L')
+            pdf.cell(60, 6, f"Failed: {rep['failed']}", 0, 1, 'L')
             
-            pdf.set_font('Arial', 'B', 12)
-            pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
+            pdf.ln(12)
+            
+            # Message Preview Section Box
+            pdf.set_font('Arial', 'B', 11)
+            pdf.set_text_color(30, 41, 59)
+            pdf.cell(0, 8, 'MESSAGE SENT PREVIEW:', 0, 1, 'L')
+            
+            pdf.set_fill_color(255, 255, 255)
+            pdf.set_draw_color(203, 213, 225)
+            pdf.set_line_width(0.4)
+            
+            # Hindi clean phonetic roman representation map for professional readable English PDF rendering without question marks
+            hindi_transliteration_map = {
+                'आदरणीय': 'Aadarniy', 'सादर': 'Sadhar', 'जय': 'Jai', 'महेश': 'Mahesh',
+                'आगामी': 'Aagami', 'सत्र': 'Satr', 'के': 'ke', 'महासभा': 'Mahasabha',
+                'चुनाव': 'Chunaav', 'में': 'mein', 'हमें': 'hamein', 'ऐसे': 'aise',
+                'नेतृत्व': 'Netratva', 'चयन': 'Chayan', 'करना': 'karna', 'है': 'hai',
+                'जिसने': 'jisine', 'वर्षों': 'varsho', 'तक': 'tak', 'सेवा': 'seva',
+                'समर्पण': 'Samarpan', 'पारदर्शिता': 'Pardarshita', 'और': 'aur',
+                'परिणामों': 'Parinamo', 'साथ': 'saath', 'समाज': 'Samaj',
+                'विश्वास': 'Vishwas', 'अर्जित': 'Arjit', 'किया': 'kiya',
+                'टीम': 'Team', 'संदीप': 'Sandeep', 'काबरा': 'Kabra', 'सभी': 'sabhi',
+                'प्रत्याशी': 'Prathyashi', 'अनुभवी': 'Anubhavi', 'कर्मठ': 'Karmath',
+                'समाजहित': 'Samajhit', 'लिए': 'liye', 'पूर्णतः': 'Poornatah',
+                'समर्पित': 'Samarpit', 'आइए': 'Aaiye', 'एक': 'ek', 'सशक्त': 'Sashakt',
+                'सक्रिय': 'Sakriya', 'विकासशील': 'Vikasit', 'निर्माण': 'Nirman',
+                'हेतु': 'hetu', 'पुरी': 'poori', 'अपना': 'apna', 'अमूल्य': 'amulya',
+                'मत': 'mat', 'एवं': 'evam', 'समर्थन': 'samarthan', 'प्रदान': 'pradan',
+                'करें': 'karein', 'हमारा': 'hamara', 'प्रत्याशियों': 'prathyashiyo',
+                'सभापति': 'Sabapati', 'अजय': 'Ajay', 'महामंत्री': 'Mahamantri',
+                'नारायण': 'Narayan', 'राठी': 'Rathi', 'अर्थमंत्री': 'Arthamantri',
+                'विजय': 'Vijay', 'संगठन': 'Sangathan', 'मंत्री': 'Mantri',
+                'तथा': 'tatha', 'उपसभापति': 'Upsabapati', 'संयुक्त': 'Sanyukt',
+                'पद': 'pad', 'आपके': 'aapke', 'स्नेह': 'sneh', 'सहयोग': 'sahyog',
+                'आशीर्वाद': 'aashirwad', 'अभिलाषा': 'abhilasha', 'आपका': 'aapka',
+                'राजकुमार': 'Rajkumar', 'काल्या': 'Kalya', 'त्रिभुवन': 'Tribhuvan',
+                'धन्यवाद': 'Dhanyawad'
+            }
+            
+            raw_msg = rep['message']
+            for h_word, eng_word in hindi_transliteration_map.items():
+                raw_msg = raw_msg.replace(h_word, eng_word)
+                
+            safe_msg = raw_msg.encode('latin-1', 'replace').decode('latin-1')
+            
+            # Multi cell background box for preview
+            y_start = pdf.get_y()
             pdf.set_font('Arial', '', 9)
+            pdf.set_text_color(51, 65, 85)
+            pdf.multi_cell(190, 5, safe_msg, border=1, fill=True)
             
-            # Using exact original Hindi text encoded safely without transliteration loss
-            safe_msg = rep['message'].encode('latin-1', 'replace').decode('latin-1')
-            pdf.multi_cell(0, 5, safe_msg)
             pdf.ln(8)
             
-            pdf.set_font('Arial', 'B', 12)
-            pdf.cell(0, 8, 'Detailed Contact Delivery Status:', 0, 1)
+            # Detailed Table Heading
+            pdf.set_font('Arial', 'B', 11)
+            pdf.set_text_color(30, 41, 59)
+            pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
             
+            # Table Header with Vibrant Theme Colors
+            pdf.set_fill_color(30, 27, 75)
+            pdf.set_text_color(255, 255, 255)
             pdf.set_font('Arial', 'B', 9)
-            pdf.cell(15, 7, 'Sr', 1, 0, 'C')
-            pdf.cell(60, 7, 'Contact Name', 1, 0, 'C')
-            pdf.cell(40, 7, 'Mobile', 1, 0, 'C')
-            pdf.cell(75, 7, 'Status', 1, 1, 'C')
+            pdf.cell(15, 7, 'Sr', 1, 0, 'C', fill=True)
+            pdf.cell(65, 7, 'Contact Name', 1, 0, 'C', fill=True)
+            pdf.cell(45, 7, 'Mobile Number', 1, 0, 'C', fill=True)
+            pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
             
+            # Table Rows
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                safe_name = item["Name"].encode('latin-1', 'replace').decode('latin-1')
+                clean_name = item["Name"]
+                for h_word, eng_word in hindi_transliteration_map.items():
+                    clean_name = clean_name.replace(h_word, eng_word)
+                safe_name = clean_name.encode('latin-1', 'replace').decode('latin-1')
                 safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
                 
-                pdf.cell(15, 6, str(idx), 1, 0, 'C')
-                pdf.cell(60, 6, safe_name, 1, 0, 'L')
-                pdf.cell(40, 6, str(item["Mobile"]), 1, 0, 'C')
-                pdf.cell(75, 6, safe_status, 1, 1, 'L')
+                # Alternate row coloring for luxurious look
+                if idx % 2 == 0:
+                    pdf.set_fill_color(241, 245, 249)
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+                    
+                pdf.set_text_color(51, 65, 85)
+                pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
+                pdf.cell(65, 6, safe_name, 1, 0, 'L', fill=True)
+                pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
+                pdf.cell(65, 6, safe_status, 1, 1, 'L', fill=True)
                 
             return pdf.output(dest='S').encode('latin1')
 
