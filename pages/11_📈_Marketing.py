@@ -100,9 +100,9 @@ if check_password():
 
     st.markdown("---")
 
-    # 3. Select Interakt Template
+    # 3. Select Interakt Template (Yahan Naya Template Add Kiya Hai)
     st.markdown("### 🗂️ 3. Select Interakt Template")
-    templates = ["Sample"] 
+    templates = ["Sample", "Text_Massage"] 
     selected_template_name = st.selectbox("Template choose karein:", templates)
 
     # 4 & 5. Edit Your Message
@@ -114,15 +114,25 @@ if check_password():
         height=150
     )
 
-    # --- PREVIEW SECTION ---
+    # --- PREVIEW SECTION (Dynamic Template Logic Lagaya Hai) ---
     st.markdown("### 👁️ Final Message Preview:")
     st.caption("Aapka message WhatsApp par kuch is tarah dikhega (Example: 'Ramesh' ke liye):")
 
-    preview_msg = f"""आदरणीय Ramesh,
+    if selected_template_name == "Sample":
+        preview_msg = f"""आदरणीय Ramesh,
 
 {custom_message}
 धन्यवाद।
 राजकुमार काल्या"""
+    elif selected_template_name == "Text_Massage":
+        preview_msg = f"""आदरणीय Ramesh,
+सादर जय महेश !
+
+{custom_message}
+
+आपके स्नेह, सहयोग एवं आशीर्वाद की अभिलाषा में…
+आपका
+राजकुमार काल्याटीम त्रिभुवन काबरा"""
 
     # Preview box design
     st.code(preview_msg, language="text")
@@ -150,13 +160,13 @@ if check_password():
                     name = person['contact_name']
                     number = person['mobile_number']
                     
-                    # --- INTERAKT API PAYLOAD ---
+                    # --- INTERAKT API PAYLOAD (Dropdown Logic Yahan Set Kiya Hai) ---
                     payload = {
                         "countryCode": "+91",
                         "phoneNumber": number.replace("91", "", 1) if number.startswith("91") else number,
                         "type": "Template",
                         "template": {
-                            "name": "Sample",
+                            "name": selected_template_name,
                             "languageCode": "hi",
                             "bodyValues": [
                                 name,           
