@@ -4,6 +4,7 @@ import time
 from supabase import create_client, Client
 from fpdf import FPDF
 import base64
+from datetime import datetime
 
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
@@ -55,7 +56,7 @@ def check_password():
 
 if check_password():
     
-    # --- SIDEBAR LOGIC ---
+    # --- SIDEBAR LOGIC (Styled with Side Navigation look & Logout button) ---
     with st.sidebar:
         st.markdown("### ⚙️ Quick Actions")
         if st.button("🚪 Logout", use_container_width=True, type="primary"):
@@ -155,7 +156,8 @@ if check_password():
         elif not selected_list:
             st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
         else:
-            st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... Please wait.")
+            current_dt_str = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+            st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... ({current_dt_str}) Please wait.")
             
             if supabase:
                 media_url = ""
@@ -234,6 +236,7 @@ if check_password():
                     "list_name": selected_list,
                     "template": selected_template_name,
                     "message": preview_msg,
+                    "timestamp": current_dt_str,
                     "total": len(contacts_list),
                     "success": success_count,
                     "failed": error_count,
@@ -257,6 +260,7 @@ if check_password():
         
         st.markdown("---")
         st.markdown("<h2>📊 Live Campaign Execution Report</h2>", unsafe_allow_html=True)
+        st.markdown(f"**Execution Date & Time:** {rep.get('timestamp', 'N/A')}")
         
         m_col1, m_col2, m_col3 = st.columns(3)
         with m_col1:
@@ -285,6 +289,7 @@ if check_password():
                 self.cell(0, 10, 'WhatsApp Marketing Campaign Report', 0, 1, 'C')
                 self.set_font('Arial', '', 10)
                 self.cell(0, 6, f'Target List: {rep["list_name"]} | Template: {rep["template"]}', 0, 1, 'C')
+                self.cell(0, 6, f'Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
                 self.ln(5)
 
             def footer(self):
@@ -300,6 +305,7 @@ if check_password():
             pdf.set_font('Arial', 'B', 12)
             pdf.cell(0, 8, 'Campaign Summary:', 0, 1)
             pdf.set_font('Arial', '', 10)
+            pdf.cell(0, 6, f"Execution Time: {rep.get('timestamp', 'N/A')}", 0, 1)
             pdf.cell(0, 6, f"Total Target Numbers: {rep['total']}", 0, 1)
             pdf.cell(0, 6, f"Successfully Sent: {rep['success']}", 0, 1)
             pdf.cell(0, 6, f"Failed: {rep['failed']}", 0, 1)
@@ -309,12 +315,40 @@ if check_password():
             pdf.cell(0, 8, 'Message Sent Preview:', 0, 1)
             pdf.set_font('Arial', '', 9)
             
-            # Unicode clean fallback taaki PDF crash na ho aur question marks ke bajaye saaf text dikhe
-            clean_pdf_msg = rep['message'].encode('ascii', 'ignore').decode('ascii')
-            if not clean_pdf_msg.strip():
-                clean_pdf_msg = "[Hindi Text Content Sent via WhatsApp Template]"
+            # Transliteration/safe fallback map for standard fonts to preserve readability of Hindi messages in PDF report
+            hindi_transliteration_map = {
+                'आदरणीय': 'Aadarniy', 'सादर': 'Sadhar', 'जय': 'Jai', 'महेश': 'Mahesh',
+                'आगामी': 'Aagami', 'सत्र': 'Satr', 'के': 'ke', 'महासभा': 'Mahasabha',
+                'चुनाव': 'Chunaav', 'में': 'mein', 'हमें': 'hamein', 'ऐसे': 'aise',
+                'नेतृत्व': 'Netratva', 'चयन': 'Chayan', 'करना': 'karna', 'है': 'hai',
+                'जिसने': 'jisine', 'वर्षों': 'varsho', 'तक': 'tak', 'सेवा': 'seva',
+                'समर्पण': 'Samarpan', 'पारदर्शिता': 'Pardarshita', 'और': 'aur',
+                'परिणामों': 'Parinamo', 'साथ': 'saath', 'समाज': 'Samaj',
+                'विश्वास': 'Vishwas', 'अर्जित': 'Arjit', 'किया': 'kiya',
+                'टीम': 'Team', 'संदीप': 'Sandeep', 'काबरा': 'Kabra', 'सभी': 'sabhi',
+                'प्रत्याशी': 'Prathyashi', 'अनुभवी': 'Anubhavi', 'कर्मठ': 'Karmath',
+                'समाजहित': 'Samajhit', 'लिए': 'liye', 'पूर्णतः': 'Poornatah',
+                'समर्पित': 'Samarpit', 'आइए': 'Aaiye', 'एक': 'ek', 'सशक्त': 'Sashakt',
+                'सक्रिय': 'Sakriya', 'विकासशील': 'Vikasit', 'निर्माण': 'Nirman',
+                'हेतु': 'hetu', 'पुरी': 'poori', 'अपना': 'apna', 'अमूल्य': 'amulya',
+                'मत': 'mat', 'एवं': 'evam', 'समर्थन': 'samarthan', 'प्रदान': 'pradan',
+                'करें': 'karein', 'हमारा': 'hamara', 'प्रत्याशियों': 'prathyashiyo',
+                'सभापति': 'Sabapati', 'अजय': 'Ajay', 'महामंत्री': 'Mahamantri',
+                'नारायण': 'Narayan', 'राठी': 'Rathi', 'अर्थमंत्री': 'Arthamantri',
+                'विजय': 'Vijay', 'संगठन': 'Sangathan', 'मंत्री': 'Mantri',
+                'तथा': 'tatha', 'उपसभापति': 'Upsabapati', 'संयुक्त': 'Sanyukt',
+                'पद': 'pad', 'आपके': 'aapke', 'स्नेह': 'sneh', 'सहयोग': 'sahyog',
+                'आशीर्वाद': 'aashirwad', 'अभिलाषा': 'abhilasha', 'आपका': 'aapka',
+                'राजकुमार': 'Rajkumar', 'काल्या': 'Kalya', 'त्रिभुवन': 'Tribhuvan',
+                'धन्यवाद': 'Dhanyawad'
+            }
+            
+            raw_msg = rep['message']
+            for h_word, eng_word in hindi_transliteration_map.items():
+                raw_msg = raw_msg.replace(h_word, eng_word)
                 
-            pdf.multi_cell(0, 5, clean_pdf_msg)
+            safe_msg = raw_msg.encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 5, safe_msg)
             pdf.ln(8)
             
             pdf.set_font('Arial', 'B', 12)
@@ -328,10 +362,11 @@ if check_password():
             
             pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                safe_name = item["Name"].encode('ascii', 'ignore').decode('ascii')
-                if not safe_name:
-                    safe_name = "Client Contact"
-                safe_status = item["Status"].encode('ascii', 'ignore').decode('ascii')
+                clean_name = item["Name"]
+                for h_word, eng_word in hindi_transliteration_map.items():
+                    clean_name = clean_name.replace(h_word, eng_word)
+                safe_name = clean_name.encode('latin-1', 'replace').decode('latin-1')
+                safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
                 
                 pdf.cell(15, 6, str(idx), 1, 0, 'C')
                 pdf.cell(60, 6, safe_name, 1, 0, 'L')
