@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import time
+import os
 from supabase import create_client, Client
 from fpdf import FPDF
 import base64
@@ -56,6 +57,11 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# --- HINDI (DEVANAGARI) UNICODE FONT PATH FOR PDF ---
+# Download "NotoSansDevanagari-Regular.ttf" from https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari
+# and place it inside a "fonts" folder next to this script.
+FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "NotoSansDevanagari-Regular.ttf")
 
 # --- SUPABASE CONNECTION ---
 @st.cache_resource
@@ -358,6 +364,24 @@ if check_password():
             pdf = PDF()
             pdf.add_page()
             pdf.set_auto_page_break(auto=True, margin=15)
+
+            # --- LOAD UNICODE DEVANAGARI FONT (fixes Hindi not showing in PDF) ---
+            hindi_font_available = False
+            if os.path.exists(FONT_PATH):
+                try:
+                    pdf.add_font('NotoDevanagari', '', FONT_PATH, uni=True)
+                except TypeError:
+                    # newer fpdf2 versions don't accept the 'uni' kwarg
+                    pdf.add_font('NotoDevanagari', '', FONT_PATH)
+                hindi_font_available = True
+            else:
+                st.error(
+                    "🚨 Hindi font file nahi mili! Kripya 'NotoSansDevanagari-Regular.ttf' ko "
+                    "apne project ke 'fonts' folder me daalein (path: fonts/NotoSansDevanagari-Regular.ttf). "
+                    "Font yaha se download karein: https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari"
+                )
+
+            hindi_font_name = 'NotoDevanagari' if hindi_font_available else 'Arial'
             
             # CAMPAIGN SUMMARY METRICS CENTERED HEADING
             pdf.set_font('Arial', 'B', 12)
@@ -423,67 +447,11 @@ if check_password():
             pdf.set_fill_color(255, 255, 255)
             pdf.set_draw_color(203, 213, 225)
             pdf.set_line_width(0.4)
-            
-            hindi_char_map = {
-                'आ': 'Aa', 'अ': 'A', 'इ': 'I', 'ई': 'Ee', 'उ': 'U', 'ऊ': 'Oo', 'ए': 'E', 'ऐ': 'Ai', 'ओ': 'O', 'औ': 'Au',
-                'क': 'Ka', 'का': 'Kaa', 'कि': 'Ki', 'की': 'Kee', 'कु': 'Ku', 'कू': 'Koo', 'के': 'Ke', 'कै': 'Kai', 'को': 'Ko', 'कौ': 'Kau', 'कं': 'Kam', 'क्': 'K',
-                'ख': 'Kha', 'खा': 'Khaa', 'खि': 'Khi', 'खी': 'Khee', 'खु': 'Khu', 'खू': 'Khooo', 'खे': 'Khe', 'खो': 'Kho', 'ख्': 'Kh',
-                'ग': 'Ga', 'गा': 'Gaa', 'गि': 'Gi', 'गी': 'Gee', 'गु': 'Gu', 'गू': 'Goo', 'गे': 'Ge', 'गो': 'Go', 'ग्': 'G',
-                'घ': 'Gha', 'घा': 'Ghaa', 'घे': 'Ghe', 'घो': 'Gho', 'घ्': 'Gh',
-                'च': 'Cha', 'चा': 'Chaa', 'चि': 'Chi', 'ची': 'Chee', 'चु': 'Chu', 'चू': 'Choo', 'चे': 'Che', 'चो': 'Cho', 'च्': 'Ch',
-                'छ': 'Chha', 'छा': 'Chhaa', 'छी': 'Chhee', 'च्छ': 'Chh',
-                'ज': 'Ja', 'जा': 'Jaa', 'जि': 'Ji', 'जी': 'Jee', 'जु': 'Ju', 'जू': 'Joo', 'जे': 'Je', 'जो': 'Jo', 'ज्': 'J',
-                'झ': 'Jha', 'झा': 'Jhaa', 'झी': 'Jhee', 'झू': 'Jhoo', 'झें': 'Jhen', 'झ्र': 'Jhr',
-                'ट': 'Ta', 'टा': 'Taa', 'टी': 'Tee', 'टु': 'Tu', 'टू': 'Too', 'टे': 'Te', 'टो': 'To', 'ट्': 'T',
-                'ठ': 'Tha', 'ठा': 'Thaa', 'ठी': 'Thee', 'ठे': 'The', 'ठो': 'Tho',
-                'ड': 'Da', 'डा': 'Daa', 'डी': 'Dee', 'डु': 'Du', 'डू': 'Doo', 'डे': 'De', 'डो': 'Do', 'ड्': 'D',
-                'ढ': 'Dha', 'ढा': 'Dhaa', 'ढी': 'Dhee', 'ढे': 'Dhe', 'ढो': 'Dho',
-                'ण': 'Na', 'णा': 'Naa', 'णी': 'Nee', 'णें': 'Nen', 'णू': 'Noo',
-                'त': 'Ta', 'ता': 'Taa', 'ति': 'Ti', 'ती': 'Tee', 'तु': 'Tu', 'तू': 'Too', 'ते': 'Te', 'तो': 'To', 'त्': 'T',
-                'थ': 'Tha', 'था': 'Thaa', 'थि': 'Thi', 'थी': 'Thee', 'थु': 'Thu', 'थे': 'The', 'थो': 'Tho', 'थ्': 'Th',
-                'द': 'Da', 'दा': 'Daa', 'दि': 'Di', 'दी': 'Dee', 'दु': 'Du', 'दू': 'Doo', 'दे': 'De', 'दो': 'Do', 'द्': 'D',
-                'ध': 'Dha', 'धा': 'Dhaa', 'धि': 'Dhi', 'धी': 'Dhee', 'धु': 'Dhu', 'ध्रे': 'Dhre', 'धो': 'Dho', 'ध्': 'Dh',
-                'न': 'Na', 'ना': 'Naa', 'नि': 'Ni', 'नी': 'Nee', 'नु': 'Nu', 'नू': 'Noo', 'ने': 'Ne', 'नो': 'No', 'न्': 'N',
-                'प': 'Pa', 'पा': 'Paa', 'पि': 'Pi', 'पी': 'Pee', 'पु': 'Pu', 'पू': 'Poo', 'पे': 'Pe', 'पो': 'Po', 'प्': 'P',
-                'फ': 'Pha', 'फा': 'Phaa', 'फि': 'Phi', 'फी': 'Phee', 'फु': 'Phu', 'फे': 'Phe', 'फो': 'Pho',
-                'ब': 'Ba', 'बा': 'Baa', 'बि': 'Bi', 'बी': 'Bee', 'बु': 'Bu', 'बू': 'Boo', 'बे': 'Be', 'बो': 'Bo', 'ब्': 'B',
-                'भ': 'Bha', 'भा': 'Bhaa', 'भि': 'Bhi', 'भी': 'Bhee', 'भु': 'Bhu', 'भू': 'Bhoo', 'भे': 'Bhe', 'भो': 'Bho', 'भ्': 'Bh',
-                'म': 'Ma', 'मा': 'Maa', 'मि': 'Mi', 'मी': 'Mee', 'मु': 'Mu', 'मू': 'Moo', 'मे': 'Me', 'मो': 'Mo', 'म्': 'M',
-                'य': 'Ya', 'या': 'Yaa', 'यि': 'Yi', 'यी': 'Yee', 'ये': 'Ye', 'यो': 'Yo', 'य्': 'Y',
-                'र': 'Ra', 'रा': 'Raa', 'रि': 'Ri', 'री': 'Ree', 'रु': 'Ru', 'रू': 'Roo', 'रे': 'Re', 'रो': 'Ro', 'र्': 'R',
-                'ल': 'La', 'ला': 'Laa', 'लि': 'Li', 'ली': 'Lee', 'लु': 'Lu', 'लू': 'Loo', 'ले': 'Le', 'लो': 'Lo', 'ल्': 'L',
-                'व': 'Va', 'वा': 'Vaa', 'वि': 'Vi', 'वी': 'Vee', 'वु': 'Vu', 'वे': 'Ve', 'वो': 'Vo', 'व्': 'V',
-                'श': 'Sha', 'शा': 'Shaa', 'शि': 'Shi', 'शी': 'Shee', 'शु': 'Shu', 'शे': 'She', 'शो': 'Sho', 'श्': 'Sh',
-                'ष': 'Shha', 'षा': 'Shhaa', 'षि': 'Shhi', 'षी': 'Shhee', 'ष्': 'Shh',
-                'स': 'Sa', 'सा': 'Saa', 'सि': 'Si', 'सी': 'See', 'सु': 'Su', 'सू': 'Soo', 'से': 'Se', 'सो': 'So', 'स्': 'S',
-                'ह': 'Ha', 'हा': 'Haa', 'हि': 'Hi', 'ही': 'Hee', 'हु': 'Hu', 'हू': 'Hoo', 'हे': 'He', 'हो': 'Ho', 'ह्': 'H',
-                'क्ष': 'Ksha', 'क्षा': 'Kshaa', 'क्ष्': 'Ksh', 'त्र': 'Tra', 'त्रा': 'Traa', 'त्रि': 'Tri', 'त्र्': 'Tr',
-                'ज्ञ': 'Gya', 'ज्ञा': 'Gyaa', 'श्र': 'Shra', 'श्रि': 'Shri',
-                'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ः': 'h', '्': '',
-                '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9', '०': '0',
-                'ं': 'n', 'ँ': 'n', '्': '', '•': '-', '🔹': '-'
-            }
-            
-            raw_msg = rep['message']
-            translated_msg = ""
-            i = 0
-            while i < len(raw_msg):
-                matched = False
-                for length in [3, 2, 1]:
-                    if i + length <= len(raw_msg):
-                        chunk = raw_msg[i:i+length]
-                        if chunk in hindi_char_map:
-                            translated_msg += hindi_char_map[chunk]
-                            i += length
-                            matched = True
-                            break
-                if not matched:
-                    translated_msg += raw_msg[i]
-                    i += 1
-                    
-            safe_msg = translated_msg.encode('latin-1', 'replace').decode('latin-1')
-            
-            pdf.set_font('Arial', '', 9)
+
+            # Directly use the real Hindi text now (no more Roman transliteration hack)
+            safe_msg = rep['message']
+
+            pdf.set_font(hindi_font_name, '', 9)
             pdf.set_text_color(51, 65, 85)
             pdf.multi_cell(190, 5, safe_msg, border=1, fill=True)
             
@@ -504,25 +472,9 @@ if check_password():
             pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
             
             # Table Rows
-            pdf.set_font('Arial', '', 9)
             for idx, item in enumerate(rep["logs"], 1):
-                clean_name = item["Name"]
-                translated_name = ""
-                i = 0
-                while i < len(clean_name):
-                    matched = False
-                    for length in [3, 2, 1]:
-                        if i + length <= len(clean_name):
-                            chunk = clean_name[i:i+length]
-                            if chunk in hindi_char_map:
-                                translated_name += hindi_char_map[chunk]
-                                i += length
-                                matched = True
-                                break
-                    if not matched:
-                        translated_name += clean_name[i]
-                        i += 1
-                safe_name = translated_name.encode('latin-1', 'replace').decode('latin-1')
+                # Directly use the real Hindi name now (no more Roman transliteration hack)
+                safe_name = item["Name"]
                 safe_status = item["Status"].encode('latin-1', 'replace').decode('latin-1')
                 
                 if idx % 2 == 0:
@@ -531,12 +483,19 @@ if check_password():
                     pdf.set_fill_color(255, 255, 255)
                     
                 pdf.set_text_color(51, 65, 85)
+
+                pdf.set_font('Arial', '', 9)
                 pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
+
+                pdf.set_font(hindi_font_name, '', 9)
                 pdf.cell(65, 6, safe_name, 1, 0, 'L', fill=True)
+
+                pdf.set_font('Arial', '', 9)
                 pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
                 pdf.cell(65, 6, safe_status, 1, 1, 'L', fill=True)
                 
-            return pdf.output(dest='S').encode('latin1')
+            raw_output = pdf.output(dest='S')
+            return raw_output.encode('latin1') if isinstance(raw_output, str) else bytes(raw_output)
 
         pdf_bytes = generate_pdf()
         
