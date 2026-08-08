@@ -170,6 +170,8 @@ supabase: Client = init_connection()
 def fetch_quotation_projects(workspace_name):
     try:
         res = supabase.table("site_data").select("*").eq("workspace", workspace_name).execute()
+        if not res.data:
+            res = supabase.table("site_data").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
             if "Operator" in df.columns:
@@ -218,9 +220,15 @@ project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_pr
 def fetch_quotations():
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
+        
+        # 1st Try: Match with active workspace strictly
         res = supabase.table("quotations").select("*").eq("workspace", active_ws).execute()
         
-        # Fallback if no records found with active workspace string, try fetching all to prevent blank screen
+        # 2nd Try: If nothing found, try case-insensitive or partial match
+        if not res.data:
+            res = supabase.table("quotations").select("*").ilike("workspace", f"%{active_ws}%").execute()
+            
+        # 3rd Try: Fallback to fetch all rows if workspace column data was blank in DB
         if not res.data:
             res = supabase.table("quotations").select("*").execute()
             
@@ -632,6 +640,9 @@ if not selected_rows.empty:
     selected_index = selected_rows.index[0]
     if selected_index < len(df_display):
         actual_data = df_display.iloc[selected_index].to_dict()
+        
+        # Safe sync session state so that data loads immediately without manual refresh button
+        st.session_state.quotations_df = fetch_quotations()
         
         with col_act1:
             if st.button("👁️ View / Edit", type="primary", use_container_width=True):
