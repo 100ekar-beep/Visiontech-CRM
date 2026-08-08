@@ -34,6 +34,13 @@ st.markdown("""
         font-weight: 700 !important;
         background-color: #ffffff !important;
     }
+    
+    /* Table headers styling for better readability in dark mode */
+    div[data-testid="stDataFrame"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -76,3 +83,30 @@ with st.form("template_form", clear_on_submit=True):
                 st.error(f"🚨 Error saving template: {e}")
         else:
             st.error("Database connection fail hai.")
+
+# --- DISPLAY REGISTERED TEMPLATES SECTION ---
+st.markdown("---")
+st.markdown("<h3>🗃️ Registered Templates List</h3>", unsafe_allow_html=True)
+
+if supabase:
+    try:
+        # Fetching data from Supabase, ordered by newest first
+        fetch_response = supabase.table("whatsapp_templates").select("id, template_name, variable_count, created_at").order("id", desc=True).execute()
+        
+        if fetch_response.data:
+            # Formatting the data for a premium table display
+            formatted_data = []
+            for row in fetch_response.data:
+                formatted_data.append({
+                    "ID": row.get("id"),
+                    "Template Name": row.get("template_name"),
+                    "Variables Count": row.get("variable_count"),
+                    "Registered On": row.get("created_at")[:10] if row.get("created_at") else "N/A"
+                })
+            
+            # Displaying as a modern interactive dataframe
+            st.dataframe(formatted_data, use_container_width=True)
+        else:
+            st.info("💡 Abhi tak koi template database me register nahi hua hai.")
+    except Exception as e:
+        st.error(f"🚨 Data fetch karne me error aayi: {e}")
