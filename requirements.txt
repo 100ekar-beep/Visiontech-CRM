@@ -2,5 +2,5 @@ streamlit
 supabase
 pandas
 openpyxl
-fpdf
+fpdf2
 geopy
