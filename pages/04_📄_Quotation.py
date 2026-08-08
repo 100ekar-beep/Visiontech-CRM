@@ -170,8 +170,6 @@ supabase: Client = init_connection()
 def fetch_quotation_projects(workspace_name):
     try:
         res = supabase.table("site_data").select("*").eq("workspace", workspace_name).execute()
-        if not res.data:
-            res = supabase.table("site_data").select("*").execute()
         if res.data:
             df = pd.DataFrame(res.data)
             if "Operator" in df.columns:
@@ -221,14 +219,8 @@ def fetch_quotations():
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # Direct Live Fetch without strict cache blocking
+        # STRICT WORKSPACE FILTERING (No cross-contamination)
         res = supabase.table("quotations").select("*").eq("workspace", active_ws).execute()
-        
-        if not res.data:
-            res = supabase.table("quotations").select("*").ilike("workspace", f"%{active_ws}%").execute()
-            
-        if not res.data:
-            res = supabase.table("quotations").select("*").execute()
             
         if res.data:
             df = pd.DataFrame(res.data)
@@ -262,7 +254,7 @@ else:
 templates_data = fetch_quotation_templates()
 template_names = [t["Template Name"] for t in templates_data]
 
-# --- 5. INITIALIZE SESSION STATE (Force fetch live on every rerun/switch) ---
+# --- 5. INITIALIZE SESSION STATE ---
 st.session_state.quotations_df = fetch_quotations()
 
 # --- 6. DIALOG FOR ADD/VIEW QUOTATION ---
@@ -622,7 +614,7 @@ edited_list = st.data_editor(
     column_config={
         "Action": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
         "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
-        "Quotation Amount": st.column_config.NumberColumn("GRAND TOTAL", format="₹ %d"),
+        "Quotation Amount": st.column_config.NumberColumn("GRAND GRAND TOTAL", format="₹ %d"),
         "Project Name": st.column_config.TextColumn("PROJECT"),
         "Site ID": st.column_config.TextColumn("SITE CODE"),
         "Cluster": st.column_config.TextColumn("CLUSTER")
