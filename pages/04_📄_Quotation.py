@@ -221,14 +221,12 @@ def fetch_quotations():
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # 1st Try: Match with active workspace strictly
+        # Direct Live Fetch without strict cache blocking
         res = supabase.table("quotations").select("*").eq("workspace", active_ws).execute()
         
-        # 2nd Try: If nothing found, try case-insensitive or partial match
         if not res.data:
             res = supabase.table("quotations").select("*").ilike("workspace", f"%{active_ws}%").execute()
             
-        # 3rd Try: Fallback to fetch all rows if workspace column data was blank in DB
         if not res.data:
             res = supabase.table("quotations").select("*").execute()
             
@@ -264,9 +262,8 @@ else:
 templates_data = fetch_quotation_templates()
 template_names = [t["Template Name"] for t in templates_data]
 
-# --- 5. INITIALIZE SESSION STATE ---
-if 'quotations_df' not in st.session_state:
-    st.session_state.quotations_df = fetch_quotations()
+# --- 5. INITIALIZE SESSION STATE (Force fetch live on every rerun/switch) ---
+st.session_state.quotations_df = fetch_quotations()
 
 # --- 6. DIALOG FOR ADD/VIEW QUOTATION ---
 @st.dialog("📄 Update Quotation", width="large")
@@ -640,9 +637,6 @@ if not selected_rows.empty:
     selected_index = selected_rows.index[0]
     if selected_index < len(df_display):
         actual_data = df_display.iloc[selected_index].to_dict()
-        
-        # Safe sync session state so that data loads immediately without manual refresh button
-        st.session_state.quotations_df = fetch_quotations()
         
         with col_act1:
             if st.button("👁️ View / Edit", type="primary", use_container_width=True):
