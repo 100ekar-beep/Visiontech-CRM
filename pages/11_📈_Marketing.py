@@ -138,6 +138,9 @@ if check_password():
                 success_count = 0
                 error_count = 0
 
+                # YAHAN CLEANING LOGIC ADD KIYA HAI - (Enters, Tabs, aur Extra spaces ko single space me badal dega)
+                clean_custom_message = " ".join(custom_message.split())
+
                 for person in contacts_list:
                     name = person['contact_name']
                     number = person['mobile_number']
@@ -151,7 +154,7 @@ if check_password():
                             "languageCode": "hi",
                             "bodyValues": [
                                 name,           
-                                custom_message  
+                                clean_custom_message  # Ab yahan cleaned message jayega API ko
                             ]
                         }
                     }
