@@ -294,8 +294,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -699,6 +706,7 @@ def add_record_dialog():
                     
             if not has_error:
                 insert_data = {
+                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "Department": dept if dept != "Select" else "",
                     "Operator": operator if operator != "Select" else "",
                     "Project Name": proj_name if proj_name != "Select" else "",
@@ -742,6 +750,7 @@ def add_record_dialog():
                     for i in range(len(a_mat_item_codes)):
                         if a_mat_item_codes[i].strip() != "" and a_mat_boqs[i].strip() != "":
                             insert_wh = {
+                                "workspace": st.session_state.get('active_workspace', 'VISPL'),
                                 "Project ID": proj_id,
                                 "Site ID": site_id,
                                 "Site Name": site_name,
@@ -1195,6 +1204,7 @@ def material_movement_dialog(row_data):
                 try:
                     for i in range(len(mat_item_codes)):
                         insert_dict = {
+                            "workspace": st.session_state.get('active_workspace', 'VISPL'),
                             "Project ID": proj_id,
                             "Site ID": row_data.get('Site ID', ''),
                             "Site Name": row_data.get('Site Name', ''),
@@ -1448,6 +1458,7 @@ def bulk_upload_dialog():
                         continue
                     
                     insert_dict = {}
+                    insert_dict["workspace"] = st.session_state.get('active_workspace', 'VISPL')
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
@@ -1491,7 +1502,8 @@ def update_po_status_dialog():
                     updated_count = 0
                     not_found_count = 0
                     
-                    all_db_res = supabase.table("site_data").select("*").execute()
+                    active_ws = st.session_state.get('active_workspace', 'VISPL')
+                    all_db_res = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
                     all_db_records = all_db_res.data if all_db_res.data else []
                     
                     for index, row in df_status.iterrows():
@@ -1587,7 +1599,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- 5. FETCH & PREPARE DATA ---
 table_name = "site_data"
 try:
-    response = supabase.table(table_name).select("*").execute()
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
     data = response.data
 except Exception:
     data = []
