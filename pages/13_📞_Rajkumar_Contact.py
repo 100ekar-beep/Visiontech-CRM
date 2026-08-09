@@ -8,16 +8,15 @@ st.set_page_config(page_title="Rajkumar Contact", page_icon="📞", layout="wide
 st.title("📞 Rajkumar Contact Management")
 
 # --- SUPABASE SECRETS CONNECTION ---
-try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except KeyError:
-    st.error("⚠️ Streamlit Secrets me SUPABASE_URL aur SUPABASE_KEY set nahi hai!")
-    st.stop()
-
 @st.cache_resource
 def get_supabase_client():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase Secrets fetch karne me error: {e}")
+        st.stop()
 
 supabase = get_supabase_client()
 
