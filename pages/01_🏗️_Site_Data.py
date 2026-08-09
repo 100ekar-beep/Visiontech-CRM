@@ -1636,7 +1636,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 table_name = "site_data"
 try:
     active_ws = st.session_state.get('active_workspace', 'VISPL')
-    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
+    response = supabase.table(table_name).select("*").eq("workspace", active_ws).order("id", desc=True).execute()
     data = response.data
 except Exception:
     data = []
