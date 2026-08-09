@@ -1451,18 +1451,6 @@ def bulk_upload_dialog():
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
-                # ---> NEW: PRE-FETCH EXCALATION MATRIX FOR AUTO-FILL (Added Limit to fix missing data) <---
-                try:
-                    exc_res = supabase.table("Excalation Matrix").select("Site ID, Site Name, Cluster").limit(100000).execute()
-                    exc_map = {}
-                    if exc_res.data:
-                        for x in exc_res.data:
-                            sid = str(x.get("Site ID", "")).strip().upper()
-                            if sid.endswith(".0"): sid = sid[:-2]
-                            exc_map[sid] = x
-                except:
-                    exc_map = {}
-                    
                 added_count = 0
                 for index, row in df_upload.iterrows():
                     p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
@@ -1480,16 +1468,20 @@ def bulk_upload_dialog():
                             insert_dict[col] = val_str
                             
                     # ---> NEW: APPLY AUTO-FETCH FOR MISSING DATA <---
-                    site_id_val = insert_dict.get("Site ID", "").strip().upper()
-                    if site_id_val.endswith(".0"): site_id_val = site_id_val[:-2]
-                    
-                    if site_id_val and site_id_val in exc_map:
+                    site_id_val = insert_dict.get("Site ID", "").strip()
+                    if site_id_val:
                         sn = insert_dict.get("Site Name", "")
                         cl = insert_dict.get("Cluster", "")
-                        if not sn or sn == "-":
-                            insert_dict["Site Name"] = str(exc_map[site_id_val].get("Site Name", "") or "").strip()
-                        if not cl or cl == "-":
-                            insert_dict["Cluster"] = str(exc_map[site_id_val].get("Cluster", "") or "").strip()
+                        if not sn or sn == "-" or not cl or cl == "-":
+                            try:
+                                master_res = supabase.table("Excalation Matrix").select("Site Name, Cluster").eq("Site ID", site_id_val).execute()
+                                if master_res.data:
+                                    if not sn or sn == "-":
+                                        insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
+                                    if not cl or cl == "-":
+                                        insert_dict["Cluster"] = str(master_res.data[0].get("Cluster", "") or "").strip()
+                            except Exception:
+                                pass
                             
                     try:
                         supabase.table("site_data").insert(insert_dict).execute()
