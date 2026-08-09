@@ -775,6 +775,7 @@ def add_record_dialog():
                                 pass
                     
                     st.success("✅ Record Successfully Added!")
+                    st.session_state.current_page = 1 # <--- NEW: Switch to page 1
                     
                     # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
                     if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
@@ -1497,6 +1498,7 @@ def bulk_upload_dialog():
                         pass
                         
                 st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully.")
+                st.session_state.current_page = 1 # <--- NEW: Switch to page 1
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
@@ -1636,6 +1638,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 table_name = "site_data"
 try:
     active_ws = st.session_state.get('active_workspace', 'VISPL')
+    # ---> FIXED: Added .order("id", desc=True) to fetch latest first <---
     response = supabase.table(table_name).select("*").eq("workspace", active_ws).order("id", desc=True).execute()
     data = response.data
 except Exception:
@@ -1651,6 +1654,11 @@ columns_list = [
 
 if data:
     df = pd.DataFrame(data)
+    # ---> FIXED: Extra Pandas Sort to guarantee 1st line placement <---
+    if 'id' in df.columns:
+        df['id_num'] = pd.to_numeric(df['id'], errors='coerce')
+        df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
+        
     for col in columns_list:
         if col not in df.columns:
             df[col] = ""
