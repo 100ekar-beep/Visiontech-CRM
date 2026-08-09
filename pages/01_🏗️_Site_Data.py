@@ -1451,6 +1451,13 @@ def bulk_upload_dialog():
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
+                # ---> NEW: PRE-FETCH EXCALATION MATRIX FOR AUTO-FILL <---
+                try:
+                    exc_res = supabase.table("Excalation Matrix").select("Site ID, Site Name, Cluster").execute()
+                    exc_map = {str(x.get("Site ID")).strip(): x for x in exc_res.data} if exc_res.data else {}
+                except:
+                    exc_map = {}
+                    
                 added_count = 0
                 for index, row in df_upload.iterrows():
                     p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
@@ -1462,7 +1469,15 @@ def bulk_upload_dialog():
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
-                            insert_dict[col] = str(val) if pd.notna(val) else ""
+                            insert_dict[col] = str(val) if pd.notna(val) and str(val).strip().lower() != 'nan' else ""
+                            
+                    # ---> NEW: APPLY AUTO-FETCH FOR MISSING DATA <---
+                    site_id_val = insert_dict.get("Site ID", "").strip()
+                    if site_id_val and site_id_val in exc_map:
+                        if not insert_dict.get("Site Name"):
+                            insert_dict["Site Name"] = str(exc_map[site_id_val].get("Site Name", "") or "")
+                        if not insert_dict.get("Cluster"):
+                            insert_dict["Cluster"] = str(exc_map[site_id_val].get("Cluster", "") or "")
                             
                     try:
                         supabase.table("site_data").insert(insert_dict).execute()
