@@ -1462,22 +1462,31 @@ def bulk_upload_dialog():
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
+                            # Safe string conversion
                             val_str = str(val).strip() if pd.notna(val) else ""
                             if val_str.lower() == 'nan': val_str = ""
                             insert_dict[col] = val_str
                             
                     # ---> FIXED: EXACT MANUAL ENTRY STYLE AUTO-FETCH FOR BULK UPLOAD <---
                     site_id_val = insert_dict.get("Site ID", "").strip()
+                    if site_id_val.endswith(".0"): site_id_val = site_id_val[:-2] # Handle Excel float issue
+                    insert_dict["Site ID"] = site_id_val
+                    
                     if site_id_val:
-                        sn = insert_dict.get("Site Name", "")
-                        cl = insert_dict.get("Cluster", "")
-                        if not sn or sn == "-" or not cl or cl == "-":
+                        sn = insert_dict.get("Site Name", "").strip()
+                        cl = insert_dict.get("Cluster", "").strip()
+                        
+                        is_sn_empty = not sn or sn.lower() in ["-", "nan", "none", "empty"]
+                        is_cl_empty = not cl or cl.lower() in ["-", "nan", "none", "empty"]
+                        
+                        if is_sn_empty or is_cl_empty:
                             try:
+                                # DIRECT QUERY PER ROW (Just like manual entry)
                                 master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
                                 if master_res.data:
-                                    if not sn or sn == "-":
+                                    if is_sn_empty:
                                         insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
-                                    if not cl or cl == "-":
+                                    if is_cl_empty:
                                         insert_dict["Cluster"] = str(master_res.data[0].get("Cluster", "") or "").strip()
                             except Exception:
                                 pass
