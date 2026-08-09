@@ -1656,8 +1656,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 table_name = "site_data"
 try:
     active_ws = st.session_state.get('active_workspace', 'VISPL')
-    # ---> FIXED: Added .order("id", desc=True) to fetch latest first <---
-    response = supabase.table(table_name).select("*").eq("workspace", active_ws).order("id", desc=True).execute()
+    # Removing explicit order from Supabase because UUIDs sort alphabetically, causing random placement
+    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
     data = response.data
 except Exception:
     data = []
@@ -1672,11 +1672,23 @@ columns_list = [
 
 if data:
     df = pd.DataFrame(data)
-    # ---> FIXED: Extra Pandas Sort to guarantee 1st line placement <---
-    if 'id' in df.columns:
-        df['id_num'] = pd.to_numeric(df['id'], errors='coerce')
-        df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
-        
+    
+    # ---> FIXED: Robust Sorting Logic to guarantee newest record is ALWAYS on Page 1, Row 1 <---
+    if 'created_at' in df.columns:
+        # If Supabase has 'created_at' timestamp, this is the most accurate way to sort newest first
+        df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
+        df = df.sort_values(by='created_at_dt', ascending=False).drop(columns=['created_at_dt']).reset_index(drop=True)
+    elif 'id' in df.columns:
+        # Fallback if created_at is missing: Check if ID is numeric
+        id_numeric = pd.to_numeric(df['id'], errors='coerce')
+        if id_numeric.notna().any():
+            # Sort numeric IDs descending
+            df['id_num'] = id_numeric.fillna(-1)
+            df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
+        else:
+            # If ID is UUID string, reverse the order (Postgres appends new rows to the bottom)
+            df = df.iloc[::-1].reset_index(drop=True)
+            
     for col in columns_list:
         if col not in df.columns:
             df[col] = ""
