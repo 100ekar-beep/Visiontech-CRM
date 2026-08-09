@@ -1462,19 +1462,18 @@ def bulk_upload_dialog():
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
-                            # Safe string conversion
                             val_str = str(val).strip() if pd.notna(val) else ""
                             if val_str.lower() == 'nan': val_str = ""
                             insert_dict[col] = val_str
                             
-                    # ---> NEW: APPLY AUTO-FETCH FOR MISSING DATA <---
+                    # ---> FIXED: EXACT MANUAL ENTRY STYLE AUTO-FETCH FOR BULK UPLOAD <---
                     site_id_val = insert_dict.get("Site ID", "").strip()
                     if site_id_val:
                         sn = insert_dict.get("Site Name", "")
                         cl = insert_dict.get("Cluster", "")
                         if not sn or sn == "-" or not cl or cl == "-":
                             try:
-                                master_res = supabase.table("Excalation Matrix").select("Site Name, Cluster").eq("Site ID", site_id_val).execute()
+                                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
                                 if master_res.data:
                                     if not sn or sn == "-":
                                         insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
