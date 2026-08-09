@@ -40,8 +40,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -73,7 +90,13 @@ def fetch_item_master():
 
 def fetch_templates():
     try:
-        res = supabase.table("quotation_templates").select("*").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("quotation_templates").select("*").eq("workspace", active_ws).execute()
+        
+        # Fallback if old data doesn't have workspace
+        if not res.data:
+            res = supabase.table("quotation_templates").select("*").is_("workspace", "null").execute()
+            
         if res.data:
             return pd.DataFrame(res.data)
     except Exception:
@@ -205,6 +228,16 @@ def template_dialog(template_data=None):
         }
     )
 
+    # --- CALCULATE AND DISPLAY GRAND TOTAL FOR TEMPLATE ---
+    try:
+        qty_series = pd.to_numeric(edited_t_df["Qty"], errors='coerce').fillna(0)
+        price_series = pd.to_numeric(edited_t_df["Price"], errors='coerce').fillna(0)
+        grand_total = (qty_series * price_series).sum()
+    except Exception:
+        grand_total = 0
+
+    st.markdown(f"<h3 style='text-align: right; color: #4f46e5; margin-top: 10px; margin-bottom: 20px;'>Grand Total: ₹ {grand_total:,.0f}</h3>", unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Template", type="primary", use_container_width=True):
         if not t_name.strip():
@@ -224,6 +257,7 @@ def template_dialog(template_data=None):
                 })
         
         payload = {
+            "workspace": st.session_state.get('active_workspace', 'VISPL'),
             "Template Name": t_name.strip(),
             "Items Data": json.dumps(clean_items)
         }
@@ -246,6 +280,10 @@ with col_h1:
     st.markdown("<h1 style='margin:0; color:#0f172a;'>Quotation Templates</h1>", unsafe_allow_html=True)
 with col_h2:
     if st.button("➕ Add Template", type="primary", use_container_width=True):
+        # 🌟 NEW LOGIC: Clear all state parameters related to template form
+        for key in list(st.session_state.keys()):
+            if key.startswith("t_items_") or key.startswith("widget_t_items_"):
+                del st.session_state[key]
         template_dialog()
 
 st.markdown("<br>", unsafe_allow_html=True)
