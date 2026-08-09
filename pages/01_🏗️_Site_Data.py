@@ -1273,6 +1273,24 @@ def view_record_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
+# --- 3.76 NEW: DELETE RECORD DIALOG FUNCTION ---
+@st.dialog("🗑️ Confirm Deletion", width="small")
+def delete_record_dialog(rid, site_id, proj_id):
+    st.warning(f"Delete record '{site_id}' / '{proj_id}'? This cannot be undone.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    wc1, wc2 = st.columns(2)
+    with wc1:
+        if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
+            st.rerun()
+    with wc2:
+        if st.button("✅ Confirm", key=f"confirm_yes_{rid}", type="primary", use_container_width=True):
+            try:
+                supabase.table("site_data").delete().eq("id", rid).execute()
+                st.success("✅ Record Successfully Deleted!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Deleting Record: {e}")
+
 # --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
 @st.dialog("📧 Commissioning Email Notification", width="large")
 def commissioning_email_dialog():
@@ -1773,7 +1791,7 @@ with st.container(key="site_table_wrap", height=560):
                     edit_record_dialog(row_dict)
             with rcols[3]:
                 if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                    st.session_state[f"confirm_del_{rid}"] = True
+                    delete_record_dialog(rid, row_dict.get('Site ID',''), row_dict.get('Project ID',''))
             with rcols[4]:
                 if is_wh_required:
                     if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
@@ -1802,25 +1820,6 @@ with st.container(key="site_table_wrap", height=560):
             rcols[23].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
             rcols[24].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
             rcols[25].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
-
-            # Inline delete confirmation
-            if st.session_state.get(f"confirm_del_{rid}"):
-                wc1, wc2, wc3 = st.columns([6, 1, 1])
-                with wc1:
-                    st.warning(f"Delete record '{row_dict.get('Site ID','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
-                with wc2:
-                    if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
-                        try:
-                            supabase.table(table_name).delete().eq("id", rid).execute()
-                            st.session_state[f"confirm_del_{rid}"] = False
-                            st.success("✅ Record Successfully Deleted!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error Deleting Record: {e}")
-                with wc3:
-                    if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
-                        st.session_state[f"confirm_del_{rid}"] = False
-                        st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
