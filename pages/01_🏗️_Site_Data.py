@@ -1462,12 +1462,11 @@ def bulk_upload_dialog():
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
-                            # Safe string conversion
                             val_str = str(val).strip() if pd.notna(val) else ""
                             if val_str.lower() == 'nan': val_str = ""
                             insert_dict[col] = val_str
                             
-                    # ---> FIXED: EXACT MANUAL ENTRY STYLE AUTO-FETCH FOR BULK UPLOAD <---
+                    # ---> FIXED: DIRECT LINE-BY-LINE QUERY FOR AUTO-FETCH TO BYPASS 1000 ROWS LIMIT <---
                     site_id_val = insert_dict.get("Site ID", "").strip()
                     if site_id_val.endswith(".0"): site_id_val = site_id_val[:-2] # Handle Excel float issue
                     insert_dict["Site ID"] = site_id_val
@@ -1481,7 +1480,7 @@ def bulk_upload_dialog():
                         
                         if is_sn_empty or is_cl_empty:
                             try:
-                                # DIRECT QUERY PER ROW (Just like manual entry)
+                                # DIRECT QUERY PER ROW (Just like manual entry, no 1000 rows limit issue)
                                 master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
                                 if master_res.data:
                                     if is_sn_empty:
