@@ -357,6 +357,24 @@ if check_password():
                         error_count += 1
                         report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
                 
+                # ---> 🟢 NEW CODE ADDED HERE: SAVING LOGS TO SUPABASE 🟢 <---
+                if supabase and len(report_logs) > 0:
+                    try:
+                        db_logs = []
+                        for log_item in report_logs:
+                            db_logs.append({
+                                "list_name": selected_list,
+                                "template_name": selected_template_name,
+                                "contact_name": log_item["Name"],
+                                "mobile_number": log_item["Mobile"],
+                                "status": log_item["Status"]
+                            })
+                        # Bulk insert all generated logs directly into the new table
+                        supabase.table("whatsapp_campaign_logs").insert(db_logs).execute()
+                    except Exception as db_err:
+                        st.warning(f"⚠️ Messages successfully chale gaye hain, par logs ko Supabase me save karte waqt error aayi: {db_err}. (Kya aapne SQL me 'whatsapp_campaign_logs' table create kar li hai?)")
+                # ---> 🟢 NEW CODE END 🟢 <---
+
                 st.session_state["last_report"] = {
                     "list_name": selected_list,
                     "template": selected_template_name,
