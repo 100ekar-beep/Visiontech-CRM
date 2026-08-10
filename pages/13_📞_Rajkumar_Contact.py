@@ -1,10 +1,28 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+import io
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Rajkumar Contact", page_icon="📞", layout="wide")
-st.title("📞 Rajkumar Contact Management")
+
+# --- LAVISH COLORFUL CUSTOM CSS (PREMIUM UI) ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); font-family: 'Inter', sans-serif; }
+    .stApp label, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp li { color: #ffffff !important; font-weight: 800 !important; }
+    .stAlert p { font-weight: 800 !important; }
+    div.stButton > button { background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%); border: none; border-radius: 8px; padding: 0.5rem 1rem; transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+    div.stButton > button p, div.stButton > button span { color: white !important; font-weight: 800 !important; }
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+    div[data-testid="stTextArea"] textarea, div[data-testid="stTextInput"] input { color: #000000 !important; font-weight: 800 !important; background-color: #ffffff !important; -webkit-text-fill-color: #000000 !important; }
+    div[data-baseweb="select"] * { color: #000000 !important; font-weight: 800 !important; }
+    /* Table headers text color fix */
+    th { color: #ffffff !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1 style='text-align: left; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; padding-bottom: 20px;'>📞 Rajkumar Contact Management</h1>", unsafe_allow_html=True)
 
 # --- SUPABASE SECRETS CONNECTION ---
 @st.cache_resource
@@ -29,7 +47,7 @@ def fetch_data():
         return pd.DataFrame()
 
 # --- MAIN UI LAYOUT (TABS) ---
-tab1, tab2, tab3 = st.tabs(["📋 View, Edit & Delete", "➕ Add New Contact", "📂 Bulk Upload (.tsv)"])
+tab1, tab2, tab3 = st.tabs(["📋 View, Edit & Delete", "➕ Add New Contact", "📂 Bulk Upload (.tsv / .xlsx)"])
 
 # ====== TAB 1: VIEW, FILTER, EDIT & DELETE ======
 with tab1:
@@ -152,17 +170,23 @@ with tab2:
             else:
                 st.warning("⚠️ List Name, Contact Name aur Mobile Number mandatory hain.")
 
-# ====== TAB 3: BULK UPLOAD (.tsv) ======
+# ====== TAB 3: BULK UPLOAD (.tsv / .xlsx) ======
 with tab3:
-    st.subheader("Bulk Upload Contacts (.tsv File Only)")
+    st.subheader("Bulk Upload Contacts (.tsv & Excel)")
     
     bulk_list_name = st.text_input("Is poori file ke liye List Name (Template Name) set karein:")
     
-    uploaded_file = st.file_uploader("Upload your .tsv file here", type=['tsv'])
+    # MODIFIED: Added xlsx and xls support for Excel
+    uploaded_file = st.file_uploader("Upload your .tsv or .xlsx file here", type=['tsv', 'xlsx', 'xls'])
     
     if uploaded_file is not None and bulk_list_name:
         try:
-            df_upload = pd.read_csv(uploaded_file, sep='\t')
+            # MODIFIED: Intelligent parsing based on file extension
+            if uploaded_file.name.endswith('.tsv'):
+                df_upload = pd.read_csv(uploaded_file, sep='\t')
+            else:
+                df_upload = pd.read_excel(uploaded_file)
+                
             df_upload = df_upload.fillna(value="")
             
             df_upload['list_name'] = bulk_list_name
@@ -170,7 +194,7 @@ with tab3:
                 df_upload['is_active'] = True
                 
             if 'contact_name' not in df_upload.columns or 'mobile_number' not in df_upload.columns:
-                st.error("Aapki .tsv file me 'contact_name' aur 'mobile_number' column headings hona zaruri hai.")
+                st.error("Aapki file me 'contact_name' aur 'mobile_number' column headings hona zaruri hai.")
             else:
                 st.write("File Preview:")
                 st.dataframe(df_upload[['list_name', 'contact_name', 'mobile_number', 'is_active']].head(5))
@@ -181,6 +205,6 @@ with tab3:
                     st.success(f"✅ Success! Total {len(final_data)} contacts upload ho gaye.")
                     
         except Exception as e:
-            st.error(f"❌ Upload me error aayi. Ensure file .tsv format me ho. Error: {e}")
+            st.error(f"❌ Upload me error aayi. Ensure file format is correct. Error: {e}")
     elif uploaded_file is not None and not bulk_list_name:
         st.warning("⚠️ Pehle upar 'List Name' daalein, uske baad hi file upload ka button aayega.")
