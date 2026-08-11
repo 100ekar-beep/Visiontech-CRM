@@ -692,8 +692,8 @@ def add_record_dialog():
                     st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
                     has_error = True
             for w in wcc_nums:
-                if w and (not w.isdigit() or len(w) != 11):
-                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka number hona chahiye!")
+                if w and (not w.isdigit() or len(w) != 10):
+                    st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
                     has_error = True
             
             if not has_error:
@@ -965,8 +965,8 @@ def edit_record_dialog(row_data):
                     st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
                     has_error = True
             for w in wcc_nums:
-                if w and (not w.isdigit() or len(w) != 11):
-                    st.error(f"⚠️ WCC NUMBER '{w}' strict 11 digit ka number hona chahiye!")
+                if w and (not w.isdigit() or len(w) != 10):
+                    st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
                     has_error = True
                     
             if not has_error:
