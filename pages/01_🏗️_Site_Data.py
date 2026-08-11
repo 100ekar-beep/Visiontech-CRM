@@ -2,19 +2,12 @@ import streamlit as st
 import pandas as pd
 import math
 import io
-import os
 import requests # <--- NEW: Added requests for WhatsApp API
 import smtplib  # <--- NEW: For Email Sending
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
-
-# --- Naya module auto live search (without Enter) ke liye (Auto-install) ---
-try:
-    from st_keyup import st_keyup
-except ImportError:
-    os.system('pip install streamlit-keyup')
-    from st_keyup import st_keyup
+from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
@@ -1718,7 +1711,6 @@ col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
 with col_search:
-    # Changed st.text_input to st_keyup for live search without pressing Enter
     search_query = st_keyup("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
 
 if search_query:
