@@ -149,8 +149,8 @@ if st.session_state.get('active_workspace', 'VISPL') != 'VISPL':
     st.stop()
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  
+SUPABASE_URL = st.secrets["supabase"]["url"]
+SUPABASE_KEY = st.secrets["supabase"]["key"] 
 
 @st.cache_resource
 def init_connection():
