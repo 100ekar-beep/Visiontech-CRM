@@ -569,7 +569,7 @@ def add_record_dialog():
                 p_s = st.selectbox("PO STATUS", get_opts("PO Status", all_dd), key=f"po_status_{i}")
                 po_statuses.append(p_s)
             with c20:
-                w_n = st.text_input("WCC NUMBER", placeholder="11 digits", key=f"wcc_num_{i}")
+                w_n = st.text_input("WCC NUMBER", placeholder="10 digits", key=f"wcc_num_{i}")
                 wcc_nums.append(w_n)
             with c21:
                 w_s = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd), key=f"wcc_status_{i}")
