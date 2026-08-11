@@ -308,6 +308,17 @@ columns_list = ["id", "date", "ers_number", "po_number", "tally_invoice_number"]
 
 if data:
     df = pd.DataFrame(data)
+    
+    # ---> FIXED: Robust Sorting Logic to guarantee newest record is ALWAYS on Page 1, Row 1 <---
+    if 'created_at' in df.columns:
+        df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
+        df = df.sort_values(by='created_at_dt', ascending=False).drop(columns=['created_at_dt']).reset_index(drop=True)
+    elif 'id' in df.columns:
+        id_numeric = pd.to_numeric(df['id'], errors='coerce')
+        if id_numeric.notna().any():
+            df['id_num'] = id_numeric.fillna(-1)
+            df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
+            
     for col in columns_list:
         if col not in df.columns:
             df[col] = ""
