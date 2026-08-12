@@ -153,7 +153,6 @@ def fetch_mrn_data():
 def fetch_project_ids():
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        # ---> FIXED: select("*") use kiya taaki column name me space hone ka PostgREST error na aaye <---
         res = supabase.table("site_data").select("*").eq("workspace", ws).limit(100000).execute()
         if res.data:
             pids = [str(x["Project ID"]).strip() for x in res.data if x.get("Project ID") and str(x.get("Project ID")).strip() != "" and str(x.get("Project ID")).strip().lower() != "nan"]
@@ -175,7 +174,6 @@ def fetch_project_details(proj_id):
 def fetch_team_percentage(team_name):
     try:
         if team_name and team_name != "Select":
-            # ---> FIXED: select("*") use kiya for safety <---
             res = supabase.table("team_master").select("*").eq("Team Name", team_name).execute()
             if res.data and res.data[0].get("percentage"):
                 return float(res.data[0]["percentage"])
@@ -183,14 +181,28 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
-def fetch_po_line_items(po_no, proj_id):
+def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        # Fetch lines from po_working matching PO Number
         res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
+        
         if res.data:
-            return pd.DataFrame(res.data)
-    except:
+            df = pd.DataFrame(res.data)
+            
+            # ---> FIXED: Filter lines to match ONLY the selected Site ID or Project ID <---
+            s_id = str(site_id).strip()
+            p_id = str(proj_id).strip()
+            
+            mask = pd.Series([False] * len(df))
+            
+            if "Site ID" in df.columns:
+                mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
+            if "Project Name" in df.columns:
+                mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
+                
+            df_filtered = df[mask]
+            return df_filtered
+    except Exception as e:
         pass
     return pd.DataFrame()
 
@@ -246,10 +258,11 @@ def add_mrn_dialog():
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
-        df_po = fetch_po_line_items(po, selected_proj)
+        # ---> FIXED: Passed site_id and selected_proj to strictly filter the lines <---
+        df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
-            st.info(f"No line items found in PO Working for PO: {po}")
+            st.info(f"No line items found in PO Working for PO: {po} matching this Site ID.")
             continue
             
         df_display = pd.DataFrame()
