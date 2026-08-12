@@ -172,7 +172,6 @@ def fetch_project_details(proj_id):
     return {}
 
 def fetch_team_percentage(team_name):
-    # ---> SMART & BULLETPROOF FETCH LOGIC <---
     try:
         if team_name and team_name != "Select":
             tables_to_check = [
@@ -187,8 +186,6 @@ def fetch_team_percentage(team_name):
                     res = supabase.table(t_name).select("*").eq(c_name, team_name).execute()
                     if res.data and len(res.data) > 0:
                         row = res.data[0]
-                        
-                        # Loop safely to find any percentage related key dynamically (case insensitive)
                         for key, val in row.items():
                             if val is not None:
                                 k_lower = str(key).lower()
@@ -330,15 +327,11 @@ def add_mrn_dialog():
 
     st.markdown('<div class="modal-section-title">💳 BILLING SUMMARY</div>', unsafe_allow_html=True)
     
-    gst_percent = 18.0
-    gst_amount = grand_basic_total * (gst_percent / 100.0)
-    final_amount = grand_basic_total + gst_amount
+    final_amount = grand_basic_total
     
-    c_b1, c_b2, c_b3 = st.columns(3)
+    c_b1, c_b3 = st.columns([6, 4])
     with c_b1:
         st.markdown(f"<h4 style='color:#94a3b8; font-size:1.1rem;'>Basic Amount:<br><span style='color:#fff;'>₹ {grand_basic_total:,.2f}</span></h4>", unsafe_allow_html=True)
-    with c_b2:
-        st.markdown(f"<h4 style='color:#94a3b8; font-size:1.1rem;'>GST (18%):<br><span style='color:#ef4444;'>+ ₹ {gst_amount:,.2f}</span></h4>", unsafe_allow_html=True)
     with c_b3:
         st.markdown(f"<h3 style='color:#3b82f6; font-size:1.4rem;'>Grand Total:<br>₹ {final_amount:,.2f}</h3>", unsafe_allow_html=True)
 
@@ -368,7 +361,6 @@ def add_mrn_dialog():
                 "Site Name": site_name,
                 "Cluster": cluster,
                 "Basic Amount": grand_basic_total,
-                "GST Amount": gst_amount,
                 "Total Amount": final_amount,
                 "Date": datetime.date.today().strftime("%d-%m-%Y")
             }
@@ -457,7 +449,7 @@ df_mrn = fetch_mrn_data()
 
 columns_list = [
     "id", "MRN Number", "Team Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Basic Amount", "GST Amount", "Total Amount", "Date"
+    "Site Name", "Cluster", "Basic Amount", "Total Amount", "Date"
 ]
 
 if not df_mrn.empty:
@@ -502,8 +494,8 @@ end_idx = start_idx + rows_per_page
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
 # --- 10. MRN DATA TABLE ---
-COL_RATIOS = [0.5, 1.2, 1.5, 1.5, 1.2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.2]
-COL_LABELS = ["#", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "GST", "TOTAL", "DATE"]
+COL_RATIOS = [0.5, 1.2, 1.5, 1.5, 1.2, 1.5, 1.2, 1.5, 1.5, 1.2]
+COL_LABELS = ["#", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMOUNT", "TOTAL AMOUNT", "DATE"]
 
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
@@ -530,13 +522,11 @@ with st.container(key="site_table_wrap", height=560):
             
             # Formatting financial data
             basic = pd.to_numeric(row_dict.get('Basic Amount', 0), errors='coerce')
-            gst = pd.to_numeric(row_dict.get('GST Amount', 0), errors='coerce')
             tot = pd.to_numeric(row_dict.get('Total Amount', 0), errors='coerce')
             
             rcols[7].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell' style='color:#ef4444;'>₹ {gst:,.2f}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
