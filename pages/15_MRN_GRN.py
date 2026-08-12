@@ -153,12 +153,13 @@ def fetch_mrn_data():
 def fetch_project_ids():
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table("site_data").select("Project ID").eq("workspace", ws).limit(100000).execute()
+        # ---> FIXED: select("*") use kiya taaki column name me space hone ka PostgREST error na aaye <---
+        res = supabase.table("site_data").select("*").eq("workspace", ws).limit(100000).execute()
         if res.data:
             pids = [str(x["Project ID"]).strip() for x in res.data if x.get("Project ID") and str(x.get("Project ID")).strip() != "" and str(x.get("Project ID")).strip().lower() != "nan"]
             return ["Select Project ID"] + list(dict.fromkeys(pids))
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Error fetching Project IDs: {e}")
     return ["Select Project ID"]
 
 def fetch_project_details(proj_id):
@@ -174,7 +175,8 @@ def fetch_project_details(proj_id):
 def fetch_team_percentage(team_name):
     try:
         if team_name and team_name != "Select":
-            res = supabase.table("team_master").select("percentage").eq("Team Name", team_name).execute()
+            # ---> FIXED: select("*") use kiya for safety <---
+            res = supabase.table("team_master").select("*").eq("Team Name", team_name).execute()
             if res.data and res.data[0].get("percentage"):
                 return float(res.data[0]["percentage"])
     except:
@@ -395,7 +397,7 @@ active_ws_display = st.session_state.get('active_workspace', 'VISPL')
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
         <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🏢 {active_ws_display}
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
         </h1>
     </div>
 """, unsafe_allow_html=True)
