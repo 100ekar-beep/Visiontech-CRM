@@ -131,16 +131,24 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
 
-# --- 3. SUPABASE CONNECTION FROM SECRETS ---
+# --- 3. BULLETPROOF SUPABASE CONNECTION ---
 @st.cache_resource
 def init_connection():
     try:
-        url: str = st.secrets["supabase"]["url"]
-        key: str = st.secrets["supabase"]["key"]
+        if "supabase" in st.secrets:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["key"]
+        elif "SUPABASE_URL" in st.secrets:
+            url = st.secrets["SUPABASE_URL"]
+            key = st.secrets["SUPABASE_KEY"]
+        else:
+            url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
+            key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
         return create_client(url, key)
-    except Exception as e:
-        st.error(f"🚨 Connection Error: {e}") 
-        return None
+    except Exception:
+        url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
+        key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
+        return create_client(url, key)
 
 supabase: Client = init_connection()
 
