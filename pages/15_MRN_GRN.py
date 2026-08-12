@@ -172,12 +172,35 @@ def fetch_project_details(proj_id):
     return {}
 
 def fetch_team_percentage(team_name):
+    # ---> SMART & BULLETPROOF FETCH LOGIC <---
     try:
         if team_name and team_name != "Select":
-            res = supabase.table("team_master").select("*").eq("Team Name", team_name).execute()
-            if res.data and res.data[0].get("percentage"):
-                return float(res.data[0]["percentage"])
-    except:
+            tables_to_check = [
+                ("team_master", "Team Name"),
+                ("Team Master", "Team Name"),
+                ("team_registration", "Team Name"),
+                ("dropdown_master", "option_value")
+            ]
+            
+            for t_name, c_name in tables_to_check:
+                try:
+                    res = supabase.table(t_name).select("*").eq(c_name, team_name).execute()
+                    if res.data and len(res.data) > 0:
+                        row = res.data[0]
+                        
+                        # Loop safely to find any percentage related key dynamically (case insensitive)
+                        for key, val in row.items():
+                            if val is not None:
+                                k_lower = str(key).lower()
+                                if "percent" in k_lower or "rate" in k_lower or "%" in k_lower or "margin" in k_lower:
+                                    clean_val = str(val).replace('%', '').strip()
+                                    if clean_val.replace('.', '', 1).isdigit():
+                                        fetched_pct = float(clean_val)
+                                        if fetched_pct > 0:
+                                            return fetched_pct
+                except Exception:
+                    continue
+    except Exception:
         pass
     return 100.0
 
@@ -189,7 +212,6 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         if res.data:
             df = pd.DataFrame(res.data)
             
-            # ---> FIXED: Filter lines to match ONLY the selected Site ID or Project ID <---
             s_id = str(site_id).strip()
             p_id = str(proj_id).strip()
             
@@ -258,7 +280,6 @@ def add_mrn_dialog():
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
-        # ---> FIXED: Passed site_id and selected_proj to strictly filter the lines <---
         df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
