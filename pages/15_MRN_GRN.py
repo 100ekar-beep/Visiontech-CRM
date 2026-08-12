@@ -122,9 +122,10 @@ def fetch_mrn_data():
 def fetch_project_ids():
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table("site_data").select("Project ID").eq("workspace", ws).execute()
+        # ---> FIXED: Added .limit(100000) to fetch ALL project IDs <---
+        res = supabase.table("site_data").select("Project ID").eq("workspace", ws).limit(100000).execute()
         if res.data:
-            pids = [x["Project ID"] for x in res.data if x.get("Project ID")]
+            pids = [str(x["Project ID"]).strip() for x in res.data if x.get("Project ID") and str(x.get("Project ID")).strip() != "" and str(x.get("Project ID")).strip().lower() != "nan"]
             return ["Select Project ID"] + list(dict.fromkeys(pids))
     except:
         pass
