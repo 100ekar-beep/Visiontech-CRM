@@ -5,9 +5,8 @@ import requests # API Call ke liye
 from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
-# Naya URL aur Nayi Publishable Key Update Kar Di Gayi Hai
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz" 
+KEY = "sb_secret_tdh9P1UHf-v7bi_rUD9h4A_nlVZ3HxQ" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
@@ -120,7 +119,17 @@ with st.form("ind_form_v5"):
         st.write("")
         sub_ind = st.form_submit_button("🔍 Search Indus")
     
+# --- STREAMLIT MEMORY FIX: Dropdown change karne par screen blank hone se rokne ke liye ---
 if sub_ind:
+    st.session_state['keep_search_active'] = True
+    st.session_state['saved_in_id'] = in_id
+    st.session_state['saved_in_nm'] = in_nm
+
+if st.session_state.get('keep_search_active'):
+    # Memory se variables wapas load karna
+    in_id = st.session_state['saved_in_id']
+    in_nm = st.session_state['saved_in_nm']
+
     # --- Bulletproof Search Logic (Will not crash on API Errors) ---
     search_success = False
     res_data = None
