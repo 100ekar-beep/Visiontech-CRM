@@ -124,6 +124,7 @@ if sub_ind:
     # --- Bulletproof Search Logic (Will not crash on API Errors) ---
     search_success = False
     res_data = None
+    res_ind = None # <--- YAHAN FIX ADD KIYA HAI TAAKI NAME-ERROR NA AAYE
     
     tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
     id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
