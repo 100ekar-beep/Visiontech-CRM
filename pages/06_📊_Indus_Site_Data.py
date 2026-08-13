@@ -160,20 +160,28 @@ if sub_ind:
         # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (Smart Column Detection) ---
         team_dict = {}
         dropdown_data = []
+        fetch_error = "" # Added to capture silent errors
         
         # Double Bypass System to guarantee data fetch
         try:
             res = supabase.table("dropdown_master").select("*").execute()
             if res.data:
                 dropdown_data = res.data
-        except Exception:
+        except Exception as e:
+            fetch_error += f"Supabase Error: {str(e)} | "
             try:
                 headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
                 r = requests.get(f"{URL}/rest/v1/dropdown_master?select=*", headers=headers)
                 if r.status_code == 200:
                     dropdown_data = r.json()
-            except Exception:
-                pass # Silent fail
+                else:
+                    fetch_error += f"API Route Error: {r.text}"
+            except Exception as ex:
+                fetch_error += f"Requests Exception: {str(ex)}"
+                
+        # Debug display if data failed to load completely
+        if fetch_error and not dropdown_data:
+            st.error(f"🚨 Data Fetching Failed: {fetch_error}")
 
         # Extracting data intelligently
         if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
@@ -194,6 +202,10 @@ if sub_ind:
                     team_mobile = r.get(mob_key)
                     if team_name:
                         team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
+            
+            # Debug view if data came but mapping failed
+            if not team_dict:
+                st.warning(f"⚠️ Table mili par 'Team Name' map nahi hua. DB Columns jo mile wo ye hain: {list(dropdown_data[0].keys())}")
             
         row_in = res_data[0]
         
