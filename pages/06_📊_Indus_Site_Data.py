@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import urllib.parse
 import requests # API Call ke liye
 from supabase import create_client, Client
 
@@ -25,9 +24,7 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4) !important;
     }
     
-    /* ========================================================
-       100% GUARANTEED LAVISH GREEN WHATSAPP BUTTON FIX
-       ======================================================== */
+    /* 100% GUARANTEED LAVISH GREEN WHATSAPP BUTTON FIX */
     .st-key-wa_send_btn button {
         background: linear-gradient(90deg, #25D366 0%, #128C7E 100%) !important;
         color: white !important; 
@@ -44,11 +41,9 @@ st.markdown("""
         border-color: #075E54 !important;
     }
 
-    /* ========================================================
-       FIX FOR INVISIBLE INPUT BOXES (SOLID BORDERS ADDED EVERYWHERE)
-       ======================================================== */
+    /* FIX FOR INVISIBLE INPUT BOXES */
     .stTextInput > div > div {
-        border: 2px solid #3b82f6 !important; /* Thick Blue Border */
+        border: 2px solid #3b82f6 !important;
         border-radius: 8px !important;
         background-color: #ffffff !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
@@ -69,13 +64,13 @@ st.markdown("""
     /* Expanders */
     [data-testid="stExpander"] { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
     
-    /* Custom Info Cards WITH SOLID BORDER FIX */
+    /* Custom Info Cards */
     .info-card {
         background: #ffffff; 
         border-radius: 12px; 
         padding: 20px;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
-        border: 2px solid #94a3b8 !important; /* Solid Border */
+        border: 2px solid #94a3b8 !important;
         margin-bottom: 15px;
     }
     .info-card-inner {
@@ -85,25 +80,8 @@ st.markdown("""
         margin-bottom: 10px;
         background-color: #f8fafc;
     }
-
-    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
-    section[data-testid="stSidebar"] { 
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important; 
-        border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
-    }
-    div[data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
-        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    }
-    div[data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
-    div[data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
-    }
-    div[data-testid="stSidebarNav"] a span { color: inherit !important; }
     </style>
 """, unsafe_allow_html=True)
-
 
 # =====================================================================
 # 📊 INDUS BASIC DATA
@@ -120,7 +98,6 @@ with st.form("ind_form_v5"):
         sub_ind = st.form_submit_button("🔍 Search Indus")
     
 if sub_ind:
-    # --- Bulletproof Search Logic (Will not crash on API Errors) ---
     search_success = False
     res_data = None
     
@@ -154,52 +131,31 @@ if sub_ind:
         st.dataframe(df_ind, use_container_width=True, hide_index=True)
         st.divider()
         
-        # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (Smart Column Detection) ---
+        # --- FIXED DROPDOWN LOGIC ---
         team_dict = {}
-        dropdown_data = []
-        
-        # Double Bypass System to guarantee data fetch
         try:
-            res = supabase.table("dropdown_master").select("*").execute()
+            # RLS policy must be created for this to return data
+            res = supabase.table("dropdown_master").select("category, option_value, mobile").execute()
             if res.data:
-                dropdown_data = res.data
-        except Exception:
-            try:
-                headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-                r = requests.get(f"{URL}/rest/v1/dropdown_master?select=*", headers=headers)
-                if r.status_code == 200:
-                    dropdown_data = r.json()
-            except Exception:
-                pass # Silent fail
+                for r in res.data:
+                    cat_val = str(r.get('category', '')).strip().lower()
+                    if cat_val == 'team name':
+                        team_name = str(r.get('option_value', '')).strip()
+                        team_mobile = str(r.get('mobile', '')).strip()
+                        if team_name:
+                            team_dict[team_name] = team_mobile
+        except Exception as e:
+            st.error(f"Database Error: {e}")
 
-        # Extracting data intelligently
-        if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
-            for r in dropdown_data:
-                keys = list(r.keys())
-                
-                # Automatically detecting the columns regardless of exact naming (category, option_value, mobile number)
-                cat_key = next((k for k in keys if 'category' in k.lower()), 'category')
-                opt_key = next((k for k in keys if 'option' in k.lower() or 'value' in k.lower()), 'option_value')
-                # Finding mobile OR number column dynamically
-                mob_key = next((k for k in keys if 'mobile' in k.lower() or 'number' in k.lower() or 'phone' in k.lower()), 'mobile')
-                
-                cat_val = str(r.get(cat_key, '')).strip()
-                if cat_val.lower() == 'team name':
-                    team_name = r.get(opt_key)
-                    team_mobile = r.get(mob_key)
-                    if team_name:
-                        team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
-            
         row_in = res_data[0]
         
-        # Mapping Data Safely for WhatsApp & Display
+        # Data Mapping
         site_id_val = row_in.get('Indus ID', row_in.get('Site ID', row_in.get('indus_id', '-')))
         site_name_val = row_in.get('Site Name', row_in.get('site_name', '-'))
         area_val = row_in.get('Area', row_in.get('Area Name', row_in.get('Site Address', '-')))
-        district_val = row_in.get('District', area_val) # Fallback to area if district not found
+        district_val = row_in.get('District', area_val)
         cluster_val = row_in.get('Cluster', '-')
         
         tech_name = row_in.get('Technician Detail', row_in.get('Tech Name', '-'))
@@ -217,31 +173,28 @@ if sub_ind:
         lat = row_in.get('Lat', row_in.get('Latitude', row_in.get('latitude', '')))
         lon = row_in.get('Long', row_in.get('longitude', row_in.get('Longitude', '')))
         
-        # Variables for WhatsApp Template (2 spaces exactly between lat and long)
         lat_long_spaced = f"{lat}  {lon}" if lat and lon else "N/A"
         maps_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "N/A"
         
         t_col1, t_col2 = st.columns([3, 2])
         
         if not team_dict:
-            sel_team = t_col1.selectbox("Select Team", ["-- No Teams Found in Database --"], label_visibility="collapsed")
+            sel_team = t_col1.selectbox("Select Team", ["-- No Teams Found (Check RLS) --"], label_visibility="collapsed")
         else:
             sel_team = t_col1.selectbox("Select Team", ["-- Select Team --"] + list(team_dict.keys()), label_visibility="collapsed")
         
         with t_col2:
-            # Specific Container Key for WhatsApp Button CSS Styling
             with st.container(key="wa_send_btn"):
                 if st.button("💬 Send Message to Team", use_container_width=True):
-                    if sel_team == "-- Select Team --" or sel_team == "-- No Teams Found in Database --":
+                    if sel_team in ["-- Select Team --", "-- No Teams Found (Check RLS) --"]:
                         st.warning("⚠️ Please select a valid team first!")
                     else:
                         mob = team_dict.get(sel_team, "")
-                        if not mob or str(mob).strip().upper() == "EMPTY" or str(mob).strip() == "NAN":
+                        if not mob or mob.upper() == "EMPTY" or mob == "NAN":
                             st.error(f"⚠️ Mobile number not found for '{sel_team}' in database.")
                         else:
                             clean_mob = str(mob).replace("+91", "").replace(" ", "").strip()
                             if len(clean_mob) >= 10:
-                                # --- INTERAKT API LOGIC ---
                                 url = "https://api.interakt.ai/v1/public/message/"
                                 headers = {
                                     "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
@@ -250,7 +203,7 @@ if sub_ind:
                                 
                                 def clean_val(v):
                                     val = str(v).strip()
-                                    return val if val and val != "None" and val != "nan" else "-"
+                                    return val if val and val != "None" and val.lower() != "nan" else "-"
                                 
                                 payload = {
                                     "countryCode": "+91",
@@ -263,15 +216,15 @@ if sub_ind:
                                         "headerValues": [],
                                         "bodyValues": [
                                             clean_val(sel_team),      # {{1}} Team Name
-                                            clean_val(site_id_val),   # {{2}} Site ID
-                                            clean_val(site_name_val), # {{3}} Site Name
-                                            clean_val(district_val),  # {{4}} District / Area
+                                            clean_val(site_name_val), # {{2}} Site Name
+                                            clean_val(site_id_val),   # {{3}} Indus ID
+                                            clean_val(district_val),  # {{4}} Area
                                             clean_val(cluster_val),   # {{5}} Cluster
-                                            clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
+                                            clean_val(lat_long_spaced),# {{6}} Lat Long
                                             clean_val(tech_full),     # {{7}} Technician Detail
                                             clean_val(fse_full),      # {{8}} FSE Detail
                                             clean_val(aom_full),      # {{9}} AOM Detail
-                                            clean_val(maps_link)      # {{10}} Google Location Link
+                                            clean_val(maps_link)      # {{10}} Site Location
                                         ]
                                     }
                                 }
@@ -279,14 +232,14 @@ if sub_ind:
                                 try:
                                     response = requests.post(url, headers=headers, json=payload)
                                     if response.status_code in [200, 201, 202]:
-                                        st.success(f"✅ Message sent to {sel_team} ({clean_mob}) successfully!")
+                                        st.success(f"✅ Message sent to {sel_team} (+91-{clean_mob}) successfully!")
                                     else:
                                         st.error(f"⚠️ WhatsApp API Error: {response.text}")
                                 except Exception as e:
                                     st.error(f"⚠️ Request Failed: {e}")
                             else:
                                 st.error(f"⚠️ Invalid Mobile Number: {clean_mob}")
-            
+        
         st.divider()
 
         # --- Displaying Site Details ---
@@ -333,7 +286,6 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
         add_sid = st.text_input("📍 Add Site ID")
         if st.form_submit_button("➕ Add to List"):
             if add_sid:
-                # --- Crash-proof Route add logic ---
                 s_data = None
                 tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
                 id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
@@ -349,7 +301,6 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
                         except: pass
 
                 if s_data: 
-                    # Data normalization for route table
                     norm_data = {
                         'Site ID': s_data.get('Site ID', s_data.get('Indus ID', s_data.get('indus_id', '-'))),
                         'Site Name': s_data.get('Site Name', s_data.get('site_name', '-')),
@@ -361,7 +312,6 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
                     st.rerun()
                 else: st.error("Site ID not found or Database Error!")
 
-    # --- Current Added Sites List ---
     if st.session_state.route_list:
         st.write("### 📋 Added Sites:")
         temp_df = pd.DataFrame(st.session_state.route_list)[['Site ID', 'Site Name', 'Lat', 'Long']]
@@ -375,7 +325,6 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
         st.warning("Please add Start, End and at least one Site!")
     else:
         try:
-            # Importing locally to prevent crash if not in requirements.txt
             from geopy.geocoders import Nominatim
             from geopy.distance import geodesic
             
@@ -395,13 +344,11 @@ if st.button("🚀 Calculate Best Route (Point-wise)", use_container_width=True,
                     curr_p = (float(next_s['Lat']), float(next_s['Long']))
                     unvisited.remove(next_s)
                 
-                # Showing Sequential Table
                 route_results = []
                 for i, s in enumerate(final_path, 1):
                     route_results.append({"Stop No": i, "Site ID": s.get('Site ID', '-'), "Name": s.get('Site Name','-')})
                 st.table(pd.DataFrame(route_results))
                 
-                # Point-wise Google Maps Link
                 stops = "/".join([f"{s['Lat']},{s['Long']}" for s in final_path])
                 gmaps_route = f"https://www.google.com/maps/dir/{start_coords}/{stops}/{end_coords}"
                 st.markdown(f'<a href="{gmaps_route}" target="_blank"><button style="width:100%; background-color:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:800; font-size:16px; cursor:pointer; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.4);">🗺️ Open Sequential Route (1-2-3-4)</button></a>', unsafe_allow_html=True)
