@@ -7,7 +7,7 @@ from supabase import create_client, Client
 # --- 1. CONNECTION ---
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
 
-# YAHAN WO BAHUT LAMBI WALI KEY DAALEIN JO 'eyJ' SE SHURU HOTI HAI
+# ⚠️ YAHAN WO BAHUT LAMBI WALI KEY DAALEIN JO 'eyJ' SE SHURU HOTI HAI
 KEY = "YAHAN_EYJ_WALI_LAMBI_KEY_PASTE_KAREIN" 
 supabase: Client = create_client(URL, KEY)
 
@@ -268,7 +268,7 @@ if st.session_state.get('keep_search_active'):
                                     "callbackData": "site_detail_event",
                                     "type": "Template",
                                     "template": {
-                                        "name": "Site_Detail",
+                                        "name": "site_detail",  # YAHAN TEMPLATE NAME THEEK KIYA GAYA HAI (small letters)
                                         "languageCode": "mr",
                                         "headerValues": [],
                                         "bodyValues": [
