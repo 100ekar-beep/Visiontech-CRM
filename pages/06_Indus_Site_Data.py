@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-KEY = "sb_secret_tdh9P1UHf-v7bi_rUD9h4A_nlVZ3HxQ" 
+KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwd2NyYWFhc3FqZ213cGNseGZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTE3NDAsImV4cCI6MjEwMDgyNzc0MH0.dtGic3APKdxtQWeF2i2k_sPMMewhHb-EtDPZCSVKXIs" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
