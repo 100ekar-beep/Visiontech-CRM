@@ -5,11 +5,9 @@ import requests # API Call ke liye
 from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
-# Yahan maine aapka sahi URL daal diya hai. 
+# Naya URL aur Nayi Secret Key Update Kar Di Gayi Hai
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-
-# ⚠️ WARNING: Yahan apni nayi API KEY zaroor daalein (Supabase -> Settings -> API se copy karke)
-KEY = "sb_publishable_rAiegSkKYvM0Z9n7sUAI1w_WTgm1S4I" 
+KEY = "sb_secret_fbpDWstpuzopKSgd9IbtRw_d3RLE2fB" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
