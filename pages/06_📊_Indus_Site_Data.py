@@ -157,55 +157,36 @@ if sub_ind:
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (Smart Column Detection) ---
+        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING ---
         team_dict = {}
         dropdown_data = []
-        fetch_error = "" # Added to capture silent errors
         
         # Double Bypass System to guarantee data fetch
         try:
-            res = supabase.table("dropdown_master").select("*").execute()
+            # Using exact column names as specified
+            res = supabase.table("dropdown_master").select("category, option_value, mobile").execute()
             if res.data:
                 dropdown_data = res.data
-        except Exception as e:
-            fetch_error += f"Supabase Error: {str(e)} | "
+        except Exception:
             try:
                 headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-                r = requests.get(f"{URL}/rest/v1/dropdown_master?select=*", headers=headers)
+                r = requests.get(f"{URL}/rest/v1/dropdown_master?select=category,option_value,mobile", headers=headers)
                 if r.status_code == 200:
                     dropdown_data = r.json()
-                else:
-                    fetch_error += f"API Route Error: {r.text}"
-            except Exception as ex:
-                fetch_error += f"Requests Exception: {str(ex)}"
-                
-        # Debug display if data failed to load completely
-        if fetch_error and not dropdown_data:
-            st.error(f"🚨 Data Fetching Failed: {fetch_error}")
+            except Exception:
+                pass # Silent fail
 
-        # Extracting data intelligently
+        # Extracting data using exact column names
         if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
             for r in dropdown_data:
-                keys = list(r.keys())
+                cat_val = str(r.get('category', '')).strip()
                 
-                # Automatically detecting the columns regardless of exact naming (category, option_value, mobile number)
-                cat_key = next((k for k in keys if 'category' in k.lower()), 'category')
-                opt_key = next((k for k in keys if 'option' in k.lower() or 'value' in k.lower()), 'option_value')
-                # Finding mobile OR number column dynamically
-                mob_key = next((k for k in keys if 'mobile' in k.lower() or 'number' in k.lower() or 'phone' in k.lower()), 'mobile')
-                
-                # Highly forgiving matching logic for "Team Name" to prevent empty dropdowns
-                cat_val = str(r.get(cat_key, '')).strip().lower().replace(" ", "").replace("_", "")
-                
-                if cat_val == 'teamname':
-                    team_name = r.get(opt_key)
-                    team_mobile = r.get(mob_key)
+                # Check condition for 'Team Name'
+                if cat_val.lower() == 'team name':
+                    team_name = r.get('option_value')
+                    team_mobile = r.get('mobile')
                     if team_name:
                         team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
-            
-            # Debug view if data came but mapping failed
-            if not team_dict:
-                st.warning(f"⚠️ Table mili par 'Team Name' map nahi hua. DB Columns jo mile wo ye hain: {list(dropdown_data[0].keys())}")
             
         row_in = res_data[0]
         
