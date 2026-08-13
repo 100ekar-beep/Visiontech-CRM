@@ -7,8 +7,8 @@ from supabase import create_client, Client
 # --- 1. CONNECTION ---
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
 
-# ⚠️ YAHAN WO BAHUT LAMBI WALI KEY DAALEIN JO 'eyJ' SE SHURU HOTI HAI
-KEY = "YAHAN_EYJ_WALI_LAMBI_KEY_PASTE_KAREIN" 
+# ⚠️ YAHAN COPY ICON DABA KAR FRESH KEY PASTE KAREIN (Bina kisi extra space ke)
+KEY = "YAHAN_COPY_KIYI_HUI_KEY_PASTE_KAREIN" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
