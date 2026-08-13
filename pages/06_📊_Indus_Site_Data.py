@@ -186,8 +186,10 @@ if sub_ind:
                 # Finding mobile OR number column dynamically
                 mob_key = next((k for k in keys if 'mobile' in k.lower() or 'number' in k.lower() or 'phone' in k.lower()), 'mobile')
                 
-                cat_val = str(r.get(cat_key, '')).strip()
-                if cat_val.lower() == 'team name':
+                # Highly forgiving matching logic for "Team Name" to prevent empty dropdowns
+                cat_val = str(r.get(cat_key, '')).strip().lower().replace(" ", "").replace("_", "")
+                
+                if cat_val == 'teamname':
                     team_name = r.get(opt_key)
                     team_mobile = r.get(mob_key)
                     if team_name:
@@ -263,8 +265,8 @@ if sub_ind:
                                         "headerValues": [],
                                         "bodyValues": [
                                             clean_val(sel_team),      # {{1}} Team Name
-                                            clean_val(site_name_val), # {{2}} Site Name  <-- YE CHANGE KIYA HAI
-                                            clean_val(site_id_val),   # {{3}} Indus ID   <-- YE CHANGE KIYA HAI
+                                            clean_val(site_name_val), # {{2}} Site Name
+                                            clean_val(site_id_val),   # {{3}} Indus ID
                                             clean_val(district_val),  # {{4}} District / Area
                                             clean_val(cluster_val),   # {{5}} Cluster
                                             clean_val(lat_long_spaced),# {{6}} Lat Long (2 space)
@@ -321,7 +323,7 @@ st.divider()
 # 🧭 ROUTE PLAN
 # =====================================================================
 
-st.subheader("🧭 Route Plan")
+st.subheader("🧭 ROUTE PLAN")
 if 'route_list' not in st.session_state: st.session_state.route_list = []
 
 with st.expander("🛠️ Add Sites to Route", expanded=True):
