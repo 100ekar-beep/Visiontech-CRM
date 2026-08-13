@@ -6,7 +6,9 @@ from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwd2NyYWFhc3FqZ213cGNseGZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTE3NDAsImV4cCI6MjEwMDgyNzc0MH0.dtGic3APKdxtQWeF2i2k_sPMMewhHb-EtDPZCSVKXIs" 
+
+# YAHAN WO BAHUT LAMBI WALI KEY DAALEIN JO 'eyJ' SE SHURU HOTI HAI
+KEY = "YAHAN_EYJ_WALI_LAMBI_KEY_PASTE_KAREIN" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
