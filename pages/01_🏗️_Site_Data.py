@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
+from datetime import datetime # <--- Added for parsing existing date strings
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
@@ -920,7 +921,14 @@ def edit_record_dialog(row_data):
                 po_nos.append(p_n)
             with c18:
                 val = po_date_list[i] if i < len(po_date_list) else ""
-                p_d = st.text_input("PO DATE (DD/MM/YYYY)", value=val if val else "", key=f"e_po_date_{i}")
+                parsed_date = None
+                if val:
+                    try:
+                        parsed_date = datetime.strptime(val.strip(), "%d/%m/%Y").date()
+                    except Exception:
+                        pass
+                raw_p_d = st.date_input("PO DATE", value=parsed_date, key=f"e_po_date_{i}")
+                p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
             with c19:
                 val = po_status_list[i] if i < len(po_status_list) else "Select"
