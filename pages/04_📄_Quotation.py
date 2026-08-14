@@ -588,6 +588,13 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- 8. MAIN SCREEN QUOTATION LIST ---
 df_display = st.session_state.quotations_df.copy()
 
+# Sort the dataframe to show the newest quotations at the top
+if not df_display.empty:
+    if "id" in df_display.columns:
+        df_display = df_display.sort_values(by="id", ascending=False).reset_index(drop=True)
+    else:
+        df_display = df_display.iloc[::-1].reset_index(drop=True)
+
 if not df_display.empty and search_q:
     mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
     df_display = df_display[mask]
