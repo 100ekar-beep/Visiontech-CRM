@@ -40,6 +40,23 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
+    st.error("🚫 **Access Restricted!**")
+    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
+    st.stop()
+
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
 # --- 3. SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
@@ -73,12 +90,25 @@ def fetch_item_master():
 
 def fetch_templates():
     try:
-        # Fetching all templates globally without workspace filter
-        res = supabase.table("quotation_templates").select("*").execute()
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("quotation_templates").select("*").eq("workspace", active_ws).execute()
+        
+        # Fallback if old data doesn't have workspace
+        if not res.data:
+            res = supabase.table("quotation_templates").select("*").is_("workspace", "null").execute()
+            
         if res.data:
             return pd.DataFrame(res.data)
     except Exception as e:
-        pass
+        # FIX: Agar database me workspace column nahi hai toh bina workspace ke fetch karega
+        error_str = str(e)
+        if 'PGRST204' in error_str or 'workspace' in error_str:
+            try:
+                res_fallback = supabase.table("quotation_templates").select("*").execute()
+                if res_fallback.data:
+                    return pd.DataFrame(res_fallback.data)
+            except Exception:
+                pass
     return pd.DataFrame(columns=["id", "Template Name", "Items Data"])
 
 df_items = fetch_item_master()
@@ -234,8 +264,8 @@ def template_dialog(template_data=None):
                     "Price": int(r["Price"]) if pd.notna(r["Price"]) else 0
                 })
         
-        # Workspace hata diya gaya hai, seedha globally save hoga
         payload = {
+            "workspace": st.session_state.get('active_workspace', 'VISPL'),
             "Template Name": t_name.strip(),
             "Items Data": json.dumps(clean_items)
         }
@@ -250,7 +280,23 @@ def template_dialog(template_data=None):
             st.success("✅ Template Saved Successfully!")
             st.rerun()
         except Exception as e:
-            st.error(f"Error saving template: {e}")
+            # FIX: Fallback if workspace column is completely missing in database schema
+            error_str = str(e)
+            if 'PGRST204' in error_str or 'workspace' in error_str:
+                payload_fallback = {k: v for k, v in payload.items() if k != "workspace"}
+                try:
+                    if not is_new and "id" in template_data and pd.notna(template_data["id"]):
+                        supabase.table("quotation_templates").update(payload_fallback).eq("id", template_data["id"]).execute()
+                    else:
+                        supabase.table("quotation_templates").insert(payload_fallback).execute()
+                    
+                    st.session_state.templates_df = fetch_templates()
+                    st.success("✅ Template Saved! (⚠️ DB me 'workspace' column nahi hai isliye use skip kiya gaya)")
+                    st.rerun()
+                except Exception as fallback_e:
+                    st.error(f"Error saving template: {fallback_e}")
+            else:
+                st.error(f"Error saving template: {e}")
 
 # --- TOP HEADER ---
 col_h1, col_h2 = st.columns([8, 2])
