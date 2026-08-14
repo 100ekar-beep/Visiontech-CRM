@@ -7,8 +7,8 @@ from supabase import create_client, Client
 # --- 1. CONNECTION ---
 URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
 
-# ⚠️ YAHAN COPY ICON DABA KAR FRESH KEY PASTE KAREIN (Bina kisi extra space ke)
-KEY = "YAHAN_COPY_KIYI_HUI_KEY_PASTE_KAREIN" 
+# Meri galti theek kar di gayi hai, yahan ab aapki asli lambi API key set hai!
+KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwd2NyYWFhc3FqZ213cGNseGZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTE3NDAsImV4cCI6MjEwMDgyNzc0MH0.dtGic3APKdxtQWeF2i2k_sPMMewhHb-EtDPZCSVKXIs" 
 supabase: Client = create_client(URL, KEY)
 
 # --- 2. PAGE CONFIGURATION ---
