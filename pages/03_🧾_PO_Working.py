@@ -6,6 +6,13 @@ import requests
 import urllib.parse
 from supabase import create_client, Client
 
+# Attempt to load st_keyup for real-time auto-search
+try:
+    from st_keyup import st_keyup
+    HAS_KEYUP = True
+except ImportError:
+    HAS_KEYUP = False
+
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 
@@ -642,7 +649,13 @@ col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
     st.markdown("##### 🗄️ Uploaded PO Summary")
 with col_search:
-    search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
+    if HAS_KEYUP:
+        # st_keyup instantly triggers updates as the user types
+        search_query = st_keyup("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed", debounce=300)
+    else:
+        # Fallback if package is not installed
+        search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
+        st.caption("Auto-search requires `streamlit-keyup`. Run: `pip install streamlit-keyup`")
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
