@@ -233,50 +233,27 @@ def get_col(df, candidates):
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        # Fetching all POs for workspace to let Pandas smartly filter it 100% accurately
-        res = supabase.table("po_working").select("*").eq("workspace", ws).execute()
+        
+        # 100% BULLETPROOF FETCH: Using limit(100000) so we bypass Supabase 1000-row block limit!
+        res = supabase.table("po_working").select("*").eq("workspace", ws).limit(100000).execute()
         
         if res.data:
             df = pd.DataFrame(res.data)
             
             po_col = get_col(df, ['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
-            site_col = get_col(df, ['site id', 'site_id', 'siteid'])
-            proj_col = get_col(df, ['project id', 'project_id', 'project name', 'project_name'])
             
             if po_col:
                 po_target = str(po_no).strip().lower()
                 if po_target.endswith('.0'): po_target = po_target[:-2]
                 
                 df['clean_po'] = df[po_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-                df = df[df['clean_po'] == po_target]
-                
-            if df.empty: return pd.DataFrame()
-            
-            s_target = str(site_id).strip().lower()
-            if s_target.endswith('.0'): s_target = s_target[:-2]
-            p_target = str(proj_id).strip().lower()
-            if p_target.endswith('.0'): p_target = p_target[:-2]
-            
-            mask = pd.Series([False] * len(df))
-            filter_applied = False
-            
-            if site_col and s_target:
-                df['clean_site'] = df[site_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-                mask = mask | (df['clean_site'] == s_target)
-                filter_applied = True
-                
-            if proj_col and p_target:
-                df['clean_proj'] = df[proj_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-                mask = mask | (df['clean_proj'] == p_target)
-                filter_applied = True
-                
-            if filter_applied:
-                df_filtered = df[mask].copy()
-                if df_filtered.empty:
-                    df_filtered = df.copy() # Ultimate Fallback
+                df_filtered = df[df['clean_po'] == po_target].copy()
             else:
-                df_filtered = df.copy()
+                return pd.DataFrame()
                 
+            if df_filtered.empty: 
+                return pd.DataFrame()
+            
             # Available Qty Logic
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
             used_map = {}
@@ -419,10 +396,10 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # ---> FIXED: Smart Dynamic PO Fetching from po_working (100% Bulletproof Pandas Style) <---
+        # ---> FIXED: Bypassing the 1000 limit issue for dropdown too! <---
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            res_po_all = supabase.table("po_working").select("*").eq("workspace", ws_act).execute()
+            res_po_all = supabase.table("po_working").select("*").eq("workspace", ws_act).limit(100000).execute()
             if res_po_all.data:
                 df_po_all = pd.DataFrame(res_po_all.data)
                 
@@ -440,22 +417,21 @@ def add_mrn_dialog():
                     for idx, row in df_po_all.iterrows():
                         match = False
                         if proj_col:
-                            pval = str(row[proj_col]).strip().lower()
+                            pval = str(row.get(proj_col, "")).strip().lower()
                             if pval.endswith('.0'): pval = pval[:-2]
                             if pval == p_target: match = True
                         if site_col and s_target:
-                            sval = str(row[site_col]).strip().lower()
+                            sval = str(row.get(site_col, "")).strip().lower()
                             if sval.endswith('.0'): sval = sval[:-2]
                             if sval == s_target: match = True
                             
                         if match:
-                            pn = str(row[po_col]).strip()
+                            pn = str(row.get(po_col, "")).strip()
                             if pn.endswith('.0'): pn = pn[:-2]
                             if pn and pn.lower() != 'nan' and pn not in po_list:
                                 po_list.append(pn)
         except Exception as e:
             pass
-        # -----------------------------------------------------------
         
         team_percent = fetch_team_percentage(team_name)
 
