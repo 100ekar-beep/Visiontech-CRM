@@ -448,7 +448,9 @@ def po_upload_dialog():
                 
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
-                st.success(f"✅ PO {po_number_input} Processed and Saved to Database!")
+                    
+                # Setting session state to trigger balloons after the page reruns
+                st.session_state['po_upload_success_msg'] = po_number_input
                 st.rerun()
                 
             except Exception as e:
@@ -636,6 +638,13 @@ with col_export:
         st.session_state.action = "export"
 
 st.markdown("<br>", unsafe_allow_html=True)
+
+# --- CELEBRATION BLOCK AFTER UPLOAD ---
+if st.session_state.get('po_upload_success_msg'):
+    st.balloons()
+    st.toast(f"🎉 BINGO! PO {st.session_state['po_upload_success_msg']} Uploaded!", icon="🎈")
+    st.success(f"🎊 YAY! PO **{st.session_state['po_upload_success_msg']}** Uploaded Successfully! 🫧🎈")
+    del st.session_state['po_upload_success_msg']
 
 # --- FETCH DATA FROM SESSION ---
 df = st.session_state.po_working_df.copy()
