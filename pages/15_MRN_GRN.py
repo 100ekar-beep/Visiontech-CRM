@@ -234,17 +234,14 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             s_id = str(site_id).strip().lower()
             p_id = str(proj_id).strip().lower()
             
-            # ---> FIXED: Smart Dynamic Column Filtering (Bulletproof) <---
             mask = pd.Series([False] * len(df))
             filter_applied = False
             
             for col in df.columns:
                 c_lower = str(col).strip().lower()
-                # Check mapping for Site ID
                 if c_lower in ['site id', 'site_id', 'siteid']:
                     mask = mask | (df[col].astype(str).str.strip().str.lower() == s_id)
                     filter_applied = True
-                # Check mapping for Project ID
                 elif c_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name']:
                     mask = mask | (df[col].astype(str).str.strip().str.lower() == p_id)
                     filter_applied = True
@@ -252,7 +249,7 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             if filter_applied:
                 df_filtered = df[mask].copy()
             else:
-                df_filtered = df.copy() # Return all if columns missing to prevent blank out
+                df_filtered = df.copy() 
             
             # Available Qty Logic
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
@@ -392,6 +389,31 @@ def add_mrn_dialog():
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
+        # ---> FIXED: Smart Dynamic PO Fetching from po_working <---
+        ws_act = st.session_state.get('active_workspace', 'VISPL')
+        try:
+            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
+            for r in r1.data or []:
+                pn = str(r.get("PO Number", "")).strip()
+                if pn and pn not in po_list: po_list.append(pn)
+        except: pass
+        
+        try:
+            r2 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project ID", selected_proj).execute()
+            for r in r2.data or []:
+                pn = str(r.get("PO Number", "")).strip()
+                if pn and pn not in po_list: po_list.append(pn)
+        except: pass
+        
+        try:
+            if site_id:
+                r3 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Site ID", site_id).execute()
+                for r in r3.data or []:
+                    pn = str(r.get("PO Number", "")).strip()
+                    if pn and pn not in po_list: po_list.append(pn)
+        except: pass
+        # -----------------------------------------------------------
+        
         team_percent = fetch_team_percentage(team_name)
 
     c1, c2, c3 = st.columns(3)
