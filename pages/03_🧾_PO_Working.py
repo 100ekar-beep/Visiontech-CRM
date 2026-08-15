@@ -492,15 +492,27 @@ def view_po_details_dialog(row_data):
     if site_id:
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
-            res_site = supabase.table("site_data").select("Cluster, RFAI Status").eq("Site ID", site_id).eq("workspace", active_ws).execute()
+            
+            # FIX: Use select("*") to avoid PostgREST parsing errors on spaces (like "RFAI Status") and explicitly added SRN Fetch
+            res_site = supabase.table("site_data").select("*").eq("Site ID", str(site_id).strip()).eq("workspace", active_ws).execute()
             if res_site.data:
                 cluster_val = res_site.data[0].get("Cluster", "-")
                 rfai_val = res_site.data[0].get("RFAI Status", "-")
+                srn_val = res_site.data[0].get("SRN", "-") 
             
-            res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", site_id).execute()
-            if res_exc.data:
-                km_val = res_exc.data[0].get("KM", "-")
-        except:
+            # Fallback for Excalation / Escalation typos in the table name
+            try:
+                res_exc = supabase.table("Excalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+                if res_exc.data:
+                    km_val = res_exc.data[0].get("KM", "-")
+            except:
+                try:
+                    res_exc = supabase.table("Escalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+                    if res_exc.data:
+                        km_val = res_exc.data[0].get("KM", "-")
+                except:
+                    pass
+        except Exception:
             pass
 
     display_cols = [
@@ -673,6 +685,8 @@ if search_query:
 # --- CREATE UNIQUE PO SUMMARY LIST ---
 if not df.empty:
     summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
+    # FIX: Reversing the summary DataFrame so that the most recently added POs appear at the very top (Line 1, Page 1).
+    summary_df = summary_df.iloc[::-1].reset_index(drop=True)
 else:
     summary_df = pd.DataFrame(columns=["Project Name", "Site ID", "Site Name", "PO Number"])
 
