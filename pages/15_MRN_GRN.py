@@ -227,10 +227,29 @@ def fetch_team_percentage(team_name):
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
+        # Fetching entire workspace POs to bypass PostgREST strict match errors
+        res = supabase.table("po_working").select("*").eq("workspace", ws).limit(100000).execute()
         
         if res.data:
             df = pd.DataFrame(res.data)
+            po_target = str(po_no).strip().lower()
+            
+            # Smart Filter 1: PO Number
+            po_mask = pd.Series([False] * len(df))
+            po_found = False
+            for col in df.columns:
+                c_lower = str(col).strip().lower()
+                if c_lower in ['po number', 'po_number', 'ponumber', 'po no', 'po no.', 'po_no']:
+                    po_mask = po_mask | (df[col].astype(str).str.strip().str.lower() == po_target)
+                    po_found = True
+                    
+            if po_found:
+                df = df[po_mask]
+                
+            if df.empty:
+                return pd.DataFrame()
+                
+            # Smart Filter 2: Site ID / Project Name
             s_id = str(site_id).strip().lower()
             p_id = str(proj_id).strip().lower()
             
@@ -239,10 +258,10 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             
             for col in df.columns:
                 c_lower = str(col).strip().lower()
-                if c_lower in ['site id', 'site_id', 'siteid']:
+                if c_lower in ['site id', 'site_id', 'siteid'] and s_id != "":
                     mask = mask | (df[col].astype(str).str.strip().str.lower() == s_id)
                     filter_applied = True
-                elif c_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name']:
+                elif c_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name'] and p_id != "":
                     mask = mask | (df[col].astype(str).str.strip().str.lower() == p_id)
                     filter_applied = True
                     
@@ -250,17 +269,30 @@ def fetch_po_line_items(po_no, site_id, proj_id):
                 df_filtered = df[mask].copy()
             else:
                 df_filtered = df.copy() 
+                
+            if df_filtered.empty:
+                return pd.DataFrame()
             
-            # Available Qty Logic
+            # Available Qty Logic Check
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
             used_map = {}
             if res_used.data:
                 for r in res_used.data:
-                    ic = str(r.get("Item Code", "")).strip()
+                    ic = str(r.get("Item Code", "")).strip().lower()
                     uq = int(r.get("User Qty", 0))
                     used_map[ic] = used_map.get(ic, 0) + uq
             
-            df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
+            item_col_name = None
+            for col in df_filtered.columns:
+                c_lower = str(col).strip().lower()
+                if c_lower in ['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code']:
+                    item_col_name = col
+                    break
+                    
+            if item_col_name:
+                df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get(item_col_name, "")).strip().lower(), 0), axis=1)
+            else:
+                df_filtered["Used Qty"] = 0
             
             return df_filtered
     except Exception as e:
@@ -385,11 +417,7 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        po_str = str(proj_data.get("PO No.", ""))
-        if po_str and po_str.lower() != "nan":
-            po_list = [p.strip() for p in po_str.split(",") if p.strip()]
-            
-        # ---> FIXED: Smart Dynamic PO Fetching from po_working (100% Bulletproof Pandas Style) <---
+        # Smart Dynamic PO Fetching from po_working
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
             res_po_all = supabase.table("po_working").select("*").eq("workspace", ws_act).limit(100000).execute()
@@ -403,10 +431,8 @@ def add_mrn_dialog():
                         if v is not None:
                             k_lower = str(k).strip().lower()
                             v_lower = str(v).strip().lower()
-                            
                             if k_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name'] and v_lower == p_id_target:
                                 match_found = True
-                            
                             if k_lower in ['site id', 'site_id', 'siteid'] and v_lower == s_id_target and s_id_target != "":
                                 match_found = True
                     
@@ -416,7 +442,6 @@ def add_mrn_dialog():
                             po_list.append(pn)
         except Exception as e:
             pass
-        # -----------------------------------------------------------
         
         team_percent = fetch_team_percentage(team_name)
 
@@ -440,6 +465,13 @@ def add_mrn_dialog():
     grand_basic_total = 0.0
     all_po_dfs = {}
     
+    # Smart Column Extractor Helper
+    def safe_col(df, candidates):
+        for col in df.columns:
+            if str(col).strip().lower() in candidates:
+                return df[col].values
+        return [""] * len(df)
+    
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
@@ -449,21 +481,21 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po} matching this Site ID.")
             continue
             
-        df_display = pd.DataFrame()
-        df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
-        df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
-        df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
-        
-        # Available Qty Logic
-        raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        line_nos = safe_col(df_po, ['line no', 'line number', 'lineno', 'line_no', 'sl no', 'sr no', '#', 'sn'])
+        item_codes = safe_col(df_po, ['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code'])
+        descriptions = safe_col(df_po, ['description', 'item description', 'desc', 'material description', 'item name'])
+        raw_po_qtys = pd.to_numeric(safe_col(df_po, ['po qty', 'po_qty', 'qty', 'quantity', 'total qty']), errors='coerce').fillna(0)
+        raw_prices = pd.to_numeric(safe_col(df_po, ['price', 'rate', 'unit price', 'basic price', 'unit_price', 'amount']), errors='coerce').fillna(0)
         raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
         
-        df_display["PO Qty"] = raw_po_qty
-        df_display["Available Qty"] = raw_po_qty - raw_used_qty
+        df_display = pd.DataFrame()
+        df_display["PO Line No"] = line_nos
+        df_display["Item Code"] = item_codes
+        df_display["Item Description"] = descriptions
+        df_display["PO Qty"] = raw_po_qtys
+        df_display["Available Qty"] = raw_po_qtys - raw_used_qty
         df_display["User Qty"] = 0
-        
-        original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
-        df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
+        df_display["Adjusted Price"] = raw_prices * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
         editor_key = f"editor_mrn_{po}"
