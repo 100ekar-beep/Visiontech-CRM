@@ -108,6 +108,9 @@ st.markdown(f"""
 def init_connection():
     try:
         url: str = st.secrets["supabase"]["url"]
+        # FIX FOR PGRST125: Automatically remove '/rest/v1' or trailing slashes if mistakenly present in secrets.toml
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        
         key: str = st.secrets["supabase"]["key"]
         return create_client(url, key)
     except Exception as e:
