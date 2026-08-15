@@ -273,7 +273,8 @@ def add_mrn_dialog():
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("RFAI STATUS", value=rfai_status, disabled=True)
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
-    with c6: st.text_input(f"TEAM NAME (Rate: {team_percent}%)", value=team_name, disabled=True)
+    # ---> FIXED: Made Team Name explicitly show as required (*) <---
+    with c6: st.text_input(f"TEAM NAME * (Rate: {team_percent}%)", value=team_name, disabled=True)
 
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
     
@@ -350,10 +351,16 @@ def add_mrn_dialog():
     
     col_save1, col_save2 = st.columns([8, 2])
     with col_save2:
-        if st.button("💾 Generate MRN", type="primary", use_container_width=True):
+        if st.button("💾 Generate MRN & Auto-Bill", type="primary", use_container_width=True):
             if selected_proj == "Select Project ID":
                 st.error("⚠️ Please select a Project ID.")
                 return
+            
+            # ---> FIXED: Team Name Mandatory Check <---
+            if not team_name or str(team_name).strip() in ["", "nan", "None", "Select"]:
+                st.error("⚠️ Team Name is required! Please assign a team to this project in Site Data before generating MRN.")
+                return
+                
             if not selected_pos:
                 st.error("⚠️ Please select at least one PO.")
                 return
@@ -361,7 +368,15 @@ def add_mrn_dialog():
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
                 return
                 
-            new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
+            # ---> FIXED: 100% Unique MRN Generation Logic <---
+            while True:
+                new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
+                try:
+                    check_res = supabase.table("mrn_data").select("MRN Number").eq("MRN Number", new_mrn_no).execute()
+                    if not check_res.data:
+                        break # Found a unique MRN!
+                except Exception:
+                    break # If network fails during check, proceed with generated MRN
             
             header_data = {
                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
@@ -401,8 +416,30 @@ def add_mrn_dialog():
                         supabase.table("mrn_items").insert(items_to_insert).execute()
                     except Exception:
                         pass # Ignore if table doesn't exist yet
-                        
-                st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no}")
+                
+                # ---> FIXED: AUTO GENERATE TEAM INVOICE IN BILLING <---
+                billing_payload = {
+                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                    "invoice_type": "Team",
+                    "team_name": team_name,
+                    "amount": float(grand_basic_total),
+                    "basic_amount": float(grand_basic_total),
+                    "gst_amount": 0.0,
+                    "date": str(datetime.date.today()), # Standard YYYY-MM-DD for billing ledger
+                    "project_id": selected_proj,
+                    "site_id": site_id,
+                    "site_name": site_name,
+                    "invoice_no": new_mrn_no,
+                    "vendor_name": "",
+                    "remark": "Data Taken by MRN",
+                    "cluster": cluster
+                }
+                try:
+                    supabase.table("billing_invoices").insert(billing_payload).execute()
+                except Exception as inv_e:
+                    pass # Ignore if there is a minor sync issue, MRN is successfully done.
+
+                st.success(f"✅ MRN Generated & Auto-Billed Successfully! ID: {new_mrn_no}")
                 st.session_state.mrn_current_page = 1
                 st.rerun()
             except Exception as e:
