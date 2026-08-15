@@ -231,18 +231,26 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         
         if res.data:
             df = pd.DataFrame(res.data)
-            
             s_id = str(site_id).strip()
             p_id = str(proj_id).strip()
             
             mask = pd.Series([False] * len(df))
-            
-            if "Site ID" in df.columns:
-                mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
-            if "Project Name" in df.columns:
-                mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
+            if "Site ID" in df.columns: mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
+            if "Project Name" in df.columns: mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
                 
-            df_filtered = df[mask]
+            df_filtered = df[mask].copy()
+            
+            # Logic to find Used Qty & Available Qty
+            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+            used_map = {}
+            if res_used.data:
+                for r in res_used.data:
+                    ic = str(r.get("Item Code", "")).strip()
+                    uq = int(r.get("User Qty", 0))
+                    used_map[ic] = used_map.get(ic, 0) + uq
+            
+            df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
+            
             return df_filtered
     except Exception as e:
         pass
@@ -252,7 +260,7 @@ def fetch_po_line_items(po_no, site_id, proj_id):
 
 @st.dialog("🗑️ Confirm Deletion", width="small")
 def delete_mrn_dialog(rid, mrn_no):
-    st.warning(f"Delete MRN '{mrn_no}'? This will also remove its Auto-Generated Bill and Line Items. This cannot be undone.")
+    st.warning(f"Delete MRN '{mrn_no}'? This will also remove its Pending Auto-Bill and Line Items. This cannot be undone.")
     st.markdown("<br>", unsafe_allow_html=True)
     wc1, wc2 = st.columns(2)
     with wc1:
@@ -265,7 +273,8 @@ def delete_mrn_dialog(rid, mrn_no):
                 supabase.table("mrn_data").delete().eq("id", rid).execute()
                 # Delete Items
                 supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).execute()
-                # Delete Auto-Bill from Team Billing
+                # Delete Auto-Bill from Pending Team Billing (and Main just in case)
+                supabase.table("pending_billing_invoices").delete().eq("invoice_no", mrn_no).execute()
                 supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
                 
                 st.success("✅ MRN & Auto-Bill Deleted Successfully!")
@@ -319,7 +328,8 @@ def edit_mrn_dialog(row_data):
             try:
                 # Update Date in MRN
                 supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).execute()
-                # Update Date in Auto-Bill
+                # Update Date in Auto-Bill (Both Tables just in case)
+                supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
                 supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
                 
                 st.success("✅ MRN Date Updated Successfully!")
@@ -335,6 +345,21 @@ def add_mrn_dialog():
     
     proj_opts = fetch_project_ids()
     selected_proj = st.selectbox("SEARCH & SELECT PROJECT ID *", proj_opts)
+    
+    # Show Existing MRNs Box
+    if selected_proj != "Select Project ID":
+        try:
+            ex_res = supabase.table("mrn_data").select("MRN Number", "Team Name").eq("Project ID", selected_proj).execute()
+            if ex_res.data:
+                ex_text = " | ".join([f"{r['MRN Number']} ({r['Team Name']})" for r in ex_res.data])
+                st.markdown(f"""
+                <div style='background-color: #ffffff; padding: 12px; border-radius: 8px; border: 2px solid #10b981; margin-top: 5px; margin-bottom: 15px;'>
+                    <span style='color: #0f172a; font-weight: 800; font-size: 0.95rem;'>📌 EXISTING MRNs FOUND FOR THIS PROJECT:</span><br>
+                    <span style='color: #ef4444; font-weight: 700; font-size: 0.9rem;'>{ex_text}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        except:
+            pass
     
     site_name, site_id, cluster, rfai_status, site_status, team_name = "", "", "", "", "", ""
     po_list = []
@@ -388,8 +413,13 @@ def add_mrn_dialog():
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
         df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
-        df_display["PO Qty"] = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
         
+        # Available Qty Logic
+        raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        
+        df_display["PO Qty"] = raw_po_qty
+        df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
         
         original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
@@ -408,6 +438,7 @@ def add_mrn_dialog():
                 "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
                 "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
                 "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True),
+                "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True),
                 "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0, required=True),
                 "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
                 "Line Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %.2f"),
@@ -436,9 +467,9 @@ def add_mrn_dialog():
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_save1, col_save2 = st.columns([8, 2])
+    col_save1, col_save2 = st.columns([7, 3])
     with col_save2:
-        if st.button("💾 Generate MRN & Auto-Bill", type="primary", use_container_width=True):
+        if st.button("💾 Generate MRN (Send for Approval)", type="primary", use_container_width=True):
             if selected_proj == "Select Project ID":
                 st.error("⚠️ Please select a Project ID.")
                 return
@@ -453,7 +484,18 @@ def add_mrn_dialog():
             if grand_basic_total <= 0:
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
                 return
-                
+            
+            # Strict QTY Validation
+            for po, edf in all_po_dfs.items():
+                for idx, r in edf.iterrows():
+                    u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
+                    a_qty = pd.to_numeric(r["Available Qty"], errors='coerce')
+                    u_qty = 0 if pd.isna(u_qty) else int(u_qty)
+                    a_qty = 0 if pd.isna(a_qty) else int(a_qty)
+                    if u_qty > a_qty:
+                        st.error(f"❌ Error in PO {po}: User Qty ({u_qty}) cannot be greater than Available Qty ({a_qty}) for Item '{r['Item Code']}'.")
+                        return
+
             while True:
                 new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
                 try:
@@ -502,7 +544,7 @@ def add_mrn_dialog():
                     except Exception:
                         pass 
                 
-                # Auto Generate Team Invoice
+                # SEND TO PENDING_BILLING_INVOICES FOR APPROVAL
                 billing_payload = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "invoice_type": "Team",
@@ -520,11 +562,11 @@ def add_mrn_dialog():
                     "cluster": cluster
                 }
                 try:
-                    supabase.table("billing_invoices").insert(billing_payload).execute()
+                    supabase.table("pending_billing_invoices").insert(billing_payload).execute()
                 except Exception:
                     pass
 
-                st.success(f"✅ MRN Generated & Auto-Billed Successfully! ID: {new_mrn_no}")
+                st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} (Sent for Approval in Team Billing)")
                 st.session_state.mrn_current_page = 1
                 st.rerun()
             except Exception as e:
