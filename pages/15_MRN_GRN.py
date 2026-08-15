@@ -670,8 +670,8 @@ def add_mrn_dialog():
                 if items_to_insert:
                     try:
                         supabase.table("mrn_items").insert(items_to_insert).execute()
-                    except Exception:
-                        pass 
+                    except Exception as e:
+                        st.warning(f"⚠️ MRN header saved, but line items failed to save: {e}")
                 
                 # SEND TO PENDING_BILLING_INVOICES FOR APPROVAL
                 billing_payload = {
@@ -692,10 +692,12 @@ def add_mrn_dialog():
                 }
                 try:
                     supabase.table("pending_billing_invoices").insert(billing_payload).execute()
-                except Exception:
-                    pass
-
-                st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} (Sent for Approval in Team Billing)")
+                    st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} (Sent for Approval in Team Billing)")
+                except Exception as e:
+                    st.warning(
+                        f"⚠️ MRN '{new_mrn_no}' saved, but sending it to Pending Team Billing FAILED: {e}\n\n"
+                        f"Payload attempted: {billing_payload}"
+                    )
                 st.session_state.mrn_current_page = 1
                 st.rerun()
             except Exception as e:
