@@ -753,8 +753,8 @@ with st.container(key="po_table_wrap", height=560):
 
         if site_ids_on_page:
             try:
-                # Check Site ID column
-                res_check = supabase.table("site_data").select("Site ID").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
+                # FIX: Check Site ID column using select("*") to avoid PostgREST space parsing errors
+                res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
                 if res_check.data:
                     available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data if item.get("Site ID")})
             except Exception:
@@ -762,16 +762,16 @@ with st.container(key="po_table_wrap", height=560):
 
         if project_names_on_page:
             try:
-                # Check Project ID column
-                res_check_pid = supabase.table("site_data").select("Project ID").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
+                # FIX: Check Project ID column using select("*") to avoid PostgREST space parsing errors
+                res_check_pid = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
                 if res_check_pid.data:
                     available_projects.update({str(item.get("Project ID")).strip() for item in res_check_pid.data if item.get("Project ID")})
             except Exception:
                 pass
                 
             try:
-                # Fallback: Check Project Name column as well
-                res_check_pname = supabase.table("site_data").select("Project Name").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
+                # Fallback: Check Project Name column as well using select("*")
+                res_check_pname = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
                 if res_check_pname.data:
                     available_projects.update({str(item.get("Project Name")).strip() for item in res_check_pname.data if item.get("Project Name")})
             except Exception:
