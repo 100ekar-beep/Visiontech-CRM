@@ -168,7 +168,7 @@ st.markdown("""
     }
     /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 4800px !important; /* INCREASED MAGIC FIX FOR 26 COLUMNS */
+        min-width: 5000px !important; /* INCREASED MAGIC FIX FOR 27 COLUMNS */
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -1751,7 +1751,7 @@ def status_badge(val):
     vl = v.lower()
     if "not" in vl and ("received" in vl or "available" in vl):
         cls = "status-red"
-    elif any(k in vl for k in ["completed", "approved", "done"]):
+    elif any(k in vl for k in ["completed", "approved", "done", "available"]):
         cls = "status-green"
     elif any(k in vl for k in ["hold", "progress"]):
         cls = "status-blue"
@@ -1763,29 +1763,47 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Exact 26 columns ratios: 1 (Sr No) + 4 (Buttons) + 21 (Data)
+# Exact 27 columns ratios: 1 (Sr No) + 4 (Buttons) + 22 (Data)
 COL_RATIOS = [
     0.3, 0.35, 0.35, 0.35, 0.35, # 0-4 (Actions)
     1.2, 1.0, 1.5, 1.2, 1.2,     # 5-9 (Dept, Op, Proj Name, Proj ID, Site ID)
     1.5, 1.0, 1.2, 1.2, 1.0,     # 10-14 (Site Name, Cluster, Status, PO No, PO Date)
-    1.0, 1.0, 1.2, 2.0, 1.0,     # 15-19 (PO Status, Product, RFAI, Work Desc, WH Mat)
-    1.2, 1.2, 1.2, 1.0, 1.2,     # 20-24 (Team, Team Bill, Vis Bill, Extra App, WCC No)
-    1.0                          # 25 (WCC Status)
+    1.0, 1.3, 1.0, 1.2, 2.0,     # 15-19 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
+    1.0, 1.2, 1.2, 1.2, 1.0,     # 20-24 (WH Mat, Team Name, Team Bill, Vis Bill, Extra App)
+    1.2, 1.0                     # 25-26 (WCC Number, WCC Status)
 ]
 
 COL_LABELS = [
     "#", "👁️", "✏️", "🗑️", "📦", 
     "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
     "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
-    "PO STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", "WH MATERIAL", 
-    "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", "WCC NUMBER", 
-    "WCC STATUS"
+    "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
+    "WH MATERIAL", "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
+    "WCC NUMBER", "WCC STATUS"
 ]
 
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
         st.info("No records found.")
     else:
+        # --- PRE-FETCH PO UPLOAD AVAILABILITY FOR CURRENT PAGE ITEMS ---
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        project_ids_on_page = [str(x).strip() for x in df_page['Project ID'].unique() if str(x).strip() and str(x).strip() != '-']
+        site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
+        
+        uploaded_po_identifiers = set()
+        if project_ids_on_page or site_ids_on_page:
+            try:
+                res_po = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
+                if res_po.data:
+                    for item in res_po.data:
+                        p_name = str(item.get("Project Name", "")).strip()
+                        s_id = str(item.get("Site ID", "")).strip()
+                        if p_name: uploaded_po_identifiers.add(p_name)
+                        if s_id: uploaded_po_identifiers.add(s_id)
+            except Exception:
+                pass
+
         # --- HEADER ROW ---
         h_cols = st.columns(COL_RATIOS)
         for h_col, label in zip(h_cols, COL_LABELS):
@@ -1797,6 +1815,14 @@ with st.container(key="site_table_wrap", height=560):
             rid = row_dict.get("id")
             serial_no = start_idx + page_pos + 1
             is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
+
+            proj_id_val = str(row_dict.get("Project ID", "")).strip()
+            site_id_val = str(row_dict.get("Site ID", "")).strip()
+
+            if (proj_id_val and proj_id_val in uploaded_po_identifiers) or (site_id_val and site_id_val in uploaded_po_identifiers):
+                po_upload_status_html = "<span class='status-badge status-green'>Available</span>"
+            else:
+                po_upload_status_html = "<span class='status-badge status-yellow'>Pending</span>"
 
             rcols = st.columns(COL_RATIOS)
 
@@ -1831,16 +1857,17 @@ with st.container(key="site_table_wrap", height=560):
             rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
             rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
             rcols[15].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
-            rcols[16].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[17].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
-            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[20].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[21].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-            rcols[22].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-            rcols[23].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[24].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[25].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+            rcols[16].markdown(po_upload_status_html, unsafe_allow_html=True)
+            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[18].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
+            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[20].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[21].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[22].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+            rcols[23].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+            rcols[24].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[25].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[26].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
