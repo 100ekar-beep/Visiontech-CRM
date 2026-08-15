@@ -224,34 +224,41 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
-# ---> 100% ORIGINAL LOGIC RESTORED FOR FETCHING ITEMS <---
+# ---> 100% ORIGINAL LOGIC RESTORED FOR FETCHING ITEMS + BULLETPROOF ILIKE <---
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        # Exactly matching your original code's direct database query
-        res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
+        po_clean = str(po_no).strip()
+        if po_clean.endswith(".0"): po_clean = po_clean[:-2]
+
+        # 1. Exact Match Check
+        res = supabase.table("po_working").select("*").eq("PO Number", po_clean).eq("workspace", ws).execute()
         
+        # 2. Failsafe (Agar space ki wajah se exact match na mile)
+        if not res.data:
+            res = supabase.table("po_working").select("*").ilike("PO Number", f"%{po_clean}%").eq("workspace", ws).execute()
+
         if res.data:
             df = pd.DataFrame(res.data)
-            
+
             s_id = str(site_id).strip()
             p_id = str(proj_id).strip()
-            
+
             mask = pd.Series([False] * len(df))
-            
+
             if "Site ID" in df.columns:
                 mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
             if "Project Name" in df.columns:
                 mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
-                
-            # THE MAGIC FIX: If filter matched nothing (due to a space or typo), just return the full PO Data so it never goes blank!
-            if mask.any():
-                df_filtered = df[mask].copy()
-            else:
-                df_filtered = df.copy()
+
+            df_filtered = df[mask].copy()
+
+            # 3. Master Fallback (Agar Project ID filter ke baad blank ho gaya, toh poora data wapas laao)
+            if df_filtered.empty:
+                df_filtered = df.copy() 
 
             # --- Available Qty Logic ---
-            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_clean).execute()
             used_map = {}
             if res_used.data:
                 for r in res_used.data:
@@ -263,7 +270,7 @@ def fetch_po_line_items(po_no, site_id, proj_id):
                 df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
             else:
                 df_filtered["Used Qty"] = 0
-            
+
             return df_filtered
     except Exception as e:
         pass
@@ -387,27 +394,36 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # --- DROPDOWN FIX: Original logic + Added targeted API requests to ensure all POs fetch perfectly ---
+        # 1. Base list from site_data
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
+        # 2. Targeted Fetch from po_working (Bypasses 1000 limit because it filters in DB directly)
         ws_act = st.session_state.get('active_workspace', 'VISPL')
+        p_target = str(selected_proj).strip()
+        s_target = str(site_id).strip()
+        
         try:
-            # Look for PO by Project Name
-            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Project Name", f"%{selected_proj}%").execute()
+            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Project Name", f"%{p_target}%").execute()
             for r in r1.data or []:
                 pn = str(r.get("PO Number", "")).strip()
-                if pn and pn.lower() != "nan" and pn not in po_list: po_list.append(pn)
-                
-            # Look for PO by Project ID
-            r2 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Project ID", f"%{selected_proj}%").execute()
-            for r in r2.data or []:
-                pn = str(r.get("PO Number", "")).strip()
-                if pn and pn.lower() != "nan" and pn not in po_list: po_list.append(pn)
+                if pn.endswith(".0"): pn = pn[:-2]
+                if pn and pn.lower() != "nan" and pn not in po_list:
+                    po_list.append(pn)
         except Exception:
             pass
-        # ------------------------------------------------------------------------------------------------
+            
+        try:
+            if s_target:
+                r2 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Site ID", f"%{s_target}%").execute()
+                for r in r2.data or []:
+                    pn = str(r.get("PO Number", "")).strip()
+                    if pn.endswith(".0"): pn = pn[:-2]
+                    if pn and pn.lower() != "nan" and pn not in po_list:
+                        po_list.append(pn)
+        except Exception:
+            pass
         
         team_percent = fetch_team_percentage(team_name)
 
@@ -437,10 +453,10 @@ def add_mrn_dialog():
         df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
-            st.info(f"No line items found in PO Working for PO: {po}.")
+            st.info(f"No line items found in PO Working for PO: {po}") # Removed the dot!
             continue
             
-        # Extracting Data completely safely based on Original Code
+        # Original Data Editor Logic
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
