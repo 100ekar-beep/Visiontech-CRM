@@ -224,53 +224,131 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
+# ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
+@st.cache_data(ttl=300, show_spinner=False)
+def get_unlimited_po_working(ws):
+    all_rows = []
+    limit = 1000
+    offset = 0
+    while True:
+        try:
+            res = supabase.table("po_working").select("*").eq("workspace", ws).range(offset, offset + limit - 1).execute()
+            if not res.data:
+                break
+            all_rows.extend(res.data)
+            if len(res.data) < limit:
+                break
+            offset += limit
+        except Exception:
+            break
+    return all_rows
+
+
+# ---> HELPER: find a column regardless of case / leading-trailing spaces <---
+def _find_col(df, target_name):
+    target_clean = target_name.strip().lower()
+    for c in df.columns:
+        if str(c).strip().lower() == target_clean:
+            return c
+    return None
+
+
+# ---> HELPER: normalize any numeric-looking value into a clean digit string <---
+# Handles "19030484279", "19030484279.0", "1.9030484279e+10", " 19030484279 ",
+# "19,030,484,279" etc. so PO Number matching never fails on formatting.
+def _clean_number(val):
+    s = str(val).strip()
+    if s == "" or s.lower() in ("nan", "none"):
+        return ""
+    s_no_comma = s.replace(",", "")
+    try:
+        f = float(s_no_comma)
+        if f.is_integer():
+            return str(int(f))
+        return s_no_comma
+    except (ValueError, TypeError):
+        # fallback: strip everything except digits
+        digits = "".join(ch for ch in s if ch.isdigit())
+        return digits if digits else s.strip().lower()
+
+
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # ---> THE MASTER FIX: Filter by Project Name directly to fetch data 100% reliably <---
-        res = supabase.table("po_working").select("*").eq("Project Name", str(proj_id).strip()).eq("workspace", ws).execute()
+        # Fast Unlimited Fetcher
+        all_data = get_unlimited_po_working(ws)
+        if not all_data:
+            st.warning("⚠️ 'po_working' table is empty for this workspace (or fetch failed).")
+            return pd.DataFrame()
         
-        if res.data:
-            df = pd.DataFrame(res.data)
-            
-            # Match Exact PO in Pandas to avoid Supabase float/string match errors
-            po_target = str(po_no).strip().lower()
-            if po_target.endswith('.0'): po_target = po_target[:-2]
-            
-            if "PO Number" in df.columns:
-                df['clean_po'] = df["PO Number"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-                df_filtered = df[df['clean_po'] == po_target].copy()
-            else:
-                df_filtered = df.copy()
-            
-            if df_filtered.empty:
-                return pd.DataFrame()
-            
-            # Match Exact Site ID
-            s_id = str(site_id).strip()
-            if "Site ID" in df_filtered.columns and s_id:
-                mask = df_filtered["Site ID"].astype(str).str.strip() == s_id
-                if mask.any():
-                    df_filtered = df_filtered[mask].copy()
-            
-            # --- Available Qty Logic ---
-            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
-            used_map = {}
-            if res_used.data:
-                for r in res_used.data:
-                    ic = str(r.get("Item Code", "")).strip()
-                    uq = int(r.get("User Qty", 0))
-                    used_map[ic] = used_map.get(ic, 0) + uq
+        df = pd.DataFrame(all_data)
 
-            if "Item Num" in df_filtered.columns:
-                df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
-            else:
-                df_filtered["Used Qty"] = 0
-            
-            return df_filtered
+        # --- Locate columns case/space-insensitively (don't rely on exact spelling) ---
+        po_col = _find_col(df, "PO Number")
+        site_col = _find_col(df, "Site ID")
+        proj_col = _find_col(df, "Project Name")
+        item_col = _find_col(df, "Item Num")
+
+        if not po_col:
+            st.error(f"⚠️ Couldn't find a 'PO Number' column in po_working. "
+                     f"Actual columns found: {list(df.columns)}")
+            return pd.DataFrame()
+
+        po_target = _clean_number(po_no)
+        df['clean_po'] = df[po_col].apply(_clean_number)
+        df_filtered = df[df['clean_po'] == po_target].copy()
+
+        if df_filtered.empty:
+            sample_vals = df['clean_po'].unique()[:15].tolist()
+            st.warning(
+                f"No rows matched PO Number '{po_no}' (normalized as '{po_target}') "
+                f"in column '{po_col}'. Sample PO values present in table: {sample_vals}"
+            )
+            return pd.DataFrame()
+
+        s_target = _clean_number(site_id) if str(site_id).strip() != "" else str(site_id).strip().lower()
+        p_target = str(proj_id).strip().lower()
+
+        mask = pd.Series([False] * len(df_filtered), index=df_filtered.index)
+        filter_applied = False
+
+        if site_col and str(site_id).strip() != "":
+            df_filtered['clean_site'] = df_filtered[site_col].apply(_clean_number)
+            mask = mask | (df_filtered['clean_site'] == s_target)
+            filter_applied = True
+
+        if proj_col and p_target != "":
+            df_filtered['clean_proj'] = df_filtered[proj_col].astype(str).str.strip().str.lower()
+            df_filtered['clean_proj'] = df_filtered['clean_proj'].str.replace(r'\.0$', '', regex=True)
+            mask = mask | (df_filtered['clean_proj'] == p_target)
+            filter_applied = True
+
+        if filter_applied:
+            final_df = df_filtered[mask].copy()
+            if final_df.empty:
+                # ULTIMATE FALLBACK: agar site/project match na ho toh saare PO items dikhao
+                final_df = df_filtered.copy()
+        else:
+            final_df = df_filtered.copy()
+
+        # --- Available Qty Logic ---
+        res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+        used_map = {}
+        if res_used.data:
+            for r in res_used.data:
+                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
+                uq = int(r.get("User Qty", 0))
+                used_map[ic] = used_map.get(ic, 0) + uq
+
+        if item_col:
+            final_df["Used Qty"] = final_df[item_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower().map(used_map).fillna(0)
+        else:
+            final_df["Used Qty"] = 0
+
+        return final_df
     except Exception as e:
-        pass
+        st.error(f"❌ Error in fetch_po_line_items: {e}")
     return pd.DataFrame()
 
 # --- 4. DIALOG FUNCTIONS (ADD, EDIT, DELETE) ---
@@ -391,22 +469,37 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # 1. Direct from site_data
+        # 1. POs from site_data table EXACT NAME
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        # 2. Add POs dynamically from po_working by "Project Name" matching 
+        # 2. Add POs dynamically from po_working EXACT NAMES (Unlimited Fast Fetch)
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
-            if r1.data:
-                for row in r1.data:
+            all_po_data = get_unlimited_po_working(ws_act)
+            p_target = str(selected_proj).strip().lower()
+            s_target = str(site_id).strip().lower()
+            
+            for row in all_po_data:
+                match = False
+                
+                # Check EXACT column "Project Name"
+                pn_val = str(row.get("Project Name", "")).strip().lower()
+                if pn_val.endswith(".0"): pn_val = pn_val[:-2]
+                if pn_val == p_target: match = True
+                
+                # Check EXACT column "Site ID"
+                sid_val = str(row.get("Site ID", "")).strip().lower()
+                if sid_val.endswith(".0"): sid_val = sid_val[:-2]
+                if s_target and sid_val == s_target: match = True
+                
+                if match:
                     pn = str(row.get("PO Number", "")).strip()
                     if pn.endswith(".0"): pn = pn[:-2]
                     if pn and pn.lower() != "nan" and pn not in po_list:
                         po_list.append(pn)
-        except Exception:
+        except Exception as e:
             pass
         
         team_percent = fetch_team_percentage(team_name)
@@ -440,6 +533,7 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po}")
             continue
             
+        # Using exact column names!
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
@@ -452,7 +546,7 @@ def add_mrn_dialog():
         df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
         
-        original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
+        original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
@@ -639,6 +733,7 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>📦 MRN / GRN Desk</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
+        get_unlimited_po_working.clear()
         st.rerun() 
 with col_add:
     if st.button("➕ Add New MRN", type="primary", use_container_width=True):
