@@ -705,7 +705,8 @@ with tab3:
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
             inv_col = "team_name" if rep_mode == "Team" else "vendor_name"
-            res_inv = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).eq("invoice_type", rep_mode).eq(inv_col, sel_name).execute()
+            # ---> UPDATED: Added .order("id", desc=True) so latest records appear at the top
+            res_inv = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).eq("invoice_type", rep_mode).eq(inv_col, sel_name).order("id", desc=True).execute()
             if res_inv.data:
                 df_inv_rep = pd.DataFrame(res_inv.data)
                 tot_inv = df_inv_rep["amount"].sum()
@@ -730,7 +731,8 @@ with tab3:
                 if "Invoice Date" in df_inv_rep.columns:
                     df_inv_rep["Invoice Date"] = pd.to_datetime(df_inv_rep["Invoice Date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
-            res_pay = supabase.table("billing_payments").select("*").eq("workspace", active_ws).eq("mode", rep_mode).eq("pay_to", sel_name).execute()
+            # ---> UPDATED: Added .order("id", desc=True) so latest records appear at the top
+            res_pay = supabase.table("billing_payments").select("*").eq("workspace", active_ws).eq("mode", rep_mode).eq("pay_to", sel_name).order("id", desc=True).execute()
             if res_pay.data:
                 df_pay_rep = pd.DataFrame(res_pay.data)
                 tot_pay = df_pay_rep["amount"].sum()
@@ -901,6 +903,7 @@ with tab4:
         
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
+            # ---> UPDATED: Added .order("id", desc=True) so latest pending records appear at the top
             p_res = supabase.table("pending_billing_invoices").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
             if p_res.data:
                 df_pending = pd.DataFrame(p_res.data)
@@ -943,14 +946,10 @@ with tab4:
                         if st.button("✅ Approve Selected", type="primary", use_container_width=True):
                             for _, r in sel_pending.iterrows():
                                 p_id = r["id"]
-                                # Fetch full row from original df_pending
                                 full_row = df_pending[df_pending['id'] == p_id].iloc[0].to_dict()
                                 full_row.pop("Select", None)
-                                # Convert date back to string if it was converted to date object
                                 full_row["date"] = str(full_row["date"])
-                                # Insert to main billing
                                 supabase.table("billing_invoices").insert(full_row).execute()
-                                # Delete from pending
                                 supabase.table("pending_billing_invoices").delete().eq("id", p_id).execute()
                             st.success("✅ MRN(s) Approved and Moved to Main Billing Ledger!")
                             st.rerun()
