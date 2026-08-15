@@ -333,7 +333,10 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             final_df = df_filtered.copy()
 
         # --- Available Qty Logic ---
-        res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+        # NOTE: PostgREST requires column names containing spaces to be wrapped
+        # in double-quotes inside the select() string, otherwise it silently
+        # strips the space and looks for a column like "ItemCode" (which fails).
+        res_used = supabase.table("mrn_items").select('"Item Code","User Qty"').eq("PO Number", po_no).execute()
         used_map = {}
         if res_used.data:
             for r in res_used.data:
@@ -444,7 +447,9 @@ def add_mrn_dialog():
     # Show Existing MRNs Box
     if selected_proj != "Select Project ID":
         try:
-            ex_res = supabase.table("mrn_data").select("MRN Number", "Team Name").eq("Project ID", selected_proj).execute()
+            # NOTE: same PostgREST quoting rule applies here - space-containing
+            # column names must be double-quoted inside the select() string.
+            ex_res = supabase.table("mrn_data").select('"MRN Number","Team Name"').eq("Project ID", selected_proj).execute()
             if ex_res.data:
                 ex_text = " | ".join([f"{r['MRN Number']} ({r['Team Name']})" for r in ex_res.data])
                 st.markdown(f"""
@@ -623,7 +628,7 @@ def add_mrn_dialog():
             while True:
                 new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
                 try:
-                    check_res = supabase.table("mrn_data").select("MRN Number").eq("MRN Number", new_mrn_no).execute()
+                    check_res = supabase.table("mrn_data").select('"MRN Number"').eq("MRN Number", new_mrn_no).execute()
                     if not check_res.data:
                         break 
                 except Exception:
