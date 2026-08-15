@@ -305,7 +305,7 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
 
 # --- 3. SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"    
 
 @st.cache_resource
 def init_connection():
@@ -1606,6 +1606,35 @@ def export_dialog(df_export):
         export_df = export_df.drop(columns=["🎯 Select"])
     if "id" in export_df.columns:
         export_df = export_df.drop(columns=["id"])
+        
+    # --- ADDING PO UPLOAD STATUS TO EXCEL ---
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    uploaded_po_identifiers = set()
+    try:
+        res_po = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
+        if res_po.data:
+            for item in res_po.data:
+                p_name = str(item.get("Project Name", "")).strip()
+                s_id = str(item.get("Site ID", "")).strip()
+                if p_name: uploaded_po_identifiers.add(p_name)
+                if s_id: uploaded_po_identifiers.add(s_id)
+    except Exception:
+        pass
+
+    def get_po_upload_status(row):
+        pid = str(row.get("Project ID", "")).strip()
+        sid = str(row.get("Site ID", "")).strip()
+        if (pid and pid in uploaded_po_identifiers) or (sid and sid in uploaded_po_identifiers):
+            return "Available"
+        return "Pending"
+        
+    # Insert right after PO Status in Excel
+    if 'PO Status' in export_df.columns:
+        loc = export_df.columns.get_loc('PO Status') + 1
+        export_df.insert(loc, 'PO UPLOAD STATUS', export_df.apply(get_po_upload_status, axis=1))
+    else:
+        export_df['PO UPLOAD STATUS'] = export_df.apply(get_po_upload_status, axis=1)
+    # ----------------------------------------
         
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
