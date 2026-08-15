@@ -99,7 +99,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
 SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
 
 @st.cache_resource
@@ -294,7 +294,6 @@ def team_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                # --- NAYI LINE: Send WhatsApp on Success (Updated with 9 variables) ---
                 try:
                     mob = get_mobile_number("Team Name", team_val)
                     if mob:
@@ -498,7 +497,7 @@ def payment_dialog(row_data=None, mode="Team"):
 
 # --- 6. MAIN PAGE TABS ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
-tab1, tab2, tab3 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports"])
+tab1, tab2, tab3, tab4 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports", "🕒 Pending MRN Approval"])
 
 # ==========================================
 # TAB 1: INVOICE ENTRY
@@ -886,3 +885,85 @@ with tab3:
                 st.download_button(label="📄 Download PDF", data=pdf_bytes, file_name=f"{sel_name}_Report.pdf", mime="application/pdf", use_container_width=True)
             except Exception as e:
                 st.error(str(e))
+
+# ==========================================
+# TAB 4: PENDING MRN APPROVAL (NEW)
+# ==========================================
+with tab4:
+    st.markdown("<h3 style='color:#0f172a;'>🔒 MRN Approval Gate</h3>", unsafe_allow_html=True)
+    st.markdown("Enter your security password to view and approve MRNs generated from the desk.")
+    
+    pwd = st.text_input("Security Password", type="password", placeholder="Enter Password...", key="mrn_approval_pwd")
+    
+    if pwd == "Indus@123":
+        st.success("Access Granted! Welcome to MRN Approvals.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        try:
+            active_ws = st.session_state.get('active_workspace', 'VISPL')
+            p_res = supabase.table("pending_billing_invoices").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
+            if p_res.data:
+                df_pending = pd.DataFrame(p_res.data)
+                
+                df_pending.insert(0, "Select", False)
+                if "date" in df_pending.columns:
+                    df_pending["date"] = pd.to_datetime(df_pending["date"], errors="coerce").dt.date
+                    
+                display_cols = ["Select", "id", "team_name", "invoice_no", "date", "project_id", "site_id", "site_name", "cluster", "basic_amount", "amount", "remark"]
+                actual_disp_cols = [c for c in display_cols if c in df_pending.columns]
+                
+                st.markdown("##### 🕒 Pending MRNs")
+                edited_pending = st.data_editor(
+                    df_pending[actual_disp_cols],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=400,
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+                        "id": None, 
+                        "team_name": "Team Name",
+                        "invoice_no": "MRN No.",
+                        "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                        "project_id": "Project ID",
+                        "site_id": "Site ID",
+                        "site_name": "Site Name",
+                        "cluster": "Cluster",
+                        "basic_amount": st.column_config.NumberColumn("Basic Amount", format="₹ %d"),
+                        "amount": st.column_config.NumberColumn("Total Amount", format="₹ %d"),
+                        "remark": "Remark"
+                    }
+                )
+                
+                sel_pending = edited_pending[edited_pending["Select"] == True]
+                if not sel_pending.empty:
+                    st.markdown("---")
+                    col_a, col_r, _ = st.columns([2, 2, 6])
+                    
+                    with col_a:
+                        if st.button("✅ Approve Selected", type="primary", use_container_width=True):
+                            for _, r in sel_pending.iterrows():
+                                p_id = r["id"]
+                                # Fetch full row from original df_pending
+                                full_row = df_pending[df_pending['id'] == p_id].iloc[0].to_dict()
+                                full_row.pop("Select", None)
+                                # Convert date back to string if it was converted to date object
+                                full_row["date"] = str(full_row["date"])
+                                # Insert to main billing
+                                supabase.table("billing_invoices").insert(full_row).execute()
+                                # Delete from pending
+                                supabase.table("pending_billing_invoices").delete().eq("id", p_id).execute()
+                            st.success("✅ MRN(s) Approved and Moved to Main Billing Ledger!")
+                            st.rerun()
+                            
+                    with col_r:
+                        if st.button("❌ Reject Selected", type="secondary", use_container_width=True):
+                            for _, r in sel_pending.iterrows():
+                                supabase.table("pending_billing_invoices").delete().eq("id", r["id"]).execute()
+                            st.error("❌ Pending MRN(s) Rejected and Deleted from Queue!")
+                            st.rerun()
+            else:
+                st.info("No pending MRNs waiting for approval.")
+        except Exception as e:
+            st.error(f"Database error: {e}")
+    elif pwd != "":
+        st.error("❌ Incorrect Password!")
