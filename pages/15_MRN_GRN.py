@@ -102,7 +102,7 @@ st.markdown("""
         overflow: auto !important; padding: 0px 0 !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1800px !important; align-items: center !important;
+        min-width: 1900px !important; align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding: 6px 0 !important; flex-wrap: nowrap !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
@@ -119,6 +119,18 @@ st.markdown("""
         overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
     }
     .st-key-site_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
+    
+    /* Action Buttons in Table */
+    .st-key-site_table_wrap button {
+        height: 32px !important; width: 100% !important; padding: 0 !important; min-height: 0 !important;
+        border-radius: 6px !important; display: flex !important; align-items: center !important; justify-content: center !important;
+        background: rgba(255,255,255,0.05) !important; border: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: none !important; cursor: pointer !important; font-size: 0.95rem !important; max-width: 34px !important; margin: 0 auto !important;
+    }
+    .st-key-site_table_wrap button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; }
+    
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) { padding: 4px 4px !important; border-right: none !important; }
     
     [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; text-transform: uppercase !important; font-size: 0.8rem !important; }
     </style>
@@ -236,7 +248,85 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         pass
     return pd.DataFrame()
 
-# --- 4. MRN ADD DIALOG (POP-UP) ---
+# --- 4. DIALOG FUNCTIONS (ADD, EDIT, DELETE) ---
+
+@st.dialog("🗑️ Confirm Deletion", width="small")
+def delete_mrn_dialog(rid, mrn_no):
+    st.warning(f"Delete MRN '{mrn_no}'? This will also remove its Auto-Generated Bill and Line Items. This cannot be undone.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    wc1, wc2 = st.columns(2)
+    with wc1:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.rerun()
+    with wc2:
+        if st.button("✅ Confirm", type="primary", use_container_width=True):
+            try:
+                # Delete Header
+                supabase.table("mrn_data").delete().eq("id", rid).execute()
+                # Delete Items
+                supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).execute()
+                # Delete Auto-Bill from Team Billing
+                supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
+                
+                st.success("✅ MRN & Auto-Bill Deleted Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Deleting Record: {e}")
+
+@st.dialog("✏️ Edit MRN Details", width="large")
+def edit_mrn_dialog(row_data):
+    mrn_no = row_data.get("MRN Number", "")
+    st.caption(f"Editing MRN: {mrn_no} (Amounts & Items are auto-linked with Billing and cannot be changed here)")
+    
+    st.markdown('<div class="modal-section-title">🏢 MRN HEADER</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1: st.text_input("MRN NUMBER", value=mrn_no, disabled=True)
+    with c2: st.text_input("PROJECT ID", value=row_data.get("Project ID", ""), disabled=True)
+    with c3: st.text_input("SITE ID", value=row_data.get("Site ID", ""), disabled=True)
+    
+    c4, c5, c6 = st.columns(3)
+    with c4: st.text_input("TEAM NAME", value=row_data.get("Team Name", ""), disabled=True)
+    with c5: st.text_input("BASIC AMOUNT", value=f"₹ {row_data.get('Basic Amount', 0):,.2f}", disabled=True)
+    with c6: 
+        def_date_str = row_data.get("Date", str(datetime.date.today().strftime("%d-%m-%Y")))
+        try:
+            def_date = pd.to_datetime(def_date_str, format="%d-%m-%Y").date()
+        except:
+            def_date = datetime.date.today()
+        new_date = st.date_input("DATE", value=def_date, format="DD/MM/YYYY")
+        
+    st.markdown('<div class="modal-section-title">📦 MRN LINE ITEMS (READ-ONLY)</div>', unsafe_allow_html=True)
+    try:
+        res = supabase.table("mrn_items").select("*").eq("MRN Number", mrn_no).execute()
+        if res.data:
+            items_df = pd.DataFrame(res.data)
+            display_cols = []
+            for col in ['PO Number', 'Item Code', 'Description', 'User Qty', 'Adjusted Price', 'Total']:
+                if col in items_df.columns:
+                    display_cols.append(col)
+            st.dataframe(items_df[display_cols], hide_index=True, use_container_width=True)
+        else:
+            st.info("No line items found for this MRN.")
+    except Exception:
+        st.info("Could not fetch line items.")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_save1, col_save2 = st.columns([8, 2])
+    with col_save2:
+        if st.button("💾 Update MRN", type="primary", use_container_width=True):
+            new_date_str = new_date.strftime("%d-%m-%Y")
+            new_bill_date_str = str(new_date) # YYYY-MM-DD for billing table
+            try:
+                # Update Date in MRN
+                supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).execute()
+                # Update Date in Auto-Bill
+                supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
+                
+                st.success("✅ MRN Date Updated Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Updating MRN: {e}")
+
 @st.dialog("📦 Create New MRN / GRN", width="large")
 def add_mrn_dialog():
     st.caption("Generate Material Receipt Note and adjust pricing based on Team Registration %")
@@ -273,7 +363,6 @@ def add_mrn_dialog():
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("RFAI STATUS", value=rfai_status, disabled=True)
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
-    # ---> FIXED: Made Team Name explicitly show as required (*) <---
     with c6: st.text_input(f"TEAM NAME * (Rate: {team_percent}%)", value=team_name, disabled=True)
 
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
@@ -303,7 +392,6 @@ def add_mrn_dialog():
         
         df_display["User Qty"] = 0
         
-        # Calculate Adjusted Price based on Team %
         original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
@@ -326,7 +414,6 @@ def add_mrn_dialog():
             }
         )
         
-        # Calculate Total dynamically
         for idx, r in edited_df.iterrows():
             u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
             u_qty = 0 if pd.isna(u_qty) else int(u_qty)
@@ -356,7 +443,6 @@ def add_mrn_dialog():
                 st.error("⚠️ Please select a Project ID.")
                 return
             
-            # ---> FIXED: Team Name Mandatory Check <---
             if not team_name or str(team_name).strip() in ["", "nan", "None", "Select"]:
                 st.error("⚠️ Team Name is required! Please assign a team to this project in Site Data before generating MRN.")
                 return
@@ -368,15 +454,14 @@ def add_mrn_dialog():
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
                 return
                 
-            # ---> FIXED: 100% Unique MRN Generation Logic <---
             while True:
                 new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
                 try:
                     check_res = supabase.table("mrn_data").select("MRN Number").eq("MRN Number", new_mrn_no).execute()
                     if not check_res.data:
-                        break # Found a unique MRN!
+                        break 
                 except Exception:
-                    break # If network fails during check, proceed with generated MRN
+                    break 
             
             header_data = {
                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
@@ -415,9 +500,9 @@ def add_mrn_dialog():
                     try:
                         supabase.table("mrn_items").insert(items_to_insert).execute()
                     except Exception:
-                        pass # Ignore if table doesn't exist yet
+                        pass 
                 
-                # ---> FIXED: AUTO GENERATE TEAM INVOICE IN BILLING <---
+                # Auto Generate Team Invoice
                 billing_payload = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "invoice_type": "Team",
@@ -425,7 +510,7 @@ def add_mrn_dialog():
                     "amount": float(grand_basic_total),
                     "basic_amount": float(grand_basic_total),
                     "gst_amount": 0.0,
-                    "date": str(datetime.date.today()), # Standard YYYY-MM-DD for billing ledger
+                    "date": str(datetime.date.today()), 
                     "project_id": selected_proj,
                     "site_id": site_id,
                     "site_name": site_name,
@@ -436,8 +521,8 @@ def add_mrn_dialog():
                 }
                 try:
                     supabase.table("billing_invoices").insert(billing_payload).execute()
-                except Exception as inv_e:
-                    pass # Ignore if there is a minor sync issue, MRN is successfully done.
+                except Exception:
+                    pass
 
                 st.success(f"✅ MRN Generated & Auto-Billed Successfully! ID: {new_mrn_no}")
                 st.session_state.mrn_current_page = 1
@@ -542,8 +627,9 @@ end_idx = start_idx + rows_per_page
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
 # --- 10. MRN DATA TABLE ---
-COL_RATIOS = [0.5, 1.2, 1.5, 1.5, 1.2, 1.5, 1.2, 1.5, 1.5, 1.2]
-COL_LABELS = ["#", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMOUNT", "TOTAL AMOUNT", "DATE"]
+# 12 Columns total mapping
+COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 1.0]
+COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "DATE"]
 
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
@@ -558,23 +644,37 @@ with st.container(key="site_table_wrap", height=560):
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             serial_no = start_idx + page_pos + 1
+            rid = row_dict.get("id")
+            mrn_no = row_dict.get('MRN Number', '')
 
             rcols = st.columns(COL_RATIOS)
+            
             rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-            rcols[1].markdown(f"<div class='tbl-cell' style='color:#3b82f6; font-weight:bold;'>{row_dict.get('MRN Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            
+            # EDIT BUTTON
+            with rcols[1]:
+                if st.button("✏️", key=f"edit_{rid}", help="Edit MRN Date & View Details", use_container_width=True):
+                    edit_mrn_dialog(row_dict)
+                    
+            # DELETE BUTTON
+            with rcols[2]:
+                if st.button("🗑️", key=f"del_{rid}", help="Delete MRN & Auto-Bill", use_container_width=True):
+                    delete_mrn_dialog(rid, mrn_no)
+                    
+            rcols[3].markdown(f"<div class='tbl-cell' style='color:#3b82f6; font-weight:bold;'>{mrn_no or '-'}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
             
             # Formatting financial data
             basic = pd.to_numeric(row_dict.get('Basic Amount', 0), errors='coerce')
             tot = pd.to_numeric(row_dict.get('Total Amount', 0), errors='coerce')
             
-            rcols[7].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
+            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
