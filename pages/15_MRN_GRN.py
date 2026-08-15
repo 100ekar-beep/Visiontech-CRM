@@ -231,16 +231,30 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         
         if res.data:
             df = pd.DataFrame(res.data)
-            s_id = str(site_id).strip()
-            p_id = str(proj_id).strip()
+            s_id = str(site_id).strip().lower()
+            p_id = str(proj_id).strip().lower()
             
+            # ---> FIXED: Smart Dynamic Column Filtering (Bulletproof) <---
             mask = pd.Series([False] * len(df))
-            if "Site ID" in df.columns: mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
-            if "Project Name" in df.columns: mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
-                
-            df_filtered = df[mask].copy()
+            filter_applied = False
             
-            # Logic to find Used Qty & Available Qty
+            for col in df.columns:
+                c_lower = str(col).strip().lower()
+                # Check mapping for Site ID
+                if c_lower in ['site id', 'site_id', 'siteid']:
+                    mask = mask | (df[col].astype(str).str.strip().str.lower() == s_id)
+                    filter_applied = True
+                # Check mapping for Project ID
+                elif c_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name']:
+                    mask = mask | (df[col].astype(str).str.strip().str.lower() == p_id)
+                    filter_applied = True
+                    
+            if filter_applied:
+                df_filtered = df[mask].copy()
+            else:
+                df_filtered = df.copy() # Return all if columns missing to prevent blank out
+            
+            # Available Qty Logic
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
             used_map = {}
             if res_used.data:
