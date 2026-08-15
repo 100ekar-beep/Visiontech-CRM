@@ -741,26 +741,39 @@ with st.container(key="po_table_wrap", height=560):
         for h_col, label in zip(h_cols, COL_LABELS):
             h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
         
-        # Pre-fetch site data availability matching both Site ID and Project Name flexibly
+        # Pre-fetch site data availability matching both Site ID and Project Name/ID flexibly
         active_ws = st.session_state.get('active_workspace', 'VISPL')
-        site_ids_on_page = df_page['Site ID'].astype(str).str.strip().unique().tolist()
-        project_names_on_page = df_page['Project Name'].astype(str).str.strip().unique().tolist()
+        
+        # Clean lists for query
+        site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
+        project_names_on_page = [str(x).strip() for x in df_page['Project Name'].unique() if str(x).strip() and str(x).strip() != '-']
         
         available_sites = set()
+        available_projects = set()
+
         if site_ids_on_page:
             try:
+                # Check Site ID column
                 res_check = supabase.table("site_data").select("Site ID").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
                 if res_check.data:
-                    available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data})
+                    available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data if item.get("Site ID")})
             except Exception:
                 pass
 
         if project_names_on_page:
             try:
-                # Also check if project name exists as Site ID or inside site_data if stored interchangeably
-                res_check_proj = supabase.table("site_data").select("Site ID").eq("workspace", active_ws).in_("Site ID", project_names_on_page).execute()
-                if res_check_proj.data:
-                    available_sites.update({str(item.get("Site ID")).strip() for item in res_check_proj.data})
+                # Check Project ID column
+                res_check_pid = supabase.table("site_data").select("Project ID").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
+                if res_check_pid.data:
+                    available_projects.update({str(item.get("Project ID")).strip() for item in res_check_pid.data if item.get("Project ID")})
+            except Exception:
+                pass
+                
+            try:
+                # Fallback: Check Project Name column as well
+                res_check_pname = supabase.table("site_data").select("Project Name").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
+                if res_check_pname.data:
+                    available_projects.update({str(item.get("Project Name")).strip() for item in res_check_pname.data if item.get("Project Name")})
             except Exception:
                 pass
 
@@ -770,11 +783,15 @@ with st.container(key="po_table_wrap", height=560):
             po_num = str(row_dict.get('PO Number', '')).strip()
             site_id_val = str(row_dict.get('Site ID', '')).strip()
             proj_name_val = str(row_dict.get('Project Name', '')).strip()
+            
             serial_no = start_idx + page_pos + 1
             safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
             
-            # Determine Site Status based on presence of either Site ID or Project Name in available set
-            if (site_id_val and site_id_val in available_sites) or (proj_name_val and proj_name_val in available_sites):
+            # Determine Site Status based on presence in ANY matched set
+            is_site_avail = site_id_val and site_id_val in available_sites
+            is_proj_avail = proj_name_val and proj_name_val in available_projects
+            
+            if is_site_avail or is_proj_avail:
                 status_html = "<span class='status-badge-green'>🟢 Available</span>"
             else:
                 status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
