@@ -230,50 +230,100 @@ def get_col(df, candidates):
             return c
     return None
 
+# ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
+@st.cache_data(ttl=300, show_spinner=False)
+def get_unlimited_po_working(ws):
+    all_rows = []
+    limit = 1000
+    offset = 0
+    while True:
+        try:
+            # .range() loop breaks the 1000 api limit chunk by chunk safely.
+            res = supabase.table("po_working").select("*").eq("workspace", ws).range(offset, offset + limit - 1).execute()
+            if not res.data:
+                break
+            all_rows.extend(res.data)
+            if len(res.data) < limit:
+                break
+            offset += limit
+            if offset >= 100000: # Safe break for extreme databases
+                break
+        except Exception:
+            break
+    return all_rows
+
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # 100% BULLETPROOF FETCH: Using limit(100000) so we bypass Supabase 1000-row block limit!
-        res = supabase.table("po_working").select("*").eq("workspace", ws).limit(100000).execute()
+        # Uses unlimited cached fetcher!
+        all_data = get_unlimited_po_working(ws)
+        if not all_data: return pd.DataFrame()
         
-        if res.data:
-            df = pd.DataFrame(res.data)
+        df = pd.DataFrame(all_data)
+        
+        po_col = get_col(df, ['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
+        
+        if po_col:
+            po_target = str(po_no).strip().lower()
+            if po_target.endswith('.0'): po_target = po_target[:-2]
             
-            po_col = get_col(df, ['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
+            df['clean_po'] = df[po_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+            df_filtered = df[df['clean_po'] == po_target].copy()
+        else:
+            return pd.DataFrame()
             
-            if po_col:
-                po_target = str(po_no).strip().lower()
-                if po_target.endswith('.0'): po_target = po_target[:-2]
+        if df_filtered.empty: 
+            return pd.DataFrame()
+        
+        s_target = str(site_id).strip().lower()
+        if s_target.endswith('.0'): s_target = s_target[:-2]
+        p_target = str(proj_id).strip().lower()
+        if p_target.endswith('.0'): p_target = p_target[:-2]
+        
+        site_col = get_col(df_filtered, ['site id', 'site_id', 'siteid'])
+        proj_col = get_col(df_filtered, ['project id', 'project_id', 'project name', 'project_name'])
+        
+        mask = pd.Series([False] * len(df_filtered))
+        filter_applied = False
+        
+        if site_col and s_target:
+            df_filtered['clean_site'] = df_filtered[site_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+            mask = mask | (df_filtered['clean_site'] == s_target)
+            filter_applied = True
+            
+        if proj_col and p_target:
+            df_filtered['clean_proj'] = df_filtered[proj_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+            mask = mask | (df_filtered['clean_proj'] == p_target)
+            filter_applied = True
+            
+        if filter_applied:
+            final_df = df_filtered[mask].copy()
+            if final_df.empty:
+                final_df = df_filtered.copy() # Ultimate Fallback
+        else:
+            final_df = df_filtered.copy()
+            
+        # Available Qty Logic
+        res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+        used_map = {}
+        if res_used.data:
+            for r in res_used.data:
+                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
+                uq = int(r.get("User Qty", 0))
+                used_map[ic] = used_map.get(ic, 0) + uq
                 
-                df['clean_po'] = df[po_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-                df_filtered = df[df['clean_po'] == po_target].copy()
-            else:
-                return pd.DataFrame()
+        item_col_name = get_col(final_df, ['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code'])
                 
-            if df_filtered.empty: 
-                return pd.DataFrame()
-            
-            # Available Qty Logic
-            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
-            used_map = {}
-            if res_used.data:
-                for r in res_used.data:
-                    ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                    uq = int(r.get("User Qty", 0))
-                    used_map[ic] = used_map.get(ic, 0) + uq
-                    
-            item_col_name = get_col(df_filtered, ['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code'])
-                    
-            if item_col_name:
-                df_filtered["Used Qty"] = df_filtered.apply(
-                    lambda x: used_map.get(str(x.get(item_col_name, "")).replace('.0', '').strip().lower(), 0), 
-                    axis=1
-                )
-            else:
-                df_filtered["Used Qty"] = 0
-            
-            return df_filtered
+        if item_col_name:
+            final_df["Used Qty"] = final_df.apply(
+                lambda x: used_map.get(str(x.get(item_col_name, "")).replace('.0', '').strip().lower(), 0), 
+                axis=1
+            )
+        else:
+            final_df["Used Qty"] = 0
+        
+        return final_df
     except Exception as e:
         pass
     return pd.DataFrame()
@@ -396,12 +446,12 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # ---> FIXED: Bypassing the 1000 limit issue for dropdown too! <---
+        # Uses unlimited cached fetcher for Dropdown as well
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            res_po_all = supabase.table("po_working").select("*").eq("workspace", ws_act).limit(100000).execute()
-            if res_po_all.data:
-                df_po_all = pd.DataFrame(res_po_all.data)
+            all_po_data = get_unlimited_po_working(ws_act)
+            if all_po_data:
+                df_po_all = pd.DataFrame(all_po_data)
                 
                 po_col = get_col(df_po_all, ['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
                 site_col = get_col(df_po_all, ['site id', 'site_id', 'siteid'])
