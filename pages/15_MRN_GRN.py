@@ -102,7 +102,7 @@ st.markdown("""
         overflow: auto !important; padding: 0px 0 !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1900px !important; align-items: center !important;
+        min-width: 1800px !important; align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding: 6px 0 !important; flex-wrap: nowrap !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
@@ -120,18 +120,6 @@ st.markdown("""
     }
     .st-key-site_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
     
-    /* Action Buttons in Table */
-    .st-key-site_table_wrap button {
-        height: 32px !important; width: 100% !important; padding: 0 !important; min-height: 0 !important;
-        border-radius: 6px !important; display: flex !important; align-items: center !important; justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important; border: 1px solid rgba(255,255,255,0.1) !important;
-        box-shadow: none !important; cursor: pointer !important; font-size: 0.95rem !important; max-width: 34px !important; margin: 0 auto !important;
-    }
-    .st-key-site_table_wrap button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; }
-    
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) { padding: 4px 4px !important; border-right: none !important; }
-    
     [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; text-transform: uppercase !important; font-size: 0.8rem !important; }
     </style>
 """, unsafe_allow_html=True)
@@ -143,24 +131,13 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
 
-# --- 3. BULLETPROOF SUPABASE CONNECTION ---
+# --- 3. SUPABASE CONNECTION ---
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
+
 @st.cache_resource
 def init_connection():
-    try:
-        if "supabase" in st.secrets:
-            url = st.secrets["supabase"]["url"]
-            key = st.secrets["supabase"]["key"]
-        elif "SUPABASE_URL" in st.secrets:
-            url = st.secrets["SUPABASE_URL"]
-            key = st.secrets["SUPABASE_KEY"]
-        else:
-            url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-            key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-        return create_client(url, key)
-    except Exception:
-        url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-        key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-        return create_client(url, key)
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase: Client = init_connection()
 
@@ -197,244 +174,39 @@ def fetch_project_details(proj_id):
 def fetch_team_percentage(team_name):
     try:
         if team_name and team_name != "Select":
-            tables_to_check = [
-                ("team_master", "Team Name"),
-                ("Team Master", "Team Name"),
-                ("team_registration", "Team Name"),
-                ("dropdown_master", "option_value")
-            ]
-            
-            for t_name, c_name in tables_to_check:
-                try:
-                    res = supabase.table(t_name).select("*").eq(c_name, team_name).execute()
-                    if res.data and len(res.data) > 0:
-                        row = res.data[0]
-                        for key, val in row.items():
-                            if val is not None:
-                                k_lower = str(key).lower()
-                                if "percent" in k_lower or "rate" in k_lower or "%" in k_lower or "margin" in k_lower:
-                                    clean_val = str(val).replace('%', '').strip()
-                                    if clean_val.replace('.', '', 1).isdigit():
-                                        fetched_pct = float(clean_val)
-                                        if fetched_pct > 0:
-                                            return fetched_pct
-                except Exception:
-                    continue
-    except Exception:
+            res = supabase.table("team_master").select("*").eq("Team Name", team_name).execute()
+            if res.data and res.data[0].get("percentage"):
+                return float(res.data[0]["percentage"])
+    except:
         pass
     return 100.0
-
-# ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
-@st.cache_data(ttl=300, show_spinner=False)
-def get_unlimited_po_working(ws):
-    all_rows = []
-    limit = 1000
-    offset = 0
-    while True:
-        try:
-            res = supabase.table("po_working").select("*").eq("workspace", ws).range(offset, offset + limit - 1).execute()
-            if not res.data:
-                break
-            all_rows.extend(res.data)
-            if len(res.data) < limit:
-                break
-            offset += limit
-        except Exception:
-            break
-    return all_rows
-
-
-# ---> HELPER: find a column regardless of case / leading-trailing spaces <---
-def _find_col(df, target_name):
-    target_clean = target_name.strip().lower()
-    for c in df.columns:
-        if str(c).strip().lower() == target_clean:
-            return c
-    return None
-
-
-# ---> HELPER: normalize any numeric-looking value into a clean digit string <---
-# Handles "19030484279", "19030484279.0", "1.9030484279e+10", " 19030484279 ",
-# "19,030,484,279" etc. so PO Number matching never fails on formatting.
-def _clean_number(val):
-    s = str(val).strip()
-    if s == "" or s.lower() in ("nan", "none"):
-        return ""
-    s_no_comma = s.replace(",", "")
-    try:
-        f = float(s_no_comma)
-        if f.is_integer():
-            return str(int(f))
-        return s_no_comma
-    except (ValueError, TypeError):
-        # fallback: strip everything except digits
-        digits = "".join(ch for ch in s if ch.isdigit())
-        return digits if digits else s.strip().lower()
-
 
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
         
-        # Fast Unlimited Fetcher
-        all_data = get_unlimited_po_working(ws)
-        if not all_data:
-            st.warning("⚠️ 'po_working' table is empty for this workspace (or fetch failed).")
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(all_data)
-
-        # --- Locate columns case/space-insensitively (don't rely on exact spelling) ---
-        po_col = _find_col(df, "PO Number")
-        site_col = _find_col(df, "Site ID")
-        proj_col = _find_col(df, "Project Name")
-        item_col = _find_col(df, "Item Num")
-
-        if not po_col:
-            st.error(f"⚠️ Couldn't find a 'PO Number' column in po_working. "
-                     f"Actual columns found: {list(df.columns)}")
-            return pd.DataFrame()
-
-        po_target = _clean_number(po_no)
-        df['clean_po'] = df[po_col].apply(_clean_number)
-        df_filtered = df[df['clean_po'] == po_target].copy()
-
-        if df_filtered.empty:
-            sample_vals = df['clean_po'].unique()[:15].tolist()
-            st.warning(
-                f"No rows matched PO Number '{po_no}' (normalized as '{po_target}') "
-                f"in column '{po_col}'. Sample PO values present in table: {sample_vals}"
-            )
-            return pd.DataFrame()
-
-        s_target = _clean_number(site_id) if str(site_id).strip() != "" else str(site_id).strip().lower()
-        p_target = str(proj_id).strip().lower()
-
-        mask = pd.Series([False] * len(df_filtered), index=df_filtered.index)
-        filter_applied = False
-
-        if site_col and str(site_id).strip() != "":
-            df_filtered['clean_site'] = df_filtered[site_col].apply(_clean_number)
-            mask = mask | (df_filtered['clean_site'] == s_target)
-            filter_applied = True
-
-        if proj_col and p_target != "":
-            df_filtered['clean_proj'] = df_filtered[proj_col].astype(str).str.strip().str.lower()
-            df_filtered['clean_proj'] = df_filtered['clean_proj'].str.replace(r'\.0$', '', regex=True)
-            mask = mask | (df_filtered['clean_proj'] == p_target)
-            filter_applied = True
-
-        if filter_applied:
-            final_df = df_filtered[mask].copy()
-            if final_df.empty:
-                # ULTIMATE FALLBACK: agar site/project match na ho toh saare PO items dikhao
-                final_df = df_filtered.copy()
-        else:
-            final_df = df_filtered.copy()
-
-        # --- Available Qty Logic ---
-        # NOTE: PostgREST requires column names containing spaces to be wrapped
-        # in double-quotes inside the select() string, otherwise it silently
-        # strips the space and looks for a column like "ItemCode" (which fails).
-        res_used = supabase.table("mrn_items").select('"Item Code","User Qty"').eq("PO Number", po_no).execute()
-        used_map = {}
-        if res_used.data:
-            for r in res_used.data:
-                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                uq = int(r.get("User Qty", 0))
-                used_map[ic] = used_map.get(ic, 0) + uq
-
-        if item_col:
-            final_df["Used Qty"] = final_df[item_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower().map(used_map).fillna(0)
-        else:
-            final_df["Used Qty"] = 0
-
-        return final_df
+        if res.data:
+            df = pd.DataFrame(res.data)
+            
+            # ---> FIXED: Filter lines to match ONLY the selected Site ID or Project ID <---
+            s_id = str(site_id).strip()
+            p_id = str(proj_id).strip()
+            
+            mask = pd.Series([False] * len(df))
+            
+            if "Site ID" in df.columns:
+                mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
+            if "Project Name" in df.columns:
+                mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
+                
+            df_filtered = df[mask]
+            return df_filtered
     except Exception as e:
-        st.error(f"❌ Error in fetch_po_line_items: {e}")
+        pass
     return pd.DataFrame()
 
-# --- 4. DIALOG FUNCTIONS (ADD, EDIT, DELETE) ---
-
-@st.dialog("🗑️ Confirm Deletion", width="small")
-def delete_mrn_dialog(rid, mrn_no):
-    st.warning(f"Delete MRN '{mrn_no}'? This will also remove its Pending Auto-Bill and Line Items. This cannot be undone.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    wc1, wc2 = st.columns(2)
-    with wc1:
-        if st.button("❌ Cancel", use_container_width=True):
-            st.rerun()
-    with wc2:
-        if st.button("✅ Confirm", type="primary", use_container_width=True):
-            try:
-                # Delete Header
-                supabase.table("mrn_data").delete().eq("id", rid).execute()
-                # Delete Items
-                supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).execute()
-                # Delete Auto-Bill from Pending Team Billing (and Main just in case)
-                supabase.table("pending_billing_invoices").delete().eq("invoice_no", mrn_no).execute()
-                supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
-                
-                st.success("✅ MRN & Auto-Bill Deleted Successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Deleting Record: {e}")
-
-@st.dialog("✏️ Edit MRN Details", width="large")
-def edit_mrn_dialog(row_data):
-    mrn_no = row_data.get("MRN Number", "")
-    st.caption(f"Editing MRN: {mrn_no} (Amounts & Items are auto-linked with Billing and cannot be changed here)")
-    
-    st.markdown('<div class="modal-section-title">🏢 MRN HEADER</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    with c1: st.text_input("MRN NUMBER", value=mrn_no, disabled=True)
-    with c2: st.text_input("PROJECT ID", value=row_data.get("Project ID", ""), disabled=True)
-    with c3: st.text_input("SITE ID", value=row_data.get("Site ID", ""), disabled=True)
-    
-    c4, c5, c6 = st.columns(3)
-    with c4: st.text_input("TEAM NAME", value=row_data.get("Team Name", ""), disabled=True)
-    with c5: st.text_input("BASIC AMOUNT", value=f"₹ {row_data.get('Basic Amount', 0):,.2f}", disabled=True)
-    with c6: 
-        def_date_str = row_data.get("Date", str(datetime.date.today().strftime("%d-%m-%Y")))
-        try:
-            def_date = pd.to_datetime(def_date_str, format="%d-%m-%Y").date()
-        except:
-            def_date = datetime.date.today()
-        new_date = st.date_input("DATE", value=def_date, format="DD/MM/YYYY")
-        
-    st.markdown('<div class="modal-section-title">📦 MRN LINE ITEMS (READ-ONLY)</div>', unsafe_allow_html=True)
-    try:
-        res = supabase.table("mrn_items").select("*").eq("MRN Number", mrn_no).execute()
-        if res.data:
-            items_df = pd.DataFrame(res.data)
-            display_cols = []
-            for col in ['PO Number', 'Item Code', 'Description', 'User Qty', 'Adjusted Price', 'Total']:
-                if col in items_df.columns:
-                    display_cols.append(col)
-            st.dataframe(items_df[display_cols], hide_index=True, use_container_width=True)
-        else:
-            st.info("No line items found for this MRN.")
-    except Exception:
-        st.info("Could not fetch line items.")
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_save1, col_save2 = st.columns([8, 2])
-    with col_save2:
-        if st.button("💾 Update MRN", type="primary", use_container_width=True):
-            new_date_str = new_date.strftime("%d-%m-%Y")
-            new_bill_date_str = str(new_date) # YYYY-MM-DD for billing table
-            try:
-                # Update Date in MRN
-                supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).execute()
-                # Update Date in Auto-Bill (Both Tables just in case)
-                supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
-                supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
-                
-                st.success("✅ MRN Date Updated Successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Updating MRN: {e}")
-
+# --- 4. MRN ADD DIALOG (POP-UP) ---
 @st.dialog("📦 Create New MRN / GRN", width="large")
 def add_mrn_dialog():
     st.caption("Generate Material Receipt Note and adjust pricing based on Team Registration %")
@@ -443,23 +215,6 @@ def add_mrn_dialog():
     
     proj_opts = fetch_project_ids()
     selected_proj = st.selectbox("SEARCH & SELECT PROJECT ID *", proj_opts)
-    
-    # Show Existing MRNs Box
-    if selected_proj != "Select Project ID":
-        try:
-            # NOTE: same PostgREST quoting rule applies here - space-containing
-            # column names must be double-quoted inside the select() string.
-            ex_res = supabase.table("mrn_data").select('"MRN Number","Team Name"').eq("Project ID", selected_proj).execute()
-            if ex_res.data:
-                ex_text = " | ".join([f"{r['MRN Number']} ({r['Team Name']})" for r in ex_res.data])
-                st.markdown(f"""
-                <div style='background-color: #ffffff; padding: 12px; border-radius: 8px; border: 2px solid #10b981; margin-top: 5px; margin-bottom: 15px;'>
-                    <span style='color: #0f172a; font-weight: 800; font-size: 0.95rem;'>📌 EXISTING MRNs FOUND FOR THIS PROJECT:</span><br>
-                    <span style='color: #ef4444; font-weight: 700; font-size: 0.9rem;'>{ex_text}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        except:
-            pass
     
     site_name, site_id, cluster, rfai_status, site_status, team_name = "", "", "", "", "", ""
     po_list = []
@@ -474,39 +229,10 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # 1. POs from site_data table EXACT NAME
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        # 2. Add POs dynamically from po_working EXACT NAMES (Unlimited Fast Fetch)
-        ws_act = st.session_state.get('active_workspace', 'VISPL')
-        try:
-            all_po_data = get_unlimited_po_working(ws_act)
-            p_target = str(selected_proj).strip().lower()
-            s_target = str(site_id).strip().lower()
-            
-            for row in all_po_data:
-                match = False
-                
-                # Check EXACT column "Project Name"
-                pn_val = str(row.get("Project Name", "")).strip().lower()
-                if pn_val.endswith(".0"): pn_val = pn_val[:-2]
-                if pn_val == p_target: match = True
-                
-                # Check EXACT column "Site ID"
-                sid_val = str(row.get("Site ID", "")).strip().lower()
-                if sid_val.endswith(".0"): sid_val = sid_val[:-2]
-                if s_target and sid_val == s_target: match = True
-                
-                if match:
-                    pn = str(row.get("PO Number", "")).strip()
-                    if pn.endswith(".0"): pn = pn[:-2]
-                    if pn and pn.lower() != "nan" and pn not in po_list:
-                        po_list.append(pn)
-        except Exception as e:
-            pass
-        
         team_percent = fetch_team_percentage(team_name)
 
     c1, c2, c3 = st.columns(3)
@@ -517,7 +243,7 @@ def add_mrn_dialog():
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("RFAI STATUS", value=rfai_status, disabled=True)
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
-    with c6: st.text_input(f"TEAM NAME * (Rate: {team_percent}%)", value=team_name, disabled=True)
+    with c6: st.text_input(f"TEAM NAME (Rate: {team_percent}%)", value=team_name, disabled=True)
 
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
     
@@ -532,26 +258,23 @@ def add_mrn_dialog():
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
+        # ---> FIXED: Passed site_id and selected_proj to strictly filter the lines <---
         df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
-            st.info(f"No line items found in PO Working for PO: {po}")
+            st.info(f"No line items found in PO Working for PO: {po} matching this Site ID.")
             continue
             
-        # Using exact column names!
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
         df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
+        df_display["PO Qty"] = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
         
-        raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
-        raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
-        
-        df_display["PO Qty"] = raw_po_qty
-        df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
         
-        original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
+        # Calculate Adjusted Price based on Team %
+        original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
@@ -567,13 +290,13 @@ def add_mrn_dialog():
                 "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
                 "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
                 "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True),
-                "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True),
                 "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0, required=True),
                 "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
                 "Line Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %.2f"),
             }
         )
         
+        # Calculate Total dynamically
         for idx, r in edited_df.iterrows():
             u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
             u_qty = 0 if pd.isna(u_qty) else int(u_qty)
@@ -586,53 +309,34 @@ def add_mrn_dialog():
 
     st.markdown('<div class="modal-section-title">💳 BILLING SUMMARY</div>', unsafe_allow_html=True)
     
-    final_amount = grand_basic_total
+    gst_percent = 18.0
+    gst_amount = grand_basic_total * (gst_percent / 100.0)
+    final_amount = grand_basic_total + gst_amount
     
-    c_b1, c_b3 = st.columns([6, 4])
+    c_b1, c_b2, c_b3 = st.columns(3)
     with c_b1:
         st.markdown(f"<h4 style='color:#94a3b8; font-size:1.1rem;'>Basic Amount:<br><span style='color:#fff;'>₹ {grand_basic_total:,.2f}</span></h4>", unsafe_allow_html=True)
+    with c_b2:
+        st.markdown(f"<h4 style='color:#94a3b8; font-size:1.1rem;'>GST (18%):<br><span style='color:#ef4444;'>+ ₹ {gst_amount:,.2f}</span></h4>", unsafe_allow_html=True)
     with c_b3:
         st.markdown(f"<h3 style='color:#3b82f6; font-size:1.4rem;'>Grand Total:<br>₹ {final_amount:,.2f}</h3>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_save1, col_save2 = st.columns([7, 3])
+    col_save1, col_save2 = st.columns([8, 2])
     with col_save2:
-        if st.button("💾 Generate MRN (Send for Approval)", type="primary", use_container_width=True):
+        if st.button("💾 Generate MRN", type="primary", use_container_width=True):
             if selected_proj == "Select Project ID":
                 st.error("⚠️ Please select a Project ID.")
                 return
-            
-            if not team_name or str(team_name).strip() in ["", "nan", "None", "Select"]:
-                st.error("⚠️ Team Name is required! Please assign a team to this project in Site Data before generating MRN.")
-                return
-                
             if not selected_pos:
                 st.error("⚠️ Please select at least one PO.")
                 return
             if grand_basic_total <= 0:
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
                 return
-            
-            # Strict QTY Validation
-            for po, edf in all_po_dfs.items():
-                for idx, r in edf.iterrows():
-                    u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
-                    a_qty = pd.to_numeric(r["Available Qty"], errors='coerce')
-                    u_qty = 0 if pd.isna(u_qty) else int(u_qty)
-                    a_qty = 0 if pd.isna(a_qty) else int(a_qty)
-                    if u_qty > a_qty:
-                        st.error(f"❌ Error in PO {po}: User Qty ({u_qty}) cannot be greater than Available Qty ({a_qty}) for Item '{r['Item Code']}'.")
-                        return
-
-            while True:
-                new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
-                try:
-                    check_res = supabase.table("mrn_data").select('"MRN Number"').eq("MRN Number", new_mrn_no).execute()
-                    if not check_res.data:
-                        break 
-                except Exception:
-                    break 
+                
+            new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
             
             header_data = {
                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
@@ -643,6 +347,7 @@ def add_mrn_dialog():
                 "Site Name": site_name,
                 "Cluster": cluster,
                 "Basic Amount": grand_basic_total,
+                "GST Amount": gst_amount,
                 "Total Amount": final_amount,
                 "Date": datetime.date.today().strftime("%d-%m-%Y")
             }
@@ -670,34 +375,32 @@ def add_mrn_dialog():
                 if items_to_insert:
                     try:
                         supabase.table("mrn_items").insert(items_to_insert).execute()
-                    except Exception as e:
-                        st.warning(f"⚠️ MRN header saved, but line items failed to save: {e}")
-                
+                    except Exception:
+                        pass # Ignore if table doesn't exist yet
+                        
                 # SEND TO PENDING_BILLING_INVOICES FOR APPROVAL
                 billing_payload = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "invoice_type": "Team",
                     "team_name": team_name,
-                    "amount": float(grand_basic_total),
+                    "amount": float(final_amount),
                     "basic_amount": float(grand_basic_total),
-                    "gst_amount": 0.0,
+                    "gst_amount": float(gst_amount),
                     "date": str(datetime.date.today()), 
                     "project_id": selected_proj,
                     "site_id": site_id,
                     "site_name": site_name,
                     "invoice_no": new_mrn_no,
-                    "vendor_name": "",
+                    "vendor_name": "MRN Auto-Bill",
                     "remark": "Data Taken by MRN",
                     "cluster": cluster
                 }
                 try:
                     supabase.table("pending_billing_invoices").insert(billing_payload).execute()
-                    st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} (Sent for Approval in Team Billing)")
                 except Exception as e:
-                    st.warning(
-                        f"⚠️ MRN '{new_mrn_no}' saved, but sending it to Pending Team Billing FAILED: {e}\n\n"
-                        f"Payload attempted: {billing_payload}"
-                    )
+                    st.error(f"⚠️ Error sending to Team Billing: {e}")
+
+                st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no}")
                 st.session_state.mrn_current_page = 1
                 st.rerun()
             except Exception as e:
@@ -740,7 +443,6 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>📦 MRN / GRN Desk</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
-        get_unlimited_po_working.clear()
         st.rerun() 
 with col_add:
     if st.button("➕ Add New MRN", type="primary", use_container_width=True):
@@ -756,7 +458,7 @@ df_mrn = fetch_mrn_data()
 
 columns_list = [
     "id", "MRN Number", "Team Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Basic Amount", "Total Amount", "Date"
+    "Site Name", "Cluster", "Basic Amount", "GST Amount", "Total Amount", "Date"
 ]
 
 if not df_mrn.empty:
@@ -801,9 +503,8 @@ end_idx = start_idx + rows_per_page
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
 # --- 10. MRN DATA TABLE ---
-# 12 Columns total mapping
-COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 1.0]
-COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "DATE"]
+COL_RATIOS = [0.5, 1.2, 1.5, 1.5, 1.2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.2]
+COL_LABELS = ["#", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "GST", "TOTAL", "DATE"]
 
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
@@ -818,37 +519,25 @@ with st.container(key="site_table_wrap", height=560):
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             serial_no = start_idx + page_pos + 1
-            rid = row_dict.get("id")
-            mrn_no = row_dict.get('MRN Number', '')
 
             rcols = st.columns(COL_RATIOS)
-            
             rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-            
-            # EDIT BUTTON
-            with rcols[1]:
-                if st.button("✏️", key=f"edit_{rid}", help="Edit MRN Date & View Details", use_container_width=True):
-                    edit_mrn_dialog(row_dict)
-                    
-            # DELETE BUTTON
-            with rcols[2]:
-                if st.button("🗑️", key=f"del_{rid}", help="Delete MRN & Auto-Bill", use_container_width=True):
-                    delete_mrn_dialog(rid, mrn_no)
-                    
-            rcols[3].markdown(f"<div class='tbl-cell' style='color:#3b82f6; font-weight:bold;'>{mrn_no or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[1].markdown(f"<div class='tbl-cell' style='color:#3b82f6; font-weight:bold;'>{row_dict.get('MRN Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
             
             # Formatting financial data
             basic = pd.to_numeric(row_dict.get('Basic Amount', 0), errors='coerce')
+            gst = pd.to_numeric(row_dict.get('GST Amount', 0), errors='coerce')
             tot = pd.to_numeric(row_dict.get('Total Amount', 0), errors='coerce')
             
-            rcols[9].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell' style='color:#ef4444;'>₹ {gst:,.2f}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
