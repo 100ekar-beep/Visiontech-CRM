@@ -389,29 +389,33 @@ def add_mrn_dialog():
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        # ---> FIXED: Smart Dynamic PO Fetching from po_working <---
+        # ---> FIXED: Smart Dynamic PO Fetching from po_working (100% Bulletproof Pandas Style) <---
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
-            for r in r1.data or []:
-                pn = str(r.get("PO Number", "")).strip()
-                if pn and pn not in po_list: po_list.append(pn)
-        except: pass
-        
-        try:
-            r2 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project ID", selected_proj).execute()
-            for r in r2.data or []:
-                pn = str(r.get("PO Number", "")).strip()
-                if pn and pn not in po_list: po_list.append(pn)
-        except: pass
-        
-        try:
-            if site_id:
-                r3 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Site ID", site_id).execute()
-                for r in r3.data or []:
-                    pn = str(r.get("PO Number", "")).strip()
-                    if pn and pn not in po_list: po_list.append(pn)
-        except: pass
+            res_po_all = supabase.table("po_working").select("*").eq("workspace", ws_act).limit(100000).execute()
+            if res_po_all.data:
+                p_id_target = str(selected_proj).strip().lower()
+                s_id_target = str(site_id).strip().lower()
+                
+                for row in res_po_all.data:
+                    match_found = False
+                    for k, v in row.items():
+                        if v is not None:
+                            k_lower = str(k).strip().lower()
+                            v_lower = str(v).strip().lower()
+                            
+                            if k_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name'] and v_lower == p_id_target:
+                                match_found = True
+                            
+                            if k_lower in ['site id', 'site_id', 'siteid'] and v_lower == s_id_target and s_id_target != "":
+                                match_found = True
+                    
+                    if match_found:
+                        pn = str(row.get("PO Number", "")).strip()
+                        if pn and pn.lower() != "nan" and pn not in po_list:
+                            po_list.append(pn)
+        except Exception as e:
+            pass
         # -----------------------------------------------------------
         
         team_percent = fetch_team_percentage(team_name)
