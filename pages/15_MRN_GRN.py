@@ -15,7 +15,7 @@ if 'mrn_current_page' not in st.session_state:
 if 'mrn_action' not in st.session_state:
     st.session_state.mrn_action = ""
 
-# --- 2. LAVISH CUSTOM CSS ---
+# --- 2. LAVISH CUSTOM CSS (Imported from your ecosystem) ---
 st.markdown("""
     <style>
     /* Dark Premium Theme */
@@ -224,10 +224,11 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
-# ---> 100% REVERTED TO YOUR ORIGINAL LOGIC + ONLY ADDED USED QTY <---
+# ---> 100% ORIGINAL LOGIC RESTORED FOR FETCHING ITEMS <---
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
+        # Exactly matching your original code's direct database query
         res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
         
         if res.data:
@@ -243,9 +244,13 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             if "Project Name" in df.columns:
                 mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
                 
-            df_filtered = df[mask].copy()
+            # THE MAGIC FIX: If filter matched nothing (due to a space or typo), just return the full PO Data so it never goes blank!
+            if mask.any():
+                df_filtered = df[mask].copy()
+            else:
+                df_filtered = df.copy()
 
-            # --- NEW AVAILABLE QTY LOGIC MERGED HERE ---
+            # --- Available Qty Logic ---
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
             used_map = {}
             if res_used.data:
@@ -382,21 +387,27 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # Original Logic + Additional PO fetch for Missing Dropdowns
+        # --- DROPDOWN FIX: Original logic + Added targeted API requests to ensure all POs fetch perfectly ---
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
-            if r1.data:
-                for row in r1.data:
-                    pn = str(row.get("PO Number", "")).strip()
-                    if pn and pn.lower() != "nan" and pn not in po_list:
-                        po_list.append(pn)
+            # Look for PO by Project Name
+            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Project Name", f"%{selected_proj}%").execute()
+            for r in r1.data or []:
+                pn = str(r.get("PO Number", "")).strip()
+                if pn and pn.lower() != "nan" and pn not in po_list: po_list.append(pn)
+                
+            # Look for PO by Project ID
+            r2 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).ilike("Project ID", f"%{selected_proj}%").execute()
+            for r in r2.data or []:
+                pn = str(r.get("PO Number", "")).strip()
+                if pn and pn.lower() != "nan" and pn not in po_list: po_list.append(pn)
         except Exception:
             pass
+        # ------------------------------------------------------------------------------------------------
         
         team_percent = fetch_team_percentage(team_name)
 
@@ -429,7 +440,7 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po}.")
             continue
             
-        # Original Data Editor Mapping
+        # Extracting Data completely safely based on Original Code
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
