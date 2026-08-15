@@ -224,89 +224,51 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
-# ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
-@st.cache_data(ttl=300, show_spinner=False)
-def get_unlimited_po_working(ws):
-    all_rows = []
-    limit = 1000
-    offset = 0
-    while True:
-        try:
-            res = supabase.table("po_working").select("*").eq("workspace", ws).range(offset, offset + limit - 1).execute()
-            if not res.data:
-                break
-            all_rows.extend(res.data)
-            if len(res.data) < limit:
-                break
-            offset += limit
-        except Exception:
-            break
-    return all_rows
-
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # Fast Unlimited Fetcher
-        all_data = get_unlimited_po_working(ws)
-        if not all_data: return pd.DataFrame()
+        # ---> THE MASTER FIX: Filter by Project Name directly to fetch data 100% reliably <---
+        res = supabase.table("po_working").select("*").eq("Project Name", str(proj_id).strip()).eq("workspace", ws).execute()
         
-        df = pd.DataFrame(all_data)
-        
-        po_target = str(po_no).strip()
-        if po_target.endswith('.0'): po_target = po_target[:-2]
-        
-        # EXACT COLUMN MATCH FOR "PO Number"
-        if "PO Number" in df.columns:
-            df['clean_po'] = df["PO Number"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-            df_filtered = df[df['clean_po'] == po_target].copy()
-        else:
-            return pd.DataFrame()
+        if res.data:
+            df = pd.DataFrame(res.data)
             
-        if df_filtered.empty: 
-            return pd.DataFrame()
-        
-        s_target = str(site_id).strip().lower()
-        p_target = str(proj_id).strip().lower()
-        
-        mask = pd.Series([False] * len(df_filtered))
-        filter_applied = False
-        
-        # EXACT COLUMN MATCH FOR "Site ID"
-        if "Site ID" in df_filtered.columns and s_target != "":
-            df_filtered['clean_site'] = df_filtered["Site ID"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-            mask = mask | (df_filtered['clean_site'] == s_target)
-            filter_applied = True
+            # Match Exact PO in Pandas to avoid Supabase float/string match errors
+            po_target = str(po_no).strip().lower()
+            if po_target.endswith('.0'): po_target = po_target[:-2]
             
-        # EXACT COLUMN MATCH FOR "Project Name"
-        if "Project Name" in df_filtered.columns and p_target != "":
-            df_filtered['clean_proj'] = df_filtered["Project Name"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
-            mask = mask | (df_filtered['clean_proj'] == p_target)
-            filter_applied = True
+            if "PO Number" in df.columns:
+                df['clean_po'] = df["PO Number"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+                df_filtered = df[df['clean_po'] == po_target].copy()
+            else:
+                df_filtered = df.copy()
             
-        if filter_applied:
-            final_df = df_filtered[mask].copy()
-            if final_df.empty:
-                final_df = df_filtered.copy() # ULTIMATE FALLBACK: Agar match na ho toh saare items dikhao, error mat do!
-        else:
-            final_df = df_filtered.copy()
+            if df_filtered.empty:
+                return pd.DataFrame()
             
-        # --- Available Qty Logic ---
-        res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
-        used_map = {}
-        if res_used.data:
-            for r in res_used.data:
-                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                uq = int(r.get("User Qty", 0))
-                used_map[ic] = used_map.get(ic, 0) + uq
-                
-        # EXACT COLUMN MATCH FOR "Item Num"
-        if "Item Num" in final_df.columns:
-            final_df["Used Qty"] = final_df["Item Num"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower().map(used_map).fillna(0)
-        else:
-            final_df["Used Qty"] = 0
-        
-        return final_df
+            # Match Exact Site ID
+            s_id = str(site_id).strip()
+            if "Site ID" in df_filtered.columns and s_id:
+                mask = df_filtered["Site ID"].astype(str).str.strip() == s_id
+                if mask.any():
+                    df_filtered = df_filtered[mask].copy()
+            
+            # --- Available Qty Logic ---
+            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+            used_map = {}
+            if res_used.data:
+                for r in res_used.data:
+                    ic = str(r.get("Item Code", "")).strip()
+                    uq = int(r.get("User Qty", 0))
+                    used_map[ic] = used_map.get(ic, 0) + uq
+
+            if "Item Num" in df_filtered.columns:
+                df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
+            else:
+                df_filtered["Used Qty"] = 0
+            
+            return df_filtered
     except Exception as e:
         pass
     return pd.DataFrame()
@@ -429,37 +391,22 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # 1. POs from site_data table EXACT NAME
+        # 1. Direct from site_data
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        # 2. Add POs dynamically from po_working EXACT NAMES (Unlimited Fast Fetch)
+        # 2. Add POs dynamically from po_working by "Project Name" matching 
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            all_po_data = get_unlimited_po_working(ws_act)
-            p_target = str(selected_proj).strip().lower()
-            s_target = str(site_id).strip().lower()
-            
-            for row in all_po_data:
-                match = False
-                
-                # Check EXACT column "Project Name"
-                pn_val = str(row.get("Project Name", "")).strip().lower()
-                if pn_val.endswith(".0"): pn_val = pn_val[:-2]
-                if pn_val == p_target: match = True
-                
-                # Check EXACT column "Site ID"
-                sid_val = str(row.get("Site ID", "")).strip().lower()
-                if sid_val.endswith(".0"): sid_val = sid_val[:-2]
-                if s_target and sid_val == s_target: match = True
-                
-                if match:
+            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
+            if r1.data:
+                for row in r1.data:
                     pn = str(row.get("PO Number", "")).strip()
                     if pn.endswith(".0"): pn = pn[:-2]
                     if pn and pn.lower() != "nan" and pn not in po_list:
                         po_list.append(pn)
-        except Exception as e:
+        except Exception:
             pass
         
         team_percent = fetch_team_percentage(team_name)
@@ -493,7 +440,6 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po}")
             continue
             
-        # Using exact column names!
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
@@ -506,7 +452,7 @@ def add_mrn_dialog():
         df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
         
-        original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
+        original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
