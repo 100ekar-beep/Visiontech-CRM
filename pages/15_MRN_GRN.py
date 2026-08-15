@@ -224,119 +224,42 @@ def fetch_team_percentage(team_name):
         pass
     return 100.0
 
-def get_col(df, candidates):
-    for c in df.columns:
-        if str(c).strip().lower() in candidates:
-            return c
-    return None
-
-# ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
-@st.cache_data(ttl=300, show_spinner=False)
-def get_unlimited_po_working(ws):
-    all_rows = []
-    limit = 1000
-    offset = 0
-    while True:
-        try:
-            res = supabase.table("po_working").select("*").eq("workspace", ws).range(offset, offset + limit - 1).execute()
-            if not res.data:
-                break
-            all_rows.extend(res.data)
-            if len(res.data) < limit:
-                break
-            offset += limit
-            if offset >= 200000: # Super safe break up to 2 Lakh rows
-                break
-        except Exception:
-            break
-    return all_rows
-
+# ---> 100% REVERTED TO YOUR ORIGINAL LOGIC + ONLY ADDED USED QTY <---
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
+        res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
         
-        # Uses unlimited cached fetcher!
-        all_data = get_unlimited_po_working(ws)
-        if not all_data: return pd.DataFrame()
-        
-        po_target = str(po_no).strip().lower()
-        if po_target.endswith('.0'): po_target = po_target[:-2]
-        
-        s_target = str(site_id).strip().lower()
-        if s_target.endswith('.0'): s_target = s_target[:-2]
-        
-        p_target = str(proj_id).strip().lower()
-        if p_target.endswith('.0'): p_target = p_target[:-2]
-        
-        # Detect Columns from the RAW JSON data
-        sample = all_data[0]
-        cols = list(sample.keys())
-        
-        def match_col(candidates):
-            for c in cols:
-                if str(c).strip().lower() in candidates:
-                    return c
-            return None
+        if res.data:
+            df = pd.DataFrame(res.data)
             
-        po_col = match_col(['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
-        site_col = match_col(['site id', 'site_id', 'siteid'])
-        proj_col = match_col(['project id', 'project_id', 'project name', 'project_name'])
-        
-        if not po_col: return pd.DataFrame()
-        
-        # 🛑 100% BULLETPROOF PYTHON RAW DICT FILTERING (No Pandas Scientific Bug!)
-        matched_rows = []
-        for row in all_data:
-            raw_po = str(row.get(po_col, "")).strip().lower()
-            if raw_po.endswith('.0'): raw_po = raw_po[:-2]
-            if raw_po == po_target:
-                matched_rows.append(row)
+            s_id = str(site_id).strip()
+            p_id = str(proj_id).strip()
+            
+            mask = pd.Series([False] * len(df))
+            
+            if "Site ID" in df.columns:
+                mask = mask | (df["Site ID"].astype(str).str.strip() == s_id)
+            if "Project Name" in df.columns:
+                mask = mask | (df["Project Name"].astype(str).str.strip() == p_id)
                 
-        if not matched_rows: return pd.DataFrame()
-        
-        # Ab Pandas ko de sakte hain, kyunki bada data already filter ho chuka hai
-        df = pd.DataFrame(matched_rows)
-        
-        # Site / Project fallbacks
-        mask = pd.Series([False] * len(df))
-        filter_applied = False
-        
-        if site_col and s_target != "":
-            df['clean_site'] = df[site_col].apply(lambda x: str(x).replace('.0', '').strip().lower())
-            mask = mask | (df['clean_site'] == s_target)
-            filter_applied = True
+            df_filtered = df[mask].copy()
+
+            # --- NEW AVAILABLE QTY LOGIC MERGED HERE ---
+            res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
+            used_map = {}
+            if res_used.data:
+                for r in res_used.data:
+                    ic = str(r.get("Item Code", "")).strip()
+                    uq = int(r.get("User Qty", 0))
+                    used_map[ic] = used_map.get(ic, 0) + uq
+
+            if "Item Num" in df_filtered.columns:
+                df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get("Item Num", "")).strip(), 0), axis=1)
+            else:
+                df_filtered["Used Qty"] = 0
             
-        if proj_col and p_target != "":
-            df['clean_proj'] = df[proj_col].apply(lambda x: str(x).replace('.0', '').strip().lower())
-            mask = mask | (df['clean_proj'] == p_target)
-            filter_applied = True
-            
-        if filter_applied:
-            final_df = df[mask].copy()
-            if final_df.empty:
-                final_df = df.copy() # Ultimate fallback so data isn't lost
-        else:
-            final_df = df.copy()
-            
-        # Available Qty Logic
-        res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
-        used_map = {}
-        if res_used.data:
-            for r in res_used.data:
-                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                uq = int(r.get("User Qty", 0))
-                used_map[ic] = used_map.get(ic, 0) + uq
-                
-        item_col_name = match_col(['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code'])
-                
-        if item_col_name:
-            final_df["Used Qty"] = final_df[item_col_name].apply(
-                lambda x: used_map.get(str(x).replace('.0', '').strip().lower(), 0)
-            )
-        else:
-            final_df["Used Qty"] = 0
-        
-        return final_df
+            return df_filtered
     except Exception as e:
         pass
     return pd.DataFrame()
@@ -459,46 +382,20 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # Uses unlimited cached fetcher for Dropdown directly filtering raw dict
+        # Original Logic + Additional PO fetch for Missing Dropdowns
+        po_str = str(proj_data.get("PO No.", ""))
+        if po_str and po_str.lower() != "nan":
+            po_list = [p.strip() for p in po_str.split(",") if p.strip()]
+            
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            all_po_data = get_unlimited_po_working(ws_act)
-            if all_po_data:
-                sample = all_po_data[0]
-                cols = list(sample.keys())
-                def match_c(candidates):
-                    for c in cols:
-                        if str(c).strip().lower() in candidates: return c
-                    return None
-                    
-                po_col = match_c(['po number', 'po_number', 'ponumber', 'po no', 'po no.'])
-                site_col = match_c(['site id', 'site_id', 'siteid'])
-                proj_col = match_c(['project id', 'project_id', 'project name', 'project_name'])
-                
-                p_target = str(selected_proj).strip().lower()
-                if p_target.endswith('.0'): p_target = p_target[:-2]
-                
-                s_target = str(site_id).strip().lower()
-                if s_target.endswith('.0'): s_target = s_target[:-2]
-                
-                if po_col:
-                    for row in all_po_data:
-                        match = False
-                        if proj_col:
-                            pval = str(row.get(proj_col, "")).strip().lower()
-                            if pval.endswith('.0'): pval = pval[:-2]
-                            if pval == p_target: match = True
-                        if site_col and s_target:
-                            sval = str(row.get(site_col, "")).strip().lower()
-                            if sval.endswith('.0'): sval = sval[:-2]
-                            if sval == s_target: match = True
-                            
-                        if match:
-                            pn = str(row.get(po_col, "")).strip()
-                            if pn.endswith('.0'): pn = pn[:-2]
-                            if pn and pn.lower() != 'nan' and pn not in po_list:
-                                po_list.append(pn)
-        except Exception as e:
+            r1 = supabase.table("po_working").select("PO Number").eq("workspace", ws_act).eq("Project Name", selected_proj).execute()
+            if r1.data:
+                for row in r1.data:
+                    pn = str(row.get("PO Number", "")).strip()
+                    if pn and pn.lower() != "nan" and pn not in po_list:
+                        po_list.append(pn)
+        except Exception:
             pass
         
         team_percent = fetch_team_percentage(team_name)
@@ -523,19 +420,6 @@ def add_mrn_dialog():
     grand_basic_total = 0.0
     all_po_dfs = {}
     
-    # Safe Column Extractor Helper (To Fix Pandas Float Issues)
-    def safe_col_values(df, candidates):
-        for col in df.columns:
-            if str(col).strip().lower() in candidates:
-                return df[col].astype(str).str.replace(r'\.0$', '', regex=True).values
-        return [""] * len(df)
-        
-    def safe_num_col_values(df, candidates):
-        for col in df.columns:
-            if str(col).strip().lower() in candidates:
-                return pd.to_numeric(df[col], errors='coerce').fillna(0).values
-        return [0.0] * len(df)
-    
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
@@ -545,22 +429,21 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po}.")
             continue
             
-        line_nos = safe_col_values(df_po, ['line no', 'line number', 'lineno', 'line_no', 'sl no', 'sr no', '#', 'sn'])
-        item_codes = safe_col_values(df_po, ['item code', 'item_code', 'item num', 'item_num', 'item number', 'part code'])
-        descriptions = safe_col_values(df_po, ['description', 'item description', 'desc', 'material description', 'item name'])
-        
-        raw_po_qtys = safe_num_col_values(df_po, ['po qty', 'po_qty', 'qty', 'quantity', 'total qty'])
-        raw_prices = safe_num_col_values(df_po, ['price', 'rate', 'unit price', 'basic price', 'unit_price', 'amount'])
-        raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0).values
-        
+        # Original Data Editor Mapping
         df_display = pd.DataFrame()
-        df_display["PO Line No"] = line_nos
-        df_display["Item Code"] = item_codes
-        df_display["Item Description"] = descriptions
-        df_display["PO Qty"] = raw_po_qtys
-        df_display["Available Qty"] = raw_po_qtys - raw_used_qty
+        df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
+        df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
+        df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
+        
+        raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        
+        df_display["PO Qty"] = raw_po_qty
+        df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
-        df_display["Adjusted Price"] = raw_prices * (team_percent / 100.0)
+        
+        original_price = pd.to_numeric(df_po.get("Price", [0.0]*len(df_po)), errors='coerce').fillna(0)
+        df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
         editor_key = f"editor_mrn_{po}"
