@@ -227,14 +227,31 @@ def fetch_team_percentage(team_name):
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
-        # Fetch lines exactly matching the PO Number
-        res = supabase.table("po_working").select("*").eq("PO Number", po_no).eq("workspace", ws).execute()
+        po_target = str(po_no).strip()
+        if po_target.endswith('.0'): po_target = po_target[:-2]
+
+        # FAST QUERY: Identfiy column first, then query direct
+        sample = supabase.table("po_working").select("*").limit(1).execute()
+        if not sample.data: return pd.DataFrame()
         
+        cols = list(sample.data[0].keys())
+        actual_po_cols = [c for c in cols if c.strip().lower() in ['po number', 'po no', 'po_number', 'po no.', 'ponumber']]
+        
+        if actual_po_cols:
+            po_col = actual_po_cols[0]
+            # Use ilike to catch matching values even with trailing spaces in database
+            res = supabase.table("po_working").select("*").eq("workspace", ws).ilike(po_col, f"%{po_target}%").execute()
+        else:
+            res = supabase.table("po_working").select("*").eq("workspace", ws).execute()
+            
         if res.data:
             df = pd.DataFrame(res.data)
             
             s_id = str(site_id).strip().lower()
+            if s_id.endswith('.0'): s_id = s_id[:-2]
+            
             p_id = str(proj_id).strip().lower()
+            if p_id.endswith('.0'): p_id = p_id[:-2]
             
             mask = pd.Series([False] * len(df))
             filter_applied = False
@@ -242,30 +259,31 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             for col in df.columns:
                 c_lower = str(col).strip().lower()
                 if c_lower in ['site id', 'site_id', 'siteid'] and s_id != "":
-                    mask = mask | (df[col].astype(str).str.strip().str.lower() == s_id)
+                    col_clean = df[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+                    mask = mask | (col_clean == s_id)
                     filter_applied = True
                 elif c_lower in ['project id', 'project_id', 'projectid', 'project name', 'project_name'] and p_id != "":
-                    mask = mask | (df[col].astype(str).str.strip().str.lower() == p_id)
+                    col_clean = df[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower()
+                    mask = mask | (col_clean == p_id)
                     filter_applied = True
                     
             if filter_applied:
                 df_filtered = df[mask].copy()
+                if df_filtered.empty:
+                    df_filtered = df.copy() # fallback mapping
             else:
-                df_filtered = df.copy() 
-                
-            # 🛑 100% BULLETPROOF FALLBACK: Agar match na hone par data gayab ho jaye, toh wapas pura PO de do!
-            if df_filtered.empty:
                 df_filtered = df.copy()
-            
-            # Available Qty Logic Check
+                
+            # Available Qty Logic
             res_used = supabase.table("mrn_items").select("Item Code, User Qty").eq("PO Number", po_no).execute()
             used_map = {}
             if res_used.data:
                 for r in res_used.data:
                     ic = str(r.get("Item Code", "")).strip().lower()
+                    if ic.endswith('.0'): ic = ic[:-2]
                     uq = int(r.get("User Qty", 0))
                     used_map[ic] = used_map.get(ic, 0) + uq
-            
+                    
             item_col_name = None
             for col in df_filtered.columns:
                 c_lower = str(col).strip().lower()
@@ -274,7 +292,10 @@ def fetch_po_line_items(po_no, site_id, proj_id):
                     break
                     
             if item_col_name:
-                df_filtered["Used Qty"] = df_filtered.apply(lambda x: used_map.get(str(x.get(item_col_name, "")).strip().lower(), 0), axis=1)
+                df_filtered["Used Qty"] = df_filtered.apply(
+                    lambda x: used_map.get(str(x.get(item_col_name, "")).replace('.0', '').strip().lower(), 0), 
+                    axis=1
+                )
             else:
                 df_filtered["Used Qty"] = 0
             
@@ -401,27 +422,47 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # Smart Dynamic PO Fetching from po_working
+        po_str = str(proj_data.get("PO No.", ""))
+        if po_str and po_str.lower() != "nan":
+            po_list = [p.strip() for p in po_str.split(",") if p.strip()]
+            
+        # ---> FIXED: Superfast & Bulletproof PO Target Fetching <---
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
-            res_po_all = supabase.table("po_working").select("PO Number, Project Name, Project ID, Site ID").eq("workspace", ws_act).execute()
-            if res_po_all.data:
-                p_id_target = str(selected_proj).strip().lower()
-                s_id_target = str(site_id).strip().lower()
+            sample_res = supabase.table("po_working").select("*").limit(1).execute()
+            if sample_res.data:
+                cols = list(sample_res.data[0].keys())
+                proj_cols = [c for c in cols if str(c).strip().lower() in ['project id', 'project_id', 'projectid', 'project name', 'project_name']]
+                site_cols = [c for c in cols if str(c).strip().lower() in ['site id', 'site_id', 'siteid']]
+                po_cols = [c for c in cols if str(c).strip().lower() in ['po number', 'po_number', 'ponumber', 'po no', 'po no.', 'po_no']]
                 
-                for row in res_po_all.data:
-                    pn = str(row.get("PO Number", "")).strip()
-                    if not pn or pn.lower() == "nan": continue
+                if po_cols:
+                    po_col = po_cols[0]
+                    p_target = str(selected_proj).strip()
+                    if p_target.endswith('.0'): p_target = p_target[:-2]
                     
-                    match = False
-                    if str(row.get("Project Name", "")).strip().lower() == p_id_target: match = True
-                    elif str(row.get("Project ID", "")).strip().lower() == p_id_target: match = True
-                    elif s_id_target != "" and str(row.get("Site ID", "")).strip().lower() == s_id_target: match = True
+                    s_target = str(site_id).strip()
+                    if s_target.endswith('.0'): s_target = s_target[:-2]
                     
-                    if match and pn not in po_list:
-                        po_list.append(pn)
+                    # Fetch by Project Name / ID directly via Database (No Timeout)
+                    for pc in proj_cols:
+                        r = supabase.table("po_working").select(po_col).eq("workspace", ws_act).ilike(pc, f"%{p_target}%").execute()
+                        for row in r.data or []:
+                            pn = str(row.get(po_col, "")).replace(".0", "").strip()
+                            if pn and pn.lower() != "nan" and pn not in po_list:
+                                po_list.append(pn)
+                                
+                    # Fetch by Site ID (Secondary Check)
+                    if s_target:
+                        for sc in site_cols:
+                            r = supabase.table("po_working").select(po_col).eq("workspace", ws_act).ilike(sc, f"%{s_target}%").execute()
+                            for row in r.data or []:
+                                pn = str(row.get(po_col, "")).replace(".0", "").strip()
+                                if pn and pn.lower() != "nan" and pn not in po_list:
+                                    po_list.append(pn)
         except Exception as e:
             pass
+        # -----------------------------------------------------------
         
         team_percent = fetch_team_percentage(team_name)
 
@@ -438,7 +479,7 @@ def add_mrn_dialog():
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
     
     if not po_list and selected_proj != "Select Project ID":
-        st.warning("⚠️ No POs found for this Project ID in Site Data.")
+        st.warning("⚠️ No POs found for this Project ID.")
         
     selected_pos = st.multiselect("SEARCH & SELECT PO(s)", po_list, placeholder="Choose one or multiple POs")
     
@@ -464,7 +505,7 @@ def add_mrn_dialog():
         df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
-            st.info(f"No line items found in PO Working for PO: {po} matching this Site ID.")
+            st.info(f"No line items found in PO Working for PO: {po}.")
             continue
             
         line_nos = safe_col(df_po, ['line no', 'line number', 'lineno', 'line_no', 'sl no', 'sr no', '#', 'sn'])
