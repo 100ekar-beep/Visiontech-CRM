@@ -492,6 +492,44 @@ def export_dialog(df_export):
     if "id" in export_df.columns:
         export_df = export_df.drop(columns=["id"])
         
+    # --- ADDING SITE STATUS TO EXCEL ---
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    available_sites = set()
+    available_projects = set()
+
+    try:
+        # Fetching all site data for the workspace to bypass PostgREST .in_() limits on large exports
+        res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
+        if res_check.data:
+            for item in res_check.data:
+                s_id = str(item.get("Site ID", "")).strip()
+                p_id = str(item.get("Project ID", "")).strip()
+                p_name = str(item.get("Project Name", "")).strip()
+                
+                if s_id: available_sites.add(s_id)
+                if p_id: available_projects.add(p_id)
+                if p_name: available_projects.add(p_name)
+    except Exception:
+        pass
+
+    def get_site_status(row):
+        sid = str(row.get("Site ID", "")).strip()
+        pname = str(row.get("Project Name", "")).strip()
+
+        is_site_avail = sid and sid in available_sites
+        is_proj_avail = pname and (pname in available_projects or pname in available_sites)
+
+        if is_site_avail or is_proj_avail:
+            return "Available"
+        return "Not Available"
+
+    if 'Project Name' in export_df.columns:
+        loc = export_df.columns.get_loc('Project Name') + 1
+        export_df.insert(loc, 'SITE STATUS', export_df.apply(get_site_status, axis=1))
+    else:
+        export_df['SITE STATUS'] = export_df.apply(get_site_status, axis=1)
+    # -----------------------------------
+
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         export_df.to_excel(writer, index=False, sheet_name='PO Working Data')
