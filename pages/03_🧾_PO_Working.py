@@ -155,8 +155,8 @@ st.markdown("""
     }
 
     /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH REDUCED SPACING (40% LESS)
-       ========================================================= */
+        FIXED: HORIZONTAL SCROLLING DATA TABLE WITH REDUCED SPACING (40% LESS)
+        ========================================================= */
     .st-key-po_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
@@ -263,6 +263,32 @@ st.markdown("""
     }
     div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
     div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    
+    /* STATUS BADGES FOR SITE AVAILABILITY */
+    .status-badge-green {
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        color: #34d399;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        display: inline-block;
+        text-align: center;
+        letter-spacing: 0.5px;
+    }
+    .status-badge-orange {
+        background: rgba(245, 158, 11, 0.15);
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        color: #fbbf24;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        display: inline-block;
+        text-align: center;
+        letter-spacing: 0.5px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -284,8 +310,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 2.5 SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
+SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"    
 
 @st.cache_resource
 def init_connection():
@@ -449,7 +475,6 @@ def po_upload_dialog():
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
                     
-                # Setting session state to trigger balloons after the page reruns
                 st.session_state['po_upload_success_msg'] = po_number_input
                 st.rerun()
                 
@@ -493,14 +518,12 @@ def view_po_details_dialog(row_data):
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
             
-            # FIX: Use select("*") to avoid PostgREST parsing errors on spaces (like "RFAI Status") and explicitly added SRN Fetch
             res_site = supabase.table("site_data").select("*").eq("Site ID", str(site_id).strip()).eq("workspace", active_ws).execute()
             if res_site.data:
                 cluster_val = res_site.data[0].get("Cluster", "-")
                 rfai_val = res_site.data[0].get("RFAI Status", "-")
                 srn_val = res_site.data[0].get("SRN", "-") 
             
-            # Fallback for Excalation / Escalation typos in the table name
             try:
                 res_exc = supabase.table("Excalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
                 if res_exc.data:
@@ -561,7 +584,6 @@ def view_po_details_dialog(row_data):
     
     st.session_state.po_working_df.update(df_temp)
     
-    # --- FIX: Calculate Total Project Amount as (PO Qty * Price) ---
     project_total_amount = (df_temp['PO Qty'] * df_temp['Price']).sum()
     
     st.markdown(f"""
@@ -671,10 +693,8 @@ with col_table_title:
     st.markdown("##### 🗄️ Uploaded PO Summary")
 with col_search:
     if HAS_KEYUP:
-        # st_keyup instantly triggers updates as the user types
         search_query = st_keyup("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed", debounce=300)
     else:
-        # Fallback if package is not installed
         search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
         st.caption("Auto-search requires `streamlit-keyup`. Run: `pip install streamlit-keyup`")
 
@@ -685,7 +705,6 @@ if search_query:
 # --- CREATE UNIQUE PO SUMMARY LIST ---
 if not df.empty:
     summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
-    # FIX: Reversing the summary DataFrame so that the most recently added POs appear at the very top (Line 1, Page 1).
     summary_df = summary_df.iloc[::-1].reset_index(drop=True)
 else:
     summary_df = pd.DataFrame(columns=["Project Name", "Site ID", "Site Name", "PO Number"])
@@ -709,9 +728,9 @@ end_idx = start_idx + rows_per_page
 # --- 8. SUMMARY DATA TABLE ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# Total 7 cols (Sr No + 2 Buttons + 4 Data)
-COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.2, 1.8, 1.2] 
-COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE ID", "SITE NAME", "PO NUMBER"]
+# Total 8 cols (Sr No + 2 Buttons + 5 Data -> Project Name, Status Badge, Site ID, Site Name, PO Number)
+COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.3, 1.2, 1.8, 1.2] 
+COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
 
 with st.container(key="po_table_wrap", height=560):
     if df_page.empty:
@@ -722,12 +741,31 @@ with st.container(key="po_table_wrap", height=560):
         for h_col, label in zip(h_cols, COL_LABELS):
             h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
         
+        # Pre-fetch site data availability for current page items to keep it extremely fast
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        site_ids_on_page = df_page['Site ID'].astype(str).str.strip().unique().tolist()
+        available_sites = set()
+        if site_ids_on_page:
+            try:
+                res_check = supabase.table("site_data").select("Site ID").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
+                if res_check.data:
+                    available_sites = {str(item.get("Site ID")).strip() for item in res_check.data}
+            except Exception:
+                pass
+
         # Rows
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             po_num = str(row_dict.get('PO Number', '')).strip()
+            site_id_val = str(row_dict.get('Site ID', '')).strip()
             serial_no = start_idx + page_pos + 1
             safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
+            
+            # Determine Site Status based on presence in site_data table
+            if site_id_val and site_id_val in available_sites:
+                status_html = "<span class='status-badge-green'>🟢 Available</span>"
+            else:
+                status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
             
             rcols = st.columns(COL_RATIOS)
             
@@ -743,9 +781,10 @@ with st.container(key="po_table_wrap", height=560):
                         st.session_state[f"confirm_del_{safe_po_key}"] = True
                         
             rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
 
             # Inline delete confirmation
             if st.session_state.get(f"confirm_del_{safe_po_key}"):
