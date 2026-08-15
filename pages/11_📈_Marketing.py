@@ -104,7 +104,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- SUPABASE CONNECTION ---
-@st.cache_resource
+@st.cache_resource(ttl="45m")
 def init_connection():
     try:
         url: str = st.secrets["supabase"]["url"]
