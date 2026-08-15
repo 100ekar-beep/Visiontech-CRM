@@ -15,7 +15,7 @@ if 'mrn_current_page' not in st.session_state:
 if 'mrn_action' not in st.session_state:
     st.session_state.mrn_action = ""
 
-# --- 2. LAVISH CUSTOM CSS (Imported from your ecosystem) ---
+# --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
     /* Dark Premium Theme */
@@ -223,6 +223,12 @@ def fetch_team_percentage(team_name):
     except Exception:
         pass
     return 100.0
+
+def get_col(df, candidates):
+    for c in df.columns:
+        if str(c).strip().lower() in candidates:
+            return c
+    return None
 
 # ---> UNLIMITED PAGINATED DATA FETCHER (BYPASSES SUPABASE 1000 ROW LIMIT) <---
 @st.cache_data(ttl=300, show_spinner=False)
@@ -517,7 +523,7 @@ def add_mrn_dialog():
     grand_basic_total = 0.0
     all_po_dfs = {}
     
-    # Safe Column Extractor Helper (To Fix Pandas Float Issues for numbers)
+    # Safe Column Extractor Helper (To Fix Pandas Float Issues)
     def safe_col_values(df, candidates):
         for col in df.columns:
             if str(col).strip().lower() in candidates:
