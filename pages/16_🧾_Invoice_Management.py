@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import math
 import io
-import requests
 from supabase import create_client, Client
 from st_keyup import st_keyup
 from datetime import datetime
@@ -14,7 +13,7 @@ st.set_page_config(page_title="Invoice Management", page_icon="🧾", layout="wi
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 1
 
-# --- 2. LAVISH CUSTOM CSS (Consistent with Site Data Hub) ---
+# --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
     /* Dark Premium Theme */
@@ -36,7 +35,6 @@ st.markdown("""
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
     }
 
-    /* Pagination Text & Button Font Color Fix */
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
     
     div.stButton > button p, 
@@ -97,7 +95,7 @@ st.markdown("""
         padding: 0px 0 !important;
     }
     .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 3200px !important;
+        min-width: 3400px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -160,7 +158,6 @@ st.markdown("""
         transform: translateY(-2px) !important;
     }
 
-    /* Action Columns spacing */
     .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(1) { padding: 0 10px 0 15px !important; }
     .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(2),
     .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(3),
@@ -213,7 +210,6 @@ def add_invoice_dialog():
         with c11: sgst = st.number_input("SGST", value=0.0, format="%.2f")
         with c12: igst = st.number_input("IGST", value=0.0, format="%.2f")
         
-        # Automatic Total Calculation after IGST
         total = basic_amount + cgst + sgst + igst
         with c13: 
             st.markdown(f"<p style='color:#3b82f6; font-weight:800; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
@@ -486,18 +482,18 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # --- 5. FETCH DATA FROM SUPABASE ---
 table_name = "invoice_management"
-try:
-    response = supabase.table(table_name).select("*").execute()
-    data = response.data
-except Exception:
-    data = []
-
 columns_list = [
     "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "total",
     "project_id", "site_id", "site_name", "po_number", "wcc_number", "receipt_number", "percentage_amount",
     "payment_1_amount", "payment_1_date", "payment_2_amount", "payment_2_date", "payment_3_amount", "payment_3_date",
     "balance", "remark"
 ]
+
+try:
+    response = supabase.table(table_name).select("*").execute()
+    data = response.data
+except Exception:
+    data = []
 
 if data:
     df = pd.DataFrame(data)
@@ -552,8 +548,15 @@ start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx].copy()
 
-# Table Columns Ratio & Labels matching your DB schema
-COL_RATIOS = [0.3, 0.35, 0.35, 0.35] + [1.0] * 22
+# Table Columns Ratio & Labels matching schema perfectly (4 Action cols + 23 Data cols = 27 columns)
+keys_seq = [
+    'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'total',
+    'project_id', 'site_id', 'site_name', 'po_number', 'wcc_number', 'receipt_number', 'percentage_amount',
+    'payment_1_amount', 'payment_1_date', 'payment_2_amount', 'payment_2_date', 'payment_3_amount', 'payment_3_date',
+    'balance', 'remark'
+]
+
+COL_RATIOS = [0.3, 0.35, 0.35, 0.35] + [1.0] * len(keys_seq)
 COL_LABELS = [
     "#", "👁️", "✏️", "🗑️",
     "Circle", "Invoice No", "Invoice Date", "Basic Amount", "CGST", "SGST", "IGST", "Total",
@@ -586,13 +589,6 @@ with st.container(key="invoice_table_wrap", height=560):
                 if st.button("🗑️", key=f"del_inv_{rid}", use_container_width=True):
                     delete_invoice_dialog(rid, row_dict.get('invoice_number', ''))
 
-            # Data mapping to match column sequence exactly
-            keys_seq = [
-                'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'total',
-                'project_id', 'site_id', 'site_name', 'po_number', 'wcc_number', 'receipt_number', 'percentage_amount',
-                'payment_1_amount', 'payment_1_date', 'payment_2_amount', 'payment_2_date', 'payment_3_amount', 'payment_3_date',
-                'balance', 'remark'
-            ]
             for idx, k in enumerate(keys_seq, start=4):
                 val = row_dict.get(k, '')
                 rcols[idx].markdown(f"<div class='tbl-cell'>{val if val is not None and str(val).strip() != '' else '-'}</div>", unsafe_allow_html=True)
