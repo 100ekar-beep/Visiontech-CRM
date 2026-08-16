@@ -219,6 +219,18 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- SAFE DATE PARSER HELPER ---
+def parse_date_safely(val):
+    if not val or str(val).strip() in ['', '-', 'nan', 'None']:
+        return None
+    val_str = str(val).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(val_str, fmt).date()
+        except ValueError:
+            continue
+    return None
+
 # --- 3.5 ADD INVOICE DIALOG FUNCTION ---
 @st.dialog("📄 Add Invoice Record", width="large")
 def add_invoice_dialog():
@@ -247,7 +259,6 @@ def add_invoice_dialog():
         with c11: sgst = st.number_input("SGST", value=0.0, format="%.2f")
         with c12: igst = st.number_input("IGST", value=0.0, format="%.2f")
         
-        # Calculate Total Automatically
         total = basic_amount + cgst + sgst + igst
         with c13: 
             st.markdown(f"<p style='color:#3b82f6; font-weight:800; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
@@ -321,8 +332,7 @@ def edit_invoice_dialog(row_data):
         with c1: circle = st.text_input("Circle", value=str(row_data.get('circle', '')), key="ed_circle")
         with c2: invoice_number = st.text_input("Invoice_number", value=str(row_data.get('invoice_number', '')), key="ed_inv_num")
         with c3: 
-            val = row_data.get('invoice_date', '')
-            parsed_date = datetime.strptime(val.strip(), "%d/%m/%Y").date() if val and val != '-' else None
+            parsed_date = parse_date_safely(row_data.get('invoice_date', ''))
             raw_inv_date = st.date_input("Invoice_date", value=parsed_date, key="ed_inv_date")
             invoice_date = raw_inv_date.strftime("%d/%m/%Y") if raw_inv_date else ""
         with c4: project_id = st.text_input("Project_id", value=str(row_data.get('project_id', '')), key="ed_proj_id")
@@ -352,20 +362,17 @@ def edit_invoice_dialog(row_data):
         p1, p2, p3, p4, p5, p6 = st.columns(6)
         with p1: payment_1_amount = st.number_input("Paymet_1_amount", value=float(row_data.get('payment_1_amount', 0.0) or 0.0), format="%.2f", key="ed_p1_amt")
         with p2: 
-            val = row_data.get('payment_1_date', '')
-            p1_d = datetime.strptime(val.strip(), "%d/%m/%Y").date() if val and val != '-' else None
+            p1_d = parse_date_safely(row_data.get('payment_1_date', ''))
             raw_p1 = st.date_input("Payment_1_date", value=p1_d, key="ed_p1_date")
             payment_1_date = raw_p1.strftime("%d/%m/%Y") if raw_p1 else ""
         with p3: payment_2_amount = st.number_input("Paymet_2_amount", value=float(row_data.get('payment_2_amount', 0.0) or 0.0), format="%.2f", key="ed_p2_amt")
         with p4: 
-            val = row_data.get('payment_2_date', '')
-            p2_d = datetime.strptime(val.strip(), "%d/%m/%Y").date() if val and val != '-' else None
+            p2_d = parse_date_safely(row_data.get('payment_2_date', ''))
             raw_p2 = st.date_input("Payment_2_date", value=p2_d, key="ed_p2_date")
             payment_2_date = raw_p2.strftime("%d/%m/%Y") if raw_p2 else ""
         with p5: payment_3_amount = st.number_input("Paymet_3_amount", value=float(row_data.get('payment_3_amount', 0.0) or 0.0), format="%.2f", key="ed_p3_amt")
         with p6: 
-            val = row_data.get('payment_3_date', '')
-            p3_d = datetime.strptime(val.strip(), "%d/%m/%Y").date() if val and val != '-' else None
+            p3_d = parse_date_safely(row_data.get('payment_3_date', ''))
             raw_p3 = st.date_input("Payment_3_date", value=p3_d, key="ed_p3_date")
             payment_3_date = raw_p3.strftime("%d/%m/%Y") if raw_p3 else ""
 
@@ -488,7 +495,6 @@ def bulk_upload_dialog():
                         val = row.get(col, row.get(col.lower(), ""))
                         insert_dict[col] = str(val).strip() if pd.notna(val) and str(val).lower() != 'nan' else ""
                 
-                # Auto Calculate total on Bulk Upload
                 try:
                     b = float(insert_dict.get('basic_amount', 0) or 0)
                     c = float(insert_dict.get('cgst', 0) or 0)
@@ -605,7 +611,6 @@ start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx].copy()
 
-# Table Columns Ratio & Labels matching schema perfectly (4 Action cols + 23 Data cols = 27 columns)
 keys_seq = [
     'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'total',
     'project_id', 'site_id', 'site_name', 'po_number', 'wcc_number', 'receipt_number', 'percentage_amount',
@@ -649,7 +654,6 @@ with st.container(key="invoice_table_wrap", height=560):
             for idx, k in enumerate(keys_seq, start=4):
                 val = row_dict.get(k, '')
                 
-                # --- AUTO CALCULATE TOTAL FALLBACK ---
                 if k == 'total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
                     try:
                         b = float(row_dict.get('basic_amount', 0) or 0)
