@@ -85,6 +85,43 @@ st.markdown("""
     }
 
     /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION BUTTONS
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
+
+    /* =========================================================
        FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
        ========================================================= */
     .st-key-invoice_table_wrap {
@@ -210,6 +247,7 @@ def add_invoice_dialog():
         with c11: sgst = st.number_input("SGST", value=0.0, format="%.2f")
         with c12: igst = st.number_input("IGST", value=0.0, format="%.2f")
         
+        # Calculate Total Automatically
         total = basic_amount + cgst + sgst + igst
         with c13: 
             st.markdown(f"<p style='color:#3b82f6; font-weight:800; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
@@ -388,11 +426,20 @@ def view_invoice_dialog(row_data):
 
     st.markdown('<div class="modal-section-title">💰 AMOUNTS & TOTAL</div>', unsafe_allow_html=True)
     c9, c10, c11, c12, c13, c14 = st.columns(6)
-    with c9: st.text_input("Basic Amount", value=str(row_data.get('basic_amount', '')), disabled=True)
-    with c10: st.text_input("CGST", value=str(row_data.get('cgst', '')), disabled=True)
-    with c11: st.text_input("SGST", value=str(row_data.get('sgst', '')), disabled=True)
-    with c12: st.text_input("IGST", value=str(row_data.get('igst', '')), disabled=True)
-    with c13: st.text_input("Total", value=str(row_data.get('total', '')), disabled=True)
+    
+    b_amt = float(row_data.get('basic_amount', 0) or 0)
+    c_amt = float(row_data.get('cgst', 0) or 0)
+    s_amt = float(row_data.get('sgst', 0) or 0)
+    i_amt = float(row_data.get('igst', 0) or 0)
+    t_amt = row_data.get('total')
+    if not t_amt or str(t_amt).lower() in ['nan', 'none', '']:
+        t_amt = b_amt + c_amt + s_amt + i_amt
+
+    with c9: st.text_input("Basic Amount", value=str(b_amt), disabled=True)
+    with c10: st.text_input("CGST", value=str(c_amt), disabled=True)
+    with c11: st.text_input("SGST", value=str(s_amt), disabled=True)
+    with c12: st.text_input("IGST", value=str(i_amt), disabled=True)
+    with c13: st.text_input("Total", value=str(t_amt), disabled=True)
     with c14: st.text_input("% Amount", value=str(row_data.get('percentage_amount', '')), disabled=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -441,6 +488,16 @@ def bulk_upload_dialog():
                         val = row.get(col, row.get(col.lower(), ""))
                         insert_dict[col] = str(val).strip() if pd.notna(val) and str(val).lower() != 'nan' else ""
                 
+                # Auto Calculate total on Bulk Upload
+                try:
+                    b = float(insert_dict.get('basic_amount', 0) or 0)
+                    c = float(insert_dict.get('cgst', 0) or 0)
+                    s = float(insert_dict.get('sgst', 0) or 0)
+                    i = float(insert_dict.get('igst', 0) or 0)
+                    insert_dict['total'] = b + c + s + i
+                except:
+                    pass
+
                 try:
                     supabase.table("invoice_management").insert(insert_dict).execute()
                     added += 1
@@ -591,7 +648,20 @@ with st.container(key="invoice_table_wrap", height=560):
 
             for idx, k in enumerate(keys_seq, start=4):
                 val = row_dict.get(k, '')
-                rcols[idx].markdown(f"<div class='tbl-cell'>{val if val is not None and str(val).strip() != '' else '-'}</div>", unsafe_allow_html=True)
+                
+                # --- AUTO CALCULATE TOTAL FALLBACK ---
+                if k == 'total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
+                    try:
+                        b = float(row_dict.get('basic_amount', 0) or 0)
+                        c = float(row_dict.get('cgst', 0) or 0)
+                        s = float(row_dict.get('sgst', 0) or 0)
+                        i = float(row_dict.get('igst', 0) or 0)
+                        val = f"{b + c + s + i:.2f}"
+                    except:
+                        val = '-'
+                
+                display_val = val if val is not None and str(val).strip() != '' else '-'
+                rcols[idx].markdown(f"<div class='tbl-cell'>{display_val}</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
