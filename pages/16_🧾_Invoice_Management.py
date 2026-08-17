@@ -567,11 +567,6 @@ try:
 except Exception:
     data = []
 
-# 🔧 TEMP DEBUG - remove after checking
-if data:
-    st.write("DEBUG - First row keys:", list(data[0].keys()))
-    st.write("DEBUG - First row sub_status value:", data[0].get("sub_status"))
-
 if data:
     df = pd.DataFrame(data)
     if 'id' in df.columns:
