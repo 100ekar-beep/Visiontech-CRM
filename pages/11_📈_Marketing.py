@@ -213,9 +213,9 @@ if check_password():
             st.error("⚠️ Supabase connection fail. Kripya secrets.toml check karein.")
 
     with col2:
-        st.markdown("### 📎 2. Attach Photo / PDF (Optional)")
-        attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf"])
-        st.caption("✅ Aapki file automatically internet par upload ho kar link ban jayegi.")
+        st.markdown("### 📎 2. Attach Photo / PDF / Video (Optional)")
+        attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf", "mp4", "mov", "3gp"])
+        st.caption("✅ Aapki file (Photo/PDF/Video) automatically internet par upload ho kar link ban jayegi.")
 
     st.markdown("---")
 
