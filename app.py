@@ -52,7 +52,14 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # --- SESSION STATE INITIALIZATION ---
 if 'active_workspace' not in st.session_state:
-    st.session_state['active_workspace'] = 'VISPL'  # Default Open
+    # FIX: Session idle/websocket-reconnect hone par st.session_state reset ho jaata hai,
+    # isliye pehle URL query_params me saved workspace check karte hain (ye reset nahi hota).
+    _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA"]
+    _query_workspace = st.query_params.get('workspace', None)
+    if _query_workspace in _valid_workspaces:
+        st.session_state['active_workspace'] = _query_workspace
+    else:
+        st.session_state['active_workspace'] = 'VISPL'  # Default Open
 
 # --- MASTER WORKSPACE SELECTOR ---
 st.markdown("<h2>🏢 Master Workspace Controller</h2>", unsafe_allow_html=True)
@@ -72,7 +79,12 @@ with col1:
     
     if selected_workspace != st.session_state['active_workspace']:
         st.session_state['active_workspace'] = selected_workspace
+        st.query_params['workspace'] = selected_workspace  # FIX: URL me bhi persist karo
         st.rerun()
+
+    # FIX: Agar URL me query param abhi tak set nahi hai (pehli baar load), to sync kar do
+    if st.query_params.get('workspace', None) != st.session_state['active_workspace']:
+        st.query_params['workspace'] = st.session_state['active_workspace']
 
 # --- DYNAMIC DASHBOARD DISPLAY ---
 with col2:
