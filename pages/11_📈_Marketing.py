@@ -289,13 +289,55 @@ if check_password():
                 if attachment:
                     with st.spinner("⏳ File ko Supabase par upload karke Auto-Link banaya ja raha hai..."):
                         try:
-                            file_ext = attachment.name.split('.')[-1]
+                            file_ext = attachment.name.split('.')[-1].lower()
+                            file_bytes = attachment.getvalue()
+                            content_type = attachment.type
+
+                            # WHATSAPP-COMPATIBLE VIDEO CONVERSION (H.264 + AAC, MP4 container)
+                            # Mobile videos (especially iPhone .MOV/HEVC) fail on WhatsApp unless converted.
+                            if file_ext in ["mp4", "mov", "3gp"]:
+                                import subprocess
+                                import tempfile
+
+                                tmp_in_path = None
+                                tmp_out_path = None
+                                try:
+                                    with tempfile.NamedTemporaryFile(suffix=f".{file_ext}", delete=False) as tmp_in:
+                                        tmp_in.write(file_bytes)
+                                        tmp_in_path = tmp_in.name
+
+                                    tmp_out_path = tmp_in_path + "_converted.mp4"
+
+                                    subprocess.run(
+                                        [
+                                            "ffmpeg", "-y", "-i", tmp_in_path,
+                                            "-c:v", "libx264", "-profile:v", "baseline",
+                                            "-pix_fmt", "yuv420p", "-c:a", "aac",
+                                            "-movflags", "+faststart",
+                                            tmp_out_path
+                                        ],
+                                        check=True,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE
+                                    )
+                                    with open(tmp_out_path, "rb") as f:
+                                        file_bytes = f.read()
+                                    file_ext = "mp4"
+                                    content_type = "video/mp4"
+                                except Exception as ffmpeg_err:
+                                    st.warning(f"⚠️ Video ko WhatsApp-compatible format me convert nahi kiya ja saka, original file bheji ja rahi hai. ({ffmpeg_err})")
+                                finally:
+                                    if tmp_in_path and os.path.exists(tmp_in_path):
+                                        os.remove(tmp_in_path)
+                                    if tmp_out_path and os.path.exists(tmp_out_path):
+                                        os.remove(tmp_out_path)
+
                             unique_filename = f"{int(time.time())}.{file_ext}"
-                            
+
                             supabase.storage.from_("whatsapp_media").upload(
                                 unique_filename,
-                                attachment.getvalue(),
-                                {"content-type": attachment.type}
+                                file_bytes,
+                                {"content-type": content_type}
                             )
                             media_url = supabase.storage.from_("whatsapp_media").get_public_url(unique_filename)
                             st.toast("✅ File Upload Success!")
