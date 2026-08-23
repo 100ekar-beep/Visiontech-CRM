@@ -92,32 +92,38 @@ st.markdown("""
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; border-bottom: none !important; }
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255,255,255,0.06) !important;
-        border-radius: 10px !important;
-        padding: 12px 22px !important;
-        border: 1px solid rgba(255,255,255,0.12) !important;
+    /* Tabs styling - target button elements directly for maximum compatibility */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px !important;
+        border-bottom: none !important;
+        background: transparent !important;
+        padding: 4px 0 16px 0 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button {
+        background: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(236,72,153,0.18) 100%) !important;
+        border-radius: 12px !important;
+        padding: 14px 26px !important;
+        border: 1.5px solid rgba(255,255,255,0.18) !important;
         height: auto !important;
+        margin: 0 !important;
         transition: all 0.25s ease !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25) !important;
     }
-    .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(255,255,255,0.12) !important;
-        border-color: rgba(255,255,255,0.25) !important;
+    .stTabs [data-baseweb="tab-list"] button:hover {
+        background: linear-gradient(135deg, rgba(99,102,241,0.35) 0%, rgba(236,72,153,0.35) 100%) !important;
+        border-color: rgba(255,255,255,0.35) !important;
+        transform: translateY(-2px) !important;
     }
-    .stTabs [data-baseweb="tab"] p {
-        color: #e2e8f0 !important;
-        font-weight: 700 !important;
-        font-size: 1rem !important;
+    .stTabs [data-baseweb="tab-list"] button * {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 1.02rem !important;
+        opacity: 1 !important;
     }
-    .stTabs [aria-selected="true"] {
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
         background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
         border-color: transparent !important;
-        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4) !important;
-    }
-    .stTabs [aria-selected="true"] p {
-        color: #ffffff !important;
+        box-shadow: 0 6px 18px rgba(245, 158, 11, 0.5) !important;
     }
     .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
     .stTabs [data-baseweb="tab-border"] { display: none !important; }
@@ -251,7 +257,7 @@ def manage_solar_teams_dialog(site_row, alloc_row):
 
     def team_section(label, key_prefix, alloc):
         st.markdown(f'<div class="modal-section-title">👷 {label} TEAM</div>', unsafe_allow_html=True)
-        tc1, tc2 = st.columns(2)
+        tc1, tc2, tc3 = st.columns(3)
         with tc1:
             t_name = st.selectbox(
                 f"{label} TEAM NAME", team_opts,
@@ -259,19 +265,26 @@ def manage_solar_teams_dialog(site_row, alloc_row):
                 key=f"solar_{key_prefix}_team"
             )
         with tc2:
+            status_opts = ["Pending", "Completed"]
+            t_status = st.selectbox(
+                f"{label} STATUS", status_opts,
+                index=(1 if alloc.get(f"{key_prefix}_status") == "Completed" else 0),
+                key=f"solar_{key_prefix}_status"
+            )
+        with tc3:
             t_charge = st.number_input(
                 f"{label} CHARGE AMOUNT (₹)", min_value=0.0, step=100.0,
                 value=num(alloc.get(f"{key_prefix}_charge_amount", 0)),
                 key=f"solar_{key_prefix}_charge"
             )
-        tc3, tc4 = st.columns([1, 2])
-        with tc3:
+        tc4, tc5 = st.columns([1, 2])
+        with tc4:
             t_appr_amt = st.number_input(
                 f"{label} EXTRA APPROVAL AMOUNT (₹)", min_value=0.0, step=100.0,
                 value=num(alloc.get(f"{key_prefix}_extra_approval_amount", 0)),
                 key=f"solar_{key_prefix}_apprvamt"
             )
-        with tc4:
+        with tc5:
             t_appr_remark = st.text_input(
                 f"{label} EXTRA APPROVAL REMARK (kis baat ka approval hai)",
                 value=alloc.get(f"{key_prefix}_extra_approval_remark", ""),
@@ -280,6 +293,7 @@ def manage_solar_teams_dialog(site_row, alloc_row):
             )
         return {
             f"{key_prefix}_team_name": t_name if t_name != "Select" else "",
+            f"{key_prefix}_status": t_status,
             f"{key_prefix}_charge_amount": t_charge,
             f"{key_prefix}_extra_approval_amount": t_appr_amt,
             f"{key_prefix}_extra_approval_remark": t_appr_remark,
@@ -346,19 +360,22 @@ def view_team_detail_dialog(team_name, entries, payments):
     st.caption(f"Team '{team_name}' ke saare Solar sites aur payments ka detailed hisaab")
 
     st.markdown('<div class="modal-section-title">🏗️ WORK DONE (SITE-WISE)</div>', unsafe_allow_html=True)
-    h1, h2, h3, h4, h5, h6 = st.columns([1.4, 1.4, 1.0, 1.1, 1.1, 2.2])
-    for c, label in zip([h1, h2, h3, h4, h5, h6],
-                         ["SITE ID", "PROJECT ID", "ROLE", "CHARGE (₹)", "APPROVAL (₹)", "APPROVAL REMARK"]):
+    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
+    for c, label in zip([h1, h2, h3, h4, h5, h6, h7],
+                         ["SITE ID", "PROJECT ID", "ROLE", "STATUS", "CHARGE (₹)", "APPROVAL (₹)", "APPROVAL REMARK"]):
         c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
     st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08); margin:6px 0;'>", unsafe_allow_html=True)
     for e in entries:
-        c1, c2, c3, c4, c5, c6 = st.columns([1.4, 1.4, 1.0, 1.1, 1.1, 2.2])
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
         c1.markdown(f"<span style='color:#e2e8f0;'>{e['site_id']}</span>", unsafe_allow_html=True)
         c2.markdown(f"<span style='color:#e2e8f0;'>{e['project_id']}</span>", unsafe_allow_html=True)
         c3.markdown(f"<span style='color:#e2e8f0;'>{e['role']}</span>", unsafe_allow_html=True)
-        c4.markdown(f"<span style='color:#e2e8f0;'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
-        c5.markdown(f"<span style='color:#e2e8f0;'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
-        c6.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{e['approval_remark'] or '-'}</span>", unsafe_allow_html=True)
+        status_color = "#4ade80" if e.get('status') == "Completed" else "#facc15"
+        c4.markdown(f"<span style='color:{status_color}; font-weight:700;'>{e.get('status','Pending')}</span>", unsafe_allow_html=True)
+        c5.markdown(f"<span style='color:#e2e8f0;'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
+        c6.markdown(f"<span style='color:#e2e8f0;'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
+        c7.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{e['approval_remark'] or '-'}</span>", unsafe_allow_html=True)
+    st.caption("💡 Sirf 'Completed' status wale kaam ka amount Total Billed / Balance mein count hota hai.")
 
     st.markdown('<div class="modal-section-title">💰 PAYMENTS RECEIVED</div>', unsafe_allow_html=True)
     if payments:
@@ -376,7 +393,8 @@ def view_team_detail_dialog(team_name, entries, payments):
     else:
         st.info("Is team ko abhi tak koi payment nahi kiya gaya.")
 
-    total_billed = sum(e['charge'] + e['approval'] for e in entries)
+    completed_entries = [e for e in entries if e.get("status") == "Completed"]
+    total_billed = sum(e['charge'] + e['approval'] for e in completed_entries)
     total_paid = sum(num(p.get('amount')) for p in payments)
     balance = total_billed - total_paid
     st.markdown(f"""
@@ -442,12 +460,13 @@ def view_team_detail_dialog(team_name, entries, payments):
 
         # --- SITE-WISE WORK TABLE ---
         site_rows_pdf = [
-            [e['site_id'], e['project_id'], e['site_name'],
-             f"Rs. {e['charge']:,.0f}", f"Rs. {e['approval']:,.0f}", f"Rs. {(e['charge'] + e['approval']):,.0f}"]
+            [e['site_id'], e['project_id'], e['site_name'], e.get('status', 'Pending'),
+             f"Rs. {e['charge']:,.0f}", f"Rs. {e['approval']:,.0f}",
+             f"Rs. {(e['charge'] + e['approval']):,.0f}" if e.get('status') == "Completed" else "-"]
             for e in entries
         ]
-        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Charge Amt", "Extra Approval", "Total"],
-                   [22, 26, 52, 28, 30, 32], site_rows_pdf, secondary_color)
+        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Status", "Charge Amt", "Extra Approval", "Total"],
+                   [20, 22, 42, 22, 26, 28, 30], site_rows_pdf, secondary_color)
 
         # --- PAYMENTS TABLE ---
         payment_rows_pdf = [
@@ -559,6 +578,7 @@ for a in alloc_data:
             "project_id": a.get("Project ID", ""),
             "site_name": a.get("Site Name", ""),
             "role": role_label,
+            "status": a.get(f"{role}_status", "Pending"),
             "charge": num(a.get(f"{role}_charge_amount")),
             "approval": num(a.get(f"{role}_extra_approval_amount")),
             "approval_remark": a.get(f"{role}_extra_approval_remark", ""),
@@ -621,14 +641,17 @@ with tab_sites:
                 "Cluster": r.get("Cluster", ""),
                 "Site Status": r.get("Site Status", ""),
                 "Civil Team": a.get("civil_team_name", ""),
+                "Civil Status": a.get("civil_status", "Pending"),
                 "Civil Charge": num(a.get("civil_charge_amount")),
                 "Civil Extra Approval": num(a.get("civil_extra_approval_amount")),
                 "Civil Approval Remark": a.get("civil_extra_approval_remark", ""),
                 "Electrical Team": a.get("electrical_team_name", ""),
+                "Electrical Status": a.get("electrical_status", "Pending"),
                 "Electrical Charge": num(a.get("electrical_charge_amount")),
                 "Electrical Extra Approval": num(a.get("electrical_extra_approval_amount")),
                 "Electrical Approval Remark": a.get("electrical_extra_approval_remark", ""),
                 "Transport Team": a.get("transport_team_name", ""),
+                "Transport Status": a.get("transport_status", "Pending"),
                 "Transport Charge": num(a.get("transport_charge_amount")),
                 "Transport Extra Approval": num(a.get("transport_extra_approval_amount")),
                 "Transport Approval Remark": a.get("transport_extra_approval_remark", ""),
@@ -661,12 +684,12 @@ with tab_sites:
     end_idx = start_idx + rows_per_page
     df_page = df_view.iloc[start_idx:end_idx].copy()
 
-    COL_RATIOS = [0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
+    COL_RATIOS = [0.5, 0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
                   1.1, 0.8, 1.1, 0.8, 1.1, 0.8,
-                  1.1, 1.1, 0.6]
-    COL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
+                  1.1, 1.1]
+    COL_LABELS = ["⚙️", "#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
                   "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
-                  "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "⚙️"]
+                  "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)"]
 
     with st.container(key="solar_table_wrap", height=560):
         if df_page.empty:
@@ -693,24 +716,28 @@ with tab_sites:
                     num(alloc.get("transport_extra_approval_amount"))
                 )
 
+                def status_tag(prefix):
+                    s = alloc.get(f"{prefix}_status", "Pending")
+                    return " ✅" if s == "Completed" else (" ⏳" if alloc.get(f"{prefix}_team_name") else "")
+
                 rcols = st.columns(COL_RATIOS)
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{proj_id or '-'}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Status','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{alloc.get('civil_team_name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{civil_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[8].markdown(f"<div class='tbl-cell'>{alloc.get('electrical_team_name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[9].markdown(f"<div class='tbl-cell'>{electrical_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[10].markdown(f"<div class='tbl-cell'>{alloc.get('transport_team_name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[11].markdown(f"<div class='tbl-cell'>{transport_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[12].markdown(f"<div class='tbl-cell'>{total_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[13].markdown(f"<div class='tbl-cell'>{total_approval:,.0f}</div>", unsafe_allow_html=True)
-                with rcols[14]:
+                with rcols[0]:
                     if st.button("⚙️", key=f"solar_mgr_{row_dict.get('id')}", help="Manage Teams", use_container_width=True):
                         manage_solar_teams_dialog(row_dict, alloc)
+                rcols[1].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+                rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{proj_id or '-'}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Status','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{(alloc.get('civil_team_name','') or '-')}{status_tag('civil')}</div>", unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='tbl-cell'>{civil_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='tbl-cell'>{(alloc.get('electrical_team_name','') or '-')}{status_tag('electrical')}</div>", unsafe_allow_html=True)
+                rcols[10].markdown(f"<div class='tbl-cell'>{electrical_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[11].markdown(f"<div class='tbl-cell'>{(alloc.get('transport_team_name','') or '-')}{status_tag('transport')}</div>", unsafe_allow_html=True)
+                rcols[12].markdown(f"<div class='tbl-cell'>{transport_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[13].markdown(f"<div class='tbl-cell'>{total_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[14].markdown(f"<div class='tbl-cell'>{total_approval:,.0f}</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -737,10 +764,11 @@ with tab_ledger:
         ledger_rows = []
         for t_name in solar_team_names:
             entries = team_entries.get(t_name, [])
+            completed_entries = [e for e in entries if e.get("status") == "Completed"]
             payments = payments_by_team.get(t_name, [])
-            site_ids = set(e["project_id"] for e in entries)
-            total_charge = sum(e["charge"] for e in entries)
-            total_approval = sum(e["approval"] for e in entries)
+            site_ids = set(e["project_id"] for e in completed_entries)
+            total_charge = sum(e["charge"] for e in completed_entries)
+            total_approval = sum(e["approval"] for e in completed_entries)
             total_billed = total_charge + total_approval
             total_paid = sum(num(p.get("amount")) for p in payments)
             balance = total_billed - total_paid
@@ -816,30 +844,42 @@ with tab_ledger:
         for _, r in df.iterrows():
             proj_id = str(r.get("Project ID", ""))
             a = alloc_map.get(proj_id, {})
-            civil_charge = num(a.get("civil_charge_amount"))
-            electrical_charge = num(a.get("electrical_charge_amount"))
-            transport_charge = num(a.get("transport_charge_amount"))
+            civil_status = a.get("civil_status", "Pending")
+            electrical_status = a.get("electrical_status", "Pending")
+            transport_status = a.get("transport_status", "Pending")
+
+            civil_charge = num(a.get("civil_charge_amount")) if civil_status == "Completed" else 0.0
+            electrical_charge = num(a.get("electrical_charge_amount")) if electrical_status == "Completed" else 0.0
+            transport_charge = num(a.get("transport_charge_amount")) if transport_status == "Completed" else 0.0
             total_approval = (
-                num(a.get("civil_extra_approval_amount")) +
-                num(a.get("electrical_extra_approval_amount")) +
-                num(a.get("transport_extra_approval_amount"))
+                (num(a.get("civil_extra_approval_amount")) if civil_status == "Completed" else 0.0) +
+                (num(a.get("electrical_extra_approval_amount")) if electrical_status == "Completed" else 0.0) +
+                (num(a.get("transport_extra_approval_amount")) if transport_status == "Completed" else 0.0)
             )
             total_charge = civil_charge + electrical_charge + transport_charge
+
+            def tag(name, status):
+                if not name or name == "-":
+                    return "-"
+                return f"{name} ✅" if status == "Completed" else f"{name} ⏳"
+
             site_rows.append({
                 "Site ID": r.get("Site ID", "") or "-",
                 "Site Name": r.get("Site Name", "") or "-",
                 "Cluster": r.get("Cluster", "") or "-",
                 "Project ID": proj_id or "-",
-                "Civil Team": a.get("civil_team_name", "") or "-",
+                "Civil Team": tag(a.get("civil_team_name", ""), civil_status),
                 "Civil Amt": civil_charge,
-                "Electrical Team": a.get("electrical_team_name", "") or "-",
+                "Electrical Team": tag(a.get("electrical_team_name", ""), electrical_status),
                 "Electrical Amt": electrical_charge,
-                "Transport Team": a.get("transport_team_name", "") or "-",
+                "Transport Team": tag(a.get("transport_team_name", ""), transport_status),
                 "Transport Amt": transport_charge,
                 "Total Charge": total_charge,
                 "Total Approval": total_approval,
                 "Grand Total": total_charge + total_approval,
             })
+
+        st.caption("💡 Sirf ✅ Completed status wale kaam ka amount yahan count hota hai. ⏳ = Pending (abhi count nahi hoga).")
 
         if site_search:
             site_rows = [
