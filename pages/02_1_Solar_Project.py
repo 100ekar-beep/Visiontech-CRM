@@ -3,9 +3,16 @@ import pandas as pd
 import math
 import io
 import datetime
+import os
 from collections import defaultdict
 from supabase import create_client, Client
 from st_keyup import st_keyup
+
+# --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Solar Project Hub", page_icon="☀️", layout="wide")
@@ -86,19 +93,34 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
     /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; border-bottom: none !important; }
     .stTabs [data-baseweb="tab"] {
-        background: rgba(255,255,255,0.04);
-        border-radius: 10px 10px 0 0;
-        padding: 10px 20px;
-        color: #cbd5e1 !important;
+        background: rgba(255,255,255,0.06) !important;
+        border-radius: 10px !important;
+        padding: 12px 22px !important;
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        height: auto !important;
+        transition: all 0.25s ease !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background: rgba(255,255,255,0.12) !important;
+        border-color: rgba(255,255,255,0.25) !important;
+    }
+    .stTabs [data-baseweb="tab"] p {
+        color: #e2e8f0 !important;
         font-weight: 700 !important;
-        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 1rem !important;
     }
     .stTabs [aria-selected="true"] {
         background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4) !important;
+    }
+    .stTabs [aria-selected="true"] p {
         color: #ffffff !important;
     }
+    .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+    .stTabs [data-baseweb="tab-border"] { display: none !important; }
 
     /* Summary cards */
     .solar-card {
@@ -113,8 +135,8 @@ st.markdown("""
     .solar-card .value-green { color: #4ade80; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
     .solar-card .value-red { color: #f87171; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
 
-    /* Generic table wraps (sites / ledger / payments all reuse this) */
-    .st-key-solar_table_wrap, .st-key-ledger_table_wrap, .st-key-payments_table_wrap {
+    /* Generic table wraps (sites / ledger / payments / site-ledger all reuse this) */
+    .st-key-solar_table_wrap, .st-key-ledger_table_wrap, .st-key-payments_table_wrap, .st-key-site_ledger_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
@@ -122,7 +144,8 @@ st.markdown("""
     }
     .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"] {
+    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"],
+    .st-key-site_ledger_table_wrap div[data-testid="stHorizontalBlock"] {
         min-width: 1900px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
@@ -133,16 +156,19 @@ st.markdown("""
     .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"] { min-width: 1200px !important; }
     .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"]:hover,
     .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
+    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"]:hover,
+    .st-key-site_ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
     .st-key-solar_table_wrap div[data-testid="column"],
     .st-key-ledger_table_wrap div[data-testid="column"],
-    .st-key-payments_table_wrap div[data-testid="column"] {
+    .st-key-payments_table_wrap div[data-testid="column"],
+    .st-key-site_ledger_table_wrap div[data-testid="column"] {
         padding: 0 15px !important; display: flex; align-items: center; justify-content: flex-start;
         border-right: 1px solid rgba(255,255,255,0.06);
     }
     .st-key-solar_table_wrap div[data-testid="column"]:last-child,
     .st-key-ledger_table_wrap div[data-testid="column"]:last-child,
-    .st-key-payments_table_wrap div[data-testid="column"]:last-child { border-right: none; }
+    .st-key-payments_table_wrap div[data-testid="column"]:last-child,
+    .st-key-site_ledger_table_wrap div[data-testid="column"]:last-child { border-right: none; }
     .tbl-head {
         background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
         color: #94a3b8; text-transform: uppercase; white-space: nowrap !important;
@@ -362,8 +388,108 @@ def view_team_detail_dialog(team_name, entries, payments):
     """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Close", use_container_width=True):
-        st.rerun()
+
+    def generate_team_pdf():
+        if FPDF is None:
+            raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.add_page()
+
+        if os.path.exists("logo (1).png"):
+            pdf.image("logo (1).png", x=75, y=10, w=60)
+            pdf.ln(28)
+
+        primary_color = (15, 23, 42)
+        secondary_color = (245, 158, 11)
+        green_color = (16, 185, 129)
+        red_color = (239, 68, 68)
+
+        pdf.set_text_color(*primary_color)
+        pdf.set_font("Arial", 'B', 18)
+        pdf.cell(190, 10, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
+
+        pdf.set_text_color(*secondary_color)
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(190, 8, "SOLAR PROJECT - TEAM LEDGER", ln=True, align='C')
+
+        pdf.set_text_color(100, 116, 139)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(190, 8, f"Team: {team_name}", ln=True, align='C')
+        pdf.ln(4)
+
+        def draw_table(title, cols, col_widths, rows, header_color):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.set_text_color(*header_color)
+            pdf.cell(190, 8, title, ln=True, align='L')
+
+            pdf.set_fill_color(*header_color)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Arial", 'B', 8)
+            for i, col in enumerate(cols):
+                pdf.cell(col_widths[i], 8, col, border=1, align='C', fill=True)
+            pdf.ln()
+
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Arial", '', 8)
+            fill = False
+            for row in rows:
+                pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
+                for i, val in enumerate(row):
+                    pdf.cell(col_widths[i], 7, str(val), border=1, align='L', fill=fill)
+                pdf.ln()
+                fill = not fill
+            pdf.ln(6)
+
+        # --- SITE-WISE WORK TABLE ---
+        site_rows_pdf = [
+            [e['site_id'], e['project_id'], e['site_name'], f"Rs. {(e['charge'] + e['approval']):,.0f}"]
+            for e in entries
+        ]
+        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Amount"],
+                   [30, 35, 75, 50], site_rows_pdf, secondary_color)
+
+        # --- PAYMENTS TABLE ---
+        payment_rows_pdf = [
+            [p.get('pay_date', ''), p.get('pay_from', ''), f"Rs. {num(p.get('amount')):,.0f}"]
+            for p in payments
+        ]
+        if payment_rows_pdf:
+            draw_table("PAYMENTS RECEIVED", ["Payment Date", "Paid From", "Amount"],
+                       [45, 55, 90], payment_rows_pdf, green_color)
+
+        # --- TOTALS ---
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(203, 213, 225)
+        pdf.rect(10, pdf.get_y(), 190, 28, 'FD')
+        pdf.set_y(pdf.get_y() + 5)
+
+        pdf.set_font("Arial", 'B', 11)
+        pdf.set_text_color(*secondary_color)
+        pdf.cell(190, 8, f"Total Site Amount: Rs. {total_billed:,.0f}", ln=True, align='L')
+
+        pdf.set_text_color(*green_color)
+        pdf.cell(190, 8, f"Total Paid Amount: Rs. {total_paid:,.0f}", ln=True, align='L')
+
+        bal_color = red_color if balance > 0 else green_color
+        pdf.set_text_color(*bal_color)
+        pdf.cell(190, 8, f"Total Balance: Rs. {balance:,.0f}", ln=True, align='L')
+
+        return pdf.output(dest='S').encode('latin1')
+
+    col_dl, col_close = st.columns(2)
+    with col_dl:
+        try:
+            pdf_bytes = generate_team_pdf()
+            st.download_button(
+                "📄 Download PDF", data=pdf_bytes,
+                file_name=f"{team_name}_Solar_Ledger.pdf", mime="application/pdf",
+                use_container_width=True, type="primary"
+            )
+        except Exception as e:
+            st.error(str(e))
+    with col_close:
+        if st.button("Close", use_container_width=True):
+            st.rerun()
 
 # --- TOP BANNER ---
 active_ws_display = st.session_state.get('active_workspace', 'VISPL')
@@ -427,6 +553,7 @@ for a in alloc_data:
         team_entries[t_name].append({
             "site_id": a.get("Site ID", ""),
             "project_id": a.get("Project ID", ""),
+            "site_name": a.get("Site Name", ""),
             "role": role_label,
             "charge": num(a.get(f"{role}_charge_amount")),
             "approval": num(a.get(f"{role}_extra_approval_amount")),
@@ -674,7 +801,7 @@ with tab_ledger:
                             view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
 
     else:
-        # ---- SITE WISE VIEW ----
+        # ---- SITE WISE VIEW (lavish custom table, same style as other tabs) ----
         col_title2, col_search2 = st.columns([7, 3])
         with col_title2:
             st.markdown("##### 🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)")
@@ -695,43 +822,56 @@ with tab_ledger:
             )
             total_charge = civil_charge + electrical_charge + transport_charge
             site_rows.append({
-                "Site ID": r.get("Site ID", ""),
-                "Site Name": r.get("Site Name", ""),
-                "Cluster": r.get("Cluster", ""),
-                "Project ID": proj_id,
+                "Site ID": r.get("Site ID", "") or "-",
+                "Site Name": r.get("Site Name", "") or "-",
+                "Cluster": r.get("Cluster", "") or "-",
+                "Project ID": proj_id or "-",
                 "Civil Team": a.get("civil_team_name", "") or "-",
-                "Civil Amt (₹)": civil_charge,
+                "Civil Amt": civil_charge,
                 "Electrical Team": a.get("electrical_team_name", "") or "-",
-                "Electrical Amt (₹)": electrical_charge,
+                "Electrical Amt": electrical_charge,
                 "Transport Team": a.get("transport_team_name", "") or "-",
-                "Transport Amt (₹)": transport_charge,
-                "Total Charge (₹)": total_charge,
-                "Total Approval (₹)": total_approval,
-                "Grand Total (₹)": total_charge + total_approval,
+                "Transport Amt": transport_charge,
+                "Total Charge": total_charge,
+                "Total Approval": total_approval,
+                "Grand Total": total_charge + total_approval,
             })
 
-        site_df = pd.DataFrame(site_rows)
-        if site_search and not site_df.empty:
-            mask = site_df.astype(str).apply(lambda x: x.str.contains(site_search, case=False, na=False)).any(axis=1)
-            site_df = site_df[mask]
+        if site_search:
+            site_rows = [
+                sr for sr in site_rows
+                if site_search.lower() in " ".join(str(v) for v in sr.values()).lower()
+            ]
 
-        if site_df.empty:
-            st.info("Koi Solar site data nahi mila.")
-        else:
-            st.dataframe(
-                site_df,
-                use_container_width=True,
-                hide_index=True,
-                height=520,
-                column_config={
-                    "Civil Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                    "Electrical Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                    "Transport Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                    "Total Charge (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                    "Total Approval (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                    "Grand Total (₹)": st.column_config.NumberColumn(format="₹ %d"),
-                }
-            )
+        SCOL_RATIOS = [0.4, 1.1, 1.4, 0.9, 1.1, 1.1, 0.8, 1.1, 0.8, 1.1, 0.8, 1.1, 1.1, 1.1]
+        SCOL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID",
+                       "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
+                       "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "GRAND TOTAL (₹)"]
+
+        with st.container(key="site_ledger_table_wrap", height=560):
+            if not site_rows:
+                st.info("Koi Solar site data nahi mila.")
+            else:
+                h_cols = st.columns(SCOL_RATIOS)
+                for h_col, label in zip(h_cols, SCOL_LABELS):
+                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+                for idx, sr in enumerate(site_rows, start=1):
+                    rcols = st.columns(SCOL_RATIOS)
+                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{idx}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div class='tbl-cell'>{sr['Site ID']}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div class='tbl-cell'>{sr['Site Name']}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div class='tbl-cell'>{sr['Cluster']}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div class='tbl-cell'>{sr['Project ID']}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(f"<div class='tbl-cell'>{sr['Civil Team']}</div>", unsafe_allow_html=True)
+                    rcols[6].markdown(f"<div class='tbl-cell'>{sr['Civil Amt']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[7].markdown(f"<div class='tbl-cell'>{sr['Electrical Team']}</div>", unsafe_allow_html=True)
+                    rcols[8].markdown(f"<div class='tbl-cell'>{sr['Electrical Amt']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[9].markdown(f"<div class='tbl-cell'>{sr['Transport Team']}</div>", unsafe_allow_html=True)
+                    rcols[10].markdown(f"<div class='tbl-cell'>{sr['Transport Amt']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[11].markdown(f"<div class='tbl-cell'>{sr['Total Charge']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[12].markdown(f"<div class='tbl-cell'>{sr['Total Approval']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[13].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#f59e0b;'>{sr['Grand Total']:,.0f}</div>", unsafe_allow_html=True)
 
 # ================================================================
 # TAB 3: PAYMENTS
