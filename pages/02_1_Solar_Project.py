@@ -313,13 +313,32 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# --- 5. FETCH SOLAR SITES (Operator = Solar) FROM site_data ---
+# --- 5. FETCH SOLAR SITES (Project Name = Solar) FROM site_data ---
+# Using ilike (case-insensitive) + client-side strip check so existing records match
+# even if Project Name was saved as "SOLAR", " Solar ", "solar", etc.
 active_ws = st.session_state.get('active_workspace', 'VISPL')
 try:
-    site_res = supabase.table("site_data").select("*").eq("workspace", active_ws).eq("Operator", "Solar").execute()
+    site_res = supabase.table("site_data").select("*").eq("workspace", active_ws).ilike("Project Name", "%solar%").execute()
     site_data = site_res.data if site_res.data else []
+    # Extra safety: exact-ish match client side (trim + case-insensitive), so partial
+    # matches from ilike don't wrongly slip in, only true "Solar" values pass.
+    site_data = [
+        r for r in site_data
+        if str(r.get("Project Name", "")).strip().lower() == "solar"
+    ]
 except Exception:
     site_data = []
+
+# --- DEBUG HELPER: agar phir bhi blank aaye, yeh dikhayega Project Name column mein
+# actually kya values save hain, taaki pata chale spelling kya hai ---
+if not site_data:
+    try:
+        all_ws_res = supabase.table("site_data").select("Project Name").eq("workspace", active_ws).execute()
+        distinct_pn = sorted(set(str(r.get("Project Name", "")).strip() for r in (all_ws_res.data or []) if str(r.get("Project Name", "")).strip()))
+        if distinct_pn:
+            st.info(f"ℹ️ Koi 'Solar' site nahi mili. Aapke workspace mein 'Project Name' column ki actual values hain: {', '.join(distinct_pn)}")
+    except Exception:
+        pass
 
 try:
     alloc_res = supabase.table("solar_team_allocation").select("*").eq("workspace", active_ws).execute()
