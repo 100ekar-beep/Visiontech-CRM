@@ -442,11 +442,12 @@ def view_team_detail_dialog(team_name, entries, payments):
 
         # --- SITE-WISE WORK TABLE ---
         site_rows_pdf = [
-            [e['site_id'], e['project_id'], e['site_name'], f"Rs. {(e['charge'] + e['approval']):,.0f}"]
+            [e['site_id'], e['project_id'], e['site_name'],
+             f"Rs. {e['charge']:,.0f}", f"Rs. {e['approval']:,.0f}", f"Rs. {(e['charge'] + e['approval']):,.0f}"]
             for e in entries
         ]
-        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Amount"],
-                   [30, 35, 75, 50], site_rows_pdf, secondary_color)
+        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Charge Amt", "Extra Approval", "Total"],
+                   [22, 26, 52, 28, 30, 32], site_rows_pdf, secondary_color)
 
         # --- PAYMENTS TABLE ---
         payment_rows_pdf = [
