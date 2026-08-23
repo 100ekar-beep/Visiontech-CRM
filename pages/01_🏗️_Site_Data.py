@@ -28,6 +28,9 @@ if 'pending_comm_email' not in st.session_state:
 if 'comm_site_data' not in st.session_state:
     st.session_state.comm_site_data = {}
 
+if 'site_view_mode' not in st.session_state:
+    st.session_state.site_view_mode = "table"
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -168,7 +171,7 @@ st.markdown("""
     }
     /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 5000px !important; /* INCREASED MAGIC FIX FOR 27 COLUMNS */
+        min-width: 4600px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -236,33 +239,26 @@ st.markdown("""
     }
 
     /* -------------------------------------------------------------
-       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4, 5)
+       FORCE LEFT BUTTON CSS: Action Columns (2 = Manage, 3 = Material)
        ------------------------------------------------------------- */
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(1) {
         padding: 0 10px 0 15px !important;
     }
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) .tbl-head {
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
         color: #94a3b8; 
     }
-    /* Remove borders and padding between action button columns to merge them visually */
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(4) {
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
         padding: 4px 4px !important;
         border-right: none !important;
     }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(5) {
+    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) {
         padding: 4px 15px 4px 4px !important;
         border-right: 1px solid rgba(255,255,255,0.06) !important;
     }
 
     /* Round, color-coded, compact action icon buttons */
-    .st-key-site_table_wrap div[class*="st-key-vbtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-ebtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-dbtn_"] button,
+    .st-key-site_table_wrap div[class*="st-key-mgrbtn_"] button,
     .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
         width: 100% !important; 
         max-width: 34px !important;
@@ -272,9 +268,7 @@ st.markdown("""
         font-size: 0.95rem !important;
         margin: 0 auto !important;
     }
-    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
-    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
-    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    div[class*="st-key-mgrbtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
     div[class*="st-key-mbtn_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; }
     
     /* Status badge pill */
@@ -293,6 +287,23 @@ st.markdown("""
     .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
     .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
     .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+    /* =========================================================
+       MOBILE-FRIENDLY CARD VIEW
+       ========================================================= */
+    .site-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+    .site-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
+    .site-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
+    .site-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; }
+    .site-card-row:last-child { border-bottom: none; }
+    .site-card-label { color: #94a3b8; font-weight: 600; }
+    .site-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -800,8 +811,8 @@ def add_record_dialog():
                 except Exception as e:
                     st.error(f"❌ Error Saving Data: {e}")
 
-# --- 3.6 EDIT RECORD DIALOG FUNCTION ---
-@st.dialog("✏️ Edit Site Data", width="large")
+# --- 3.6 EDIT RECORD DIALOG FUNCTION (NOW: VIEW + EDIT + DELETE COMBINED "MANAGE") ---
+@st.dialog("⚙️ Manage Site Data (View / Edit / Delete)", width="large")
 def edit_record_dialog(row_data):
     st.caption("Update comprehensive site metrics and procurement status")
     all_dd = get_all_dropdowns() 
@@ -1055,6 +1066,28 @@ def edit_record_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
 
+        # ---------------------------------------------------------------
+        # --- DANGER ZONE: DELETE THIS RECORD (merged from separate button)
+        # ---------------------------------------------------------------
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("""
+            <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
+                <div style="color:#f87171; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
+            </div>
+        """, unsafe_allow_html=True)
+        confirm_del = st.checkbox(
+            "Main is record ko permanently DELETE karna chahta hoon (is action ko undo nahi kiya ja sakta)",
+            key=f"del_confirm_{row_data['id']}"
+        )
+        if confirm_del:
+            if st.button("🗑️ Delete This Record Permanently", key=f"del_now_{row_data['id']}", type="secondary", use_container_width=True):
+                try:
+                    supabase.table("site_data").delete().eq("id", row_data['id']).execute()
+                    st.success("✅ Record Successfully Deleted!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Deleting Record: {e}")
+
 # --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
 @st.dialog("📦 Warehouse Material Tracking", width="large")
 def material_movement_dialog(row_data):
@@ -1220,7 +1253,7 @@ def material_movement_dialog(row_data):
                             "Site Name": row_data.get('Site Name', ''),
                             "Cluster": row_data.get('Cluster', ''),
                             "Team": row_data.get('Team Name', ''),
-                            "SRN Status": srn_status if srn_status != "Select" else "",
+                            "SRN Status": "Required",
                             "Transaction Type": mat_trans_types[i] if mat_trans_types[i] != "Select" else "",
                             "BOQ Number": mat_boqs[i],
                             "Item Code": mat_item_codes[i].strip(),
@@ -1237,68 +1270,6 @@ def material_movement_dialog(row_data):
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
-
-# --- 3.75 NEW: VIEW RECORD DIALOG FUNCTION (READ-ONLY) ---
-@st.dialog("👁️ View Site Data", width="large")
-def view_record_dialog(row_data):
-    st.caption("Read-only preview of this record")
-
-    st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.text_input("DEPARTMENT", value=row_data.get('Department', ''), disabled=True)
-    with c2: st.text_input("OPERATOR", value=row_data.get('Operator', ''), disabled=True)
-    with c3: st.text_input("PROJECT NAME", value=row_data.get('Project Name', ''), disabled=True)
-    with c4: st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
-
-    c5, c6, c7, c8 = st.columns(4)
-    with c5: st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True)
-    with c6: st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True)
-    with c7: st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True)
-    with c8: st.text_input("SITE STATUS", value=row_data.get('Site Status', ''), disabled=True)
-
-    st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
-    st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), disabled=True)
-
-    c9, c10, c11, c12 = st.columns(4)
-    with c9: st.text_input("PRODUCT", value=row_data.get('Product', ''), disabled=True)
-    with c10: st.text_input("RFAI STATUS", value=row_data.get('RFAI Status', ''), disabled=True)
-    with c11: st.text_input("WH MATERIAL", value=row_data.get('WH Material', ''), disabled=True)
-    with c12: st.text_input("TEAM NAME", value=row_data.get('Team Name', ''), disabled=True)
-
-    c13, c14, c15 = st.columns(3)
-    with c13: st.text_input("EXTRA APPROVAL", value=row_data.get('Extra Approval', ''), disabled=True)
-    with c14: st.text_input("TEAM BILLING STATUS", value=row_data.get('Team Billing Status', ''), disabled=True)
-    with c15: st.text_input("VISION BILLING STATUS", value=row_data.get('Vision Billing Status', ''), disabled=True)
-
-    st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
-    c16, c17, c18, c19, c20 = st.columns(5)
-    with c16: st.text_input("PO NO.", value=row_data.get('PO No.', ''), disabled=True)
-    with c17: st.text_input("PO DATE", value=row_data.get('PO Date', ''), disabled=True)
-    with c18: st.text_input("PO STATUS", value=row_data.get('PO Status', ''), disabled=True)
-    with c19: st.text_input("WCC NUMBER", value=row_data.get('WCC Number', ''), disabled=True)
-    with c20: st.text_input("WCC STATUS", value=row_data.get('WCC Status', ''), disabled=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Close", use_container_width=True):
-        st.rerun()
-
-# --- 3.76 NEW: DELETE RECORD DIALOG FUNCTION ---
-@st.dialog("🗑️ Confirm Deletion", width="small")
-def delete_record_dialog(rid, site_id, proj_id):
-    st.warning(f"Delete record '{site_id}' / '{proj_id}'? This cannot be undone.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    wc1, wc2 = st.columns(2)
-    with wc1:
-        if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
-            st.rerun()
-    with wc2:
-        if st.button("✅ Confirm", key=f"confirm_yes_{rid}", type="primary", use_container_width=True):
-            try:
-                supabase.table("site_data").delete().eq("id", rid).execute()
-                st.success("✅ Record Successfully Deleted!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Deleting Record: {e}")
 
 # --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
 @st.dialog("📧 Commissioning Email Notification", width="large")
@@ -1743,12 +1714,17 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
-col_table_title, col_search = st.columns([7, 3])
+# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
 with col_search:
     search_query = st_keyup("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
+with col_viewtoggle:
+    toggle_label = "📱 Mobile View" if st.session_state.site_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="view_mode_toggle"):
+        st.session_state.site_view_mode = "cards" if st.session_state.site_view_mode == "table" else "table"
+        st.rerun()
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
@@ -1770,7 +1746,7 @@ elif st.session_state.current_page < 1:
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS ---
+# --- 7. TABLE / CARD DISPLAY ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
 def status_badge(val):
@@ -1792,29 +1768,69 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Exact 27 columns ratios: 1 (Sr No) + 4 (Buttons) + 22 (Data)
-COL_RATIOS = [
-    0.3, 0.35, 0.35, 0.35, 0.35, # 0-4 (Actions)
-    1.2, 1.0, 1.5, 1.2, 1.2,     # 5-9 (Dept, Op, Proj Name, Proj ID, Site ID)
-    1.5, 1.0, 1.2, 1.2, 1.0,     # 10-14 (Site Name, Cluster, Status, PO No, PO Date)
-    1.0, 1.3, 1.0, 1.2, 2.0,     # 15-19 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
-    1.0, 1.2, 1.2, 1.2, 1.0,     # 20-24 (WH Mat, Team Name, Team Bill, Vis Bill, Extra App)
-    1.2, 1.0                     # 25-26 (WCC Number, WCC Status)
-]
+if df_page.empty:
+    st.info("No records found.")
 
-COL_LABELS = [
-    "#", "👁️", "✏️", "🗑️", "📦", 
-    "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
-    "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
-    "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
-    "WH MATERIAL", "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
-    "WCC NUMBER", "WCC STATUS"
-]
+elif st.session_state.site_view_mode == "cards":
+    # ---------------------------------------------------------------
+    # MOBILE-FRIENDLY CARD VIEW - one card per record, no horizontal scroll
+    # ---------------------------------------------------------------
+    for page_pos, (_, row) in enumerate(df_page.iterrows()):
+        row_dict = row.to_dict()
+        rid = row_dict.get("id")
+        serial_no = start_idx + page_pos + 1
+        is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
 
-with st.container(key="site_table_wrap", height=560):
-    if df_page.empty:
-        st.info("No records found.")
-    else:
+        with st.container(border=True):
+            st.markdown(f"""
+                <div class="site-card-title">#{serial_no} — {row_dict.get('Site ID','') or '-'} | {row_dict.get('Site Name','') or '-'}</div>
+                <div class="site-card-sub">{row_dict.get('Project ID','') or '-'} • {row_dict.get('Cluster','') or '-'}</div>
+                <div class="site-card-row"><span class="site-card-label">Site Status</span><span class="site-card-value">{status_badge(row_dict.get('Site Status',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Operator</span><span class="site-card-value">{row_dict.get('Operator','') or '-'}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Project Name</span><span class="site-card-value">{row_dict.get('Project Name','') or '-'}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Team Name</span><span class="site-card-value">{row_dict.get('Team Name','') or '-'}</span></div>
+                <div class="site-card-row"><span class="site-card-label">PO Status</span><span class="site-card-value">{status_badge(row_dict.get('PO Status',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Team Billing</span><span class="site-card-value">{status_badge(row_dict.get('Team Billing Status',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Vision Billing</span><span class="site-card-value">{status_badge(row_dict.get('Vision Billing Status',''))}</span></div>
+            """, unsafe_allow_html=True)
+
+            if is_wh_required:
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("⚙️ Manage", key=f"card_mgr_{rid}", use_container_width=True):
+                        edit_record_dialog(row_dict)
+                with bc2:
+                    if st.button("📦 Material", key=f"card_mat_{rid}", use_container_width=True):
+                        if 'mat_count' in st.session_state:
+                            st.session_state.mat_count = 1
+                        material_movement_dialog(row_dict)
+            else:
+                if st.button("⚙️ Manage (View / Edit / Delete)", key=f"card_mgr_{rid}", use_container_width=True):
+                    edit_record_dialog(row_dict)
+
+else:
+    # ---------------------------------------------------------------
+    # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+    # ---------------------------------------------------------------
+    COL_RATIOS = [
+        0.3, 0.4, 0.4,               # 0-2 (Sr No, Manage, Material)
+        1.2, 1.0, 1.5, 1.2, 1.2,     # 3-7 (Dept, Op, Proj Name, Proj ID, Site ID)
+        1.5, 1.0, 1.2, 1.2, 1.0,     # 8-12 (Site Name, Cluster, Status, PO No, PO Date)
+        1.0, 1.3, 1.0, 1.2, 2.0,     # 13-17 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
+        1.0, 1.2, 1.2, 1.2, 1.0,     # 18-22 (WH Mat, Team Name, Team Bill, Vis Bill, Extra App)
+        1.2, 1.0                     # 23-24 (WCC Number, WCC Status)
+    ]
+
+    COL_LABELS = [
+        "#", "⚙️", "📦",
+        "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
+        "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
+        "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
+        "WH MATERIAL", "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
+        "WCC NUMBER", "WCC STATUS"
+    ]
+
+    with st.container(key="site_table_wrap", height=560):
         # --- PRE-FETCH PO UPLOAD AVAILABILITY FOR CURRENT PAGE ITEMS ---
         active_ws = st.session_state.get('active_workspace', 'VISPL')
         project_ids_on_page = [str(x).strip() for x in df_page['Project ID'].unique() if str(x).strip() and str(x).strip() != '-']
@@ -1858,45 +1874,39 @@ with st.container(key="site_table_wrap", height=560):
             rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
 
             with rcols[1]:
-                if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                    view_record_dialog(row_dict)
-            with rcols[2]:
-                if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
+                if st.button("⚙️", key=f"mgrbtn_{rid}", help="Manage (View/Edit/Delete)", use_container_width=True):
                     if 'edit_po_count' in st.session_state:
                         del st.session_state['edit_po_count']
                     edit_record_dialog(row_dict)
-            with rcols[3]:
-                if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                    delete_record_dialog(rid, row_dict.get('Site ID',''), row_dict.get('Project ID',''))
-            with rcols[4]:
+            with rcols[2]:
                 if is_wh_required:
-                    if st.button("📦", key=f"mat_{rid}", help="Material", use_container_width=True):
+                    if st.button("📦", key=f"mbtn_{rid}", help="Material", use_container_width=True):
                         if 'mat_count' in st.session_state:
                             st.session_state.mat_count = 1
                         material_movement_dialog(row_dict)
 
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
-            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[15].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
-            rcols[16].markdown(po_upload_status_html, unsafe_allow_html=True)
-            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[18].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
-            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[20].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[21].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[22].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-            rcols[23].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-            rcols[24].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[25].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[26].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[10].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
+            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[13].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
+            rcols[14].markdown(po_upload_status_html, unsafe_allow_html=True)
+            rcols[15].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[16].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
+            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[20].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+            rcols[21].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+            rcols[22].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[23].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[24].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
