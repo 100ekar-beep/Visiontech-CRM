@@ -474,7 +474,10 @@ def view_team_detail_dialog(team_name, entries, payments):
         pdf.set_text_color(*bal_color)
         pdf.cell(190, 8, f"Total Balance: Rs. {balance:,.0f}", ln=True, align='L')
 
-        return pdf.output(dest='S').encode('latin1')
+        pdf_output = pdf.output(dest='S')
+        if isinstance(pdf_output, (bytes, bytearray)):
+            return bytes(pdf_output)
+        return pdf_output.encode('latin1')
 
     col_dl, col_close = st.columns(2)
     with col_dl:
