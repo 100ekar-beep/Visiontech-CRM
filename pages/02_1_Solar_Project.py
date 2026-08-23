@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import datetime
 from collections import defaultdict
 from supabase import create_client, Client
 from st_keyup import st_keyup
@@ -109,81 +110,67 @@ st.markdown("""
     }
     .solar-card .label { color: #94a3b8; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
     .solar-card .value { color: #ffffff; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
+    .solar-card .value-green { color: #4ade80; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
+    .solar-card .value-red { color: #f87171; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
 
-    /* Sites table */
-    .st-key-solar_table_wrap {
+    /* Generic table wraps (sites / ledger / payments all reuse this) */
+    .st-key-solar_table_wrap, .st-key-ledger_table_wrap, .st-key-payments_table_wrap {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
         overflow: auto !important;
     }
-    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1500px !important;
+    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"],
+    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"],
+    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 1900px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
         flex-wrap: nowrap !important;
     }
-    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
-    .st-key-solar_table_wrap div[data-testid="column"] {
+    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"] { min-width: 1500px !important; }
+    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"] { min-width: 1200px !important; }
+    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"]:hover,
+    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover,
+    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
+    .st-key-solar_table_wrap div[data-testid="column"],
+    .st-key-ledger_table_wrap div[data-testid="column"],
+    .st-key-payments_table_wrap div[data-testid="column"] {
         padding: 0 15px !important; display: flex; align-items: center; justify-content: flex-start;
         border-right: 1px solid rgba(255,255,255,0.06);
     }
-    .st-key-solar_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .st-key-solar_table_wrap .tbl-head {
+    .st-key-solar_table_wrap div[data-testid="column"]:last-child,
+    .st-key-ledger_table_wrap div[data-testid="column"]:last-child,
+    .st-key-payments_table_wrap div[data-testid="column"]:last-child { border-right: none; }
+    .tbl-head {
         background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
         color: #94a3b8; text-transform: uppercase; white-space: nowrap !important;
     }
-    .st-key-solar_table_wrap .tbl-cell {
+    .tbl-cell {
         color: #e2e8f0; font-size: 0.86rem; white-space: nowrap !important;
         overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
     }
-    .st-key-solar_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
-    .st-key-solar_table_wrap button {
+    .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
+    .tbl-cell.team-name { font-weight: 800; color: #f59e0b; }
+    .tbl-cell.paid-amt { color: #4ade80; font-weight: 800; }
+    .tbl-cell.pending-amt { color: #f87171; font-weight: 800; }
+
+    .st-key-solar_table_wrap button, .st-key-ledger_table_wrap button, .st-key-payments_table_wrap button {
         height: 32px !important; width: 100% !important; max-width: 40px !important; padding: 0 !important;
         min-height: 0 !important; border-radius: 6px !important; display: flex !important;
         align-items: center !important; justify-content: center !important;
         background: rgba(245,158,11,0.15) !important; border: 1px solid rgba(245,158,11,0.35) !important;
         margin: 0 auto !important; box-shadow: none !important; cursor: pointer !important;
     }
-    .st-key-solar_table_wrap button:hover {
+    .st-key-solar_table_wrap button:hover, .st-key-ledger_table_wrap button:hover, .st-key-payments_table_wrap button:hover {
         background: #f59e0b !important; border-color: #fbbf24 !important; transform: translateY(-2px) !important;
     }
-
-    /* Ledger table */
-    .st-key-ledger_table_wrap {
-        background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 10px; overflow: auto !important;
+    .st-key-payments_table_wrap div[class*="st-key-delpay_"] button {
+        background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.35) !important;
     }
-    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1100px !important; align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding: 8px 0 !important;
-        flex-wrap: nowrap !important;
-    }
-    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
-    .st-key-ledger_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; display: flex; align-items: center; justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
-    }
-    .st-key-ledger_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .st-key-ledger_table_wrap .tbl-head {
-        background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
-        color: #94a3b8; text-transform: uppercase; white-space: nowrap !important;
-    }
-    .st-key-ledger_table_wrap .tbl-cell {
-        color: #e2e8f0; font-size: 0.9rem; white-space: nowrap !important;
-        overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
-    }
-    .st-key-ledger_table_wrap .tbl-cell.team-name { font-weight: 800; color: #f59e0b; }
-    .st-key-ledger_table_wrap button {
-        height: 32px !important; width: 100% !important; max-width: 44px !important; padding: 0 !important;
-        min-height: 0 !important; border-radius: 6px !important; display: flex !important;
-        align-items: center !important; justify-content: center !important;
-        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.35) !important;
-        margin: 0 auto !important; box-shadow: none !important; cursor: pointer !important;
-    }
-    .st-key-ledger_table_wrap button:hover {
-        background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important;
+    .st-key-payments_table_wrap div[class*="st-key-delpay_"] button:hover {
+        background: #ef4444 !important; border-color: #f87171 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -208,6 +195,10 @@ def get_all_dropdowns():
 def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
+
+def get_simple_opts(category, all_data, fallback):
+    opts = [row["option_value"] for row in all_data if row["category"] == category]
+    return opts if opts else fallback
 
 def num(v):
     try:
@@ -317,20 +308,23 @@ def manage_solar_teams_dialog(site_row, alloc_row):
             st.success("✅ Solar Team Allocation Saved!")
             st.rerun()
         except Exception as e:
-            st.error(f"❌ Error saving allocation: {e}")
+            err_str = str(e)
+            if "schema cache" in err_str.lower() or "PGRST204" in err_str:
+                st.error("❌ Database mein zaroori columns nahi mile. Kripya 'solar_setup.sql' script Supabase SQL Editor mein (dobara) run karein, phir 30 second wait karke retry karein.")
+            else:
+                st.error(f"❌ Error saving allocation: {e}")
 
 # --- 5. VIEW TEAM SITE DETAILS DIALOG (Ledger tab) ---
-@st.dialog("🧾 Team Site-wise Detail", width="large")
-def view_team_detail_dialog(team_name, entries):
-    st.caption(f"Team '{team_name}' ke saare Solar sites ka detailed hisaab")
+@st.dialog("🧾 Team Site-wise & Payment Detail", width="large")
+def view_team_detail_dialog(team_name, entries, payments):
+    st.caption(f"Team '{team_name}' ke saare Solar sites aur payments ka detailed hisaab")
 
+    st.markdown('<div class="modal-section-title">🏗️ WORK DONE (SITE-WISE)</div>', unsafe_allow_html=True)
     h1, h2, h3, h4, h5, h6 = st.columns([1.4, 1.4, 1.0, 1.1, 1.1, 2.2])
     for c, label in zip([h1, h2, h3, h4, h5, h6],
                          ["SITE ID", "PROJECT ID", "ROLE", "CHARGE (₹)", "APPROVAL (₹)", "APPROVAL REMARK"]):
         c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
-
     st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08); margin:6px 0;'>", unsafe_allow_html=True)
-
     for e in entries:
         c1, c2, c3, c4, c5, c6 = st.columns([1.4, 1.4, 1.0, 1.1, 1.1, 2.2])
         c1.markdown(f"<span style='color:#e2e8f0;'>{e['site_id']}</span>", unsafe_allow_html=True)
@@ -339,6 +333,33 @@ def view_team_detail_dialog(team_name, entries):
         c4.markdown(f"<span style='color:#e2e8f0;'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
         c5.markdown(f"<span style='color:#e2e8f0;'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
         c6.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{e['approval_remark'] or '-'}</span>", unsafe_allow_html=True)
+
+    st.markdown('<div class="modal-section-title">💰 PAYMENTS RECEIVED</div>', unsafe_allow_html=True)
+    if payments:
+        p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
+        for c, label in zip([p1, p2, p3, p4, p5], ["DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK"]):
+            c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+        st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08); margin:6px 0;'>", unsafe_allow_html=True)
+        for p in payments:
+            p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
+            p1.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_date','')}</span>", unsafe_allow_html=True)
+            p2.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_from','')}</span>", unsafe_allow_html=True)
+            p3.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_type','')}</span>", unsafe_allow_html=True)
+            p4.markdown(f"<span style='color:#4ade80; font-weight:700;'>{num(p.get('amount')):,.0f}</span>", unsafe_allow_html=True)
+            p5.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{p.get('remark','') or '-'}</span>", unsafe_allow_html=True)
+    else:
+        st.info("Is team ko abhi tak koi payment nahi kiya gaya.")
+
+    total_billed = sum(e['charge'] + e['approval'] for e in entries)
+    total_paid = sum(num(p.get('amount')) for p in payments)
+    balance = total_billed - total_paid
+    st.markdown(f"""
+        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px; display:flex; justify-content:space-between;">
+            <div style="color:#ffffff; font-weight:700;">Total Billed: <span style="color:#3b82f6;">₹ {total_billed:,.0f}</span></div>
+            <div style="color:#ffffff; font-weight:700;">Total Paid: <span style="color:#4ade80;">₹ {total_paid:,.0f}</span></div>
+            <div style="color:#ffffff; font-weight:700;">Balance: <span style="color:{'#f87171' if balance>0 else '#4ade80'};">₹ {balance:,.0f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Close", use_container_width=True):
@@ -378,6 +399,12 @@ try:
 except Exception:
     alloc_data = []
 
+try:
+    pay_res = supabase.table("solar_payments").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
+    solar_payments_data = pay_res.data if pay_res.data else []
+except Exception:
+    solar_payments_data = []
+
 alloc_map = {row.get("Project ID", ""): row for row in alloc_data}
 
 df = pd.DataFrame(site_data) if site_data else pd.DataFrame(
@@ -390,10 +417,32 @@ if 'created_at' in df.columns and not df.empty:
 elif not df.empty:
     df = df.iloc[::-1].reset_index(drop=True)
 
+# --- Build team_entries (used by Ledger + Payments tabs) ---
+team_entries = defaultdict(list)
+for a in alloc_data:
+    for role, role_label in [("civil", "Civil"), ("electrical", "Electrical"), ("transport", "Transporter")]:
+        t_name = str(a.get(f"{role}_team_name", "")).strip()
+        if not t_name:
+            continue
+        team_entries[t_name].append({
+            "site_id": a.get("Site ID", ""),
+            "project_id": a.get("Project ID", ""),
+            "role": role_label,
+            "charge": num(a.get(f"{role}_charge_amount")),
+            "approval": num(a.get(f"{role}_extra_approval_amount")),
+            "approval_remark": a.get(f"{role}_extra_approval_remark", ""),
+        })
+
+payments_by_team = defaultdict(list)
+for p in solar_payments_data:
+    payments_by_team[str(p.get("team_name", "")).strip()].append(p)
+
+solar_team_names = sorted(set(team_entries.keys()) | set(payments_by_team.keys()))
+
 # ================================================================
-# --- TABS: SOLAR SITES  |  TEAM LEDGER ---
+# --- TABS: SOLAR SITES  |  TEAM LEDGER  |  PAYMENTS ---
 # ================================================================
-tab_sites, tab_ledger = st.tabs(["📍 Solar Sites", "🧾 Team Ledger"])
+tab_sites, tab_ledger, tab_payments = st.tabs(["📍 Solar Sites", "🧾 Team Ledger", "💳 Payments"])
 
 # ================================================================
 # TAB 1: SOLAR SITES
@@ -481,9 +530,11 @@ with tab_sites:
     end_idx = start_idx + rows_per_page
     df_page = df_view.iloc[start_idx:end_idx].copy()
 
-    COL_RATIOS = [0.4, 1.2, 1.5, 1.0, 1.2, 1.0, 1.0, 1.0, 1.0, 1.2, 1.2, 0.6]
-    COL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "SITE STATUS",
-                  "CIVIL AMT (₹)", "ELECTRICAL AMT (₹)", "TRANSPORT AMT (₹)",
+    COL_RATIOS = [0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
+                  1.1, 0.8, 1.1, 0.8, 1.1, 0.8,
+                  1.1, 1.1, 0.6]
+    COL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
+                  "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
                   "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "⚙️"]
 
     with st.container(key="solar_table_wrap", height=560):
@@ -518,12 +569,15 @@ with tab_sites:
                 rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
                 rcols[4].markdown(f"<div class='tbl-cell'>{proj_id or '-'}</div>", unsafe_allow_html=True)
                 rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Status','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{civil_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{electrical_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[8].markdown(f"<div class='tbl-cell'>{transport_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[9].markdown(f"<div class='tbl-cell'>{total_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[10].markdown(f"<div class='tbl-cell'>{total_approval:,.0f}</div>", unsafe_allow_html=True)
-                with rcols[11]:
+                rcols[6].markdown(f"<div class='tbl-cell'>{alloc.get('civil_team_name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{civil_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='tbl-cell'>{alloc.get('electrical_team_name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='tbl-cell'>{electrical_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[10].markdown(f"<div class='tbl-cell'>{alloc.get('transport_team_name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[11].markdown(f"<div class='tbl-cell'>{transport_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[12].markdown(f"<div class='tbl-cell'>{total_charge:,.0f}</div>", unsafe_allow_html=True)
+                rcols[13].markdown(f"<div class='tbl-cell'>{total_approval:,.0f}</div>", unsafe_allow_html=True)
+                with rcols[14]:
                     if st.button("⚙️", key=f"solar_mgr_{row_dict.get('id')}", help="Manage Teams", use_container_width=True):
                         manage_solar_teams_dialog(row_dict, alloc)
 
@@ -542,98 +596,276 @@ with tab_sites:
             st.rerun()
 
 # ================================================================
-# TAB 2: TEAM LEDGER
+# TAB 2: TEAM LEDGER (Team-wise + Site-wise toggle)
 # ================================================================
 with tab_ledger:
-    team_entries = defaultdict(list)
-    for a in alloc_data:
-        for role, role_label in [("civil", "Civil"), ("electrical", "Electrical"), ("transport", "Transporter")]:
-            t_name = str(a.get(f"{role}_team_name", "")).strip()
-            if not t_name:
-                continue
-            team_entries[t_name].append({
-                "site_id": a.get("Site ID", ""),
-                "project_id": a.get("Project ID", ""),
-                "role": role_label,
-                "charge": num(a.get(f"{role}_charge_amount")),
-                "approval": num(a.get(f"{role}_extra_approval_amount")),
-                "approval_remark": a.get(f"{role}_extra_approval_remark", ""),
-            })
-
-    ledger_rows = []
-    for t_name, entries in team_entries.items():
-        site_ids = set(e["project_id"] for e in entries)
-        total_charge = sum(e["charge"] for e in entries)
-        total_approval = sum(e["approval"] for e in entries)
-        total_amount = total_charge + total_approval
-        ledger_rows.append({
-            "Team Name": t_name,
-            "Sites Worked": len(site_ids),
-            "Total Charge (₹)": total_charge,
-            "Total Approval (₹)": total_approval,
-            "Total Amount (₹)": total_amount,
-            "_entries": entries,
-        })
-
-    ledger_rows.sort(key=lambda r: r["Total Amount (₹)"], reverse=True)
-
-    grand_total_charge = sum(r["Total Charge (₹)"] for r in ledger_rows)
-    grand_total_approval = sum(r["Total Approval (₹)"] for r in ledger_rows)
-    grand_total = sum(r["Total Amount (₹)"] for r in ledger_rows)
-
-    s1, s2, s3, s4 = st.columns(4)
-    with s1: st.markdown(f'<div class="solar-card"><div class="label">Total Teams</div><div class="value">{len(ledger_rows)}</div></div>', unsafe_allow_html=True)
-    with s2: st.markdown(f'<div class="solar-card"><div class="label">Total Charge (₹)</div><div class="value">{grand_total_charge:,.0f}</div></div>', unsafe_allow_html=True)
-    with s3: st.markdown(f'<div class="solar-card"><div class="label">Total Approval (₹)</div><div class="value">{grand_total_approval:,.0f}</div></div>', unsafe_allow_html=True)
-    with s4: st.markdown(f'<div class="solar-card"><div class="label">Grand Total (₹)</div><div class="value">{grand_total:,.0f}</div></div>', unsafe_allow_html=True)
-
+    ledger_view_mode = st.radio("Ledger View:", ["👷 Team Wise", "📍 Site Wise"], horizontal=True, key="ledger_view_mode")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col_title, col_search, col_export = st.columns([5, 3, 1.5])
-    with col_title:
-        st.markdown("##### 🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)")
-    with col_search:
-        ledger_search = st_keyup("Search", placeholder="🔍 Search team...", label_visibility="collapsed", key="ledger_search")
-    with col_export:
-        ledger_export_clicked = st.button("📥 Export", use_container_width=True, key="ledger_export_btn")
+    if ledger_view_mode == "👷 Team Wise":
+        ledger_rows = []
+        for t_name in solar_team_names:
+            entries = team_entries.get(t_name, [])
+            payments = payments_by_team.get(t_name, [])
+            site_ids = set(e["project_id"] for e in entries)
+            total_charge = sum(e["charge"] for e in entries)
+            total_approval = sum(e["approval"] for e in entries)
+            total_billed = total_charge + total_approval
+            total_paid = sum(num(p.get("amount")) for p in payments)
+            balance = total_billed - total_paid
+            ledger_rows.append({
+                "Team Name": t_name,
+                "Sites Worked": len(site_ids),
+                "Total Charge (₹)": total_charge,
+                "Total Approval (₹)": total_approval,
+                "Total Billed (₹)": total_billed,
+                "Total Paid (₹)": total_paid,
+                "Balance (₹)": balance,
+                "_entries": entries,
+                "_payments": payments,
+            })
 
-    display_rows = ledger_rows
-    if ledger_search:
-        display_rows = [r for r in ledger_rows if ledger_search.lower() in r["Team Name"].lower()]
+        ledger_rows.sort(key=lambda r: r["Balance (₹)"], reverse=True)
 
-    if ledger_export_clicked and ledger_rows:
-        export_df = pd.DataFrame([{k: v for k, v in r.items() if k != "_entries"} for r in ledger_rows])
+        grand_billed = sum(r["Total Billed (₹)"] for r in ledger_rows)
+        grand_paid = sum(r["Total Paid (₹)"] for r in ledger_rows)
+        grand_balance = sum(r["Balance (₹)"] for r in ledger_rows)
+
+        s1, s2, s3, s4 = st.columns(4)
+        with s1: st.markdown(f'<div class="solar-card"><div class="label">Total Teams</div><div class="value">{len(ledger_rows)}</div></div>', unsafe_allow_html=True)
+        with s2: st.markdown(f'<div class="solar-card"><div class="label">Total Billed (₹)</div><div class="value">{grand_billed:,.0f}</div></div>', unsafe_allow_html=True)
+        with s3: st.markdown(f'<div class="solar-card"><div class="label">Total Paid (₹)</div><div class="value-green">{grand_paid:,.0f}</div></div>', unsafe_allow_html=True)
+        with s4: st.markdown(f'<div class="solar-card"><div class="label">Total Balance (₹)</div><div class="value-red">{grand_balance:,.0f}</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        col_title, col_search = st.columns([7, 3])
+        with col_title:
+            st.markdown("##### 🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)")
+        with col_search:
+            ledger_search = st_keyup("Search", placeholder="🔍 Search team...", label_visibility="collapsed", key="ledger_search")
+
+        display_rows = ledger_rows
+        if ledger_search:
+            display_rows = [r for r in ledger_rows if ledger_search.lower() in r["Team Name"].lower()]
+
+        LCOL_RATIOS = [1.8, 1.0, 1.2, 1.2, 1.2, 1.2, 1.2, 0.7]
+        LCOL_LABELS = ["TEAM NAME", "SITES", "CHARGE (₹)", "APPROVAL (₹)", "TOTAL BILLED (₹)", "PAID (₹)", "BALANCE (₹)", "👁️"]
+
+        with st.container(key="ledger_table_wrap", height=520):
+            if not display_rows:
+                st.info("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
+            else:
+                h_cols = st.columns(LCOL_RATIOS)
+                for h_col, label in zip(h_cols, LCOL_LABELS):
+                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+                for r in display_rows:
+                    rcols = st.columns(LCOL_RATIOS)
+                    rcols[0].markdown(f"<div class='tbl-cell team-name'>{r['Team Name']}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div class='tbl-cell'>{r['Sites Worked']}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div class='tbl-cell'>{r['Total Charge (₹)']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div class='tbl-cell'>{r['Total Approval (₹)']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div class='tbl-cell'>{r['Total Billed (₹)']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(f"<div class='tbl-cell paid-amt'>{r['Total Paid (₹)']:,.0f}</div>", unsafe_allow_html=True)
+                    rcols[6].markdown(f"<div class='tbl-cell pending-amt'>{r['Balance (₹)']:,.0f}</div>", unsafe_allow_html=True)
+                    with rcols[7]:
+                        if st.button("👁️", key=f"ledger_view_{r['Team Name']}", help="View Detail", use_container_width=True):
+                            view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+
+    else:
+        # ---- SITE WISE VIEW ----
+        col_title2, col_search2 = st.columns([7, 3])
+        with col_title2:
+            st.markdown("##### 🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)")
+        with col_search2:
+            site_search = st_keyup("Search", placeholder="🔍 Search site...", label_visibility="collapsed", key="site_ledger_search")
+
+        site_rows = []
+        for _, r in df.iterrows():
+            proj_id = str(r.get("Project ID", ""))
+            a = alloc_map.get(proj_id, {})
+            civil_charge = num(a.get("civil_charge_amount"))
+            electrical_charge = num(a.get("electrical_charge_amount"))
+            transport_charge = num(a.get("transport_charge_amount"))
+            total_approval = (
+                num(a.get("civil_extra_approval_amount")) +
+                num(a.get("electrical_extra_approval_amount")) +
+                num(a.get("transport_extra_approval_amount"))
+            )
+            total_charge = civil_charge + electrical_charge + transport_charge
+            site_rows.append({
+                "Site ID": r.get("Site ID", ""),
+                "Site Name": r.get("Site Name", ""),
+                "Cluster": r.get("Cluster", ""),
+                "Project ID": proj_id,
+                "Civil Team": a.get("civil_team_name", "") or "-",
+                "Civil Amt (₹)": civil_charge,
+                "Electrical Team": a.get("electrical_team_name", "") or "-",
+                "Electrical Amt (₹)": electrical_charge,
+                "Transport Team": a.get("transport_team_name", "") or "-",
+                "Transport Amt (₹)": transport_charge,
+                "Total Charge (₹)": total_charge,
+                "Total Approval (₹)": total_approval,
+                "Grand Total (₹)": total_charge + total_approval,
+            })
+
+        site_df = pd.DataFrame(site_rows)
+        if site_search and not site_df.empty:
+            mask = site_df.astype(str).apply(lambda x: x.str.contains(site_search, case=False, na=False)).any(axis=1)
+            site_df = site_df[mask]
+
+        if site_df.empty:
+            st.info("Koi Solar site data nahi mila.")
+        else:
+            st.dataframe(
+                site_df,
+                use_container_width=True,
+                hide_index=True,
+                height=520,
+                column_config={
+                    "Civil Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                    "Electrical Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                    "Transport Amt (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                    "Total Charge (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                    "Total Approval (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                    "Grand Total (₹)": st.column_config.NumberColumn(format="₹ %d"),
+                }
+            )
+
+# ================================================================
+# TAB 3: PAYMENTS
+# ================================================================
+with tab_payments:
+    st.markdown("##### 💳 Solar Team Payment Entry")
+
+    if not solar_team_names:
+        st.info("Abhi tak koi team Solar site pe allocate nahi hui. Pehle 'Solar Sites' tab se ⚙️ Manage Teams se team allocate karein, phir yahan payment kar sakte ho.")
+    else:
+        all_dd = get_all_dropdowns()
+        pay_from_opts = get_simple_opts("Payment From", all_dd, ["Bank", "Cash"])
+        pay_type_opts = get_simple_opts("Payment Type", all_dd, ["NEFT", "RTGS", "UPI"])
+
+        with st.form("solar_payment_form", clear_on_submit=True):
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                pay_team = st.selectbox("Pay To (Solar Team) *", solar_team_names)
+            with f2:
+                pay_from = st.selectbox("Payment From *", pay_from_opts)
+            with f3:
+                pay_type = st.selectbox("Payment Type *", pay_type_opts)
+
+            f4, f5, f6 = st.columns(3)
+            with f4:
+                pay_amount = st.number_input("Amount (₹)", min_value=0.0, step=100.0, value=0.0)
+            with f5:
+                pay_date = st.date_input("Payment Date", value=datetime.date.today(), format="DD/MM/YYYY")
+            with f6:
+                pay_remark = st.text_input("Remark", placeholder="e.g. Civil work advance")
+
+            submitted = st.form_submit_button("💾 Save Payment", type="primary", use_container_width=True)
+
+            if submitted:
+                if pay_amount <= 0:
+                    st.error("⚠️ Amount 0 se zyada hona chahiye!")
+                else:
+                    try:
+                        ws = st.session_state.get('active_workspace', 'VISPL')
+
+                        # 1. Mirror into main Team & Vendor Billing (billing_payments) so it shows there too
+                        billing_payload = {
+                            "workspace": ws,
+                            "pay_from": pay_from,
+                            "pay_to": pay_team,
+                            "pay_type": pay_type,
+                            "amount": pay_amount,
+                            "date": str(pay_date),
+                            "remark": f"[Solar] {pay_remark}".strip(),
+                            "mode": "Team",
+                        }
+                        billing_res = supabase.table("billing_payments").insert(billing_payload).execute()
+                        billing_id = billing_res.data[0].get("id") if (hasattr(billing_res, 'data') and billing_res.data) else None
+
+                        # 2. Save into solar_payments (for Solar Ledger reporting)
+                        solar_payload = {
+                            "workspace": ws,
+                            "team_name": pay_team,
+                            "pay_from": pay_from,
+                            "pay_type": pay_type,
+                            "amount": pay_amount,
+                            "pay_date": str(pay_date),
+                            "remark": pay_remark,
+                            "billing_payment_id": billing_id,
+                        }
+                        supabase.table("solar_payments").insert(solar_payload).execute()
+
+                        st.success(f"✅ Payment Saved! Yeh Team Billing page ke Payment Entry mein bhi save ho gaya hai.")
+                        st.rerun()
+                    except Exception as e:
+                        err_str = str(e)
+                        if "schema cache" in err_str.lower() or "PGRST204" in err_str or "does not exist" in err_str.lower():
+                            st.error("❌ 'solar_payments' table nahi mila. Kripya 'solar_setup.sql' script Supabase mein run karein.")
+                        else:
+                            st.error(f"❌ Error saving payment: {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("##### 🗄️ Solar Payment History")
+
+    pcol_search, pcol_export = st.columns([8, 2])
+    with pcol_search:
+        payment_search = st_keyup("Search", placeholder="🔍 Search payments...", label_visibility="collapsed", key="solar_payment_search")
+    with pcol_export:
+        payment_export_clicked = st.button("📥 Export", use_container_width=True, key="solar_payment_export_btn")
+
+    pdf_view = pd.DataFrame(solar_payments_data) if solar_payments_data else pd.DataFrame(
+        columns=["id", "team_name", "pay_from", "pay_type", "amount", "pay_date", "remark"]
+    )
+    if payment_search and not pdf_view.empty:
+        mask = pdf_view.astype(str).apply(lambda x: x.str.contains(payment_search, case=False, na=False)).any(axis=1)
+        pdf_view = pdf_view[mask]
+
+    if payment_export_clicked and not pdf_view.empty:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            export_df.to_excel(writer, index=False, sheet_name='Team Ledger')
+            pdf_view.drop(columns=[c for c in ["id", "billing_payment_id", "created_at"] if c in pdf_view.columns]).to_excel(writer, index=False, sheet_name='Solar Payments')
         st.download_button(
-            label="📊 Download Solar_Team_Ledger.xlsx",
+            label="📊 Download Solar_Payments.xlsx",
             data=buffer.getvalue(),
-            file_name="Solar_Team_Ledger.xlsx",
+            file_name="Solar_Payments.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
             type="primary",
-            key="ledger_export_dl"
+            key="solar_payment_export_dl"
         )
 
-    LCOL_RATIOS = [2.2, 1.3, 1.5, 1.5, 1.5, 0.8]
-    LCOL_LABELS = ["TEAM NAME", "SITES WORKED", "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "TOTAL AMOUNT (₹)", "👁️"]
+    PCOL_RATIOS = [1.6, 1.2, 1.2, 1.2, 1.2, 2.4, 0.7]
+    PCOL_LABELS = ["TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK", "🗑️"]
 
-    with st.container(key="ledger_table_wrap", height=560):
-        if not display_rows:
-            st.info("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
+    with st.container(key="payments_table_wrap", height=420):
+        if pdf_view.empty:
+            st.info("Abhi tak koi Solar payment record nahi hai.")
         else:
-            h_cols = st.columns(LCOL_RATIOS)
-            for h_col, label in zip(h_cols, LCOL_LABELS):
+            h_cols = st.columns(PCOL_RATIOS)
+            for h_col, label in zip(h_cols, PCOL_LABELS):
                 h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
-            for r in display_rows:
-                rcols = st.columns(LCOL_RATIOS)
-                rcols[0].markdown(f"<div class='tbl-cell team-name'>{r['Team Name']}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{r['Sites Worked']}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{r['Total Charge (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{r['Total Approval (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{r['Total Amount (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                with rcols[5]:
-                    if st.button("👁️", key=f"ledger_view_{r['Team Name']}", help="View Site-wise Detail", use_container_width=True):
-                        view_team_detail_dialog(r["Team Name"], r["_entries"])
+            for _, prow in pdf_view.iterrows():
+                pd_dict = prow.to_dict()
+                rcols = st.columns(PCOL_RATIOS)
+                rcols[0].markdown(f"<div class='tbl-cell team-name'>{pd_dict.get('team_name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[1].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_date','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[2].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_from','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[3].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_type','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell paid-amt'>{num(pd_dict.get('amount')):,.0f}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{pd_dict.get('remark','') or '-'}</div>", unsafe_allow_html=True)
+                with rcols[6]:
+                    if st.button("🗑️", key=f"delpay_{pd_dict.get('id')}", help="Delete", use_container_width=True):
+                        try:
+                            supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
+                            b_id = pd_dict.get("billing_payment_id")
+                            if b_id:
+                                supabase.table("billing_payments").delete().eq("id", b_id).execute()
+                            st.success("✅ Payment Deleted!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error deleting: {e}")
