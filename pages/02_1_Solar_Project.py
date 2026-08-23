@@ -60,6 +60,53 @@ st.markdown("""
         color: #000000 !important; font-weight: 700 !important; -webkit-text-fill-color: #000000 !important;
     }
 
+    /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION BUTTONS
+       ========================================================= */
+
+    /* Sidebar Background */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Individual Sidebar Links / Buttons */
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    /* Hover Effect for Sidebar Links */
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+
+    /* Active/Selected Page Button */
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4) !important;
+    }
+
+    /* Clean up the default Streamlit styling overrides */
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
+
     /* Summary cards */
     .solar-card {
         background: rgba(255,255,255,0.04);
