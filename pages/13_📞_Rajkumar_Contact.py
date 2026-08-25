@@ -29,6 +29,12 @@ st.markdown("<h1 style='text-align: left; background: linear-gradient(90deg, #38
 def get_supabase_client():
     try:
         url: str = st.secrets["supabase"]["url"]
+        # FIX FOR PGRST125: Automatically remove '/rest/v1' or trailing slashes if
+        # mistakenly present in secrets.toml. Supabase client itself appends the
+        # '/rest/v1' path internally, so having it already in the base URL causes
+        # a doubled/invalid path -> "Invalid path specified in request URL" error.
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+
         key: str = st.secrets["supabase"]["key"]
         return create_client(url, key)
     except Exception as e:
