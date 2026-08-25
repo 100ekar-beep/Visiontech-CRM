@@ -512,13 +512,15 @@ def add_warehouse_material_dialog():
                         break
                     seen_codes.add(code_str)
 
+            # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
             if not has_m_err:
+                active_ws_check = st.session_state.get('active_workspace', 'VISPL')
                 for ic in w_item_codes:
                     code_str = ic.strip()
                     try:
-                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).execute()
+                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).eq("workspace", active_ws_check).execute()
                         if dup_check.data and len(dup_check.data) > 0:
-                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}'.")
+                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}' in '{active_ws_check}' workspace.")
                             has_m_err = True
                             break
                     except Exception as db_err:
