@@ -15,6 +15,10 @@ st.set_page_config(page_title="Warehouse Hub", page_icon="📦", layout="wide")
 if 'wh_mat_count' not in st.session_state:
     st.session_state.wh_mat_count = 1
 
+# --- NEW: MOBILE VIEW TOGGLE STATE ---
+if 'wh_view_mode' not in st.session_state:
+    st.session_state.wh_view_mode = "table"
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -277,6 +281,23 @@ st.markdown("""
     .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
     .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
     .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+    /* =========================================================
+       NEW: MOBILE-FRIENDLY CARD VIEW
+       ========================================================= */
+    .wh-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+    .wh-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
+    .wh-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
+    .wh-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    .wh-card-row:last-child { border-bottom: none; }
+    .wh-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
+    .wh-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -759,12 +780,17 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX ---
-col_table_title, col_search = st.columns([7, 3])
+# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
     st.markdown("##### 🗄️ Live Warehouse Records")
 with col_search:
     search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
+with col_viewtoggle:
+    toggle_label = "📱 Mobile View" if st.session_state.wh_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="wh_view_mode_toggle"):
+        st.session_state.wh_view_mode = "cards" if st.session_state.wh_view_mode == "table" else "table"
+        st.rerun()
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
@@ -786,7 +812,7 @@ elif st.session_state.wh_current_page < 1:
 start_idx = (st.session_state.wh_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS ---
+# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS (or mobile cards) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
 def status_badge(val):
@@ -808,26 +834,90 @@ def status_badge(val):
         cls = "status-grey"
     return f"<span class='status-badge {cls}'>{v}</span>"
 
-# Exact 19 columns ratios: Total 19 cols (1 Sr No + 3 Buttons + 15 Data)
-COL_RATIOS = [
-    0.3, 0.35, 0.35, 0.35,       # 0-3 (Sr No, Actions: View, Edit, Delete)
-    1.2, 1.0, 1.5, 1.0, 1.0,     # 4-8
-    1.0, 1.2, 1.0, 1.0, 1.5,     # 9-13
-    0.8, 1.2, 1.2, 1.0, 1.5      # 14-18
-]
+def render_delete_confirm(rid, row_dict, key_prefix=""):
+    """Shared inline delete confirmation block, used by both table and card view."""
+    if st.session_state.get(f"confirm_del_{rid}"):
+        wc1, wc2, wc3 = st.columns([6, 1, 1])
+        with wc1:
+            st.warning(f"Delete record '{row_dict.get('Item Code','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
+        with wc2:
+            if st.button("✅ Confirm", key=f"{key_prefix}confirm_yes_{rid}", use_container_width=True):
+                try:
+                    supabase.table(table_name).delete().eq("id", rid).execute()
+                    st.session_state[f"confirm_del_{rid}"] = False
+                    st.success("✅ Record Successfully Deleted!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Deleting Record: {e}")
+        with wc3:
+            if st.button("❌ Cancel", key=f"{key_prefix}confirm_no_{rid}", use_container_width=True):
+                st.session_state[f"confirm_del_{rid}"] = False
+                st.rerun()
 
-COL_LABELS = [
-    "#", "👁️", "✏️", "🗑️", 
-    "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM", 
-    "SRN STATUS", "TRANSACTION TYPE", "BOQ NUMBER", "ITEM CODE", 
-    "ITEM DESCRIPTION", "INDUS QTY", "MATERIAL STATUS", "DISPATCH DATE", 
-    "STN STATUS", "REMARK"
-]
+if df_page.empty:
+    st.info("No records found.")
 
-with st.container(key="wh_table_wrap", height=560):
-    if df_page.empty:
-        st.info("No records found.")
-    else:
+elif st.session_state.wh_view_mode == "cards":
+    # ---------------------------------------------------------------
+    # NEW: MOBILE-FRIENDLY CARD VIEW - one card per record, no horizontal scroll
+    # ---------------------------------------------------------------
+    for page_pos, (_, row) in enumerate(df_page.iterrows()):
+        row_dict = row.to_dict()
+        rid = row_dict.get("id")
+        serial_no = start_idx + page_pos + 1
+
+        with st.container(border=True):
+            st.markdown(f"""
+                <div class="wh-card-title">#{serial_no} — {row_dict.get('Item Code','') or '-'}</div>
+                <div class="wh-card-sub">{row_dict.get('Project ID','') or '-'} • {row_dict.get('Site ID','') or '-'}</div>
+                <div class="wh-card-row"><span class="wh-card-label">Site Name</span><span class="wh-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Cluster</span><span class="wh-card-value">{row_dict.get('Cluster','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Team</span><span class="wh-card-value">{row_dict.get('Team','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">SRN Status</span><span class="wh-card-value">{status_badge(row_dict.get('SRN Status',''))}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Transaction Type</span><span class="wh-card-value">{row_dict.get('Transaction Type','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">BOQ Number</span><span class="wh-card-value">{row_dict.get('BOQ Number','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Item Description</span><span class="wh-card-value">{row_dict.get('Item Description','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Indus Qty</span><span class="wh-card-value">{row_dict.get('Indus Qty','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Material Status</span><span class="wh-card-value">{status_badge(row_dict.get('Material Status',''))}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Dispatch Date</span><span class="wh-card-value">{row_dict.get('Dispatch Date','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">STN Status</span><span class="wh-card-value">{status_badge(row_dict.get('STN Status',''))}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Remark</span><span class="wh-card-value">{row_dict.get('Remark','') or '-'}</span></div>
+            """, unsafe_allow_html=True)
+
+            bc1, bc2, bc3 = st.columns(3)
+            with bc1:
+                if st.button("👁️ View", key=f"card_view_{rid}", use_container_width=True):
+                    view_record_dialog(row_dict)
+            with bc2:
+                if st.button("✏️ Edit", key=f"card_edit_{rid}", use_container_width=True):
+                    edit_warehouse_material_dialog(row_dict)
+            with bc3:
+                if st.button("🗑️ Delete", key=f"card_del_{rid}", use_container_width=True):
+                    st.session_state[f"confirm_del_{rid}"] = True
+
+            render_delete_confirm(rid, row_dict, key_prefix="card_")
+
+else:
+    # ---------------------------------------------------------------
+    # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+    # ---------------------------------------------------------------
+    # Exact 19 columns ratios: Total 19 cols (1 Sr No + 3 Buttons + 15 Data)
+    COL_RATIOS = [
+        0.3, 0.35, 0.35, 0.35,       # 0-3 (Sr No, Actions: View, Edit, Delete)
+        1.2, 1.0, 1.5, 1.0, 1.0,     # 4-8
+        1.0, 1.2, 1.0, 1.0, 1.5,     # 9-13
+        0.8, 1.2, 1.2, 1.0, 1.5      # 14-18
+    ]
+
+    COL_LABELS = [
+        "#", "👁️", "✏️", "🗑️", 
+        "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM", 
+        "SRN STATUS", "TRANSACTION TYPE", "BOQ NUMBER", "ITEM CODE", 
+        "ITEM DESCRIPTION", "INDUS QTY", "MATERIAL STATUS", "DISPATCH DATE", 
+        "STN STATUS", "REMARK"
+    ]
+
+    with st.container(key="wh_table_wrap", height=560):
         # --- HEADER ROW ---
         h_cols = st.columns(COL_RATIOS)
         for h_col, label in zip(h_cols, COL_LABELS):
@@ -873,23 +963,7 @@ with st.container(key="wh_table_wrap", height=560):
             rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Remark','') or '-'}</div>", unsafe_allow_html=True)
 
             # Inline delete confirmation
-            if st.session_state.get(f"confirm_del_{rid}"):
-                wc1, wc2, wc3 = st.columns([6, 1, 1])
-                with wc1:
-                    st.warning(f"Delete record '{row_dict.get('Item Code','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
-                with wc2:
-                    if st.button("✅ Confirm", key=f"confirm_yes_{rid}", use_container_width=True):
-                        try:
-                            supabase.table(table_name).delete().eq("id", rid).execute()
-                            st.session_state[f"confirm_del_{rid}"] = False
-                            st.success("✅ Record Successfully Deleted!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error Deleting Record: {e}")
-                with wc3:
-                    if st.button("❌ Cancel", key=f"confirm_no_{rid}", use_container_width=True):
-                        st.session_state[f"confirm_del_{rid}"] = False
-                        st.rerun()
+            render_delete_confirm(rid, row_dict, key_prefix="")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
