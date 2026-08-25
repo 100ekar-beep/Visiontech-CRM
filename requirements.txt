@@ -7,3 +7,5 @@ geopy
 streamlit-keyup
 FPDF
 ffmpeg
+Pillow
+phonenumbers
