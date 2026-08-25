@@ -54,7 +54,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 if 'active_workspace' not in st.session_state:
     # FIX: Session idle/websocket-reconnect hone par st.session_state reset ho jaata hai,
     # isliye pehle URL query_params me saved workspace check karte hain (ye reset nahi hota).
-    _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA"]
+    _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES"]
     _query_workspace = st.query_params.get('workspace', None)
     if _query_workspace in _valid_workspaces:
         st.session_state['active_workspace'] = _query_workspace
@@ -67,7 +67,7 @@ st.markdown("---")
 
 col1, col2 = st.columns([3, 7])
 with col1:
-    workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA"]
+    workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES"]
     current_index = workspaces.index(st.session_state['active_workspace'])
     
     selected_workspace = st.selectbox(
@@ -109,6 +109,14 @@ with col2:
         <div class="dash-card">
             <h2>🏗️ BHAGYASHREE Management</h2>
             <p>Welcome to Bhagyashree Workspace! Yahan aapki property aur construction ventures ka saara record secure aur isolated rakha gaya hai.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'SAI TELE SERVICES':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>📡 SAI TELE SERVICES Operations</h2>
+            <p>Welcome to Sai Tele Services Workspace! Yahan aap apne saare bills, quotations, POs aur service data ko securely manage kar sakte hain. Data completely isolated hai.</p>
             <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
         </div>
         """, unsafe_allow_html=True)
