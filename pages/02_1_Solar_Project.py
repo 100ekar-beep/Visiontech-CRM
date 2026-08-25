@@ -21,6 +21,14 @@ st.set_page_config(page_title="Solar Project Hub", page_icon="☀️", layout="w
 if 'solar_current_page' not in st.session_state:
     st.session_state.solar_current_page = 1
 
+# --- NEW: MOBILE VIEW TOGGLE STATES (one per tab, independent of each other) ---
+if 'solar_sites_view' not in st.session_state:
+    st.session_state.solar_sites_view = "table"
+if 'solar_ledger_view' not in st.session_state:
+    st.session_state.solar_ledger_view = "table"
+if 'solar_payments_view' not in st.session_state:
+    st.session_state.solar_payments_view = "table"
+
 # --- 2. CSS (premium dark theme) ---
 st.markdown("""
     <style>
@@ -204,6 +212,26 @@ st.markdown("""
     .st-key-payments_table_wrap div[class*="st-key-delpay_"] button:hover {
         background: #ef4444 !important; border-color: #f87171 !important;
     }
+
+    /* =========================================================
+       NEW: MOBILE-FRIENDLY CARD VIEW (Solar Sites / Ledger / Payments)
+       ========================================================= */
+    .solar-mcard {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+    .solar-mcard-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
+    .solar-mcard-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
+    .solar-mcard-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    .solar-mcard-row:last-child { border-bottom: none; }
+    .solar-mcard-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
+    .solar-mcard-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+    .solar-mcard-value.paid { color: #4ade80; font-weight: 800; }
+    .solar-mcard-value.pending { color: #f87171; font-weight: 800; }
+    .solar-mcard-value.amber { color: #f59e0b; font-weight: 800; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -237,6 +265,13 @@ def num(v):
         return float(v) if v not in (None, "", "None") else 0.0
     except Exception:
         return 0.0
+
+# --- NEW: SMALL HELPER TO RENDER THE "TABLE / MOBILE" TOGGLE BUTTON ---
+def render_view_toggle(state_key, button_key):
+    toggle_label = "📱 Mobile View" if st.session_state[state_key] == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key=button_key):
+        st.session_state[state_key] = "cards" if st.session_state[state_key] == "table" else "table"
+        st.rerun()
 
 # --- 4. MANAGE TEAMS DIALOG (amount-only, no payment status) ---
 @st.dialog("⚙️ Manage Solar Teams & Charges", width="large")
@@ -617,13 +652,16 @@ with tab_sites:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col_title, col_search, col_export = st.columns([5, 3, 1.5])
+    # --- UPDATED: added a 4th column for the Mobile/Table toggle button ---
+    col_title, col_search, col_export, col_toggle = st.columns([4, 2.5, 1.3, 1.5])
     with col_title:
         st.markdown("##### 🗄️ Solar Project Sites")
     with col_search:
         search_query = st_keyup("Search", placeholder="🔍 Search solar sites...", label_visibility="collapsed", key="solar_search")
     with col_export:
         export_clicked = st.button("📥 Export", use_container_width=True, key="solar_export_btn")
+    with col_toggle:
+        render_view_toggle("solar_sites_view", "solar_sites_view_toggle")
 
     df_view = df.copy()
     if search_query and not df_view.empty:
@@ -684,17 +722,59 @@ with tab_sites:
     end_idx = start_idx + rows_per_page
     df_page = df_view.iloc[start_idx:end_idx].copy()
 
-    COL_RATIOS = [0.5, 0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
-                  1.1, 0.8, 1.1, 0.8, 1.1, 0.8,
-                  1.1, 1.1]
-    COL_LABELS = ["⚙️", "#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
-                  "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
-                  "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)"]
+    if df_page.empty:
+        st.info("Koi Solar site nahi mili. Site Data Hub mein 'Project Name' = Solar select karke site add karein.")
 
-    with st.container(key="solar_table_wrap", height=560):
-        if df_page.empty:
-            st.info("Koi Solar site nahi mili. Site Data Hub mein 'Project Name' = Solar select karke site add karein.")
-        else:
+    elif st.session_state.solar_sites_view == "cards":
+        # ---------------------------------------------------------------
+        # NEW: MOBILE CARD VIEW - Solar Sites
+        # ---------------------------------------------------------------
+        for page_pos, (_, row) in enumerate(df_page.iterrows()):
+            row_dict = row.to_dict()
+            proj_id = str(row_dict.get("Project ID", ""))
+            alloc = alloc_map.get(proj_id, {})
+            serial_no = start_idx + page_pos + 1
+
+            civil_charge = num(alloc.get("civil_charge_amount"))
+            electrical_charge = num(alloc.get("electrical_charge_amount"))
+            transport_charge = num(alloc.get("transport_charge_amount"))
+            total_charge = civil_charge + electrical_charge + transport_charge
+            total_approval = (
+                num(alloc.get("civil_extra_approval_amount")) +
+                num(alloc.get("electrical_extra_approval_amount")) +
+                num(alloc.get("transport_extra_approval_amount"))
+            )
+
+            def status_tag(prefix):
+                s = alloc.get(f"{prefix}_status", "Pending")
+                return " ✅" if s == "Completed" else (" ⏳" if alloc.get(f"{prefix}_team_name") else "")
+
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="solar-mcard-title">#{serial_no} — {row_dict.get('Site ID','') or '-'} | {row_dict.get('Site Name','') or '-'}</div>
+                    <div class="solar-mcard-sub">{proj_id or '-'} • {row_dict.get('Cluster','') or '-'}</div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Site Status</span><span class="solar-mcard-value">{row_dict.get('Site Status','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Civil Team</span><span class="solar-mcard-value">{(alloc.get('civil_team_name','') or '-')}{status_tag('civil')} (₹{civil_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Electrical Team</span><span class="solar-mcard-value">{(alloc.get('electrical_team_name','') or '-')}{status_tag('electrical')} (₹{electrical_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Transport Team</span><span class="solar-mcard-value">{(alloc.get('transport_team_name','') or '-')}{status_tag('transport')} (₹{transport_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Total Charge</span><span class="solar-mcard-value amber">₹ {total_charge:,.0f}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Total Approval</span><span class="solar-mcard-value">₹ {total_approval:,.0f}</span></div>
+                """, unsafe_allow_html=True)
+                if st.button("⚙️ Manage Teams", key=f"card_solar_mgr_{row_dict.get('id')}", use_container_width=True):
+                    manage_solar_teams_dialog(row_dict, alloc)
+
+    else:
+        # ---------------------------------------------------------------
+        # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+        # ---------------------------------------------------------------
+        COL_RATIOS = [0.5, 0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
+                      1.1, 0.8, 1.1, 0.8, 1.1, 0.8,
+                      1.1, 1.1]
+        COL_LABELS = ["⚙️", "#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
+                      "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
+                      "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)"]
+
+        with st.container(key="solar_table_wrap", height=560):
             h_cols = st.columns(COL_RATIOS)
             for h_col, label in zip(h_cols, COL_LABELS):
                 h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
@@ -798,23 +878,45 @@ with tab_ledger:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        col_title, col_search = st.columns([7, 3])
+        # --- UPDATED: added toggle button next to search ---
+        col_title, col_search, col_toggle = st.columns([4.5, 3, 1.5])
         with col_title:
             st.markdown("##### 🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)")
         with col_search:
             ledger_search = st_keyup("Search", placeholder="🔍 Search team...", label_visibility="collapsed", key="ledger_search")
+        with col_toggle:
+            render_view_toggle("solar_ledger_view", "solar_ledger_view_toggle_team")
 
         display_rows = ledger_rows
         if ledger_search:
             display_rows = [r for r in ledger_rows if ledger_search.lower() in r["Team Name"].lower()]
 
-        LCOL_RATIOS = [1.8, 1.0, 1.2, 1.2, 1.2, 1.2, 1.2, 0.7]
-        LCOL_LABELS = ["TEAM NAME", "SITES", "CHARGE (₹)", "APPROVAL (₹)", "TOTAL BILLED (₹)", "PAID (₹)", "BALANCE (₹)", "👁️"]
+        if not display_rows:
+            st.info("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
 
-        with st.container(key="ledger_table_wrap", height=520):
-            if not display_rows:
-                st.info("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
-            else:
+        elif st.session_state.solar_ledger_view == "cards":
+            # ---------------------------------------------------------------
+            # NEW: MOBILE CARD VIEW - Team Ledger (Team Wise)
+            # ---------------------------------------------------------------
+            for r in display_rows:
+                with st.container(border=True):
+                    st.markdown(f"""
+                        <div class="solar-mcard-title">👷 {r['Team Name']}</div>
+                        <div class="solar-mcard-sub">{r['Sites Worked']} site(s) worked</div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Charge</span><span class="solar-mcard-value">₹ {r['Total Charge (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Approval</span><span class="solar-mcard-value">₹ {r['Total Approval (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Billed</span><span class="solar-mcard-value amber">₹ {r['Total Billed (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Paid</span><span class="solar-mcard-value paid">₹ {r['Total Paid (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Balance</span><span class="solar-mcard-value pending">₹ {r['Balance (₹)']:,.0f}</span></div>
+                    """, unsafe_allow_html=True)
+                    if st.button("👁️ View Detail", key=f"card_ledger_view_{r['Team Name']}", use_container_width=True):
+                        view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+
+        else:
+            LCOL_RATIOS = [1.8, 1.0, 1.2, 1.2, 1.2, 1.2, 1.2, 0.7]
+            LCOL_LABELS = ["TEAM NAME", "SITES", "CHARGE (₹)", "APPROVAL (₹)", "TOTAL BILLED (₹)", "PAID (₹)", "BALANCE (₹)", "👁️"]
+
+            with st.container(key="ledger_table_wrap", height=520):
                 h_cols = st.columns(LCOL_RATIOS)
                 for h_col, label in zip(h_cols, LCOL_LABELS):
                     h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
@@ -834,11 +936,13 @@ with tab_ledger:
 
     else:
         # ---- SITE WISE VIEW (lavish custom table, same style as other tabs) ----
-        col_title2, col_search2 = st.columns([7, 3])
+        col_title2, col_search2, col_toggle2 = st.columns([4.5, 3, 1.5])
         with col_title2:
             st.markdown("##### 🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)")
         with col_search2:
             site_search = st_keyup("Search", placeholder="🔍 Search site...", label_visibility="collapsed", key="site_ledger_search")
+        with col_toggle2:
+            render_view_toggle("solar_ledger_view", "solar_ledger_view_toggle_site")
 
         site_rows = []
         for _, r in df.iterrows():
@@ -887,15 +991,33 @@ with tab_ledger:
                 if site_search.lower() in " ".join(str(v) for v in sr.values()).lower()
             ]
 
-        SCOL_RATIOS = [0.4, 1.1, 1.4, 0.9, 1.1, 1.1, 0.8, 1.1, 0.8, 1.1, 0.8, 1.1, 1.1, 1.1]
-        SCOL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID",
-                       "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
-                       "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "GRAND TOTAL (₹)"]
+        if not site_rows:
+            st.info("Koi Solar site data nahi mila.")
 
-        with st.container(key="site_ledger_table_wrap", height=560):
-            if not site_rows:
-                st.info("Koi Solar site data nahi mila.")
-            else:
+        elif st.session_state.solar_ledger_view == "cards":
+            # ---------------------------------------------------------------
+            # NEW: MOBILE CARD VIEW - Team Ledger (Site Wise)
+            # ---------------------------------------------------------------
+            for idx, sr in enumerate(site_rows, start=1):
+                with st.container(border=True):
+                    st.markdown(f"""
+                        <div class="solar-mcard-title">#{idx} — {sr['Site ID']} | {sr['Site Name']}</div>
+                        <div class="solar-mcard-sub">{sr['Project ID']} • {sr['Cluster']}</div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Civil Team</span><span class="solar-mcard-value">{sr['Civil Team']} (₹{sr['Civil Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Electrical Team</span><span class="solar-mcard-value">{sr['Electrical Team']} (₹{sr['Electrical Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Transport Team</span><span class="solar-mcard-value">{sr['Transport Team']} (₹{sr['Transport Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Charge</span><span class="solar-mcard-value">₹ {sr['Total Charge']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Approval</span><span class="solar-mcard-value">₹ {sr['Total Approval']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Grand Total</span><span class="solar-mcard-value amber">₹ {sr['Grand Total']:,.0f}</span></div>
+                    """, unsafe_allow_html=True)
+
+        else:
+            SCOL_RATIOS = [0.4, 1.1, 1.4, 0.9, 1.1, 1.1, 0.8, 1.1, 0.8, 1.1, 0.8, 1.1, 1.1, 1.1]
+            SCOL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID",
+                           "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
+                           "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "GRAND TOTAL (₹)"]
+
+            with st.container(key="site_ledger_table_wrap", height=560):
                 h_cols = st.columns(SCOL_RATIOS)
                 for h_col, label in zip(h_cols, SCOL_LABELS):
                     h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
@@ -995,11 +1117,14 @@ with tab_payments:
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("##### 🗄️ Solar Payment History")
 
-    pcol_search, pcol_export = st.columns([8, 2])
+    # --- UPDATED: added toggle button next to search ---
+    pcol_search, pcol_export, pcol_toggle = st.columns([5.5, 2, 2])
     with pcol_search:
         payment_search = st_keyup("Search", placeholder="🔍 Search payments...", label_visibility="collapsed", key="solar_payment_search")
     with pcol_export:
         payment_export_clicked = st.button("📥 Export", use_container_width=True, key="solar_payment_export_btn")
+    with pcol_toggle:
+        render_view_toggle("solar_payments_view", "solar_payments_view_toggle")
 
     pdf_view = pd.DataFrame(solar_payments_data) if solar_payments_data else pd.DataFrame(
         columns=["id", "team_name", "pay_from", "pay_type", "amount", "pay_date", "remark"]
@@ -1022,13 +1147,40 @@ with tab_payments:
             key="solar_payment_export_dl"
         )
 
-    PCOL_RATIOS = [1.6, 1.2, 1.2, 1.2, 1.2, 2.4, 0.7]
-    PCOL_LABELS = ["TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK", "🗑️"]
+    if pdf_view.empty:
+        st.info("Abhi tak koi Solar payment record nahi hai.")
 
-    with st.container(key="payments_table_wrap", height=420):
-        if pdf_view.empty:
-            st.info("Abhi tak koi Solar payment record nahi hai.")
-        else:
+    elif st.session_state.solar_payments_view == "cards":
+        # ---------------------------------------------------------------
+        # NEW: MOBILE CARD VIEW - Payment History
+        # ---------------------------------------------------------------
+        for _, prow in pdf_view.iterrows():
+            pd_dict = prow.to_dict()
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="solar-mcard-title">{pd_dict.get('team_name','') or '-'}</div>
+                    <div class="solar-mcard-sub">{pd_dict.get('pay_date','') or '-'}</div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Paid From</span><span class="solar-mcard-value">{pd_dict.get('pay_from','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Type</span><span class="solar-mcard-value">{pd_dict.get('pay_type','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Amount</span><span class="solar-mcard-value paid">₹ {num(pd_dict.get('amount')):,.0f}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Remark</span><span class="solar-mcard-value">{pd_dict.get('remark','') or '-'}</span></div>
+                """, unsafe_allow_html=True)
+                if st.button("🗑️ Delete", key=f"card_delpay_{pd_dict.get('id')}", use_container_width=True):
+                    try:
+                        supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
+                        b_id = pd_dict.get("billing_payment_id")
+                        if b_id:
+                            supabase.table("billing_payments").delete().eq("id", b_id).execute()
+                        st.success("✅ Payment Deleted!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error deleting: {e}")
+
+    else:
+        PCOL_RATIOS = [1.6, 1.2, 1.2, 1.2, 1.2, 2.4, 0.7]
+        PCOL_LABELS = ["TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK", "🗑️"]
+
+        with st.container(key="payments_table_wrap", height=420):
             h_cols = st.columns(PCOL_RATIOS)
             for h_col, label in zip(h_cols, PCOL_LABELS):
                 h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
