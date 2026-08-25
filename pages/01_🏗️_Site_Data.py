@@ -460,7 +460,14 @@ def get_item_master_details():
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
     st.caption("Configure comprehensive site metrics and procurement status")
-    
+
+    # --- FIX: Defensive re-init in case session_state got reset mid-dialog
+    # (happens on mobile/tablet when the websocket reconnects after backgrounding) ---
+    if 'po_count' not in st.session_state:
+        st.session_state.po_count = 1
+    if 'add_mat_count' not in st.session_state:
+        st.session_state.add_mat_count = 1
+
     all_dd = get_all_dropdowns() 
     
     with st.container():
@@ -1096,6 +1103,11 @@ def edit_record_dialog(row_data):
 @st.dialog("📦 Warehouse Material Tracking", width="large")
 def material_movement_dialog(row_data):
     st.caption("Manage transaction items and asset movements for selected site")
+
+    # --- FIX: Defensive re-init in case session_state got reset mid-dialog ---
+    if 'mat_count' not in st.session_state:
+        st.session_state.mat_count = 1
+
     all_dd = get_all_dropdowns()
     
     def get_idx(val, opt_list):
