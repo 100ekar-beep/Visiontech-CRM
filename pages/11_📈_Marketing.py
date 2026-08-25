@@ -1,11 +1,19 @@
 import streamlit as st
 import requests
 import time
+import shutil
+import io
 from supabase import create_client, Client
 from fpdf import FPDF
 import base64
 from datetime import datetime, timezone, timedelta
 import os
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
 
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
@@ -86,6 +94,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- MEDIA HANDLING CONFIG ---
+MAX_MEDIA_MB = 16
+MAX_MEDIA_BYTES = MAX_MEDIA_MB * 1024 * 1024
+
 # 🛑 --- STRICT SECURITY GATE FOR RAJKUMAR KALYA ONLY --- 🛑
 if st.session_state.get('active_workspace', 'VISPL') != 'RAJKUMAR KALYA':
     st.error("🚫 **Access Restricted!**")
@@ -165,6 +177,179 @@ def reshape_hindi_text(text):
     return "".join(chars)
 
 
+def _run_ffmpeg_pass(tmp_in_path, tmp_out_path, crf, scale_factor, audio_bitrate="96k"):
+    """Runs a single ffmpeg encode pass with a given quality (CRF) and resolution scale."""
+    import subprocess
+
+    vf_filter = f"scale=trunc(iw*{scale_factor}/2)*2:trunc(ih*{scale_factor}/2)*2" if scale_factor < 1.0 else None
+
+    cmd = [
+        "ffmpeg", "-y", "-i", tmp_in_path,
+        "-c:v", "libx264", "-profile:v", "baseline",
+        "-pix_fmt", "yuv420p",
+        "-crf", str(crf),
+        "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", audio_bitrate,
+        "-movflags", "+faststart",
+    ]
+    if vf_filter:
+        cmd += ["-vf", vf_filter]
+    cmd.append(tmp_out_path)
+
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    return result
+
+
+def convert_video_for_whatsapp(file_bytes, file_ext, target_bytes=None, status_callback=None):
+    """
+    Converts a video to a WhatsApp-safe format: H.264 video + AAC audio, MP4 container.
+    If target_bytes is given and the first conversion still exceeds it, automatically
+    re-encodes with progressively higher compression (lower quality + smaller resolution)
+    until the file fits, or all attempts are exhausted.
+    Raises RuntimeError with a clear human-readable message on any failure so the
+    caller can stop the whole send process instead of silently sending a broken file.
+    Returns (converted_bytes, new_ext, new_content_type).
+    """
+    import tempfile
+
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(
+            "ffmpeg is server par install nahi hai. Streamlit Cloud par isse fix karne ke liye "
+            "project ke root folder me 'packages.txt' file banayein aur usme sirf ek line likhein: ffmpeg "
+            "— phir app ko reboot/redeploy karein."
+        )
+
+    # (CRF, resolution-scale, audio-bitrate) — progressively more aggressive compression.
+    # Lower CRF = better quality/bigger file, higher CRF = smaller file/lower quality.
+    attempts = [
+        (23, 1.00, "96k"),   # normal quality, original resolution
+        (26, 1.00, "96k"),
+        (28, 0.75, "80k"),   # shrink resolution to 75%
+        (30, 0.60, "64k"),   # shrink resolution to 60%
+        (32, 0.50, "48k"),   # shrink resolution to 50%
+        (34, 0.40, "40k"),   # last resort, small resolution
+    ]
+
+    tmp_in_path = None
+    tmp_out_path = None
+    last_bytes = None
+    last_size = None
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{file_ext}", delete=False) as tmp_in:
+            tmp_in.write(file_bytes)
+            tmp_in_path = tmp_in.name
+
+        for i, (crf, scale, abitrate) in enumerate(attempts, 1):
+            tmp_out_path = tmp_in_path + f"_converted_{i}.mp4"
+            try:
+                if status_callback:
+                    status_callback(f"🎬 Compression try {i}/{len(attempts)} (quality level {crf}, scale {int(scale*100)}%)...")
+
+                result = _run_ffmpeg_pass(tmp_in_path, tmp_out_path, crf, scale, abitrate)
+
+                if result.returncode != 0:
+                    stderr_tail = result.stderr.decode(errors="ignore")[-500:]
+                    raise RuntimeError(f"ffmpeg conversion fail ho gaya. Detail: {stderr_tail}")
+
+                if not os.path.exists(tmp_out_path) or os.path.getsize(tmp_out_path) == 0:
+                    raise RuntimeError("ffmpeg ne output file generate nahi ki (empty/missing output).")
+
+                with open(tmp_out_path, "rb") as f:
+                    converted_bytes = f.read()
+
+                last_bytes = converted_bytes
+                last_size = len(converted_bytes)
+
+                # Clean up this attempt's temp file before next loop / return
+                if os.path.exists(tmp_out_path):
+                    os.remove(tmp_out_path)
+                    tmp_out_path = None
+
+                if target_bytes is None or last_size <= target_bytes:
+                    return converted_bytes, "mp4", "video/mp4"
+                # else: too big, loop continues to a more aggressive attempt
+
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Video conversion timeout ho gaya (5 min se zyada laga). Chhoti video try karein.")
+
+        # All attempts done — if we have a result but it's still over target, return the smallest one
+        # we managed to produce, and let the caller decide (it will still fail the size check with a
+        # clear message rather than silently sending an oversized file).
+        if last_bytes is not None:
+            return last_bytes, "mp4", "video/mp4"
+
+        raise RuntimeError("Video compress nahi ho payi — koi bhi attempt successful nahi raha.")
+
+    finally:
+        if tmp_in_path and os.path.exists(tmp_in_path):
+            os.remove(tmp_in_path)
+        if tmp_out_path and os.path.exists(tmp_out_path):
+            os.remove(tmp_out_path)
+
+
+def compress_image_for_whatsapp(file_bytes, target_bytes):
+    """
+    Progressively compresses an image (JPEG re-encode with decreasing quality, then
+    downscaling) until it fits under target_bytes. Returns (bytes, ext, content_type).
+    Raises RuntimeError if PIL isn't available or compression still can't hit target.
+    """
+    if not PIL_AVAILABLE:
+        raise RuntimeError(
+            "Image compress karne ke liye 'Pillow' library chahiye jo server par install nahi hai. "
+            "requirements.txt me 'Pillow' add karein aur redeploy karein."
+        )
+
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        img = img.convert("RGB")  # normalize (handles PNG transparency -> flattens, CMYK, etc.)
+    except Exception as e:
+        raise RuntimeError(f"Image open nahi ho payi compression ke liye: {e}")
+
+    quality_steps = [85, 75, 65, 55, 45]
+    scale_steps = [1.0, 0.85, 0.7, 0.55, 0.4]
+
+    last_bytes = None
+    for scale in scale_steps:
+        if scale < 1.0:
+            new_w = max(1, int(img.width * scale))
+            new_h = max(1, int(img.height * scale))
+            working_img = img.resize((new_w, new_h))
+        else:
+            working_img = img
+
+        for quality in quality_steps:
+            buf = io.BytesIO()
+            working_img.save(buf, format="JPEG", quality=quality, optimize=True)
+            data = buf.getvalue()
+            last_bytes = data
+            if len(data) <= target_bytes:
+                return data, "jpg", "image/jpeg"
+
+    if last_bytes is not None:
+        return last_bytes, "jpg", "image/jpeg"
+
+    raise RuntimeError("Image compress nahi ho payi.")
+
+
+def verify_public_url(url, timeout=15):
+    """
+    Confirms the uploaded file's public URL is actually reachable/downloadable
+    (mimics what WhatsApp's servers will try to do). Returns (ok, detail).
+    """
+    try:
+        resp = requests.head(url, allow_redirects=True, timeout=timeout)
+        if resp.status_code == 200:
+            return True, "OK"
+        # Some storage providers don't support HEAD properly; fall back to a ranged GET.
+        resp2 = requests.get(url, headers={"Range": "bytes=0-1024"}, timeout=timeout)
+        if resp2.status_code in (200, 206):
+            return True, "OK"
+        return False, f"URL status code: {resp.status_code} (GET fallback: {resp2.status_code})"
+    except Exception as e:
+        return False, f"URL fetch error: {e}"
+
+
 # ==========================================
 # --- MAIN MARKETING DASHBOARD LOGIC ---
 # ==========================================
@@ -215,7 +400,7 @@ if check_password():
     with col2:
         st.markdown("### 📎 2. Attach Photo / PDF / Video (Optional)")
         attachment = st.file_uploader("Agar koi file bhejni hai toh yaha upload karein", type=["jpg", "png", "jpeg", "pdf", "mp4", "mov", "3gp"])
-        st.caption("✅ Aapki file (Photo/PDF/Video) automatically internet par upload ho kar link ban jayegi.")
+        st.caption(f"✅ Aapki file (Photo/PDF/Video) automatically internet par upload ho kar link ban jayegi. Agar Photo/Video ki size {MAX_MEDIA_MB}MB se zyada hai, toh use bhi automatically compress kiya jayega.")
 
     st.markdown("---")
 
@@ -287,50 +472,48 @@ if check_password():
             if supabase:
                 media_url = ""
                 if attachment:
-                    with st.spinner("⏳ File ko Supabase par upload karke Auto-Link banaya ja raha hai..."):
+                    with st.spinner("⏳ File process ho rahi hai (convert + upload + verify)..."):
                         try:
                             file_ext = attachment.name.split('.')[-1].lower()
                             file_bytes = attachment.getvalue()
                             content_type = attachment.type
 
+                            original_size_mb = len(file_bytes) / (1024 * 1024)
+
                             # WHATSAPP-COMPATIBLE VIDEO CONVERSION (H.264 + AAC, MP4 container)
                             # Mobile videos (especially iPhone .MOV/HEVC) fail on WhatsApp unless converted.
+                            # Auto-compresses (progressively lower quality + resolution) if the file is
+                            # bigger than WhatsApp's limit, so most oversized videos are fixed automatically.
+                            # IMPORTANT: agar conversion khud hi fail ho (ffmpeg error), hum process ko
+                            # yahi ROK dete hain — galat/incompatible file WhatsApp ko kabhi nahi bheji jaati.
                             if file_ext in ["mp4", "mov", "3gp"]:
-                                import subprocess
-                                import tempfile
+                                status_box = st.empty()
+                                file_bytes, file_ext, content_type = convert_video_for_whatsapp(
+                                    file_bytes, file_ext,
+                                    target_bytes=MAX_MEDIA_BYTES,
+                                    status_callback=lambda msg: status_box.info(msg)
+                                )
+                                status_box.empty()
+                                new_size_mb = len(file_bytes) / (1024 * 1024)
+                                st.toast(f"✅ Video convert & compress ho gayi! ({original_size_mb:.1f}MB → {new_size_mb:.1f}MB)")
 
-                                tmp_in_path = None
-                                tmp_out_path = None
-                                try:
-                                    with tempfile.NamedTemporaryFile(suffix=f".{file_ext}", delete=False) as tmp_in:
-                                        tmp_in.write(file_bytes)
-                                        tmp_in_path = tmp_in.name
+                            # AUTO IMAGE COMPRESSION if oversized (jpg/png/jpeg)
+                            elif file_ext in ["jpg", "jpeg", "png"] and len(file_bytes) > MAX_MEDIA_BYTES:
+                                file_bytes, file_ext, content_type = compress_image_for_whatsapp(file_bytes, MAX_MEDIA_BYTES)
+                                new_size_mb = len(file_bytes) / (1024 * 1024)
+                                st.toast(f"✅ Image compress ho gayi! ({original_size_mb:.1f}MB → {new_size_mb:.1f}MB)")
 
-                                    tmp_out_path = tmp_in_path + "_converted.mp4"
-
-                                    subprocess.run(
-                                        [
-                                            "ffmpeg", "-y", "-i", tmp_in_path,
-                                            "-c:v", "libx264", "-profile:v", "baseline",
-                                            "-pix_fmt", "yuv420p", "-c:a", "aac",
-                                            "-movflags", "+faststart",
-                                            tmp_out_path
-                                        ],
-                                        check=True,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE
-                                    )
-                                    with open(tmp_out_path, "rb") as f:
-                                        file_bytes = f.read()
-                                    file_ext = "mp4"
-                                    content_type = "video/mp4"
-                                except Exception as ffmpeg_err:
-                                    st.warning(f"⚠️ Video ko WhatsApp-compatible format me convert nahi kiya ja saka, original file bheji ja rahi hai. ({ffmpeg_err})")
-                                finally:
-                                    if tmp_in_path and os.path.exists(tmp_in_path):
-                                        os.remove(tmp_in_path)
-                                    if tmp_out_path and os.path.exists(tmp_out_path):
-                                        os.remove(tmp_out_path)
+                            # FINAL SIZE CHECK — agar auto-compress ke baad bhi limit se bada hai
+                            # (e.g. bahut badi PDF, ya video/image jise compress karke bhi limit
+                            # tak nahi laya ja saka), tabhi yahan rukte hain.
+                            if len(file_bytes) > MAX_MEDIA_BYTES:
+                                size_mb = len(file_bytes) / (1024 * 1024)
+                                st.error(
+                                    f"🚨 Auto-compress karne ke baad bhi file size {size_mb:.1f}MB hai, jo WhatsApp ki "
+                                    f"{MAX_MEDIA_BYTES / (1024*1024):.0f}MB limit se zyada hai. Kripya chhoti/kam-duration "
+                                    f"file try karein."
+                                )
+                                st.stop()
 
                             unique_filename = f"{int(time.time())}.{file_ext}"
 
@@ -340,7 +523,23 @@ if check_password():
                                 {"content-type": content_type}
                             )
                             media_url = supabase.storage.from_("whatsapp_media").get_public_url(unique_filename)
-                            st.toast("✅ File Upload Success!")
+
+                            # VERIFY THE URL IS ACTUALLY PUBLICLY FETCHABLE — exactly what
+                            # WhatsApp's servers will attempt. If this fails, stop here with
+                            # a clear reason instead of letting Interakt fail per-contact.
+                            ok, detail = verify_public_url(media_url)
+                            if not ok:
+                                st.error(
+                                    f"🚨 File upload toh ho gayi, par uska link publicly accessible nahi hai "
+                                    f"({detail}). Kya 'whatsapp_media' bucket Supabase me PUBLIC set hai? "
+                                    f"(Storage → whatsapp_media → Settings → Public bucket = ON)"
+                                )
+                                st.stop()
+
+                            st.toast("✅ File Upload & Verify Success!")
+                        except RuntimeError as e:
+                            st.error(f"🚨 Video conversion fail ho gaya, isliye process rok diya gaya: {e}")
+                            st.stop()
                         except Exception as e:
                             st.error(f"🚨 File upload fail ho gaya: {e}")
                             st.warning("👉🏻 Kripya dhyaan dein: Kya aapne Supabase me 'whatsapp_media' naam ka PUBLIC bucket banaya hai?")
