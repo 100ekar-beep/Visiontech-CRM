@@ -15,6 +15,12 @@ try:
 except Exception:
     PIL_AVAILABLE = False
 
+try:
+    import phonenumbers
+    PHONENUMBERS_AVAILABLE = True
+except Exception:
+    PHONENUMBERS_AVAILABLE = False
+
 # --- PAGE CONFIGURATION (Premium UI) ---
 st.set_page_config(page_title="Marketing Dashboard", page_icon="📈", layout="wide")
 
@@ -160,6 +166,62 @@ def check_password():
         return True
 
 # --- SMART HINDI RESHAPER FOR FPDF (Fix for Chhoti Ee and Ligatures) ---
+def split_country_code(raw_number):
+    """
+    Detects the correct country calling code + local number for ANY country
+    (not just India), so contacts saved with different country prefixes
+    (e.g. India '919954480411', Nepal '9779852021836') are handled correctly
+    instead of always forcing '+91'.
+
+    Returns (country_code_str_without_plus, local_number_str).
+    Raises ValueError if the number can't be confidently parsed.
+    """
+    cleaned = "".join(ch for ch in str(raw_number).strip() if ch.isdigit() or ch == "+")
+    if not cleaned:
+        raise ValueError("Number khaali/invalid hai.")
+
+    e164_candidate = cleaned if cleaned.startswith("+") else "+" + cleaned
+
+    if PHONENUMBERS_AVAILABLE:
+        try:
+            parsed = phonenumbers.parse(e164_candidate, None)
+            if phonenumbers.is_valid_number(parsed):
+                return str(parsed.country_code), str(parsed.national_number)
+        except Exception:
+            pass
+
+    # Fallback (used only if 'phonenumbers' library isn't installed, or parsing
+    # was inconclusive): match against a list of known ITU country calling
+    # codes, longest prefix first, so e.g. '977' (Nepal) isn't mistaken for '9'.
+    known_codes = [
+        "1", "7", "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41",
+        "43", "44", "45", "46", "47", "48", "49", "51", "52", "53", "54", "55", "56",
+        "57", "58", "60", "61", "62", "63", "64", "65", "66", "81", "82", "84", "86",
+        "90", "91", "92", "93", "94", "95", "98", "211", "212", "213", "216", "218",
+        "220", "221", "222", "223", "224", "225", "226", "227", "228", "229", "230",
+        "231", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241",
+        "242", "243", "244", "245", "246", "248", "249", "250", "251", "252", "253",
+        "254", "255", "256", "257", "258", "260", "261", "262", "263", "264", "265",
+        "266", "267", "268", "269", "290", "291", "297", "298", "299", "350", "351",
+        "352", "353", "354", "355", "356", "357", "358", "359", "370", "371", "372",
+        "373", "374", "375", "376", "377", "378", "380", "381", "382", "383", "385",
+        "386", "387", "389", "420", "421", "423", "500", "501", "502", "503", "504",
+        "505", "506", "507", "508", "509", "590", "591", "592", "593", "594", "595",
+        "596", "597", "598", "599", "670", "672", "673", "674", "675", "676", "677",
+        "678", "679", "680", "681", "682", "683", "685", "686", "687", "688", "689",
+        "690", "691", "692", "850", "852", "853", "855", "856", "870", "880", "886",
+        "960", "961", "962", "963", "964", "965", "966", "967", "968", "970", "971",
+        "972", "973", "974", "975", "976", "977", "992", "993", "994", "995", "996",
+        "998",
+    ]
+    digits_only = e164_candidate.lstrip("+")
+    for code in sorted(set(known_codes), key=len, reverse=True):
+        if digits_only.startswith(code) and len(digits_only) - len(code) >= 7:
+            return code, digits_only[len(code):]
+
+    raise ValueError(f"'{raw_number}' ka country code detect nahi ho paaya.")
+
+
 def reshape_hindi_text(text):
     if not text: return text
     chars = list(str(text))
@@ -557,13 +619,23 @@ if check_password():
                 for person in contacts_list:
                     name = person['contact_name']
                     number = person['mobile_number']
-                    
+
                     # DYNAMIC BODY VALUES GENERATION
                     final_body_values = [name] + [inp.strip() for inp in msg_inputs_list]
-                    
+
+                    # AUTO COUNTRY-CODE DETECTION — works for India, Nepal, ya koi bhi
+                    # country ka number (pehle sirf hardcoded '+91' hota tha, jisse
+                    # Nepal (+977) jaise numbers par message jaata hi nahi tha).
+                    try:
+                        detected_code, local_number = split_country_code(number)
+                    except ValueError as e:
+                        error_count += 1
+                        report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {e}"})
+                        continue
+
                     payload = {
-                        "countryCode": "+91",
-                        "phoneNumber": number.replace("91", "", 1) if number.startswith("91") else number,
+                        "countryCode": f"+{detected_code}",
+                        "phoneNumber": local_number,
                         "type": "Template",
                         "template": {
                             "name": selected_template_name.strip().lower(),
