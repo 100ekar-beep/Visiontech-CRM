@@ -8,6 +8,10 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Quotation List", page_icon="📄", layout="wide")
 
+# --- NEW: MOBILE VIEW TOGGLE STATE ---
+if 'quo_view_mode' not in st.session_state:
+    st.session_state.quo_view_mode = "table"
+
 # --- 2. LAVISH CUSTOM CSS (Matches Screenshots & Sidebar) ---
 st.markdown("""
     <style>
@@ -135,6 +139,25 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
+
+    /* =========================================================
+       NEW: MOBILE-FRIENDLY CARD VIEW (light theme, matches this page)
+       ========================================================= */
+    .quo-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    }
+    .quo-card-title { font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
+    .quo-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .quo-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; gap: 10px; }
+    .quo-card-row:last-child { border-bottom: none; }
+    .quo-card-label { color: #64748b; font-weight: 700; white-space: nowrap; text-transform: uppercase; font-size: 0.75rem; }
+    .quo-card-value { color: #0f172a; font-weight: 600; text-align: right; }
+    .quo-card-value.amount { color: #4f46e5; font-weight: 800; font-size: 0.95rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -502,7 +525,7 @@ def quotation_dialog(quotation_data=None):
                 st.error(f"Database Error: {e}")
 
 # --- 7. TOP HEADER & FILTERS ---
-col_head1, col_head2, col_head3, col_head4 = st.columns([4, 2, 2, 2])
+col_head1, col_head2, col_head3, col_head4, col_head5 = st.columns([3.5, 1.8, 1.6, 1.6, 1.6])
 with col_head1:
     st.markdown("<h1 style='margin:0; color:#0f172a;'>Quotation List</h1>", unsafe_allow_html=True)
 with col_head2:
@@ -511,6 +534,12 @@ with col_head3:
     if st.button("➕ Add Record", type="primary", use_container_width=True):
         quotation_dialog()
 with col_head4:
+    # --- NEW: MOBILE / TABLE VIEW TOGGLE ---
+    toggle_label = "📱 Mobile View" if st.session_state.quo_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="quo_view_mode_toggle"):
+        st.session_state.quo_view_mode = "cards" if st.session_state.quo_view_mode == "table" else "table"
+        st.rerun()
+with col_head5:
     with st.popover("📥 Download Options", use_container_width=True):
         st.markdown("##### Filter by Date Range")
         d_from = st.date_input("From Date", value=datetime.date.today() - datetime.timedelta(days=30))
@@ -585,7 +614,7 @@ with col_head4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 8. MAIN SCREEN QUOTATION LIST ---
+# --- 8. MAIN SCREEN QUOTATION LIST (table editor or mobile cards) ---
 df_display = st.session_state.quotations_df.copy()
 
 # Sort the dataframe to show the newest quotations at the top
@@ -602,53 +631,103 @@ if not df_display.empty and search_q:
 # --- Exact columns requested for Main Screen ---
 disp_cols = ["Date", "Project ID", "Site ID", "Site Name", "Cluster", "Project Name", "Quotation Amount"]
 
-if not df_display.empty:
-    for c in disp_cols:
-        if c not in df_display.columns:
-            df_display[c] = ""
-            
-    df_list = df_display[disp_cols].copy()
-    df_list.insert(0, "Action", False)
-    df_list.insert(0, "#", range(1, len(df_list) + 1))
+if st.session_state.quo_view_mode == "cards":
+    # ---------------------------------------------------------------
+    # NEW: MOBILE-FRIENDLY CARD VIEW - one card per quotation
+    # ---------------------------------------------------------------
+    if df_display.empty:
+        st.info("No quotation records found.")
+    else:
+        for c in disp_cols:
+            if c not in df_display.columns:
+                df_display[c] = ""
+
+        for pos, (_, row) in enumerate(df_display.iterrows(), start=1):
+            row_dict = row.to_dict()
+            q_name = row_dict.get("Quotation Name", "")
+            amount = row_dict.get("Quotation Amount", 0)
+            try:
+                amount_fmt = f"₹ {int(amount):,}"
+            except Exception:
+                amount_fmt = f"₹ {amount}"
+
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="quo-card-title">#{pos} — {q_name or '-'}</div>
+                    <div class="quo-card-sub">{row_dict.get('Date','') or '-'} • {row_dict.get('Project ID','') or '-'}</div>
+                    <div class="quo-card-row"><span class="quo-card-label">Site ID</span><span class="quo-card-value">{row_dict.get('Site ID','') or '-'}</span></div>
+                    <div class="quo-card-row"><span class="quo-card-label">Site Name</span><span class="quo-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
+                    <div class="quo-card-row"><span class="quo-card-label">Cluster</span><span class="quo-card-value">{row_dict.get('Cluster','') or '-'}</span></div>
+                    <div class="quo-card-row"><span class="quo-card-label">Project</span><span class="quo-card-value">{row_dict.get('Project Name','') or '-'}</span></div>
+                    <div class="quo-card-row"><span class="quo-card-label">Grand Total</span><span class="quo-card-value amount">{amount_fmt}</span></div>
+                """, unsafe_allow_html=True)
+
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("👁️ View / Edit", key=f"card_quo_view_{q_name}_{pos}", use_container_width=True):
+                        quotation_dialog(row_dict)
+                with bc2:
+                    if st.button("🗑️ Delete", key=f"card_quo_del_{q_name}_{pos}", use_container_width=True):
+                        try:
+                            supabase.table("quotations").delete().eq("Quotation Name", q_name).execute()
+                            supabase.table("quotation_items").delete().eq("Quotation Name", q_name).execute()
+                            st.session_state.quotations_df = fetch_quotations()
+                            st.success(f"✅ Deleted {q_name}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting: {e}")
+
 else:
-    df_list = pd.DataFrame(columns=["Action", "#"] + disp_cols)
+    # ---------------------------------------------------------------
+    # DESKTOP TABLE VIEW (unchanged data_editor + selection based action bar)
+    # ---------------------------------------------------------------
+    if not df_display.empty:
+        for c in disp_cols:
+            if c not in df_display.columns:
+                df_display[c] = ""
 
-edited_list = st.data_editor(
-    df_list,
-    use_container_width=True,
-    hide_index=True,
-    height=500,
-    column_config={
-        "Action": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
-        "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
-        "Quotation Amount": st.column_config.NumberColumn("GRAND GRAND TOTAL", format="₹ %d"),
-        "Project Name": st.column_config.TextColumn("PROJECT"),
-        "Site ID": st.column_config.TextColumn("SITE CODE"),
-        "Cluster": st.column_config.TextColumn("CLUSTER")
-    }
-)
+        df_list = df_display[disp_cols].copy()
+        df_list.insert(0, "Action", False)
+        df_list.insert(0, "#", range(1, len(df_list) + 1))
+    else:
+        df_list = pd.DataFrame(columns=["Action", "#"] + disp_cols)
 
-selected_rows = edited_list[edited_list["Action"] == True]
-if not selected_rows.empty:
-    st.markdown("---")
-    col_act1, col_act2, _ = st.columns([2, 2, 8])
-    
-    selected_index = selected_rows.index[0]
-    if selected_index < len(df_display):
-        actual_data = df_display.iloc[selected_index].to_dict()
+    edited_list = st.data_editor(
+        df_list,
+        use_container_width=True,
+        hide_index=True,
+        height=500,
+        column_config={
+            "Action": st.column_config.CheckboxColumn("SELECT", width="small", default=False),
+            "#": st.column_config.NumberColumn("#", width="small", alignment="center"),
+            "Quotation Amount": st.column_config.NumberColumn("GRAND GRAND TOTAL", format="₹ %d"),
+            "Project Name": st.column_config.TextColumn("PROJECT"),
+            "Site ID": st.column_config.TextColumn("SITE CODE"),
+            "Cluster": st.column_config.TextColumn("CLUSTER")
+        }
+    )
+
+    selected_rows = edited_list[edited_list["Action"] == True]
+    if not selected_rows.empty:
+        st.markdown("---")
+        col_act1, col_act2, _ = st.columns([2, 2, 8])
         
-        with col_act1:
-            if st.button("👁️ View / Edit", type="primary", use_container_width=True):
-                quotation_dialog(actual_data)
-                
-        with col_act2:
-            if st.button("🗑️ Delete", type="secondary", use_container_width=True):
-                try:
-                    q_name = actual_data["Quotation Name"]
-                    supabase.table("quotations").delete().eq("Quotation Name", q_name).execute()
-                    supabase.table("quotation_items").delete().eq("Quotation Name", q_name).execute()
-                    st.session_state.quotations_df = fetch_quotations()
-                    st.success(f"✅ Deleted {q_name}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error deleting: {e}")
+        selected_index = selected_rows.index[0]
+        if selected_index < len(df_display):
+            actual_data = df_display.iloc[selected_index].to_dict()
+            
+            with col_act1:
+                if st.button("👁️ View / Edit", type="primary", use_container_width=True):
+                    quotation_dialog(actual_data)
+                    
+            with col_act2:
+                if st.button("🗑️ Delete", type="secondary", use_container_width=True):
+                    try:
+                        q_name = actual_data["Quotation Name"]
+                        supabase.table("quotations").delete().eq("Quotation Name", q_name).execute()
+                        supabase.table("quotation_items").delete().eq("Quotation Name", q_name).execute()
+                        st.session_state.quotations_df = fetch_quotations()
+                        st.success(f"✅ Deleted {q_name}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting: {e}")
