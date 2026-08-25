@@ -708,11 +708,13 @@ def add_record_dialog():
                     st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
                     has_error = True
             
+            # --- FIX: DUPLICATE PROJECT ID CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
             if not has_error:
+                active_ws_check = st.session_state.get('active_workspace', 'VISPL')
                 try:
-                    dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).execute()
+                    dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).eq("workspace", active_ws_check).execute()
                     if len(dup_check.data) > 0:
-                        st.error("❌ Project ID already exist")
+                        st.error(f"❌ Project ID already exist in '{active_ws_check}' workspace")
                         has_error = True
                 except Exception:
                     pass
@@ -760,10 +762,11 @@ def add_record_dialog():
                         )
                     
                     # --- SAVE OPTIONAL WAREHOUSE MATERIAL ---
+                    active_ws_save = st.session_state.get('active_workspace', 'VISPL')
                     for i in range(len(a_mat_item_codes)):
                         if a_mat_item_codes[i].strip() != "" and a_mat_boqs[i].strip() != "":
                             insert_wh = {
-                                "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                                "workspace": active_ws_save,
                                 "Project ID": proj_id,
                                 "Site ID": site_id,
                                 "Site Name": site_name,
@@ -781,7 +784,8 @@ def add_record_dialog():
                                 "Remark": a_mat_remarks[i]
                             }
                             try:
-                                dup_wh = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).execute()
+                                # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
+                                dup_wh = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).eq("workspace", active_ws_save).execute()
                                 if not dup_wh.data:
                                     supabase.table("warehouse_data").insert(insert_wh).execute()
                             except Exception:
@@ -1217,6 +1221,7 @@ def material_movement_dialog(row_data):
                     break
                     
             proj_id = row_data.get('Project ID', '')
+            active_ws_mat = st.session_state.get('active_workspace', 'VISPL')
             seen_codes = set()
             if not has_m_err:
                 for idx, ic in enumerate(mat_item_codes):
@@ -1231,13 +1236,14 @@ def material_movement_dialog(row_data):
                         break
                     seen_codes.add(code_str)
 
+            # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
             if not has_m_err and proj_id:
                 for ic in mat_item_codes:
                     code_str = ic.strip()
                     try:
-                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).execute()
+                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).eq("workspace", active_ws_mat).execute()
                         if dup_check.data and len(dup_check.data) > 0:
-                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}'.")
+                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}' in '{active_ws_mat}' workspace.")
                             has_m_err = True
                             break
                     except Exception:
@@ -1247,7 +1253,7 @@ def material_movement_dialog(row_data):
                 try:
                     for i in range(len(mat_item_codes)):
                         insert_dict = {
-                            "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                            "workspace": active_ws_mat,
                             "Project ID": proj_id,
                             "Site ID": row_data.get('Site ID', ''),
                             "Site Name": row_data.get('Site Name', ''),
@@ -1450,14 +1456,25 @@ def bulk_upload_dialog():
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
                     
+                active_ws_bulk = st.session_state.get('active_workspace', 'VISPL')
                 added_count = 0
+                skipped_dup_count = 0
                 for index, row in df_upload.iterrows():
                     p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
                     if not p_id or p_id.lower() == "nan":
                         continue
+
+                    # --- FIX: SKIP DUPLICATE PROJECT ID WITHIN CURRENT WORKSPACE ---
+                    try:
+                        dup_bulk = supabase.table("site_data").select("Project ID").eq("Project ID", p_id).eq("workspace", active_ws_bulk).execute()
+                        if dup_bulk.data and len(dup_bulk.data) > 0:
+                            skipped_dup_count += 1
+                            continue
+                    except Exception:
+                        pass
                     
                     insert_dict = {}
-                    insert_dict["workspace"] = st.session_state.get('active_workspace', 'VISPL')
+                    insert_dict["workspace"] = active_ws_bulk
                     for col in columns_list:
                         if col != "id" and col != "🎯 Select":
                             val = row.get(col, row.get(col.lower(), ""))
@@ -1495,7 +1512,7 @@ def bulk_upload_dialog():
                     except Exception:
                         pass
                         
-                st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully.")
+                st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully. ({skipped_dup_count} skipped as duplicate Project ID in '{active_ws_bulk}')")
                 st.session_state.current_page = 1 # <--- NEW: Switch to page 1
                 st.rerun()
             except Exception as e:
