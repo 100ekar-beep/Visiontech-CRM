@@ -16,6 +16,10 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 
+# --- NEW: MOBILE VIEW TOGGLE STATE ---
+if 'po_view_mode' not in st.session_state:
+    st.session_state.po_view_mode = "table"
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -289,6 +293,23 @@ st.markdown("""
         text-align: center;
         letter-spacing: 0.5px;
     }
+
+    /* =========================================================
+       NEW: MOBILE-FRIENDLY CARD VIEW
+       ========================================================= */
+    .po-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+    .po-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
+    .po-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
+    .po-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    .po-card-row:last-child { border-bottom: none; }
+    .po-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
+    .po-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -725,8 +746,8 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 6. LAVISH UNIVERSAL SEARCH BOX ---
-col_table_title, col_search = st.columns([7, 3])
+# --- 6. LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
     st.markdown("##### 🗄️ Uploaded PO Summary")
 with col_search:
@@ -735,6 +756,11 @@ with col_search:
     else:
         search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
         st.caption("Auto-search requires `streamlit-keyup`. Run: `pip install streamlit-keyup`")
+with col_viewtoggle:
+    toggle_label = "📱 Mobile View" if st.session_state.po_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="po_view_mode_toggle"):
+        st.session_state.po_view_mode = "cards" if st.session_state.po_view_mode == "table" else "table"
+        st.rerun()
 
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
@@ -763,116 +789,164 @@ elif st.session_state.po_current_page < 1:
 start_idx = (st.session_state.po_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 8. SUMMARY DATA TABLE ---
+# --- 8. SUMMARY DATA TABLE (or mobile cards) ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-# Total 8 cols (Sr No + 2 Buttons + 5 Data -> Project Name, Status Badge, Site ID, Site Name, PO Number)
-COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.3, 1.2, 1.8, 1.2] 
-COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
+def render_po_delete_confirm(safe_po_key, po_num, key_prefix=""):
+    """Shared inline delete confirmation block, used by both table and card view."""
+    if st.session_state.get(f"confirm_del_{safe_po_key}"):
+        wc1, wc2, wc3 = st.columns([6, 1, 1])
+        with wc1:
+            st.warning(f"Delete PO '{po_num}'? This will remove all associated items.")
+        with wc2:
+            if st.button("✅ Confirm", key=f"{key_prefix}confirm_yes_{safe_po_key}", use_container_width=True):
+                try:
+                    supabase.table("po_working").delete().eq("PO Number", po_num).execute()
+                    if 'po_working_df' in st.session_state:
+                        del st.session_state['po_working_df']
+                    st.session_state[f"confirm_del_{safe_po_key}"] = False
+                    st.success(f"✅ PO {po_num} Deleted Successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Deleting Record: {e}")
+        with wc3:
+            if st.button("❌ Cancel", key=f"{key_prefix}confirm_no_{safe_po_key}", use_container_width=True):
+                st.session_state[f"confirm_del_{safe_po_key}"] = False
+                st.rerun()
 
-with st.container(key="po_table_wrap", height=560):
-    if df_page.empty:
-        st.info("No PO records found.")
-    else:
-        # Header
-        h_cols = st.columns(COL_RATIOS)
-        for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
-        
-        # Pre-fetch site data availability matching both Site ID and Project Name/ID flexibly
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        
-        # Clean lists for query
-        site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
-        project_names_on_page = [str(x).strip() for x in df_page['Project Name'].unique() if str(x).strip() and str(x).strip() != '-']
-        
-        available_sites = set()
-        available_projects = set()
+if df_page.empty:
+    st.info("No PO records found.")
+else:
+    # Pre-fetch site data availability matching both Site ID and Project Name/ID flexibly
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
 
-        if site_ids_on_page:
-            try:
-                # FIX: Check Site ID column using select("*") to avoid PostgREST space parsing errors
-                res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
-                if res_check.data:
-                    available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data if item.get("Site ID")})
-            except Exception:
-                pass
+    # Clean lists for query
+    site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
+    project_names_on_page = [str(x).strip() for x in df_page['Project Name'].unique() if str(x).strip() and str(x).strip() != '-']
 
-        if project_names_on_page:
-            try:
-                # FIX: Check Project ID column using select("*") to avoid PostgREST space parsing errors
-                res_check_pid = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
-                if res_check_pid.data:
-                    available_projects.update({str(item.get("Project ID")).strip() for item in res_check_pid.data if item.get("Project ID")})
-            except Exception:
-                pass
-                
-            try:
-                # Fallback: Check Project Name column as well using select("*")
-                res_check_pname = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
-                if res_check_pname.data:
-                    available_projects.update({str(item.get("Project Name")).strip() for item in res_check_pname.data if item.get("Project Name")})
-            except Exception:
-                pass
+    available_sites = set()
+    available_projects = set()
 
-        # Rows
+    if site_ids_on_page:
+        try:
+            # FIX: Check Site ID column using select("*") to avoid PostgREST space parsing errors
+            res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
+            if res_check.data:
+                available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data if item.get("Site ID")})
+        except Exception:
+            pass
+
+    if project_names_on_page:
+        try:
+            # FIX: Check Project ID column using select("*") to avoid PostgREST space parsing errors
+            res_check_pid = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
+            if res_check_pid.data:
+                available_projects.update({str(item.get("Project ID")).strip() for item in res_check_pid.data if item.get("Project ID")})
+        except Exception:
+            pass
+
+        try:
+            # Fallback: Check Project Name column as well using select("*")
+            res_check_pname = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
+            if res_check_pname.data:
+                available_projects.update({str(item.get("Project Name")).strip() for item in res_check_pname.data if item.get("Project Name")})
+        except Exception:
+            pass
+
+    if st.session_state.po_view_mode == "cards":
+        # ---------------------------------------------------------------
+        # NEW: MOBILE-FRIENDLY CARD VIEW - one card per PO record
+        # ---------------------------------------------------------------
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             po_num = str(row_dict.get('PO Number', '')).strip()
             site_id_val = str(row_dict.get('Site ID', '')).strip()
             proj_name_val = str(row_dict.get('Project Name', '')).strip()
-            
+
             serial_no = start_idx + page_pos + 1
-            safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
-            
-            # Determine Site Status based on presence in ANY matched set
+            safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}"
+
             is_site_avail = site_id_val and site_id_val in available_sites
             is_proj_avail = proj_name_val and proj_name_val in available_projects
-            
+
             if is_site_avail or is_proj_avail:
                 status_html = "<span class='status-badge-green'>🟢 Available</span>"
             else:
                 status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
-            
-            rcols = st.columns(COL_RATIOS)
-            
-            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-            
-            with rcols[1]:
-                with st.container(key=f"ebtn_{safe_po_key}"):
-                    if st.button("✏️", key=f"edit_{safe_po_key}", help="Edit Details", use_container_width=True):
-                        view_po_details_dialog(row_dict)
-            with rcols[2]:
-                with st.container(key=f"dbtn_{safe_po_key}"):
-                    if st.button("🗑️", key=f"del_{safe_po_key}", help="Delete", use_container_width=True):
-                        st.session_state[f"confirm_del_{safe_po_key}"] = True
-                        
-            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
 
-            # Inline delete confirmation
-            if st.session_state.get(f"confirm_del_{safe_po_key}"):
-                wc1, wc2, wc3 = st.columns([6, 1, 1])
-                with wc1:
-                    st.warning(f"Delete PO '{po_num}'? This will remove all associated items.")
-                with wc2:
-                    if st.button("✅ Confirm", key=f"confirm_yes_{safe_po_key}", use_container_width=True):
-                        try:
-                            supabase.table("po_working").delete().eq("PO Number", po_num).execute()
-                            if 'po_working_df' in st.session_state:
-                                del st.session_state['po_working_df']
-                            st.session_state[f"confirm_del_{safe_po_key}"] = False
-                            st.success(f"✅ PO {po_num} Deleted Successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error Deleting Record: {e}")
-                with wc3:
-                    if st.button("❌ Cancel", key=f"confirm_no_{safe_po_key}", use_container_width=True):
-                        st.session_state[f"confirm_del_{safe_po_key}"] = False
-                        st.rerun()
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="po-card-title">#{serial_no} — PO {row_dict.get('PO Number','') or '-'}</div>
+                    <div class="po-card-sub">{row_dict.get('Project Name','') or '-'}</div>
+                    <div class="po-card-row"><span class="po-card-label">Site Status</span><span class="po-card-value">{status_html}</span></div>
+                    <div class="po-card-row"><span class="po-card-label">Site ID</span><span class="po-card-value">{row_dict.get('Site ID','') or '-'}</span></div>
+                    <div class="po-card-row"><span class="po-card-label">Site Name</span><span class="po-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
+                """, unsafe_allow_html=True)
+
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("✏️ Edit", key=f"card_edit_{safe_po_key}", use_container_width=True):
+                        view_po_details_dialog(row_dict)
+                with bc2:
+                    if st.button("🗑️ Delete", key=f"card_del_{safe_po_key}", use_container_width=True):
+                        st.session_state[f"confirm_del_{safe_po_key}"] = True
+
+                render_po_delete_confirm(safe_po_key, po_num, key_prefix="card_")
+
+    else:
+        # ---------------------------------------------------------------
+        # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+        # ---------------------------------------------------------------
+        # Total 8 cols (Sr No + 2 Buttons + 5 Data -> Project Name, Status Badge, Site ID, Site Name, PO Number)
+        COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.3, 1.2, 1.8, 1.2] 
+        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
+
+        with st.container(key="po_table_wrap", height=560):
+            # Header
+            h_cols = st.columns(COL_RATIOS)
+            for h_col, label in zip(h_cols, COL_LABELS):
+                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+
+            # Rows
+            for page_pos, (_, row) in enumerate(df_page.iterrows()):
+                row_dict = row.to_dict()
+                po_num = str(row_dict.get('PO Number', '')).strip()
+                site_id_val = str(row_dict.get('Site ID', '')).strip()
+                proj_name_val = str(row_dict.get('Project Name', '')).strip()
+                
+                serial_no = start_idx + page_pos + 1
+                safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
+                
+                # Determine Site Status based on presence in ANY matched set
+                is_site_avail = site_id_val and site_id_val in available_sites
+                is_proj_avail = proj_name_val and proj_name_val in available_projects
+                
+                if is_site_avail or is_proj_avail:
+                    status_html = "<span class='status-badge-green'>🟢 Available</span>"
+                else:
+                    status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
+                
+                rcols = st.columns(COL_RATIOS)
+                
+                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+                
+                with rcols[1]:
+                    with st.container(key=f"ebtn_{safe_po_key}"):
+                        if st.button("✏️", key=f"edit_{safe_po_key}", help="Edit Details", use_container_width=True):
+                            view_po_details_dialog(row_dict)
+                with rcols[2]:
+                    with st.container(key=f"dbtn_{safe_po_key}"):
+                        if st.button("🗑️", key=f"del_{safe_po_key}", help="Delete", use_container_width=True):
+                            st.session_state[f"confirm_del_{safe_po_key}"] = True
+                            
+                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
+
+                # Inline delete confirmation
+                render_po_delete_confirm(safe_po_key, po_num, key_prefix="")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
