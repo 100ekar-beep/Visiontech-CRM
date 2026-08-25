@@ -1,4 +1,6 @@
 import streamlit as st
+import streamlit.components.v1 as components
+import json
 
 # --- EXISTING CODE (100% UNTOUCHED) ---
 st.set_page_config(
@@ -120,3 +122,61 @@ with col2:
             <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
         </div>
         """, unsafe_allow_html=True)
+
+
+# ==============================================================
+# --- NEW REQUIREMENT: WORKSPACE-BASED SIDEBAR PAGE FILTER ---
+# ==============================================================
+# Rajkumar Kalya login me sirf ye 2 page dikhne chahiye:
+#   1. Marketing
+#   2. Rajkumar Contact
+# Baaki sab workspaces (VISPL, Bhagyashree, Sai Tele Services) me
+# ye 2 page CHHOD KAR baaki sab pages dikhne chahiye.
+#
+# IMPORTANT: Neeche list me EXACT wahi naam daalein jo aapke
+# "pages/" folder ki files se sidebar me dikh rahe hain
+# (numbers "1_", "2_" aur underscores hat jaate hain, emoji/icon
+# alag se render hota hai — sirf text label match karna hai).
+# Agar aapke actual sidebar labels different hain to yahan update kar dein.
+
+RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
+
+_active_ws = st.session_state['active_workspace']
+
+if _active_ws == "RAJKUMAR KALYA":
+    _mode = "whitelist"       # sirf RAJKUMAR_PAGES dikhenge
+else:
+    _mode = "blacklist"       # RAJKUMAR_PAGES chhod kar baaki sab dikhenge
+
+components.html(f"""
+<script>
+const allowedPages = {json.dumps(RAJKUMAR_PAGES)};
+const mode = "{_mode}";
+
+function filterSidebarNav() {{
+    const navLinks = window.parent.document.querySelectorAll('[data-testid="stSidebarNav"] a');
+    navLinks.forEach(function(link) {{
+        const span = link.querySelector('span');
+        const label = (span ? span.textContent : link.textContent).trim();
+        let hide = false;
+        if (mode === "whitelist") {{
+            hide = !allowedPages.includes(label);
+        }} else {{
+            hide = allowedPages.includes(label);
+        }}
+        link.style.display = hide ? "none" : "flex";
+    }});
+}}
+
+filterSidebarNav();
+
+const navContainer = window.parent.document.querySelector('[data-testid="stSidebarNav"]');
+if (navContainer) {{
+    const observer = new MutationObserver(filterSidebarNav);
+    observer.observe(navContainer, {{ childList: true, subtree: true }});
+}}
+
+// Fallback: Streamlit kabhi kabhi nav ko re-render karta hai bina mutation trigger kiye
+setInterval(filterSidebarNav, 400);
+</script>
+""", height=0)
