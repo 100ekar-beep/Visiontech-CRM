@@ -239,6 +239,29 @@ def reshape_hindi_text(text):
     return "".join(chars)
 
 
+# --- SUPABASE PAGINATION HELPER ---
+# By default Supabase/PostgREST caps every query response at 1000 rows, even
+# without an explicit .limit(). If whatsapp_contacts has grown past 1000 rows,
+# any list_name whose rows sit "after" that cutoff (e.g. List_15) simply never
+# arrives in the response, so it silently disappears from the dropdown.
+# This helper pages through in batches of 1000 until every row is fetched.
+def fetch_all_rows(supabase_client, table_name, select_cols, filters=None, page_size=1000):
+    all_rows = []
+    start = 0
+    while True:
+        query = supabase_client.table(table_name).select(select_cols)
+        if filters:
+            for col, val in filters.items():
+                query = query.eq(col, val)
+        resp = query.range(start, start + page_size - 1).execute()
+        batch = resp.data or []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+
 def _run_ffmpeg_pass(tmp_in_path, tmp_out_path, crf, scale_factor, audio_bitrate="96k"):
     """Runs a single ffmpeg encode pass with a given quality (CRF) and resolution scale."""
     import subprocess
@@ -446,8 +469,14 @@ if check_password():
         
         if supabase:
             try:
-                response = supabase.table("whatsapp_contacts").select("list_name").eq("is_active", True).execute()
-                unique_lists = list(set([row["list_name"] for row in response.data]))
+                # FIX: paginate instead of a single .execute() call, so lists
+                # whose rows sit beyond Supabase's default 1000-row cap
+                # (e.g. List_15) still show up in the dropdown.
+                all_rows = fetch_all_rows(
+                    supabase, "whatsapp_contacts", "list_name",
+                    filters={"is_active": True}
+                )
+                unique_lists = list(set([row["list_name"] for row in all_rows]))
                 unique_lists.sort()
                 
                 if unique_lists:
@@ -607,8 +636,12 @@ if check_password():
                             st.warning("👉🏻 Kripya dhyaan dein: Kya aapne Supabase me 'whatsapp_media' naam ka PUBLIC bucket banaya hai?")
                             st.stop()
 
-                contact_data = supabase.table("whatsapp_contacts").select("contact_name, mobile_number").eq("list_name", selected_list).eq("is_active", True).execute()
-                contacts_list = contact_data.data
+                # FIX: paginate here too — a selected list with more than 1000
+                # active contacts would otherwise silently only message the first 1000.
+                contacts_list = fetch_all_rows(
+                    supabase, "whatsapp_contacts", "contact_name, mobile_number",
+                    filters={"list_name": selected_list, "is_active": True}
+                )
                 
                 st.write(f"Total **{len(contacts_list)}** active contacts mile.")
                 
