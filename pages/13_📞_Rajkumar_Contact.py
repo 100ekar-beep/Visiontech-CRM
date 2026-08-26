@@ -179,7 +179,26 @@ with tab2:
 # ====== TAB 3: BULK UPLOAD (.tsv / .xlsx) ======
 with tab3:
     st.subheader("Bulk Upload Contacts (.tsv & Excel)")
-    
+
+    # --- TEMPLATE DOWNLOAD ---
+    template_df = pd.DataFrame({
+        "contact_name": ["Rajkumar Sharma", "Priya Verma"],
+        "mobile_number": ["919876543210", "919812345678"],
+        "is_active": [True, True]
+    })
+    template_buffer = io.BytesIO()
+    with pd.ExcelWriter(template_buffer, engine="openpyxl") as writer:
+        template_df.to_excel(writer, index=False, sheet_name="contacts")
+    template_buffer.seek(0)
+
+    st.download_button(
+        label="📄 Download Excel Template",
+        data=template_buffer,
+        file_name="contacts_upload_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    st.caption("Template me sirf `contact_name`, `mobile_number` aur `is_active` columns hain. `list_name` yaha nahi dalna — wo neeche text box se set hota hai.")
+
     bulk_list_name = st.text_input("Is poori file ke liye List Name (Template Name) set karein:")
     
     # MODIFIED: Added xlsx and xls support for Excel
