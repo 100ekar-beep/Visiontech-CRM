@@ -644,14 +644,21 @@ if check_password():
                 )
                 
                 st.write(f"Total **{len(contacts_list)}** active contacts mile.")
-                
+
+                # --- 🟢 LIVE PROGRESS UI 🟢 ---
+                total_contacts = len(contacts_list)
+                progress_bar = st.progress(0)
+                status_placeholder = st.empty()
+
                 success_count = 0
                 error_count = 0
                 report_logs = []
 
-                for person in contacts_list:
+                for idx, person in enumerate(contacts_list, 1):
                     name = person['contact_name']
                     number = person['mobile_number']
+
+                    status_placeholder.info(f"📤 Sending {idx}/{total_contacts} → **{name}** ({number})...")
 
                     # DYNAMIC BODY VALUES GENERATION
                     final_body_values = [name] + [inp.strip() for inp in msg_inputs_list]
@@ -664,6 +671,10 @@ if check_password():
                     except ValueError as e:
                         error_count += 1
                         report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {e}"})
+                        progress_bar.progress(idx / total_contacts)
+                        status_placeholder.info(
+                            f"📤 Sent: {success_count} ✅  |  Failed: {error_count} ❌  |  ({idx}/{total_contacts})"
+                        )
                         continue
 
                     payload = {
@@ -705,6 +716,16 @@ if check_password():
                     except Exception as e:
                         error_count += 1
                         report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
+
+                    # --- 🟢 LIVE PROGRESS UPDATE (runs every iteration) 🟢 ---
+                    progress_bar.progress(idx / total_contacts)
+                    status_placeholder.info(
+                        f"📤 Sent: {success_count} ✅  |  Failed: {error_count} ❌  |  ({idx}/{total_contacts})"
+                    )
+
+                # Loop khatam — progress bar/status clear kar do, final summary neeche dikhega
+                progress_bar.empty()
+                status_placeholder.empty()
                 
                 # ---> 🟢 LOGS TO SUPABASE 🟢 <---
                 if supabase and len(report_logs) > 0:
