@@ -883,10 +883,31 @@ else:
                     pname_val = str(item.get("Project Name", "")).strip()
                     if pid_val:
                         available_projects.add(pid_val)
+                        norm_key = pid_val.strip().upper()
                         if pname_val:
                             project_name_lookup[pid_val] = pname_val
+                            project_name_lookup[norm_key] = pname_val
         except Exception:
             pass
+
+        # Fallback: agar exact "in_" match nahi mila (spacing/case ke farak se), to workspace ke
+        # saare site_data rows utha kar normalized (trim + uppercase) match try karo.
+        missing_ids = [p for p in project_names_on_page if p.strip().upper() not in project_name_lookup]
+        if missing_ids:
+            try:
+                res_all = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
+                if res_all.data:
+                    for item in res_all.data:
+                        pid_val = str(item.get("Project ID", "")).strip()
+                        pname_val = str(item.get("Project Name", "")).strip()
+                        if pid_val:
+                            norm_key = pid_val.strip().upper()
+                            if pname_val and norm_key not in project_name_lookup:
+                                project_name_lookup[norm_key] = pname_val
+                                project_name_lookup[pid_val] = pname_val
+                            available_projects.add(pid_val)
+            except Exception:
+                pass
 
         try:
             # Fallback: Check Project Name column as well using select("*")
@@ -911,7 +932,7 @@ else:
 
             is_site_avail = site_id_val and site_id_val in available_sites
             is_proj_avail = proj_name_val and proj_name_val in available_projects
-            resolved_proj_name = project_name_lookup.get(proj_name_val, "-")
+            resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
 
             if is_site_avail or is_proj_avail:
                 status_html = "<span class='status-badge-green'>🟢 Available</span>"
@@ -958,7 +979,7 @@ else:
                 po_num = str(row_dict.get('PO Number', '')).strip()
                 site_id_val = str(row_dict.get('Site ID', '')).strip()
                 proj_name_val = str(row_dict.get('Project Name', '')).strip()
-                resolved_proj_name = project_name_lookup.get(proj_name_val, "-")
+                resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
                 
                 serial_no = start_idx + page_pos + 1
                 safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
