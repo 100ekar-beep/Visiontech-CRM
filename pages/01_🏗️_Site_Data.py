@@ -845,8 +845,8 @@ def edit_record_dialog(row_data):
             pn_opts = get_opts("Project Name", all_dd)
             proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key="ed_pn")
         with c4:
+            # --- FIX: Project ID field ab EDITABLE hai (pehle disabled=True tha) ---
             proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), key="ed_pid")
-            
             
         c5, c6, c7, c8 = st.columns(4)
         with c5:
@@ -991,6 +991,10 @@ def edit_record_dialog(row_data):
             if not site_id:
                 st.error("⚠️ Site ID dalna compulsory hai!")
                 has_error = True
+            # --- FIX: Project ID bhi ab required + validated ---
+            if not proj_id or not proj_id.strip():
+                st.error("⚠️ Project ID dalna compulsory hai!")
+                has_error = True
             for p in po_nos:
                 if p and (not p.isdigit() or len(p) != 11):
                     st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
@@ -999,11 +1003,32 @@ def edit_record_dialog(row_data):
                 if w and (not w.isdigit() or len(w) != 10):
                     st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
                     has_error = True
+
+            # --- FIX: DUPLICATE PROJECT ID CHECK (scoped to workspace, excluding this record itself) ---
+            if not has_error and proj_id.strip() != str(row_data.get('Project ID', '')).strip():
+                active_ws_check = st.session_state.get('active_workspace', 'VISPL')
+                try:
+                    dup_check = (
+                        supabase.table("site_data")
+                        .select("Project ID")
+                        .eq("Project ID", proj_id.strip())
+                        .eq("workspace", active_ws_check)
+                        .neq("id", row_data['id'])
+                        .execute()
+                    )
+                    if dup_check.data and len(dup_check.data) > 0:
+                        st.error(f"❌ Project ID already exist in '{active_ws_check}' workspace")
+                        has_error = True
+                except Exception:
+                    pass
                     
             if not has_error:
                 old_team_name = row_data.get('Team Name', '')
+                old_proj_id = row_data.get('Project ID', '')
                 
                 update_data = {
+                    # --- FIX: Project ID ab update_data me included hai ---
+                    "Project ID": proj_id.strip(),
                     "Department": dept if dept != "Select" else "",
                     "Operator": operator if operator != "Select" else "",
                     "Project Name": proj_name if proj_name != "Select" else "",
@@ -1074,6 +1099,8 @@ def edit_record_dialog(row_data):
                         }
                     # -------------------------------------------------
 
+                    if 'edit_po_count' in st.session_state:
+                        del st.session_state['edit_po_count']
                     st.rerun() 
                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
