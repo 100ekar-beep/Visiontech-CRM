@@ -16,6 +16,10 @@ if 'ers_page' not in st.session_state:
     st.session_state.ers_page = 1
 if 'invdata_page' not in st.session_state:
     st.session_state.invdata_page = 1
+if 'bhagya_page' not in st.session_state:
+    st.session_state.bhagya_page = 1
+if 'saitele_page' not in st.session_state:
+    st.session_state.saitele_page = 1
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -48,19 +52,41 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Tabs styling */
+    /* Tabs styling — big, pill-shaped, button-like */
+    div[data-testid="stTabs"] div[role="tablist"] {
+        gap: 12px !important;
+        flex-wrap: wrap !important;
+        border-bottom: none !important;
+        margin-bottom: 20px !important;
+    }
     button[data-baseweb="tab"] {
-        font-size: 1.05rem !important;
+        font-size: 1.15rem !important;
         font-weight: 800 !important;
         color: #cbd5e1 !important;
-        padding: 10px 20px !important;
+        padding: 14px 26px !important;
+        height: auto !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 12px !important;
+        transition: all 0.25s ease !important;
+    }
+    button[data-baseweb="tab"]:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateY(-2px) !important;
+        color: #ffffff !important;
+    }
+    button[data-baseweb="tab"] p {
+        font-size: 1.15rem !important;
+        font-weight: 800 !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
         color: #ffffff !important;
-        border-bottom: 3px solid #8b5cf6 !important;
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        border-color: transparent !important;
+        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4) !important;
     }
-    div[data-baseweb="tab-highlight"] { background-color: #8b5cf6 !important; }
-    div[data-baseweb="tab-border"] { background-color: rgba(255,255,255,0.08) !important; }
+    div[data-baseweb="tab-highlight"] { background-color: transparent !important; }
+    div[data-baseweb="tab-border"] { background-color: transparent !important; }
 
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
@@ -842,7 +868,9 @@ columns_list = [
     "balance", "remark"
 ]
 
-tab1, tab2, tab3 = st.tabs(["📋 VIS Invoice", "⚙️ ERS Process", "📁 Invoice Data"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📋 VIS Invoice", "⚙️ ERS Process", "📁 Invoice Data", "🏢 Bhagyashree Invoice", "📡 Sai Tele Invoice"
+])
 
 # =========================================================================
 # TAB 1 — VIS INVOICE (unchanged, uses "invoice_management" table)
@@ -1013,3 +1041,15 @@ with tab2:
 # =========================================================================
 with tab3:
     render_generic_tab(table_name="Invoicedata", prefix="invdata", tab_title="Invoice Data", icon="📁")
+
+# =========================================================================
+# TAB 4 — BHAGYASHREE INVOICE (Supabase table: "BhagyashreeInvoice")
+# =========================================================================
+with tab4:
+    render_generic_tab(table_name="BhagyashreeInvoice", prefix="bhagya", tab_title="Bhagyashree Invoice", icon="🏢")
+
+# =========================================================================
+# TAB 5 — SAI TELE INVOICE (Supabase table: "SaiTeleInvoice")
+# =========================================================================
+with tab5:
+    render_generic_tab(table_name="SaiTeleInvoice", prefix="saitele", tab_title="Sai Tele Invoice", icon="📡")
