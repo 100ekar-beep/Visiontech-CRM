@@ -16,6 +16,10 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Team & Vendor Billing", page_icon="💸", layout="wide")
 
+# --- INIT SESSION STATE (nav) ---
+if 'billing_active_page' not in st.session_state:
+    st.session_state.billing_active_page = "invoice"
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -78,6 +82,62 @@ st.markdown("""
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
+
+    /* =========================================================
+       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
+       Scoped to .st-key-billing_nav_bar so it doesn't clash with the
+       red "secondary" (delete) button styling used elsewhere on this page.
+       ========================================================= */
+    .st-key-billing_nav_bar div[data-testid="stHorizontalBlock"] {
+        gap: 12px !important;
+        flex-wrap: wrap !important;
+    }
+    .st-key-billing_nav_bar button {
+        font-size: 1.05rem !important;
+        font-weight: 800 !important;
+        padding: 16px 10px !important;
+        height: auto !important;
+        border-radius: 12px !important;
+        transition: all 0.25s ease !important;
+        white-space: nowrap !important;
+        box-shadow: none !important;
+    }
+    .st-key-billing_nav_bar button[kind="secondary"] {
+        background: #ffffff !important;
+        color: #475569 !important;
+        border: 1.5px solid #e2e8f0 !important;
+    }
+    .st-key-billing_nav_bar button[kind="secondary"]:hover {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-color: #cbd5e1 !important;
+        transform: translateY(-2px) !important;
+    }
+    .st-key-billing_nav_bar button[kind="secondary"] p,
+    .st-key-billing_nav_bar button[kind="secondary"] span,
+    .st-key-billing_nav_bar button[kind="secondary"] div {
+        color: #475569 !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+    }
+    .st-key-billing_nav_bar button[kind="secondary"]:hover p,
+    .st-key-billing_nav_bar button[kind="secondary"]:hover span,
+    .st-key-billing_nav_bar button[kind="secondary"]:hover div {
+        color: #0f172a !important;
+    }
+    .st-key-billing_nav_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4) !important;
+    }
+    .st-key-billing_nav_bar button[kind="primary"] p,
+    .st-key-billing_nav_bar button[kind="primary"] span,
+    .st-key-billing_nav_bar button[kind="primary"] div {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -495,14 +555,31 @@ def payment_dialog(row_data=None, mode="Team"):
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# --- 6. MAIN PAGE TABS ---
+# --- 6. MAIN PAGE NAVIGATION (custom buttons, replaces st.tabs for guaranteed styling) ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
-tab1, tab2, tab3, tab4 = st.tabs(["📄 Invoice Entry", "💳 Payment Entry", "📊 Ledger Reports", "🕒 Pending MRN Approval"])
+
+BILLING_NAV_PAGES = [
+    ("invoice", "📄 Invoice Entry"),
+    ("payment", "💳 Payment Entry"),
+    ("ledger", "📊 Ledger Reports"),
+    ("mrn", "🕒 Pending MRN Approval"),
+]
+
+with st.container(key="billing_nav_bar"):
+    nav_cols = st.columns(len(BILLING_NAV_PAGES))
+    for nav_col, (page_id, page_label) in zip(nav_cols, BILLING_NAV_PAGES):
+        is_active = st.session_state.billing_active_page == page_id
+        with nav_col:
+            if st.button(page_label, key=f"billing_nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
+                st.session_state.billing_active_page = page_id
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# TAB 1: INVOICE ENTRY
+# PAGE 1: INVOICE ENTRY
 # ==========================================
-with tab1:
+if st.session_state.billing_active_page == "invoice":
     col_search, col_tbtn, col_vbtn, col_dl = st.columns([4, 2, 2, 2])
     with col_search:
         search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
@@ -607,9 +684,9 @@ with tab1:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 2: PAYMENT ENTRY
+# PAGE 2: PAYMENT ENTRY
 # ==========================================
-with tab2:
+elif st.session_state.billing_active_page == "payment":
     col_search_p, col_tpbtn, col_vpbtn, col_dl_p = st.columns([4, 2, 2, 2])
     with col_search_p:
         search_pay = st.text_input("Search", placeholder="🔍 Search Payments...", label_visibility="collapsed", key="search_pay_input")
@@ -685,9 +762,9 @@ with tab2:
         st.error(f"Database error: {e}")
 
 # ==========================================
-# TAB 3: REPORTS & LEDGER
+# PAGE 3: REPORTS & LEDGER
 # ==========================================
-with tab3:
+elif st.session_state.billing_active_page == "ledger":
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
     with col_rmode:
         rep_mode = st.radio("Ledger Type:", ["Team", "Vendor"], horizontal=True, key="rep_mode")
@@ -889,9 +966,9 @@ with tab3:
                 st.error(str(e))
 
 # ==========================================
-# TAB 4: PENDING MRN APPROVAL (NEW)
+# PAGE 4: PENDING MRN APPROVAL
 # ==========================================
-with tab4:
+elif st.session_state.billing_active_page == "mrn":
     st.markdown("<h3 style='color:#0f172a;'>🔒 MRN Approval Gate</h3>", unsafe_allow_html=True)
     st.markdown("Enter your security password to view and approve MRNs generated from the desk.")
     
