@@ -630,17 +630,24 @@ with tc5:
 st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega.</p>', unsafe_allow_html=True)
 
 # --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
-# Paused automatically while the Add/Edit form is open, so it never
-# interrupts you mid-typing (that was closing the popup before).
+# Paused automatically while:
+#   1) the Add/Edit form is open (so it never interrupts you mid-typing), or
+#   2) a reminder alarm popup is already open (so it doesn't keep re-opening
+#      and re-beeping every refresh cycle — it should ring ONCE and then wait
+#      for you to Close/Snooze/Reschedule).
 form_is_open = bool(st.session_state.get("pa_show_form_dialog"))
+reminder_is_open = bool(st.session_state.get("active_reminder"))
+pause_autocheck = form_is_open or reminder_is_open
 
-if st.session_state.pa_autocheck_enabled and not form_is_open:
+if st.session_state.pa_autocheck_enabled and not pause_autocheck:
     if AUTOREFRESH_AVAILABLE:
         st_autorefresh(interval=20000, key="pa_autorefresh")
     else:
         st.info("ℹ️ Live auto-check ke liye `pip install streamlit-autorefresh` karein. Abhi ke liye 'Refresh Now' button use karein.")
 elif form_is_open:
     st.caption("⏸️ Form khula hone tak auto-check pause hai — aaram se bharo, koi disturbance nahi hoga.")
+elif reminder_is_open:
+    st.caption("🔔 Reminder popup khula hai — jab tak Close/Snooze na karo, dobara nahi bajega.")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -649,8 +656,8 @@ all_records = fetch_activities()
 pending_records = [r for r in all_records if str(r.get("status", "Pending")).strip() != "Closed"]
 closed_records = [r for r in all_records if str(r.get("status", "Pending")).strip() == "Closed"]
 
-# --- REMINDER CHECK (only when auto-check is on and no form is open) ---
-if st.session_state.pa_autocheck_enabled and not form_is_open:
+# --- REMINDER CHECK (only when auto-check is on and nothing else is open) ---
+if st.session_state.pa_autocheck_enabled and not pause_autocheck:
     check_reminders_and_trigger(pending_records)
 
 # --- STAT CARDS ---
