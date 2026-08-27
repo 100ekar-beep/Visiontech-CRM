@@ -472,11 +472,16 @@ def upload_to_cloudinary(file_bytes, file_ext, content_type):
 
     unique_public_id = f"whatsapp_media/{int(time.time())}"
 
+    # IMPORTANT: WhatsApp/Interakt needs the media URL to END with the correct
+    # file extension (e.g. ".mp4") to correctly detect the media type. Cloudinary's
+    # secure_url does NOT include an extension by default — without this explicit
+    # 'format' param, WhatsApp fails with "Error 131053: Unable to upload the media".
     result = cloudinary.uploader.upload(
         file_bytes,
         resource_type=resource_type,
         public_id=unique_public_id,
-        overwrite=True
+        overwrite=True,
+        format=file_ext
     )
     return result["secure_url"], result["public_id"], resource_type
 
