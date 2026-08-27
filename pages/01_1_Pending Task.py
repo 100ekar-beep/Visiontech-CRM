@@ -133,6 +133,43 @@ st.markdown("""
     .pa-alarm-value { color:#f1f5f9; font-weight:700; text-align:right; }
 
     .pa-toolbar-note { color:#94a3b8; font-size:0.8rem; margin-top:4px; }
+
+    /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION BUTTONS (same as other pages)
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -184,10 +221,11 @@ def render_alarm_audio():
 
 
 # --- 6. DATA HELPERS ---
+# NOTE: This page is intentionally NOT scoped by workspace/company.
+# Every login (any company) sees and shares the exact same task list.
 def fetch_activities():
     try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table(TABLE_NAME).select("*").eq("workspace", active_ws).execute()
+        res = supabase.table(TABLE_NAME).select("*").execute()
         return res.data if res.data else []
     except Exception as e:
         st.toast(f"Database Error: {e}", icon="❌")
@@ -359,7 +397,6 @@ def add_activity_dialog(edit_row=None):
 
         if not has_error:
             payload = {
-                "workspace": st.session_state.get('active_workspace', 'VISPL'),
                 "activity_name": activity_name.strip(),
                 "indus_responsible": indus_resp.strip(),
                 "vis_responsible": vis_resp.strip(),
@@ -494,11 +531,11 @@ if st.session_state.get("active_reminder"):
     reminder_popup_dialog(st.session_state["active_reminder"])
 
 # --- HERO HEADER ---
-active_ws_display = st.session_state.get('active_workspace', 'VISPL')
-st.markdown(f"""
+# This page is shared across ALL companies/workspaces — every login sees the same tasks.
+st.markdown("""
     <div class="pa-hero">
         <h1>🔔 Pending Activity Tracker</h1>
-        <p>Workspace: {active_ws_display} &nbsp;•&nbsp; Never miss a follow-up again</p>
+        <p>🌐 Shared Across All Companies &nbsp;•&nbsp; Never miss a follow-up again</p>
     </div>
 """, unsafe_allow_html=True)
 
