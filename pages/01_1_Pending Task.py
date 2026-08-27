@@ -4,6 +4,7 @@ import numpy as np
 import io
 import wave
 import base64
+import textwrap
 from datetime import datetime, date, time as dt_time, timedelta
 from supabase import create_client, Client
 
@@ -263,11 +264,11 @@ def render_alarm_audio():
     if not st.session_state.pa_sound_enabled:
         return
     b64_audio = generate_beep_base64()
-    st.markdown(f"""
+    st.markdown(textwrap.dedent(f"""
         <audio autoplay>
             <source src="data:audio/wav;base64,{b64_audio}" type="audio/wav">
         </audio>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 
 # --- 6. DATA HELPERS ---
@@ -559,7 +560,7 @@ def reminder_popup_dialog(row):
 
     days_txt, days_cls = days_pending_badge(row.get('raise_date', ''))
 
-    st.markdown(f"""
+    st.markdown(textwrap.dedent(f"""
         <div class="pa-alarm-wrap">
             <div class="pa-alarm-icon">⏰</div>
             <div class="pa-alarm-title">It's Time! Don't Forget This Task</div>
@@ -569,7 +570,7 @@ def reminder_popup_dialog(row):
             <div class="pa-alarm-info-row"><span class="pa-alarm-label">📅 Raised On</span><span class="pa-alarm-value">{row.get('raise_date','') or '-'} ({days_txt} ago)</span></div>
             <div class="pa-alarm-info-row"><span class="pa-alarm-label">⭐ Important</span><span class="pa-alarm-value">{"YES 🔥" if row.get('important') else "No"}</span></div>
         </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
     if str(row.get('remark', '')).strip():
         st.markdown(f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>', unsafe_allow_html=True)
@@ -817,7 +818,7 @@ else:
         days_txt, days_cls = days_pending_badge(row.get("raise_date", ""))
         card_class = "pa-card important" if is_important else "pa-card"
 
-        st.markdown(f"""
+        st.markdown(textwrap.dedent(f"""
             <div class="{card_class}">
                 <div class="pa-title-row">
                     <span class="pa-activity-name">📌 {row.get('activity_name','') or '-'}</span>
@@ -832,7 +833,7 @@ else:
                 </div>
                 {f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>' if str(row.get('remark','')).strip() else ''}
             </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
         bc1, bc2, bc3, _ = st.columns([1.3, 1.3, 1.3, 5])
         with bc1:
@@ -885,7 +886,7 @@ with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=Fals
         closed_records.sort(key=lambda r: parse_ddmmyyyy(r.get("raise_date")), reverse=True)
         for row in closed_records:
             rid = row.get("id")
-            st.markdown(f"""
+            st.markdown(textwrap.dedent(f"""
                 <div class="pa-card-closed">
                     <div class="pa-title-row">
                         <span class="pa-activity-name">✅ {row.get('activity_name','') or '-'}</span>
@@ -897,7 +898,7 @@ with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=Fals
                         <div><div class="pa-field-label">Closed On</div><div class="pa-field-value">{row.get('closed_at','') or '-'}</div></div>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
             rc1, rc2, _ = st.columns([1.3, 1.3, 6])
             with rc1:
                 if st.button("↩️ Reopen", key=f"pa_reopen_{rid}", use_container_width=True):
