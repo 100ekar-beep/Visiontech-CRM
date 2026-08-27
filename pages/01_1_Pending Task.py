@@ -318,6 +318,45 @@ def reminder_summary_text(row):
     return r_type
 
 
+def time_picker(label, key_prefix, default_time=dt_time(9, 0)):
+    """
+    A reliable, always-visible Hour/Minute clock picker built from plain
+    Streamlit selectboxes — guaranteed to render and open the same way in
+    every browser (unlike the native HTML clock widget, which renders
+    inconsistently and can be nearly invisible on dark themes).
+    """
+    st.markdown(f'<div class="pa-field-label" style="margin-top:6px;">{label}</div>', unsafe_allow_html=True)
+    hc1, hc2, hc3 = st.columns([1, 1, 1.6])
+
+    hour_opts = [f"{h:02d}" for h in range(24)]
+    minute_opts = [f"{m:02d}" for m in range(0, 60, 5)]
+
+    default_hour = f"{default_time.hour:02d}"
+    default_minute = f"{(default_time.minute // 5) * 5:02d}"
+
+    with hc1:
+        sel_hour = st.selectbox(
+            "Hour", hour_opts,
+            index=hour_opts.index(default_hour) if default_hour in hour_opts else 9,
+            key=f"{key_prefix}_hour",
+        )
+    with hc2:
+        sel_min = st.selectbox(
+            "Min", minute_opts,
+            index=minute_opts.index(default_minute) if default_minute in minute_opts else 0,
+            key=f"{key_prefix}_min",
+        )
+    with hc3:
+        st.markdown(
+            f'<div style="margin-top:26px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.45); '
+            f'border-radius:8px; padding:9px 14px; text-align:center; font-size:1.3rem; font-weight:900; '
+            f'color:#c4b5fd; font-family:monospace; letter-spacing:1px;">🕐 {sel_hour}:{sel_min}</div>',
+            unsafe_allow_html=True,
+        )
+
+    return dt_time(int(sel_hour), int(sel_min))
+
+
 # --- 7. REMINDER ENGINE: check all pending activities against current time ---
 def check_reminders_and_trigger(pending_records):
     if st.session_state.get("active_reminder"):
@@ -399,7 +438,7 @@ def add_activity_dialog(edit_row=None):
     default_r_type_idx = r_type_opts.index(edit_row.get('reminder_type')) if (is_edit and edit_row.get('reminder_type') in r_type_opts) else 0
     r_type = st.selectbox("REMINDER TYPE *", r_type_opts, index=default_r_type_idx)
 
-    rc1, rc2 = st.columns(2)
+    rc1 = st.columns(1)[0]
     reminder_day = ""
     reminder_dom = None
     reminder_sdate = ""
@@ -420,15 +459,13 @@ def add_activity_dialog(edit_row=None):
             sdate = st.date_input("SPECIFIC DATE * 📅", value=default_sdate.date())
             reminder_sdate = sdate.strftime("%d/%m/%Y")
 
-    with rc2:
-        default_time = dt_time(9, 0)
-        if is_edit and edit_row.get('reminder_time'):
-            try:
-                default_time = datetime.strptime(edit_row.get('reminder_time'), "%H:%M").time()
-            except Exception:
-                pass
-        reminder_time_val = st.time_input("REMINDER TIME * 🕐", value=default_time)
-        st.caption("👆 Click karke clock se time set karein")
+    default_time = dt_time(9, 0)
+    if is_edit and edit_row.get('reminder_time'):
+        try:
+            default_time = datetime.strptime(edit_row.get('reminder_time'), "%H:%M").time()
+        except Exception:
+            pass
+    reminder_time_val = time_picker("REMINDER TIME * 🕐", key_prefix=f"add_time_{edit_row.get('id') if is_edit else 'new'}", default_time=default_time)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_btn0, col_btn1, col_btn2 = st.columns([6, 2, 2])
@@ -547,7 +584,7 @@ def reminder_popup_dialog(row):
         new_type = st.selectbox("New Reminder Type", r_type_opts, index=cur_type_idx, key="resch_type")
 
         new_day, new_dom, new_sdate = "", None, ""
-        rc1, rc2 = st.columns(2)
+        rc1 = st.columns(1)[0]
         if new_type == "Weekly":
             with rc1:
                 cur_day_idx = WEEKDAYS.index(row.get('reminder_day')) if row.get('reminder_day') in WEEKDAYS else 0
@@ -560,8 +597,13 @@ def reminder_popup_dialog(row):
             with rc1:
                 new_sdate_val = st.date_input("Specific Date 📅", value=datetime.now().date(), key="resch_sdate")
                 new_sdate = new_sdate_val.strftime("%d/%m/%Y")
-        with rc2:
-            new_time = st.time_input("Reminder Time 🕐", value=dt_time(9, 0), key="resch_time")
+
+        current_r_time = dt_time(9, 0)
+        try:
+            current_r_time = datetime.strptime(str(row.get('reminder_time', '09:00')), "%H:%M").time()
+        except Exception:
+            pass
+        new_time = time_picker("Reminder Time 🕐", key_prefix=f"resch_time_{row.get('id')}", default_time=current_r_time)
 
         if st.button("🔄 Save New Schedule", use_container_width=True, key="resch_save"):
             if is_test_reminder:
