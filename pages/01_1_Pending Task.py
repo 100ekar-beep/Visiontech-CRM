@@ -610,14 +610,14 @@ with tc3:
         st.session_state.pa_autocheck_enabled = not st.session_state.pa_autocheck_enabled
         st.rerun()
 with tc4:
-    if st.button("🧪 Test Alarm", use_container_width=True):
+    if st.button("🧪 Test Sound", use_container_width=True, help="Sirf sound/popup check karne ke liye — ise time se koi lena dena nahi. Real reminders sirf unke set kiye gaye exact time par hi khulte hain."):
         st.session_state["active_reminder"] = {
             "id": "test",
-            "activity_name": "🔔 This is a Test Reminder",
+            "activity_name": "🔔 Manual Test (time-based nahi hai)",
             "indus_responsible": "Demo Indus",
             "vis_responsible": "Demo VIS",
             "raise_date": datetime.now().strftime("%d/%m/%Y"),
-            "remark": "Yeh ek test hai — sound aur popup theek se kaam kar rahe hain ya nahi, check karne ke liye.",
+            "remark": "Yeh sirf ek MANUAL test hai — sound/popup check karne ke liye. Iska reminder time se koi lena dena nahi. Real activities sirf unke set kiye gaye exact time par hi khulti/bajti hain.",
             "important": True,
             "reminder_type": "Daily",
             "reminder_time": datetime.now().strftime("%H:%M"),
