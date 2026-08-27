@@ -21,6 +21,9 @@ st.set_page_config(page_title="Solar Project Hub", page_icon="☀️", layout="w
 if 'solar_current_page' not in st.session_state:
     st.session_state.solar_current_page = 1
 
+if 'solar_active_page' not in st.session_state:
+    st.session_state.solar_active_page = "sites"
+
 # --- NEW: MOBILE VIEW TOGGLE STATES (one per tab, independent of each other) ---
 if 'solar_sites_view' not in st.session_state:
     st.session_state.solar_sites_view = "table"
@@ -100,41 +103,59 @@ st.markdown("""
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* Tabs styling - target button elements directly for maximum compatibility */
-    .stTabs [data-baseweb="tab-list"] {
+    /* =========================================================
+       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
+       ========================================================= */
+    .st-key-solar_nav_bar div[data-testid="stHorizontalBlock"] {
         gap: 12px !important;
-        border-bottom: none !important;
-        background: transparent !important;
-        padding: 4px 0 16px 0 !important;
+        flex-wrap: wrap !important;
     }
-    .stTabs [data-baseweb="tab-list"] button {
-        background: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(236,72,153,0.18) 100%) !important;
-        border-radius: 12px !important;
-        padding: 14px 26px !important;
-        border: 1.5px solid rgba(255,255,255,0.18) !important;
+    .st-key-solar_nav_bar button {
+        font-size: 1.05rem !important;
+        font-weight: 800 !important;
+        padding: 16px 10px !important;
         height: auto !important;
-        margin: 0 !important;
+        border-radius: 12px !important;
         transition: all 0.25s ease !important;
+        white-space: nowrap !important;
+    }
+    .st-key-solar_nav_bar button[kind="secondary"] {
+        background: linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(236,72,153,0.16) 100%) !important;
+        color: #cbd5e1 !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.18) !important;
         box-shadow: 0 4px 10px rgba(0,0,0,0.25) !important;
     }
-    .stTabs [data-baseweb="tab-list"] button:hover {
-        background: linear-gradient(135deg, rgba(99,102,241,0.35) 0%, rgba(236,72,153,0.35) 100%) !important;
+    .st-key-solar_nav_bar button[kind="secondary"]:hover {
+        background: linear-gradient(135deg, rgba(245,158,11,0.32) 0%, rgba(236,72,153,0.32) 100%) !important;
+        color: #ffffff !important;
         border-color: rgba(255,255,255,0.35) !important;
         transform: translateY(-2px) !important;
     }
-    .stTabs [data-baseweb="tab-list"] button * {
-        color: #ffffff !important;
+    .st-key-solar_nav_bar button[kind="secondary"] p,
+    .st-key-solar_nav_bar button[kind="secondary"] span,
+    .st-key-solar_nav_bar button[kind="secondary"] div {
+        color: #cbd5e1 !important;
         font-weight: 800 !important;
-        font-size: 1.02rem !important;
-        opacity: 1 !important;
+        font-size: 1.05rem !important;
     }
-    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+    .st-key-solar_nav_bar button[kind="secondary"]:hover p,
+    .st-key-solar_nav_bar button[kind="secondary"]:hover span,
+    .st-key-solar_nav_bar button[kind="secondary"]:hover div {
+        color: #ffffff !important;
+    }
+    .st-key-solar_nav_bar button[kind="primary"] {
         background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
-        border-color: transparent !important;
+        color: #ffffff !important;
+        border: none !important;
         box-shadow: 0 6px 18px rgba(245, 158, 11, 0.5) !important;
     }
-    .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
-    .stTabs [data-baseweb="tab-border"] { display: none !important; }
+    .st-key-solar_nav_bar button[kind="primary"] p,
+    .st-key-solar_nav_bar button[kind="primary"] span,
+    .st-key-solar_nav_bar button[kind="primary"] div {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+    }
 
     /* Summary cards */
     .solar-card {
@@ -626,14 +647,30 @@ for p in solar_payments_data:
 solar_team_names = sorted(set(team_entries.keys()) | set(payments_by_team.keys()))
 
 # ================================================================
-# --- TABS: SOLAR SITES  |  TEAM LEDGER  |  PAYMENTS ---
+# --- NAVIGATION BAR: SOLAR SITES | TEAM LEDGER | PAYMENTS ---
+# (custom buttons, replaces st.tabs for guaranteed styling)
 # ================================================================
-tab_sites, tab_ledger, tab_payments = st.tabs(["📍 Solar Sites", "🧾 Team Ledger", "💳 Payments"])
+SOLAR_NAV_PAGES = [
+    ("sites", "📍 Solar Sites"),
+    ("ledger", "🧾 Team Ledger"),
+    ("payments", "💳 Payments"),
+]
+
+with st.container(key="solar_nav_bar"):
+    nav_cols = st.columns(len(SOLAR_NAV_PAGES))
+    for nav_col, (page_id, page_label) in zip(nav_cols, SOLAR_NAV_PAGES):
+        is_active = st.session_state.solar_active_page == page_id
+        with nav_col:
+            if st.button(page_label, key=f"solar_nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
+                st.session_state.solar_active_page = page_id
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ================================================================
-# TAB 1: SOLAR SITES
+# PAGE 1: SOLAR SITES
 # ================================================================
-with tab_sites:
+if st.session_state.solar_active_page == "sites":
     total_sites = len(df)
     civil_total = sum(num(a.get("civil_charge_amount")) for a in alloc_data)
     electrical_total = sum(num(a.get("electrical_charge_amount")) for a in alloc_data)
@@ -834,9 +871,9 @@ with tab_sites:
             st.rerun()
 
 # ================================================================
-# TAB 2: TEAM LEDGER (Team-wise + Site-wise toggle)
+# PAGE 2: TEAM LEDGER (Team-wise + Site-wise toggle)
 # ================================================================
-with tab_ledger:
+elif st.session_state.solar_active_page == "ledger":
     ledger_view_mode = st.radio("Ledger View:", ["👷 Team Wise", "📍 Site Wise"], horizontal=True, key="ledger_view_mode")
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1040,9 +1077,9 @@ with tab_ledger:
                     rcols[13].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#f59e0b;'>{sr['Grand Total']:,.0f}</div>", unsafe_allow_html=True)
 
 # ================================================================
-# TAB 3: PAYMENTS
+# PAGE 3: PAYMENTS
 # ================================================================
-with tab_payments:
+elif st.session_state.solar_active_page == "payments":
     st.markdown("##### 💳 Solar Team Payment Entry")
 
     if not solar_team_names:
