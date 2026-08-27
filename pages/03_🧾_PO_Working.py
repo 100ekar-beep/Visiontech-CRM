@@ -170,7 +170,7 @@ st.markdown("""
     }
     /* Adjusted width to exactly 40% less (1800px -> 1080px) */
     .st-key-po_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1080px !important; 
+        min-width: 1260px !important; 
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
         padding: 6px 0 !important;
@@ -862,6 +862,7 @@ else:
 
     available_sites = set()
     available_projects = set()
+    project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
 
     if site_ids_on_page:
         try:
@@ -877,7 +878,13 @@ else:
             # FIX: Check Project ID column using select("*") to avoid PostgREST space parsing errors
             res_check_pid = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
             if res_check_pid.data:
-                available_projects.update({str(item.get("Project ID")).strip() for item in res_check_pid.data if item.get("Project ID")})
+                for item in res_check_pid.data:
+                    pid_val = str(item.get("Project ID", "")).strip()
+                    pname_val = str(item.get("Project Name", "")).strip()
+                    if pid_val:
+                        available_projects.add(pid_val)
+                        if pname_val:
+                            project_name_lookup[pid_val] = pname_val
         except Exception:
             pass
 
@@ -904,6 +911,7 @@ else:
 
             is_site_avail = site_id_val and site_id_val in available_sites
             is_proj_avail = proj_name_val and proj_name_val in available_projects
+            resolved_proj_name = project_name_lookup.get(proj_name_val, "-")
 
             if is_site_avail or is_proj_avail:
                 status_html = "<span class='status-badge-green'>🟢 Available</span>"
@@ -914,6 +922,7 @@ else:
                 st.markdown(f"""
                     <div class="po-card-title">#{serial_no} — PO {row_dict.get('PO Number','') or '-'}</div>
                     <div class="po-card-sub">{row_dict.get('Project Name','') or '-'}</div>
+                    <div class="po-card-row"><span class="po-card-label">Project Name</span><span class="po-card-value">{resolved_proj_name}</span></div>
                     <div class="po-card-row"><span class="po-card-label">Site Status</span><span class="po-card-value">{status_html}</span></div>
                     <div class="po-card-row"><span class="po-card-label">Site ID</span><span class="po-card-value">{row_dict.get('Site ID','') or '-'}</span></div>
                     <div class="po-card-row"><span class="po-card-label">Site Name</span><span class="po-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
@@ -933,9 +942,9 @@ else:
         # ---------------------------------------------------------------
         # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
         # ---------------------------------------------------------------
-        # Total 8 cols (Sr No + 2 Buttons + 5 Data -> Project Name, Status Badge, Site ID, Site Name, PO Number)
-        COL_RATIOS = [0.3, 0.35, 0.35, 1.8, 1.3, 1.2, 1.8, 1.2] 
-        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
+        # Total 9 cols (Sr No + 2 Buttons + 6 Data -> Project ID, Project Name, Status Badge, Site ID, Site Name, PO Number)
+        COL_RATIOS = [0.3, 0.35, 0.35, 1.6, 1.6, 1.3, 1.2, 1.8, 1.2] 
+        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT ID", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
 
         with st.container(key="po_table_wrap", height=560):
             # Header
@@ -949,6 +958,7 @@ else:
                 po_num = str(row_dict.get('PO Number', '')).strip()
                 site_id_val = str(row_dict.get('Site ID', '')).strip()
                 proj_name_val = str(row_dict.get('Project Name', '')).strip()
+                resolved_proj_name = project_name_lookup.get(proj_name_val, "-")
                 
                 serial_no = start_idx + page_pos + 1
                 safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
@@ -976,10 +986,11 @@ else:
                             st.session_state[f"confirm_del_{safe_po_key}"] = True
                             
                 rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{resolved_proj_name}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
 
                 # Inline delete confirmation
                 render_po_delete_confirm(safe_po_key, po_num, key_prefix="")
