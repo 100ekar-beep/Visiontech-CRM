@@ -302,9 +302,18 @@ def days_pending_badge(raise_date_str):
         return f"{days}d", "pa-badge-days-late"
 
 
+def format_time_12hr(r_time_str):
+    """Converts a stored 24-hour 'HH:MM' string into a 12-hour 'hh:MM AM/PM' display string."""
+    try:
+        t = datetime.strptime(str(r_time_str).strip(), "%H:%M")
+        return t.strftime("%I:%M %p")
+    except Exception:
+        return r_time_str
+
+
 def reminder_summary_text(row):
     r_type = str(row.get("reminder_type", "")).strip()
-    r_time = str(row.get("reminder_time", "")).strip()
+    r_time = format_time_12hr(row.get("reminder_time", ""))
     if not r_type:
         return "No reminder set"
     if r_type == "Daily":
@@ -320,24 +329,29 @@ def reminder_summary_text(row):
 
 def time_picker(label, key_prefix, default_time=dt_time(9, 0)):
     """
-    A reliable, always-visible Hour/Minute clock picker built from plain
-    Streamlit selectboxes — guaranteed to render and open the same way in
-    every browser (unlike the native HTML clock widget, which renders
-    inconsistently and can be nearly invisible on dark themes).
+    A reliable, always-visible 12-hour Hour/Minute/AM-PM clock picker built
+    from plain Streamlit selectboxes — guaranteed to render and open the
+    same way in every browser (unlike the native HTML clock widget, which
+    renders inconsistently and can be nearly invisible on dark themes).
     """
     st.markdown(f'<div class="pa-field-label" style="margin-top:6px;">{label}</div>', unsafe_allow_html=True)
-    hc1, hc2, hc3 = st.columns([1, 1, 1.6])
+    hc1, hc2, hc3, hc4 = st.columns([1, 1, 1, 1.6])
 
-    hour_opts = [f"{h:02d}" for h in range(24)]
-    minute_opts = [f"{m:02d}" for m in range(0, 60, 5)]
+    hour_opts = [f"{h:02d}" for h in range(1, 13)]          # 01–12
+    minute_opts = [f"{m:02d}" for m in range(0, 60, 5)]      # 00,05,...,55
+    ampm_opts = ["AM", "PM"]
 
-    default_hour = f"{default_time.hour:02d}"
+    # Convert incoming 24-hour default_time -> 12-hour + AM/PM
+    default_ampm = "AM" if default_time.hour < 12 else "PM"
+    default_hour_24 = default_time.hour % 12
+    default_hour_12 = 12 if default_hour_24 == 0 else default_hour_24
+    default_hour = f"{default_hour_12:02d}"
     default_minute = f"{(default_time.minute // 5) * 5:02d}"
 
     with hc1:
         sel_hour = st.selectbox(
             "Hour", hour_opts,
-            index=hour_opts.index(default_hour) if default_hour in hour_opts else 9,
+            index=hour_opts.index(default_hour) if default_hour in hour_opts else 8,
             key=f"{key_prefix}_hour",
         )
     with hc2:
@@ -347,14 +361,27 @@ def time_picker(label, key_prefix, default_time=dt_time(9, 0)):
             key=f"{key_prefix}_min",
         )
     with hc3:
+        sel_ampm = st.selectbox(
+            "AM/PM", ampm_opts,
+            index=ampm_opts.index(default_ampm),
+            key=f"{key_prefix}_ampm",
+        )
+    with hc4:
         st.markdown(
             f'<div style="margin-top:26px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.45); '
-            f'border-radius:8px; padding:9px 14px; text-align:center; font-size:1.3rem; font-weight:900; '
-            f'color:#c4b5fd; font-family:monospace; letter-spacing:1px;">🕐 {sel_hour}:{sel_min}</div>',
+            f'border-radius:8px; padding:9px 14px; text-align:center; font-size:1.25rem; font-weight:900; '
+            f'color:#c4b5fd; font-family:monospace; letter-spacing:1px;">🕐 {sel_hour}:{sel_min} {sel_ampm}</div>',
             unsafe_allow_html=True,
         )
 
-    return dt_time(int(sel_hour), int(sel_min))
+    # Convert 12-hour + AM/PM selection back to 24-hour for storage
+    hour_12 = int(sel_hour)
+    if sel_ampm == "AM":
+        hour_24 = 0 if hour_12 == 12 else hour_12
+    else:
+        hour_24 = 12 if hour_12 == 12 else hour_12 + 12
+
+    return dt_time(hour_24, int(sel_min))
 
 
 # --- 7. REMINDER ENGINE: check all pending activities against current time ---
