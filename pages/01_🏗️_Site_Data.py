@@ -845,7 +845,8 @@ def edit_record_dialog(row_data):
             pn_opts = get_opts("Project Name", all_dd)
             proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key="ed_pn")
         with c4:
-            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), disabled=True, key="ed_pid")
+            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), key="ed_pid")
+            
             
         c5, c6, c7, c8 = st.columns(4)
         with c5:
