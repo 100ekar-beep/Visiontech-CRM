@@ -445,17 +445,36 @@ def po_upload_dialog():
                 
                 existing_df = st.session_state.po_working_df
                 new_rows_to_add = []
+                updated_count = 0
+                skipped_count = 0
                 
+                # --- MATCHING RULE ---
+                # Har line ki uniqueness ab "Project Name" (Project ID) + "Item Num" (Item Code) se decide hoti hai,
+                # PO Number/Line Number se nahi. Isse same project ke andar same item code baar baar upload
+                # karne par duplicate nahi banta, sirf jab Qty change ho tabhi update hota hai.
                 for idx, new_row in df_proc.iterrows():
-                    match_mask = (existing_df['PO Number'] == po_no) & (existing_df['Line Number'] == new_row['Line Number'])
+                    proj_val = str(new_row.get('Project Name', '')).strip()
+                    item_val = str(new_row.get('Item Num', '')).strip()
+                    
+                    match_mask = (
+                        existing_df['Project Name'].astype(str).str.strip() == proj_val
+                    ) & (
+                        existing_df['Item Num'].astype(str).str.strip() == item_val
+                    )
                     
                     if match_mask.any():
                         match_idx = existing_df[match_mask].index[0]
                         row_id = existing_df.at[match_idx, 'id'] if 'id' in existing_df.columns else None
                         
+                        curr_po = int(existing_df.at[match_idx, 'PO Qty']) if pd.notna(existing_df.at[match_idx, 'PO Qty']) else 0
                         curr_vis = int(existing_df.at[match_idx, 'VIS Qty']) if pd.notna(existing_df.at[match_idx, 'VIS Qty']) else 0
                         new_po = int(new_row['PO Qty'])
                         new_price = int(new_row['Price'])
+                        
+                        # Agar Qty bilkul same hai to kuch bhi change nahi karna (no duplicate, no rewrite)
+                        if curr_po == new_po:
+                            skipped_count += 1
+                            continue
                         
                         new_diff = new_po - curr_vis
                         new_amount = curr_vis * new_price
@@ -463,6 +482,8 @@ def po_upload_dialog():
                         if pd.notna(row_id):
                             try:
                                 supabase.table("po_working").update({
+                                    'PO Number': po_no,
+                                    'Line Number': int(new_row['Line Number']),
                                     'PO Qty': new_po,
                                     'Price': new_price,
                                     'UOM': str(new_row['UOM']),
@@ -470,9 +491,11 @@ def po_upload_dialog():
                                     'Diff': new_diff,
                                     'Amount': new_amount
                                 }).eq("id", row_id).execute()
+                                updated_count += 1
                             except Exception:
                                 pass
                     else:
+                        # Is Project ke liye ye Item Code pehli baar aa raha hai -> naya row add hoga
                         new_rows_to_add.append(new_row.to_dict())
                 
                 if new_rows_to_add:
@@ -762,8 +785,21 @@ with col_viewtoggle:
         st.session_state.po_view_mode = "cards" if st.session_state.po_view_mode == "table" else "table"
         st.rerun()
 
+if 'po_last_search' not in st.session_state:
+    st.session_state.po_last_search = ""
+
+# Jab bhi search text change ho, page ko 1 par reset kar do - warna filtered
+# results kam hone par purane page number ki wajah se list khali dikhti hai.
+if search_query != st.session_state.po_last_search:
+    st.session_state.po_current_page = 1
+    st.session_state.po_last_search = search_query
+
 if search_query:
-    mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+    # fillna('') taaki blank/None values 'nan' text na ban jayein,
+    # regex=False taaki PO/Item text me mojood special characters (jaise ( ) + . /)
+    # se koi match error ya galat filtering na ho.
+    search_df = df.fillna('').astype(str)
+    mask = search_df.apply(lambda x: x.str.contains(search_query, case=False, na=False, regex=False)).any(axis=1)
     df = df[mask]
 
 # --- CREATE UNIQUE PO SUMMARY LIST ---
