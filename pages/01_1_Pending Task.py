@@ -571,16 +571,13 @@ def _snooze_reminder(row, minutes):
 
 
 # ==============================================================
-# --- TRIGGER ALARM POPUP IF ACTIVE (checked before anything else renders) ---
+# --- TRIGGER OPEN DIALOG (ONLY ONE AT A TIME — Streamlit does not
+#     allow two @st.dialog popups to open in the same run, so the
+#     alarm reminder always takes priority over the Add/Edit form).
 # ==============================================================
 if st.session_state.get("active_reminder"):
     reminder_popup_dialog(st.session_state["active_reminder"])
-
-# ==============================================================
-# --- TRIGGER ADD/EDIT FORM IF ACTIVE — session-flag based so it
-#     SURVIVES the periodic auto-refresh rerun instead of closing.
-# ==============================================================
-if st.session_state.get("pa_show_form_dialog"):
+elif st.session_state.get("pa_show_form_dialog"):
     add_activity_dialog(edit_row=st.session_state.get("pa_edit_row"))
 
 # --- HERO HEADER ---
