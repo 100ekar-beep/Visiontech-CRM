@@ -24,6 +24,8 @@ if 'pa_sound_enabled' not in st.session_state:
     st.session_state.pa_sound_enabled = True
 if 'pa_autocheck_enabled' not in st.session_state:
     st.session_state.pa_autocheck_enabled = True
+if 'pa_quiet_hours_enabled' not in st.session_state:
+    st.session_state.pa_quiet_hours_enabled = True
 if 'active_reminder' not in st.session_state:
     st.session_state.active_reminder = None
 if 'pa_search' not in st.session_state:
@@ -222,6 +224,18 @@ TABLE_NAME = "pending_activity"
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+# --- QUIET HOURS (Do Not Disturb): no popup, no sound during this window ---
+QUIET_HOURS_START = dt_time(23, 0)  # 11:00 PM
+QUIET_HOURS_END = dt_time(10, 0)    # 10:00 AM (next day)
+
+
+def is_quiet_hours(now=None):
+    """Window spans midnight (23:00 -> 10:00 next day)."""
+    if now is None:
+        now = datetime.now()
+    t = now.time()
+    return t >= QUIET_HOURS_START or t < QUIET_HOURS_END
+
 
 # --- 5. IN-MEMORY ALARM BEEP (10s beep-beep pattern, generated on the fly, no external files) ---
 @st.cache_data(show_spinner=False)
@@ -310,6 +324,11 @@ def check_reminders_and_trigger(pending_records):
         return  # a popup is already showing — don't stack another one
 
     now = datetime.now()
+
+    # --- QUIET HOURS: 11 PM – 10 AM => absolutely no popup, no sound ---
+    if st.session_state.get("pa_quiet_hours_enabled", True) and is_quiet_hours(now):
+        return
+
     today_str = now.strftime("%d/%m/%Y")
     current_time_str = now.strftime("%H:%M")
     weekday_name = now.strftime("%A")
@@ -494,6 +513,7 @@ def reminder_popup_dialog(row):
     st.markdown("<br>", unsafe_allow_html=True)
 
     b1, b2, b3, b4 = st.columns(4)
+    is_test_reminder = (row.get('id') == 'test')
     with b1:
         if st.button("😴 +5 min", use_container_width=True):
             _snooze_reminder(row, minutes=5)
@@ -505,16 +525,20 @@ def reminder_popup_dialog(row):
             _snooze_reminder(row, minutes=60)
     with b4:
         if st.button("✅ Close Task", type="primary", use_container_width=True):
-            try:
-                supabase.table(TABLE_NAME).update({
-                    "status": "Closed",
-                    "closed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                }).eq("id", row['id']).execute()
-                st.session_state["active_reminder"] = None
-                st.success("✅ Task Closed!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Closing Task: {e}")
+            # Only touch the database for REAL activities. A test reminder
+            # (id == "test") has no matching database row — trying to update
+            # it would fail and (before this fix) left the popup stuck open.
+            if not is_test_reminder:
+                try:
+                    supabase.table(TABLE_NAME).update({
+                        "status": "Closed",
+                        "closed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    }).eq("id", row['id']).execute()
+                except Exception as e:
+                    st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
+            st.session_state["active_reminder"] = None
+            st.success("✅ Task Closed!")
+            st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("⚙️ Full Reschedule (change reminder type/day/date/time)"):
@@ -540,34 +564,45 @@ def reminder_popup_dialog(row):
             new_time = st.time_input("Reminder Time 🕐", value=dt_time(9, 0), key="resch_time")
 
         if st.button("🔄 Save New Schedule", use_container_width=True, key="resch_save"):
-            try:
-                supabase.table(TABLE_NAME).update({
-                    "reminder_type": new_type,
-                    "reminder_day": new_day,
-                    "reminder_date_of_month": int(new_dom) if new_dom else None,
-                    "reminder_specific_date": new_sdate,
-                    "reminder_time": new_time.strftime("%H:%M"),
-                    "last_notified": "",
-                }).eq("id", row['id']).execute()
+            if is_test_reminder:
                 st.session_state["active_reminder"] = None
-                st.success("✅ Reminder Rescheduled!")
+                st.success("✅ Test popup closed (test reminders aren't saved to the database).")
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Rescheduling: {e}")
+            else:
+                try:
+                    supabase.table(TABLE_NAME).update({
+                        "reminder_type": new_type,
+                        "reminder_day": new_day,
+                        "reminder_date_of_month": int(new_dom) if new_dom else None,
+                        "reminder_specific_date": new_sdate,
+                        "reminder_time": new_time.strftime("%H:%M"),
+                        "last_notified": "",
+                    }).eq("id", row['id']).execute()
+                    st.session_state["active_reminder"] = None
+                    st.success("✅ Reminder Rescheduled!")
+                    st.rerun()
+                except Exception as e:
+                    st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
+                    st.session_state["active_reminder"] = None
+                    st.rerun()
 
 
 def _snooze_reminder(row, minutes):
+    is_test_reminder = (row.get('id') == 'test')
     try:
-        new_time = (datetime.now() + timedelta(minutes=minutes)).strftime("%H:%M")
-        supabase.table(TABLE_NAME).update({
-            "reminder_time": new_time,
-            "last_notified": "",
-        }).eq("id", row['id']).execute()
+        if not is_test_reminder:
+            new_time = (datetime.now() + timedelta(minutes=minutes)).strftime("%H:%M")
+            supabase.table(TABLE_NAME).update({
+                "reminder_time": new_time,
+                "last_notified": "",
+            }).eq("id", row['id']).execute()
         st.session_state["active_reminder"] = None
         st.toast(f"⏰ Snoozed for {minutes} minutes!", icon="😴")
         st.rerun()
     except Exception as e:
-        st.error(f"❌ Error Snoozing: {e}")
+        st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
+        st.session_state["active_reminder"] = None
+        st.rerun()
 
 
 # ==============================================================
@@ -590,7 +625,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- TOP TOOLBAR ---
-tc1, tc2, tc3, tc4, tc5 = st.columns([2, 1.3, 1.3, 1.3, 1.3])
+tc1, tc2, tc3, tc4, tc5, tc6 = st.columns([1.8, 1.2, 1.2, 1.4, 1.2, 1.2])
 with tc1:
     if st.button("➕ Add New Activity", use_container_width=True):
         st.session_state.pa_edit_row = None
@@ -607,6 +642,11 @@ with tc3:
         st.session_state.pa_autocheck_enabled = not st.session_state.pa_autocheck_enabled
         st.rerun()
 with tc4:
+    quiet_label = "🌙 Quiet Hrs: ON" if st.session_state.pa_quiet_hours_enabled else "🔔 Quiet Hrs: OFF"
+    if st.button(quiet_label, use_container_width=True, help="Jab ON hai: Raat 11 PM se subah 10 AM tak koi popup/sound nahi aayega."):
+        st.session_state.pa_quiet_hours_enabled = not st.session_state.pa_quiet_hours_enabled
+        st.rerun()
+with tc5:
     if st.button("🧪 Test Sound", use_container_width=True, help="Sirf sound/popup check karne ke liye — ise time se koi lena dena nahi. Real reminders sirf unke set kiye gaye exact time par hi khulte hain."):
         st.session_state["active_reminder"] = {
             "id": "test",
@@ -620,11 +660,18 @@ with tc4:
             "reminder_time": datetime.now().strftime("%H:%M"),
         }
         st.rerun()
-with tc5:
+with tc6:
     if st.button("🔄 Refresh Now", use_container_width=True):
         st.rerun()
 
-st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega.</p>', unsafe_allow_html=True)
+st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega. &nbsp;•&nbsp; 🌙 Quiet Hours: Raat 11:00 PM – Subah 10:00 AM tak koi popup/sound nahi aayega.</p>', unsafe_allow_html=True)
+
+if st.session_state.pa_quiet_hours_enabled and is_quiet_hours():
+    st.markdown("""
+        <div style="background: rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.4); border-radius:10px; padding:10px 16px; margin-bottom:10px; color:#c4b5fd; font-weight:700;">
+            🌙 Abhi Quiet Hours chal rahe hain (11 PM – 10 AM) — koi bhi automatic reminder popup/sound nahi aayega.
+        </div>
+    """, unsafe_allow_html=True)
 
 # --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
 # Paused automatically while:
