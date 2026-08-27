@@ -9,6 +9,10 @@ import base64
 from datetime import datetime, timezone, timedelta
 import os
 
+# --- CLOUDINARY IMPORT (NEW) ---
+import cloudinary
+import cloudinary.uploader
+
 try:
     from PIL import Image
     PIL_AVAILABLE = True
@@ -121,7 +125,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# --- SUPABASE CONNECTION ---
+# --- SUPABASE CONNECTION (still used for contacts/templates/logs database) ---
 @st.cache_resource(ttl="45m")
 def init_connection():
     try:
@@ -136,6 +140,23 @@ def init_connection():
         return None
 
 supabase = init_connection()
+
+# --- CLOUDINARY CONNECTION (NEW — used only for media/photo/video upload) ---
+@st.cache_resource(ttl="45m")
+def init_cloudinary():
+    try:
+        cloudinary.config(
+            cloud_name=st.secrets["cloudinary"]["cloud_name"],
+            api_key=st.secrets["cloudinary"]["api_key"],
+            api_secret=st.secrets["cloudinary"]["api_secret"],
+            secure=True
+        )
+        return True
+    except Exception as e:
+        st.error(f"🚨 Cloudinary config me error: {e}")
+        return False
+
+cloudinary_ready = init_cloudinary()
 
 # --- PASSWORD PROTECTION LOGIC ---
 def check_password():
@@ -435,6 +456,39 @@ def verify_public_url(url, timeout=15):
         return False, f"URL fetch error: {e}"
 
 
+# --- CLOUDINARY UPLOAD HELPER (NEW — replaces Supabase storage upload) ---
+def upload_to_cloudinary(file_bytes, file_ext, content_type):
+    """
+    Uploads media bytes to Cloudinary (instead of Supabase storage) and returns
+    (public_url, public_id, resource_type) so the campaign loop can use the URL
+    for WhatsApp and later delete the file from Cloudinary once the campaign is done.
+    """
+    if file_ext in ["mp4", "mov", "3gp"]:
+        resource_type = "video"
+    elif file_ext in ["jpg", "jpeg", "png"]:
+        resource_type = "image"
+    else:
+        resource_type = "raw"  # e.g. pdf
+
+    unique_public_id = f"whatsapp_media/{int(time.time())}"
+
+    result = cloudinary.uploader.upload(
+        file_bytes,
+        resource_type=resource_type,
+        public_id=unique_public_id,
+        overwrite=True
+    )
+    return result["secure_url"], result["public_id"], resource_type
+
+
+def delete_from_cloudinary(public_id, resource_type):
+    """Deletes the uploaded media from Cloudinary once the campaign is finished."""
+    try:
+        cloudinary.uploader.destroy(public_id, resource_type=resource_type)
+    except Exception:
+        pass  # non-critical cleanup — campaign has already been sent either way
+
+
 # ==========================================
 # --- MAIN MARKETING DASHBOARD LOGIC ---
 # ==========================================
@@ -562,7 +616,14 @@ if check_password():
             
             if supabase:
                 media_url = ""
+                cloudinary_public_id = None
+                cloudinary_resource_type = None
+
                 if attachment:
+                    if not cloudinary_ready:
+                        st.error("🚨 Cloudinary configure nahi hai. Kripya secrets.toml me [cloudinary] section check karein.")
+                        st.stop()
+
                     with st.spinner("⏳ File process ho rahi hai (convert + upload + verify)..."):
                         try:
                             file_ext = attachment.name.split('.')[-1].lower()
@@ -606,14 +667,10 @@ if check_password():
                                 )
                                 st.stop()
 
-                            unique_filename = f"{int(time.time())}.{file_ext}"
-
-                            supabase.storage.from_("whatsapp_media").upload(
-                                unique_filename,
-                                file_bytes,
-                                {"content-type": content_type}
+                            # --- UPLOAD TO CLOUDINARY (replaces Supabase storage upload) ---
+                            media_url, cloudinary_public_id, cloudinary_resource_type = upload_to_cloudinary(
+                                file_bytes, file_ext, content_type
                             )
-                            media_url = supabase.storage.from_("whatsapp_media").get_public_url(unique_filename)
 
                             # VERIFY THE URL IS ACTUALLY PUBLICLY FETCHABLE — exactly what
                             # WhatsApp's servers will attempt. If this fails, stop here with
@@ -622,8 +679,7 @@ if check_password():
                             if not ok:
                                 st.error(
                                     f"🚨 File upload toh ho gayi, par uska link publicly accessible nahi hai "
-                                    f"({detail}). Kya 'whatsapp_media' bucket Supabase me PUBLIC set hai? "
-                                    f"(Storage → whatsapp_media → Settings → Public bucket = ON)"
+                                    f"({detail}). Cloudinary account settings check karein."
                                 )
                                 st.stop()
 
@@ -633,7 +689,7 @@ if check_password():
                             st.stop()
                         except Exception as e:
                             st.error(f"🚨 File upload fail ho gaya: {e}")
-                            st.warning("👉🏻 Kripya dhyaan dein: Kya aapne Supabase me 'whatsapp_media' naam ka PUBLIC bucket banaya hai?")
+                            st.warning("👉🏻 Kripya dhyaan dein: Kya aapne secrets.toml me sahi Cloudinary cloud_name/api_key/api_secret daale hain?")
                             st.stop()
 
                 # FIX: paginate here too — a selected list with more than 1000
@@ -726,6 +782,11 @@ if check_password():
                 # Loop khatam — progress bar/status clear kar do, final summary neeche dikhega
                 progress_bar.empty()
                 status_placeholder.empty()
+
+                # --- 🧹 CLEANUP: campaign khatam hone ke baad Cloudinary se media delete kar dein ---
+                # (ab iski zaroorat nahi — sabko bhej diya gaya hai — isliye storage clean rakhte hain)
+                if cloudinary_public_id:
+                    delete_from_cloudinary(cloudinary_public_id, cloudinary_resource_type)
                 
                 # ---> 🟢 LOGS TO SUPABASE 🟢 <---
                 if supabase and len(report_logs) > 0:
