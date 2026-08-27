@@ -264,11 +264,10 @@ def render_alarm_audio():
     if not st.session_state.pa_sound_enabled:
         return
     b64_audio = generate_beep_base64()
-    st.markdown(textwrap.dedent(f"""
-        <audio autoplay>
-            <source src="data:audio/wav;base64,{b64_audio}" type="audio/wav">
-        </audio>
-    """), unsafe_allow_html=True)
+    st.markdown(
+        f'<audio autoplay><source src="data:audio/wav;base64,{b64_audio}" type="audio/wav"></audio>',
+        unsafe_allow_html=True,
+    )
 
 
 # --- 6. DATA HELPERS ---
@@ -560,17 +559,18 @@ def reminder_popup_dialog(row):
 
     days_txt, days_cls = days_pending_badge(row.get('raise_date', ''))
 
-    st.markdown(textwrap.dedent(f"""
-        <div class="pa-alarm-wrap">
-            <div class="pa-alarm-icon">⏰</div>
-            <div class="pa-alarm-title">It's Time! Don't Forget This Task</div>
-            <div class="pa-alarm-activity">{row.get('activity_name', '')}</div>
-            <div class="pa-alarm-info-row"><span class="pa-alarm-label">👷 Indus Responsible</span><span class="pa-alarm-value">{row.get('indus_responsible','') or '-'}</span></div>
-            <div class="pa-alarm-info-row"><span class="pa-alarm-label">🏢 VIS Responsible</span><span class="pa-alarm-value">{row.get('vis_responsible','') or '-'}</span></div>
-            <div class="pa-alarm-info-row"><span class="pa-alarm-label">📅 Raised On</span><span class="pa-alarm-value">{row.get('raise_date','') or '-'} ({days_txt} ago)</span></div>
-            <div class="pa-alarm-info-row"><span class="pa-alarm-label">⭐ Important</span><span class="pa-alarm-value">{"YES 🔥" if row.get('important') else "No"}</span></div>
-        </div>
-    """), unsafe_allow_html=True)
+    alarm_html = (
+        '<div class="pa-alarm-wrap">'
+        '<div class="pa-alarm-icon">⏰</div>'
+        '<div class="pa-alarm-title">It\'s Time! Don\'t Forget This Task</div>'
+        f'<div class="pa-alarm-activity">{row.get("activity_name", "")}</div>'
+        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">👷 Indus Responsible</span><span class="pa-alarm-value">{row.get("indus_responsible","") or "-"}</span></div>'
+        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">🏢 VIS Responsible</span><span class="pa-alarm-value">{row.get("vis_responsible","") or "-"}</span></div>'
+        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">📅 Raised On</span><span class="pa-alarm-value">{row.get("raise_date","") or "-"} ({days_txt} ago)</span></div>'
+        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">⭐ Important</span><span class="pa-alarm-value">{"YES 🔥" if row.get("important") else "No"}</span></div>'
+        '</div>'
+    )
+    st.markdown(alarm_html, unsafe_allow_html=True)
 
     if str(row.get('remark', '')).strip():
         st.markdown(f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>', unsafe_allow_html=True)
@@ -737,11 +737,13 @@ with tc6:
 st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega. &nbsp;•&nbsp; 🌙 Quiet Hours: Raat 11:00 PM – Subah 10:00 AM tak koi popup/sound nahi aayega.</p>', unsafe_allow_html=True)
 
 if st.session_state.pa_quiet_hours_enabled and is_quiet_hours():
-    st.markdown(textwrap.dedent("""
-        <div style="background: rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.4); border-radius:10px; padding:10px 16px; margin-bottom:10px; color:#c4b5fd; font-weight:700;">
-            🌙 Abhi Quiet Hours chal rahe hain (11 PM – 10 AM) — koi bhi automatic reminder popup/sound nahi aayega.
-        </div>
-    """), unsafe_allow_html=True)
+    st.markdown(
+        '<div style="background: rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.4); '
+        'border-radius:10px; padding:10px 16px; margin-bottom:10px; color:#c4b5fd; font-weight:700;">'
+        '🌙 Abhi Quiet Hours chal rahe hain (11 PM – 10 AM) — koi bhi automatic reminder popup/sound nahi aayega.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 # --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
 # Only paused while a reminder alarm popup is already open (so it doesn't keep
@@ -819,22 +821,26 @@ else:
         days_txt, days_cls = days_pending_badge(row.get("raise_date", ""))
         card_class = "pa-card important" if is_important else "pa-card"
 
-        st.markdown(textwrap.dedent(f"""
-            <div class="{card_class}">
-                <div class="pa-title-row">
-                    <span class="pa-activity-name">📌 {row.get('activity_name','') or '-'}</span>
-                    {'<span class="pa-badge pa-badge-important">⭐ Important</span>' if is_important else ''}
-                    <span class="pa-badge {days_cls}">{days_txt} pending</span>
-                    <span class="pa-badge pa-badge-reminder">⏰ {reminder_summary_text(row)}</span>
-                </div>
-                <div class="pa-grid">
-                    <div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get('indus_responsible','') or '-'}</div></div>
-                    <div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get('vis_responsible','') or '-'}</div></div>
-                    <div><div class="pa-field-label">Raise Date</div><div class="pa-field-value">{row.get('raise_date','') or '-'}</div></div>
-                </div>
-                {f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>' if str(row.get('remark','')).strip() else ''}
-            </div>
-        """), unsafe_allow_html=True)
+        important_badge_html = '<span class="pa-badge pa-badge-important">⭐ Important</span>' if is_important else ''
+        remark_html = f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>' if str(row.get('remark', '')).strip() else ''
+
+        card_html = (
+            f'<div class="{card_class}">'
+            '<div class="pa-title-row">'
+            f'<span class="pa-activity-name">📌 {row.get("activity_name","") or "-"}</span>'
+            f'{important_badge_html}'
+            f'<span class="pa-badge {days_cls}">{days_txt} pending</span>'
+            f'<span class="pa-badge pa-badge-reminder">⏰ {reminder_summary_text(row)}</span>'
+            '</div>'
+            '<div class="pa-grid">'
+            f'<div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get("indus_responsible","") or "-"}</div></div>'
+            f'<div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get("vis_responsible","") or "-"}</div></div>'
+            f'<div><div class="pa-field-label">Raise Date</div><div class="pa-field-value">{row.get("raise_date","") or "-"}</div></div>'
+            '</div>'
+            f'{remark_html}'
+            '</div>'
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
 
         bc1, bc2, bc3, _ = st.columns([1.3, 1.3, 1.3, 5])
         with bc1:
@@ -887,19 +893,20 @@ with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=Fals
         closed_records.sort(key=lambda r: parse_ddmmyyyy(r.get("raise_date")), reverse=True)
         for row in closed_records:
             rid = row.get("id")
-            st.markdown(textwrap.dedent(f"""
-                <div class="pa-card-closed">
-                    <div class="pa-title-row">
-                        <span class="pa-activity-name">✅ {row.get('activity_name','') or '-'}</span>
-                    </div>
-                    <div class="pa-grid">
-                        <div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get('indus_responsible','') or '-'}</div></div>
-                        <div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get('vis_responsible','') or '-'}</div></div>
-                        <div><div class="pa-field-label">Raised</div><div class="pa-field-value">{row.get('raise_date','') or '-'}</div></div>
-                        <div><div class="pa-field-label">Closed On</div><div class="pa-field-value">{row.get('closed_at','') or '-'}</div></div>
-                    </div>
-                </div>
-            """), unsafe_allow_html=True)
+            closed_html = (
+                '<div class="pa-card-closed">'
+                '<div class="pa-title-row">'
+                f'<span class="pa-activity-name">✅ {row.get("activity_name","") or "-"}</span>'
+                '</div>'
+                '<div class="pa-grid">'
+                f'<div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get("indus_responsible","") or "-"}</div></div>'
+                f'<div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get("vis_responsible","") or "-"}</div></div>'
+                f'<div><div class="pa-field-label">Raised</div><div class="pa-field-value">{row.get("raise_date","") or "-"}</div></div>'
+                f'<div><div class="pa-field-label">Closed On</div><div class="pa-field-value">{row.get("closed_at","") or "-"}</div></div>'
+                '</div>'
+                '</div>'
+            )
+            st.markdown(closed_html, unsafe_allow_html=True)
             rc1, rc2, _ = st.columns([1.3, 1.3, 6])
             with rc1:
                 if st.button("↩️ Reopen", key=f"pa_reopen_{rid}", use_container_width=True):
