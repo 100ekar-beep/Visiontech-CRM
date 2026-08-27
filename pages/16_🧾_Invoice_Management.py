@@ -52,41 +52,58 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Tabs styling — big, pill-shaped, button-like */
-    div[data-testid="stTabs"] div[role="tablist"] {
+    /* =========================================================
+       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
+       ========================================================= */
+    .st-key-nav_bar div[data-testid="stHorizontalBlock"] {
         gap: 12px !important;
         flex-wrap: wrap !important;
-        border-bottom: none !important;
-        margin-bottom: 20px !important;
     }
-    button[data-baseweb="tab"] {
-        font-size: 1.15rem !important;
+    .st-key-nav_bar button {
+        font-size: 1.05rem !important;
         font-weight: 800 !important;
-        color: #cbd5e1 !important;
-        padding: 14px 26px !important;
+        padding: 16px 10px !important;
         height: auto !important;
-        background: rgba(255, 255, 255, 0.04) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
         border-radius: 12px !important;
         transition: all 0.25s ease !important;
+        white-space: nowrap !important;
     }
-    button[data-baseweb="tab"]:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
+    .st-key-nav_bar button[kind="secondary"] {
+        background: rgba(255, 255, 255, 0.06) !important;
+        color: #cbd5e1 !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        box-shadow: none !important;
+    }
+    .st-key-nav_bar button[kind="secondary"]:hover {
+        background: rgba(255, 255, 255, 0.16) !important;
+        color: #ffffff !important;
         transform: translateY(-2px) !important;
-        color: #ffffff !important;
     }
-    button[data-baseweb="tab"] p {
-        font-size: 1.15rem !important;
+    .st-key-nav_bar button[kind="secondary"] p,
+    .st-key-nav_bar button[kind="secondary"] span,
+    .st-key-nav_bar button[kind="secondary"] div {
+        color: #cbd5e1 !important;
         font-weight: 800 !important;
+        font-size: 1.05rem !important;
     }
-    button[data-baseweb="tab"][aria-selected="true"] {
+    .st-key-nav_bar button[kind="secondary"]:hover p,
+    .st-key-nav_bar button[kind="secondary"]:hover span,
+    .st-key-nav_bar button[kind="secondary"]:hover div {
         color: #ffffff !important;
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        border-color: transparent !important;
-        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4) !important;
     }
-    div[data-baseweb="tab-highlight"] { background-color: transparent !important; }
-    div[data-baseweb="tab-border"] { background-color: transparent !important; }
+    .st-key-nav_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.45) !important;
+    }
+    .st-key-nav_bar button[kind="primary"] p,
+    .st-key-nav_bar button[kind="primary"] span,
+    .st-key-nav_bar button[kind="primary"] div {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 1.05rem !important;
+    }
 
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
@@ -868,14 +885,33 @@ columns_list = [
     "balance", "remark"
 ]
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📋 VIS Invoice", "⚙️ ERS Process", "📁 Invoice Data", "🏢 Bhagyashree Invoice", "📡 Sai Tele Invoice"
-])
+# --- NAVIGATION BAR (custom buttons, replaces st.tabs for guaranteed styling) ---
+if 'active_page' not in st.session_state:
+    st.session_state.active_page = "vis"
+
+NAV_PAGES = [
+    ("vis", "📋 VIS Invoice"),
+    ("ers", "⚙️ ERS Process"),
+    ("invdata", "📁 Invoice Data"),
+    ("bhagya", "🏢 Bhagyashree Invoice"),
+    ("saitele", "📡 Sai Tele Invoice"),
+]
+
+with st.container(key="nav_bar"):
+    nav_cols = st.columns(len(NAV_PAGES))
+    for nav_col, (page_id, page_label) in zip(nav_cols, NAV_PAGES):
+        is_active = st.session_state.active_page == page_id
+        with nav_col:
+            if st.button(page_label, key=f"nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
+                st.session_state.active_page = page_id
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================================================================
 # TAB 1 — VIS INVOICE (unchanged, uses "invoice_management" table)
 # =========================================================================
-with tab1:
+if st.session_state.active_page == "vis":
     # --- 4. TOP ACTION BAR ---
     col_title, col_ref, col_add, col_upload, col_export = st.columns([3, 1, 1.5, 1.5, 1.5])
     with col_title:
@@ -1033,23 +1069,23 @@ with tab1:
 # =========================================================================
 # TAB 2 — ERS PROCESS (Supabase table: "ERSprocess")
 # =========================================================================
-with tab2:
+elif st.session_state.active_page == "ers":
     render_generic_tab(table_name="ERSprocess", prefix="ers", tab_title="ERS Process", icon="⚙️")
 
 # =========================================================================
 # TAB 3 — INVOICE DATA (Supabase table: "Invoicedata")
 # =========================================================================
-with tab3:
+elif st.session_state.active_page == "invdata":
     render_generic_tab(table_name="Invoicedata", prefix="invdata", tab_title="Invoice Data", icon="📁")
 
 # =========================================================================
 # TAB 4 — BHAGYASHREE INVOICE (Supabase table: "BhagyashreeInvoice")
 # =========================================================================
-with tab4:
+elif st.session_state.active_page == "bhagya":
     render_generic_tab(table_name="BhagyashreeInvoice", prefix="bhagya", tab_title="Bhagyashree Invoice", icon="🏢")
 
 # =========================================================================
 # TAB 5 — SAI TELE INVOICE (Supabase table: "SaiTeleInvoice")
 # =========================================================================
-with tab5:
+elif st.session_state.active_page == "saitele":
     render_generic_tab(table_name="SaiTeleInvoice", prefix="saitele", tab_title="Sai Tele Invoice", icon="📡")
