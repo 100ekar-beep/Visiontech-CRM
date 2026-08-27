@@ -340,13 +340,34 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+def fetch_all_rows(query_builder, page_size: int = 1000):
+    """
+    Supabase/PostgREST by default returns max 1000 rows per request.
+    Ye helper .range() ke through baar baar fetch karke SAARI rows laata hai,
+    chahe table me 1000 se zyada rows kyun na ho.
+    'query_builder' ek function hai jo (start, end) leke supabase query chalata hai.
+    """
+    all_rows = []
+    start = 0
+    while True:
+        end = start + page_size - 1
+        res = query_builder(start, end)
+        batch = res.data or []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
 if 'po_working_df' not in st.session_state:
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
-        if res.data and len(res.data) > 0:
-            df_fetched = pd.DataFrame(res.data)
+        all_data = fetch_all_rows(
+            lambda start, end: supabase.table("po_working").select("*").eq("workspace", active_ws).range(start, end).execute()
+        )
+        if all_data and len(all_data) > 0:
+            df_fetched = pd.DataFrame(all_data)
             num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
             for col in num_cols:
                 if col in df_fetched.columns:
@@ -447,6 +468,7 @@ def po_upload_dialog():
                 new_rows_to_add = []
                 updated_count = 0
                 skipped_count = 0
+                update_errors = []
                 
                 # --- MATCHING RULE ---
                 # Har line ki uniqueness ab "Project Name" (Project ID) + "Item Num" (Item Code) se decide hoti hai,
@@ -492,12 +514,16 @@ def po_upload_dialog():
                                     'Amount': new_amount
                                 }).eq("id", row_id).execute()
                                 updated_count += 1
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                # FIX: pehle ye error silently swallow ho jaata tha - ab dikhega
+                                update_errors.append(f"Item {item_val}: {e}")
+                        else:
+                            update_errors.append(f"Item {item_val}: matched row me 'id' nahi mila, update skip ho gaya.")
                     else:
                         # Is Project ke liye ye Item Code pehli baar aa raha hai -> naya row add hoga
                         new_rows_to_add.append(new_row.to_dict())
                 
+                inserted_count = 0
                 if new_rows_to_add:
                     records_to_insert = []
                     for rec in new_rows_to_add:
@@ -512,14 +538,24 @@ def po_upload_dialog():
                     
                     try:
                         res = supabase.table("po_working").insert(records_to_insert).execute()
+                        inserted_count = len(res.data) if res.data else 0
+                        if inserted_count == 0:
+                            # Supabase ne error nahi diya lekin kuch bhi return nahi kiya - isko bhi flag karo
+                            update_errors.append("Insert call ne 0 rows return ki - RLS policy ya column mismatch check karo.")
                     except Exception as e:
                         st.error(f"❌ DB Insert Error: Please verify Supabase columns match exactly. Details: {e}")
                         return
                 
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
-                    
+                
                 st.session_state['po_upload_success_msg'] = po_number_input
+                st.session_state['po_upload_summary'] = {
+                    'added': inserted_count,
+                    'updated': updated_count,
+                    'skipped': skipped_count,
+                    'errors': update_errors,
+                }
                 st.rerun()
                 
             except Exception as e:
@@ -543,16 +579,17 @@ def export_dialog(df_export):
 
     try:
         # Fetching all site data for the workspace to bypass PostgREST .in_() limits on large exports
-        res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
-        if res_check.data:
-            for item in res_check.data:
-                s_id = str(item.get("Site ID", "")).strip()
-                p_id = str(item.get("Project ID", "")).strip()
-                p_name = str(item.get("Project Name", "")).strip()
-                
-                if s_id: available_sites.add(s_id)
-                if p_id: available_projects.add(p_id)
-                if p_name: available_projects.add(p_name)
+        site_rows = fetch_all_rows(
+            lambda start, end: supabase.table("site_data").select("*").eq("workspace", active_ws).range(start, end).execute()
+        )
+        for item in site_rows:
+            s_id = str(item.get("Site ID", "")).strip()
+            p_id = str(item.get("Project ID", "")).strip()
+            p_name = str(item.get("Project Name", "")).strip()
+            
+            if s_id: available_sites.add(s_id)
+            if p_id: available_projects.add(p_id)
+            if p_name: available_projects.add(p_name)
     except Exception:
         pass
 
@@ -757,10 +794,27 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # --- CELEBRATION BLOCK AFTER UPLOAD ---
 if st.session_state.get('po_upload_success_msg'):
-    st.balloons()
-    st.toast(f"🎉 BINGO! PO {st.session_state['po_upload_success_msg']} Uploaded!", icon="🎈")
-    st.success(f"🎊 YAY! PO **{st.session_state['po_upload_success_msg']}** Uploaded Successfully! 🫧🎈")
+    summary = st.session_state.get('po_upload_summary', {})
+    added = summary.get('added', 0)
+    updated = summary.get('updated', 0)
+    skipped = summary.get('skipped', 0)
+    errors = summary.get('errors', [])
+
+    if added > 0 or updated > 0:
+        st.balloons()
+        st.toast(f"🎉 BINGO! PO {st.session_state['po_upload_success_msg']} Processed!", icon="🎈")
+
+    st.success(
+        f"🎊 PO **{st.session_state['po_upload_success_msg']}** processed — "
+        f"🆕 {added} naye items add hue, ✏️ {updated} items update hue, "
+        f"⏭️ {skipped} items same the (no change)."
+    )
+    if errors:
+        st.error("⚠️ Kuch items save nahi ho paaye:\n\n" + "\n".join(f"- {e}" for e in errors))
+
     del st.session_state['po_upload_success_msg']
+    if 'po_upload_summary' in st.session_state:
+        del st.session_state['po_upload_summary']
 
 # --- FETCH DATA FROM SESSION ---
 df = st.session_state.po_working_df.copy()
@@ -895,17 +949,18 @@ else:
         missing_ids = [p for p in project_names_on_page if p.strip().upper() not in project_name_lookup]
         if missing_ids:
             try:
-                res_all = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
-                if res_all.data:
-                    for item in res_all.data:
-                        pid_val = str(item.get("Project ID", "")).strip()
-                        pname_val = str(item.get("Project Name", "")).strip()
-                        if pid_val:
-                            norm_key = pid_val.strip().upper()
-                            if pname_val and norm_key not in project_name_lookup:
-                                project_name_lookup[norm_key] = pname_val
-                                project_name_lookup[pid_val] = pname_val
-                            available_projects.add(pid_val)
+                all_site_rows = fetch_all_rows(
+                    lambda start, end: supabase.table("site_data").select("*").eq("workspace", active_ws).range(start, end).execute()
+                )
+                for item in all_site_rows:
+                    pid_val = str(item.get("Project ID", "")).strip()
+                    pname_val = str(item.get("Project Name", "")).strip()
+                    if pid_val:
+                        norm_key = pid_val.strip().upper()
+                        if pname_val and norm_key not in project_name_lookup:
+                            project_name_lookup[norm_key] = pname_val
+                            project_name_lookup[pid_val] = pname_val
+                        available_projects.add(pid_val)
             except Exception:
                 pass
 
