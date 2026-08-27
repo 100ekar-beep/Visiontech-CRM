@@ -28,6 +28,10 @@ if 'active_reminder' not in st.session_state:
     st.session_state.active_reminder = None
 if 'pa_search' not in st.session_state:
     st.session_state.pa_search = ""
+if 'pa_show_form_dialog' not in st.session_state:
+    st.session_state.pa_show_form_dialog = False
+if 'pa_edit_row' not in st.session_state:
+    st.session_state.pa_edit_row = None
 
 # --- 3. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -408,10 +412,17 @@ def add_activity_dialog(edit_row=None):
         st.caption("👆 Click karke clock se time set karein")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    col_btn1, col_btn2 = st.columns([8, 2])
+    col_btn0, col_btn1, col_btn2 = st.columns([6, 2, 2])
+    with col_btn0:
+        cancelled = st.button("❌ Cancel", use_container_width=True)
     with col_btn2:
         btn_label = "💾 Update" if is_edit else "💾 Save Activity"
         submitted = st.button(btn_label, type="primary", use_container_width=True)
+
+    if cancelled:
+        st.session_state.pa_show_form_dialog = False
+        st.session_state.pa_edit_row = None
+        st.rerun()
 
     if submitted:
         has_error = False
@@ -451,6 +462,8 @@ def add_activity_dialog(edit_row=None):
                     payload["status"] = "Pending"
                     supabase.table(TABLE_NAME).insert(payload).execute()
                     st.success("✅ Activity Successfully Added!")
+                st.session_state.pa_show_form_dialog = False
+                st.session_state.pa_edit_row = None
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Saving Activity: {e}")
@@ -563,6 +576,13 @@ def _snooze_reminder(row, minutes):
 if st.session_state.get("active_reminder"):
     reminder_popup_dialog(st.session_state["active_reminder"])
 
+# ==============================================================
+# --- TRIGGER ADD/EDIT FORM IF ACTIVE — session-flag based so it
+#     SURVIVES the periodic auto-refresh rerun instead of closing.
+# ==============================================================
+if st.session_state.get("pa_show_form_dialog"):
+    add_activity_dialog(edit_row=st.session_state.get("pa_edit_row"))
+
 # --- HERO HEADER ---
 # This page is shared across ALL companies/workspaces — every login sees the same tasks.
 st.markdown("""
@@ -576,7 +596,9 @@ st.markdown("""
 tc1, tc2, tc3, tc4, tc5 = st.columns([2, 1.3, 1.3, 1.3, 1.3])
 with tc1:
     if st.button("➕ Add New Activity", use_container_width=True):
-        add_activity_dialog()
+        st.session_state.pa_edit_row = None
+        st.session_state.pa_show_form_dialog = True
+        st.rerun()
 with tc2:
     sound_label = "🔊 Sound: ON" if st.session_state.pa_sound_enabled else "🔇 Sound: OFF"
     if st.button(sound_label, use_container_width=True):
@@ -608,11 +630,17 @@ with tc5:
 st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega.</p>', unsafe_allow_html=True)
 
 # --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
-if st.session_state.pa_autocheck_enabled:
+# Paused automatically while the Add/Edit form is open, so it never
+# interrupts you mid-typing (that was closing the popup before).
+form_is_open = bool(st.session_state.get("pa_show_form_dialog"))
+
+if st.session_state.pa_autocheck_enabled and not form_is_open:
     if AUTOREFRESH_AVAILABLE:
         st_autorefresh(interval=20000, key="pa_autorefresh")
     else:
         st.info("ℹ️ Live auto-check ke liye `pip install streamlit-autorefresh` karein. Abhi ke liye 'Refresh Now' button use karein.")
+elif form_is_open:
+    st.caption("⏸️ Form khula hone tak auto-check pause hai — aaram se bharo, koi disturbance nahi hoga.")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -621,8 +649,8 @@ all_records = fetch_activities()
 pending_records = [r for r in all_records if str(r.get("status", "Pending")).strip() != "Closed"]
 closed_records = [r for r in all_records if str(r.get("status", "Pending")).strip() == "Closed"]
 
-# --- REMINDER CHECK (only when auto-check is on) ---
-if st.session_state.pa_autocheck_enabled:
+# --- REMINDER CHECK (only when auto-check is on and no form is open) ---
+if st.session_state.pa_autocheck_enabled and not form_is_open:
     check_reminders_and_trigger(pending_records)
 
 # --- STAT CARDS ---
@@ -689,7 +717,9 @@ else:
         bc1, bc2, bc3, _ = st.columns([1.3, 1.3, 1.3, 5])
         with bc1:
             if st.button("✏️ Edit", key=f"pa_edit_{rid}", use_container_width=True):
-                add_activity_dialog(edit_row=row)
+                st.session_state.pa_edit_row = row
+                st.session_state.pa_show_form_dialog = True
+                st.rerun()
         with bc2:
             if st.button("✅ Close", key=f"pa_close_{rid}", use_container_width=True):
                 try:
