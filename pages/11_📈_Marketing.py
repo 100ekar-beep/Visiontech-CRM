@@ -689,6 +689,10 @@ if check_password():
                                 st.stop()
 
                             st.toast("✅ File Upload & Verify Success!")
+                            # 🔍 DEBUG: media URL seedha screen par dikha rahe hain taaki
+                            # Media Library me dhundhna na pade — WhatsApp error 131053
+                            # debug hone ke baad is line ko hata dena.
+                            st.code(media_url, language="text")
                         except RuntimeError as e:
                             st.error(f"🚨 Video conversion fail ho gaya, isliye process rok diya gaya: {e}")
                             st.stop()
@@ -789,9 +793,14 @@ if check_password():
                 status_placeholder.empty()
 
                 # --- 🧹 CLEANUP: campaign khatam hone ke baad Cloudinary se media delete kar dein ---
-                # (ab iski zaroorat nahi — sabko bhej diya gaya hai — isliye storage clean rakhte hain)
-                if cloudinary_public_id:
-                    delete_from_cloudinary(cloudinary_public_id, cloudinary_resource_type)
+                # ⚠️ TEMPORARILY DISABLED FOR DEBUGGING (WhatsApp Error 131053) — media file
+                # ab Cloudinary par hi rahegi campaign ke baad bhi, taaki Media Library me jaakar
+                # uska actual URL/file check kiya ja sake. Debugging khatam hone ke baad is block
+                # ko wapas enable kar dena (neeche wali 2 lines ka comment hata dein):
+                #
+                # if cloudinary_public_id:
+                #     delete_from_cloudinary(cloudinary_public_id, cloudinary_resource_type)
+                pass
                 
                 # ---> 🟢 LOGS TO SUPABASE 🟢 <---
                 if supabase and len(report_logs) > 0:
