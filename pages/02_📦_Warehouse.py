@@ -7,6 +7,7 @@ import smtplib  # <--- NEW: For Email Sending
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
+from st_keyup import st_keyup  # <--- NEW: For live search-as-you-type (Item Code/Description)
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Warehouse Hub", page_icon="📦", layout="wide")
@@ -298,6 +299,22 @@ st.markdown("""
     .wh-card-row:last-child { border-bottom: none; }
     .wh-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
     .wh-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+
+    /* =========================================================
+       NEW: ITEM CODE LIVE-SEARCH MATCH CAPTION
+       ========================================================= */
+    .item-match-count {
+        color: #60a5fa;
+        font-size: 0.78rem;
+        font-weight: 700;
+        margin: 2px 0 4px 0;
+    }
+    .item-no-match {
+        color: #f87171;
+        font-size: 0.78rem;
+        font-weight: 700;
+        margin: 2px 0 4px 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -348,6 +365,75 @@ def get_site_projects():
     except Exception as e:
         st.toast(f"Database Error: {e}", icon="❌")
         return []
+
+# --- NEW: LIVE ITEM MASTER SEARCH (matches Item Code OR Item Description, partial word) ---
+def search_item_master(term, limit=25):
+    """
+    Search the Item Code master table for any row where item_code OR item_description
+    contains the given term (case-insensitive, partial match anywhere in the string).
+    Tries both possible table name variants used elsewhere in the app.
+    """
+    term_clean = str(term).strip()
+    if not term_clean:
+        return []
+    # Escape characters that could break the PostgREST filter mini-language
+    safe_term = term_clean.replace(",", " ").replace("(", " ").replace(")", " ")
+    for t_name in ["Item Code", "item_code"]:
+        try:
+            res = (
+                supabase.table(t_name)
+                .select("*")
+                .or_(f"item_code.ilike.*{safe_term}*,item_description.ilike.*{safe_term}*")
+                .limit(limit)
+                .execute()
+            )
+            if res.data:
+                return res.data
+        except Exception:
+            continue
+    return []
+
+def render_item_code_search(search_key, match_key, stn_status_opts, on_select_keys):
+    """
+    Shared UI block: live search box + matching-items dropdown (Code — Description).
+    `on_select_keys` = dict with keys: 'final_code', 'idesc', 'stn' -> the session_state
+    keys that should be updated when the user picks a match from the dropdown.
+    Returns the currently selected item code (string, may be empty).
+    """
+    search_val = st_keyup(
+        "ITEM CODE * (type code or description to search)",
+        placeholder="e.g. 64B9E0 or SMPS...",
+        key=search_key,
+    )
+
+    if search_val and search_val.strip():
+        matches = search_item_master(search_val)
+        if matches:
+            match_opts = ["🔍 Select matching item..."]
+            match_lookup = {}
+            for m in matches:
+                m_code = str(m.get("item_code", "")).strip()
+                m_desc = str(m.get("item_description", "")).strip()
+                m_stn = str(m.get("stn_status", "Required")).strip()
+                label = f"{m_code} — {m_desc}" if m_desc else m_code
+                if label not in match_lookup:
+                    match_opts.append(label)
+                    match_lookup[label] = (m_code, m_desc, m_stn)
+
+            st.markdown(f"<div class='item-match-count'>📋 {len(match_lookup)} matching item(s) found — select one below</div>", unsafe_allow_html=True)
+            chosen = st.selectbox(
+                "Matches", match_opts, key=match_key, label_visibility="collapsed"
+            )
+            if chosen != "🔍 Select matching item...":
+                sel_code, sel_desc, sel_stn = match_lookup[chosen]
+                st.session_state[on_select_keys["final_code"]] = sel_code
+                st.session_state[on_select_keys["idesc"]] = sel_desc
+                if sel_stn in stn_status_opts:
+                    st.session_state[on_select_keys["stn"]] = sel_stn
+        else:
+            st.markdown("<div class='item-no-match'>⚠️ Koi matching item code/description nahi mila.</div>", unsafe_allow_html=True)
+
+    return st.session_state.get(on_select_keys["final_code"], "")
 
 # --- 3.5 WAREHOUSE MATERIAL ADD DIALOG (POP-UP) ---
 @st.dialog("📦 Add New Warehouse Material", width="large")
@@ -436,31 +522,20 @@ def add_warehouse_material_dialog():
                 boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"w_boq_{i}")
                 w_boqs.append(boq_no)
             with mc3:
-                i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"w_icode_{i}")
+                # --- NEW: LIVE SEARCH (by code OR description, partial match) + SELECT ---
+                i_code = render_item_code_search(
+                    search_key=f"w_icode_search_{i}",
+                    match_key=f"w_icode_match_{i}",
+                    stn_status_opts=stn_status_opts,
+                    on_select_keys={
+                        "final_code": f"w_icode_final_{i}",
+                        "idesc": f"w_idesc_{i}",
+                        "stn": f"w_stn_{i}",
+                    },
+                )
                 w_item_codes.append(i_code)
-
-            auto_desc = ""
-            auto_stn = "Select"
-            code_val = i_code.strip()
-            if code_val:
-                try:
-                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
-                    if not item_res.data:
-                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
-                        
-                    if item_res.data:
-                        fetched_desc = str(item_res.data[0].get("item_description", ""))
-                        fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
-                        
-                        st.session_state[f"w_idesc_{i}"] = fetched_desc
-                        if fetched_stn in stn_status_opts:
-                            st.session_state[f"w_stn_{i}"] = fetched_stn
-                            
-                        st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
-                    else:
-                        st.toast("Item Code not found in database ⚠️", icon="⚠️")
-                except Exception as e:
-                    pass
+                if i_code:
+                    st.caption(f"✅ Selected: **{i_code}**")
 
             with mc4:
                 current_desc_val = st.session_state.get(f"w_idesc_{i}", "")
@@ -479,10 +554,7 @@ def add_warehouse_material_dialog():
                 d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
                 w_dates.append(d_date)
             with mc8:
-                default_stn = "Select"
-                if code_val and 'item_res' in locals() and item_res.data:
-                    default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
-                
+                default_stn = st.session_state.get(f"w_stn_{i}", "Select")
                 stn_idx = stn_status_opts.index(default_stn) if default_stn in stn_status_opts else 0
                 stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"w_stn_{i}")
                 w_stn_statuses.append(stn_stat)
@@ -523,7 +595,7 @@ def add_warehouse_material_dialog():
                     
                     code_str = ic.strip()
                     if not code_str:
-                        st.error(f"⚠️ Item {idx+1}: Item Code cannot be empty!")
+                        st.error(f"⚠️ Item {idx+1}: Item Code cannot be empty! (Search karke item select karein)")
                         has_m_err = True
                         break
                     
@@ -571,6 +643,13 @@ def add_warehouse_material_dialog():
                         supabase.table("warehouse_data").insert(insert_dict).execute()
                         
                     st.success("✅ Warehouse Material Successfully Saved!")
+
+                    # --- Clean up search-related session state so next "Add" starts fresh ---
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("w_icode_final_") or k.startswith("w_idesc_") or k.startswith("w_stn_") \
+                           or k.startswith("w_icode_search_") or k.startswith("w_icode_match_"):
+                            del st.session_state[k]
+
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
@@ -580,7 +659,8 @@ def add_warehouse_material_dialog():
 def edit_warehouse_material_dialog(row_data):
     st.caption("Update transaction items and asset movements")
     all_dd = get_all_dropdowns()
-    
+    rid = row_data.get('id')  # used to scope search-related keys to THIS row only
+
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
 
@@ -614,9 +694,34 @@ def edit_warehouse_material_dialog(row_data):
         with mc2:
             boq_no = st.text_input("BOQ NUMBER *", value=row_data.get('BOQ Number', ''), key="ed_w_boq")
         with mc3:
-            i_code = st.text_input("ITEM CODE *", value=row_data.get('Item Code', ''), key="ed_w_icode")
+            # --- NEW: LIVE SEARCH (by code OR description, partial match) + SELECT ---
+            # Pre-load the current item's code as the starting point (row-scoped key so
+            # switching between different rows never shows a stale selection).
+            final_code_key = f"ed_w_icode_final_{rid}"
+            idesc_key = f"ed_w_idesc_{rid}"
+            stn_key = f"ed_w_stn_{rid}"
+
+            if final_code_key not in st.session_state:
+                st.session_state[final_code_key] = row_data.get('Item Code', '')
+            if idesc_key not in st.session_state:
+                st.session_state[idesc_key] = row_data.get('Item Description', '')
+            if stn_key not in st.session_state:
+                _cur_stn = row_data.get('STN Status', 'Select')
+                st.session_state[stn_key] = _cur_stn if _cur_stn in stn_status_opts else "Select"
+
+            i_code = render_item_code_search(
+                search_key=f"ed_w_icode_search_{rid}",
+                match_key=f"ed_w_icode_match_{rid}",
+                stn_status_opts=stn_status_opts,
+                on_select_keys={
+                    "final_code": final_code_key,
+                    "idesc": idesc_key,
+                    "stn": stn_key,
+                },
+            )
+            st.caption(f"✅ Current Code: **{i_code or '—'}**")
         with mc4:
-            i_desc = st.text_input("ITEM DESCRIPTION", value=row_data.get('Item Description', ''), key="ed_w_idesc")
+            i_desc = st.text_input("ITEM DESCRIPTION", key=idesc_key)
         with mc5:
             try:
                 indus_val = float(row_data.get('Indus Qty', 0))
@@ -631,7 +736,7 @@ def edit_warehouse_material_dialog(row_data):
             val_date = str(row_data.get('Dispatch Date', ''))
             d_date = st.text_input("DISPATCH DATE (DD/MM/YYYY)", value=val_date if val_date != 'nan' else "", key="ed_w_ddate")
         with mc8:
-            stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=get_idx(row_data.get('STN Status'), stn_status_opts), key="ed_w_stn")
+            stn_stat = st.selectbox("STN STATUS", stn_status_opts, key=stn_key)
         with mc9:
             val_rem = str(row_data.get('Remark', ''))
             rem = st.text_input("REMARKS", value=val_rem if val_rem != 'nan' else "", key="ed_w_rem")
@@ -645,7 +750,7 @@ def edit_warehouse_material_dialog(row_data):
             if not boq_no:
                 st.error("⚠️ BOQ Number dalna compulsory hai!")
             elif not i_code.strip():
-                st.error("⚠️ Item Code cannot be empty!")
+                st.error("⚠️ Item Code cannot be empty! (Search karke item select karein)")
             else:
                 try:
                     update_dict = {
@@ -662,6 +767,12 @@ def edit_warehouse_material_dialog(row_data):
                     }
                     supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
                     st.success("✅ Warehouse Material Successfully Updated!")
+
+                    # --- Clean up this row's search-related session state ---
+                    for k in [final_code_key, idesc_key, stn_key, f"ed_w_icode_search_{rid}", f"ed_w_icode_match_{rid}"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Updating Material: {e}")
@@ -731,7 +842,12 @@ with col_ref:
         st.rerun() 
 with col_add:
     if st.button("➕ Add New Material", use_container_width=True):
-        st.session_state.wh_mat_count = 1 
+        st.session_state.wh_mat_count = 1
+        # --- Clear any stale item-search selections from a previous "Add" session ---
+        for k in list(st.session_state.keys()):
+            if k.startswith("w_icode_final_") or k.startswith("w_idesc_") or k.startswith("w_stn_") \
+               or k.startswith("w_icode_search_") or k.startswith("w_icode_match_"):
+                del st.session_state[k]
         add_warehouse_material_dialog() 
 with col_export:
     if st.button("📥 Download", use_container_width=True):
