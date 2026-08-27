@@ -170,6 +170,38 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
+
+    /* =========================================================
+       DATE & TIME PICKER — make Calendar/Clock icons clearly visible
+       ========================================================= */
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stTimeInput"] input {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        cursor: pointer !important;
+        background: rgba(255,255,255,0.06) !important;
+        border: 1px solid rgba(139,92,246,0.45) !important;
+        border-radius: 8px !important;
+    }
+    div[data-testid="stDateInput"] svg,
+    div[data-testid="stTimeInput"] svg {
+        fill: #a78bfa !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+    div[data-testid="stDateInput"] > div > div,
+    div[data-testid="stTimeInput"] > div > div {
+        background: rgba(255,255,255,0.06) !important;
+        border-radius: 8px !important;
+    }
+    /* The pop-up calendar / clock panel itself */
+    div[data-baseweb="popover"] div[data-baseweb="calendar"],
+    div[data-baseweb="popover"] ul {
+        background: #1e1b4b !important;
+        border: 1px solid rgba(139,92,246,0.5) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 12px 30px -8px rgba(0,0,0,0.6) !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -332,7 +364,7 @@ def add_activity_dialog(edit_row=None):
         default_raise_date = parse_ddmmyyyy(edit_row.get('raise_date')) if is_edit and edit_row.get('raise_date') else datetime.now()
         if default_raise_date == datetime.min:
             default_raise_date = datetime.now()
-        raise_date = st.date_input("RAISE DATE *", value=default_raise_date.date())
+        raise_date = st.date_input("RAISE DATE * 📅", value=default_raise_date.date())
     with c4:
         important = st.checkbox("⭐ Mark as IMPORTANT", value=bool(edit_row.get('important', False)) if is_edit else False)
 
@@ -362,7 +394,7 @@ def add_activity_dialog(edit_row=None):
             default_sdate = parse_ddmmyyyy(edit_row.get('reminder_specific_date')) if is_edit and edit_row.get('reminder_specific_date') else datetime.now()
             if default_sdate == datetime.min:
                 default_sdate = datetime.now()
-            sdate = st.date_input("SPECIFIC DATE *", value=default_sdate.date())
+            sdate = st.date_input("SPECIFIC DATE * 📅", value=default_sdate.date())
             reminder_sdate = sdate.strftime("%d/%m/%Y")
 
     with rc2:
@@ -372,7 +404,8 @@ def add_activity_dialog(edit_row=None):
                 default_time = datetime.strptime(edit_row.get('reminder_time'), "%H:%M").time()
             except Exception:
                 pass
-        reminder_time_val = st.time_input("REMINDER TIME *", value=default_time)
+        reminder_time_val = st.time_input("REMINDER TIME * 🕐", value=default_time)
+        st.caption("👆 Click karke clock se time set karein")
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_btn1, col_btn2 = st.columns([8, 2])
@@ -488,10 +521,10 @@ def reminder_popup_dialog(row):
                 new_dom = st.number_input("Date of Month", min_value=1, max_value=31, value=cur_dom, key="resch_dom")
         elif new_type == "Specific Date":
             with rc1:
-                new_sdate_val = st.date_input("Specific Date", value=datetime.now().date(), key="resch_sdate")
+                new_sdate_val = st.date_input("Specific Date 📅", value=datetime.now().date(), key="resch_sdate")
                 new_sdate = new_sdate_val.strftime("%d/%m/%Y")
         with rc2:
-            new_time = st.time_input("Reminder Time", value=dt_time(9, 0), key="resch_time")
+            new_time = st.time_input("Reminder Time 🕐", value=dt_time(9, 0), key="resch_time")
 
         if st.button("🔄 Save New Schedule", use_container_width=True, key="resch_save"):
             try:
