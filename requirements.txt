@@ -10,3 +10,4 @@ ffmpeg
 Pillow
 phonenumbers
 streamlit-autorefresh
+cloudinary
