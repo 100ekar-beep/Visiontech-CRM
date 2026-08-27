@@ -396,8 +396,15 @@ def search_item_master(term, limit=25):
 def render_item_code_search(search_key, match_key, stn_status_opts, on_select_keys):
     """
     Shared UI block: live search box + matching-items dropdown (Code — Description).
+
+    Behaviour:
+    - If the typed text is an EXACT (100%) match to exactly one item's Item Code,
+      that item is auto-selected immediately — no extra dropdown click needed.
+    - Otherwise (partial text, multiple matches, or matches only by description),
+      a dropdown of "CODE — DESCRIPTION" options is shown so the user can pick.
+
     `on_select_keys` = dict with keys: 'final_code', 'idesc', 'stn' -> the session_state
-    keys that should be updated when the user picks a match from the dropdown.
+    keys that should be updated when an item is selected (auto or manual).
     Returns the currently selected item code (string, may be empty).
     """
     search_val = st_keyup(
@@ -409,27 +416,46 @@ def render_item_code_search(search_key, match_key, stn_status_opts, on_select_ke
     if search_val and search_val.strip():
         matches = search_item_master(search_val)
         if matches:
-            match_opts = ["🔍 Select matching item..."]
-            match_lookup = {}
-            for m in matches:
-                m_code = str(m.get("item_code", "")).strip()
-                m_desc = str(m.get("item_description", "")).strip()
-                m_stn = str(m.get("stn_status", "Required")).strip()
-                label = f"{m_code} — {m_desc}" if m_desc else m_code
-                if label not in match_lookup:
-                    match_opts.append(label)
-                    match_lookup[label] = (m_code, m_desc, m_stn)
+            term_clean = search_val.strip().lower()
+            exact_matches = [m for m in matches if str(m.get("item_code", "")).strip().lower() == term_clean]
 
-            st.markdown(f"<div class='item-match-count'>📋 {len(match_lookup)} matching item(s) found — select one below</div>", unsafe_allow_html=True)
-            chosen = st.selectbox(
-                "Matches", match_opts, key=match_key, label_visibility="collapsed"
-            )
-            if chosen != "🔍 Select matching item...":
-                sel_code, sel_desc, sel_stn = match_lookup[chosen]
+            if len(exact_matches) == 1:
+                # --- 100% EXACT MATCH: auto-select directly, no dropdown needed ---
+                m = exact_matches[0]
+                sel_code = str(m.get("item_code", "")).strip()
+                sel_desc = str(m.get("item_description", "")).strip()
+                sel_stn = str(m.get("stn_status", "Required")).strip()
                 st.session_state[on_select_keys["final_code"]] = sel_code
                 st.session_state[on_select_keys["idesc"]] = sel_desc
                 if sel_stn in stn_status_opts:
                     st.session_state[on_select_keys["stn"]] = sel_stn
+                st.markdown(
+                    f"<div class='item-match-count'>✅ Exact match — auto-selected: <b>{sel_code}</b></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                # --- Partial / multiple matches: show dropdown to pick manually ---
+                match_opts = ["🔍 Select matching item..."]
+                match_lookup = {}
+                for m in matches:
+                    m_code = str(m.get("item_code", "")).strip()
+                    m_desc = str(m.get("item_description", "")).strip()
+                    m_stn = str(m.get("stn_status", "Required")).strip()
+                    label = f"{m_code} — {m_desc}" if m_desc else m_code
+                    if label not in match_lookup:
+                        match_opts.append(label)
+                        match_lookup[label] = (m_code, m_desc, m_stn)
+
+                st.markdown(f"<div class='item-match-count'>📋 {len(match_lookup)} matching item(s) found — select one below</div>", unsafe_allow_html=True)
+                chosen = st.selectbox(
+                    "Matches", match_opts, key=match_key, label_visibility="collapsed"
+                )
+                if chosen != "🔍 Select matching item...":
+                    sel_code, sel_desc, sel_stn = match_lookup[chosen]
+                    st.session_state[on_select_keys["final_code"]] = sel_code
+                    st.session_state[on_select_keys["idesc"]] = sel_desc
+                    if sel_stn in stn_status_opts:
+                        st.session_state[on_select_keys["stn"]] = sel_stn
         else:
             st.markdown("<div class='item-no-match'>⚠️ Koi matching item code/description nahi mila.</div>", unsafe_allow_html=True)
 
