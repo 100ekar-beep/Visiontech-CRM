@@ -737,21 +737,22 @@ with tc6:
 st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega. &nbsp;•&nbsp; 🌙 Quiet Hours: Raat 11:00 PM – Subah 10:00 AM tak koi popup/sound nahi aayega.</p>', unsafe_allow_html=True)
 
 if st.session_state.pa_quiet_hours_enabled and is_quiet_hours():
-    st.markdown("""
+    st.markdown(textwrap.dedent("""
         <div style="background: rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.4); border-radius:10px; padding:10px 16px; margin-bottom:10px; color:#c4b5fd; font-weight:700;">
             🌙 Abhi Quiet Hours chal rahe hain (11 PM – 10 AM) — koi bhi automatic reminder popup/sound nahi aayega.
         </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 # --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
-# Paused automatically while:
-#   1) the Add/Edit form is open (so it never interrupts you mid-typing), or
-#   2) a reminder alarm popup is already open (so it doesn't keep re-opening
-#      and re-beeping every refresh cycle — it should ring ONCE and then wait
-#      for you to Close/Snooze/Reschedule).
+# Only paused while a reminder alarm popup is already open (so it doesn't keep
+# re-opening / re-beeping every refresh cycle — it should ring ONCE and then
+# wait for you to Close/Snooze/Reschedule).
+# NOTE: it is intentionally NOT paused just because the Add/Edit form is open —
+# earlier it was, and that silently blocked reminders from ever firing if the
+# form happened to be left open when the scheduled time arrived.
 form_is_open = bool(st.session_state.get("pa_show_form_dialog"))
 reminder_is_open = bool(st.session_state.get("active_reminder"))
-pause_autocheck = form_is_open or reminder_is_open
+pause_autocheck = reminder_is_open
 
 if st.session_state.pa_autocheck_enabled and not pause_autocheck:
     if AUTOREFRESH_AVAILABLE:
