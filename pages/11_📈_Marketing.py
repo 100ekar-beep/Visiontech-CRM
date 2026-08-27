@@ -520,6 +520,31 @@ if check_password():
 
     st.markdown("---")
 
+    # ==========================================
+    # --- 📋 TARGET SENDING HISTORY (SESSION-ONLY) ---
+    # Yeh table sirf is browser session ke liye hai — Supabase me kahi save
+    # nahi hoti. Jab "Send Message to All" successful hota hai, ek nayi row
+    # yaha add ho jaati hai. "Reset Table" dabane par table khaali ho jaati
+    # hai aur agla naya "batch" shuru ho jaata hai.
+    # ==========================================
+    if "target_history" not in st.session_state:
+        st.session_state["target_history"] = []
+
+    hist_title_col, hist_btn_col = st.columns([5, 1])
+    with hist_title_col:
+        st.markdown("### 📋 Target Sending History (Is Session Ke Liye)")
+    with hist_btn_col:
+        if st.button("🔄 Reset Table", use_container_width=True):
+            st.session_state["target_history"] = []
+            st.rerun()
+
+    if st.session_state["target_history"]:
+        st.dataframe(st.session_state["target_history"], use_container_width=True, hide_index=True)
+    else:
+        st.info("💡 Abhi tak koi target is session me nahi bheja gaya. Message bhejne ke baad yaha record dikhega.")
+
+    st.markdown("---")
+
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -826,6 +851,17 @@ if check_password():
                     "failed": error_count,
                     "logs": report_logs
                 }
+
+                # --- 📋 ADD ROW TO SESSION-ONLY TARGET HISTORY TABLE ---
+                # (Supabase me nahi jaata — sirf is browser session me dikhta hai,
+                # jab tak "Reset Table" na dabaya jaaye ya page reload na ho)
+                st.session_state["target_history"].append({
+                    "Sr. No.": len(st.session_state["target_history"]) + 1,
+                    "Target Name": selected_list,
+                    "Contact Qty": len(contacts_list),
+                    "Success Qty": success_count,
+                    "Fail Qty": error_count
+                })
 
                 st.write("---")
                 if success_count > 0:
