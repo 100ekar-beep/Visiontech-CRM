@@ -869,6 +869,13 @@ if check_password():
                     st.success(f"✅ {success_count} logon ko message successfully send ho gaya!")
                 if error_count > 0:
                     st.warning(f"⚠️ {error_count} logon ko message nahi gaya. Upar errors check karein.")
+
+                # --- FORCE RERUN so the "Target Sending History" table (rendered
+                # earlier/above in the script) picks up the row we just appended
+                # to session_state in THIS same run. Without this, the table only
+                # updates on the NEXT user interaction/rerun, not right after sending.
+                time.sleep(1.2)  # brief pause so the user can see the balloons/success message first
+                st.rerun()
             else:
                 st.error("Database connection issue. Messages send nahi huye.")
 
