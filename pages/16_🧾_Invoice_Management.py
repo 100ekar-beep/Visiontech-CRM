@@ -281,7 +281,7 @@ st.markdown("""
 
 # --- 3. SUPABASE CONNECTION ---
 SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-SUPABASE_KEY = "sb_secret_ChVw7W5z9c5k74ycI5GnYA_KBYB1blv"
+SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
 
 @st.cache_resource
 def init_connection():
@@ -305,8 +305,12 @@ def parse_date_safely(val):
 # GENERIC HELPERS (used by ERS Process & Invoice Data tabs)
 # =========================================================================
 
+@st.cache_data(ttl=30, show_spinner=False)
 def get_table_df(table_name):
-    """Fetch a Supabase table into a DataFrame, newest (highest id) first."""
+    """Fetch a Supabase table into a DataFrame, newest (highest id) first.
+    Cached for 30s so search/pagination/dialogs on the same tab don't
+    re-download the whole table on every rerun — call get_table_df.clear()
+    right before st.rerun() after any insert/update/delete."""
     try:
         response = supabase.table(table_name).select("*").execute()
         data = response.data
@@ -368,6 +372,7 @@ def generic_add_dialog(table_name, columns, prefix):
                 try:
                     supabase.table(table_name).insert(insert_data).execute()
                     st.success("✅ Record Added!")
+                    get_table_df.clear()
                     st.session_state[f"{prefix}_page"] = 1
                     st.rerun()
                 except Exception as e:
@@ -387,6 +392,7 @@ def generic_add_dialog(table_name, columns, prefix):
         try:
             supabase.table(table_name).insert(values).execute()
             st.success("✅ Record Added!")
+            get_table_df.clear()
             st.session_state[f"{prefix}_page"] = 1
             st.rerun()
         except Exception as e:
@@ -411,6 +417,7 @@ def generic_edit_dialog(table_name, row_data, columns, prefix):
         try:
             supabase.table(table_name).update(values).eq("id", rid).execute()
             st.success("✅ Updated Successfully!")
+            get_table_df.clear()
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error Updating: {e}")
@@ -447,6 +454,7 @@ def generic_delete_dialog(table_name, rid, label, prefix):
             try:
                 supabase.table(table_name).delete().eq("id", rid).execute()
                 st.success("✅ Deleted Successfully!")
+                get_table_df.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {e}")
@@ -461,6 +469,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon):
         st.markdown(f"<h2 style='margin:0; color:white;'>{icon} {tab_title}</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_refresh"):
+            get_table_df.clear()
             st.rerun()
 
     df = get_table_df(table_name)
@@ -600,8 +609,10 @@ BILL_FROM_DETAILS = {
 }
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def bhagya_get_site_options():
-    """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced."""
+    """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced.
+    Cached because this reruns on every widget interaction inside the Add Invoice dialog."""
     try:
         site_res = supabase.table("site_data").select("*").eq("workspace", BHAGYA_WORKSPACE).execute()
         sites = site_res.data if site_res.data else []
@@ -623,6 +634,7 @@ def bhagya_get_site_options():
     return site_map
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def bhagya_get_po_lines(site_id):
     try:
         res = supabase.table("po_working").select("*") \
@@ -842,6 +854,8 @@ def bhagya_add_invoice_dialog():
             try:
                 supabase.table(BHAGYA_TABLE).insert(payload).execute()
                 st.success("✅ Invoice Saved! Neeche table me 🧾 button se PDF download kar sakte hain.")
+                get_table_df.clear()
+                bhagya_get_site_options.clear()
                 st.session_state.bhagya_page = 1
                 st.rerun()
             except Exception as e:
@@ -914,6 +928,8 @@ def render_bhagyashree_tab():
         st.markdown("<h2 style='margin:0; color:white;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key="bhagya_refresh"):
+            get_table_df.clear()
+            bhagya_get_site_options.clear()
             st.rerun()
     with col_add:
         if st.button("➕ Add New Invoice", use_container_width=True, key="bhagya_add_btn"):
@@ -1093,6 +1109,7 @@ def add_invoice_dialog():
             try:
                 supabase.table("invoice_management").insert(insert_data).execute()
                 st.success("✅ Invoice Added Successfully!")
+                get_table_df.clear()
                 st.session_state.current_page = 1
                 st.rerun()
             except Exception as e:
@@ -1190,6 +1207,7 @@ def edit_invoice_dialog(row_data):
             try:
                 supabase.table("invoice_management").update(update_data).eq("id", row_data['id']).execute()
                 st.success("✅ Invoice Updated Successfully!")
+                get_table_df.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Updating: {e}")
@@ -1249,6 +1267,7 @@ def delete_invoice_dialog(rid, inv_num):
             try:
                 supabase.table("invoice_management").delete().eq("id", rid).execute()
                 st.success("✅ Deleted Successfully!")
+                get_table_df.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {e}")
@@ -1292,6 +1311,7 @@ def bulk_upload_dialog():
                 except:
                     pass
             st.success(f"✅ Bulk Upload Complete! {added} records added.")
+            get_table_df.clear()
             st.session_state.current_page = 1
             st.rerun()
         except Exception as e:
@@ -1349,6 +1369,7 @@ if st.session_state.active_page == "vis":
         st.markdown("<h2 style='margin:0; color:white;'>📊 Live Invoices Master</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key="vis_refresh"):
+            get_table_df.clear()
             st.rerun()
     with col_add:
         if st.button("➕ Add Invoice", use_container_width=True, key="vis_add"):
@@ -1362,24 +1383,11 @@ if st.session_state.active_page == "vis":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 5. FETCH DATA FROM SUPABASE ---
+    # --- 5. FETCH DATA FROM SUPABASE (cached — see get_table_df above) ---
     table_name = "invoice_management"
 
-    try:
-        response = supabase.table(table_name).select("*").execute()
-        data = response.data
-    except Exception:
-        data = []
-
-    if data:
-        df = pd.DataFrame(data)
-        if 'id' in df.columns:
-            id_numeric = pd.to_numeric(df['id'], errors='coerce')
-            if id_numeric.notna().any():
-                df['id_num'] = id_numeric.fillna(-1)
-                df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
-            else:
-                df = df.iloc[::-1].reset_index(drop=True)
+    df = get_table_df(table_name).copy()
+    if not df.empty:
         for col in columns_list:
             if col not in df.columns:
                 df[col] = ""
