@@ -273,6 +273,10 @@ def render_alarm_audio():
 # --- 6. DATA HELPERS ---
 # NOTE: This page is intentionally NOT scoped by workspace/company.
 # Every login (any company) sees and shares the exact same task list.
+# Cached for 15s (just under the 20s auto-refresh cycle) so incidental
+# reruns (sound toggle, opening a dialog) reuse the same fetch, while the
+# scheduled auto-refresh still gets live data every ~20s as intended.
+@st.cache_data(ttl=15, show_spinner=False)
 def fetch_activities():
     try:
         res = supabase.table(TABLE_NAME).select("*").execute()
@@ -547,6 +551,7 @@ def add_activity_dialog(edit_row=None):
                     st.success("✅ Activity Successfully Added!")
                 st.session_state.pa_show_form_dialog = False
                 st.session_state.pa_edit_row = None
+                fetch_activities.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Saving Activity: {e}")
@@ -603,6 +608,7 @@ def reminder_popup_dialog(row):
                     st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
             st.session_state["active_reminder"] = None
             st.success("✅ Task Closed!")
+            fetch_activities.clear()
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -650,6 +656,7 @@ def reminder_popup_dialog(row):
                     }).eq("id", row['id']).execute()
                     st.session_state["active_reminder"] = None
                     st.success("✅ Reminder Rescheduled!")
+                    fetch_activities.clear()
                     st.rerun()
                 except Exception as e:
                     st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
@@ -668,6 +675,7 @@ def _snooze_reminder(row, minutes):
             }).eq("id", row['id']).execute()
         st.session_state["active_reminder"] = None
         st.toast(f"⏰ Snoozed for {minutes} minutes!", icon="😴")
+        fetch_activities.clear()
         st.rerun()
     except Exception as e:
         st.warning(f"⚠️ Popup band ho gaya, lekin database update fail hua: {e}")
@@ -732,6 +740,7 @@ with tc5:
         st.rerun()
 with tc6:
     if st.button("🔄 Refresh Now", use_container_width=True):
+        fetch_activities.clear()
         st.rerun()
 
 st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega. &nbsp;•&nbsp; 🌙 Quiet Hours: Raat 11:00 PM – Subah 10:00 AM tak koi popup/sound nahi aayega.</p>', unsafe_allow_html=True)
@@ -856,6 +865,7 @@ else:
                         "closed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
                     }).eq("id", rid).execute()
                     st.success("✅ Activity Closed!")
+                    fetch_activities.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Closing Activity: {e}")
@@ -873,6 +883,7 @@ else:
                         supabase.table(TABLE_NAME).delete().eq("id", rid).execute()
                         st.session_state[f"pa_confirm_del_{rid}"] = False
                         st.success("✅ Deleted!")
+                        fetch_activities.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
@@ -913,6 +924,7 @@ with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=Fals
                     try:
                         supabase.table(TABLE_NAME).update({"status": "Pending", "closed_at": ""}).eq("id", rid).execute()
                         st.success("✅ Reopened!")
+                        fetch_activities.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
@@ -921,6 +933,7 @@ with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=Fals
                     try:
                         supabase.table(TABLE_NAME).delete().eq("id", rid).execute()
                         st.success("✅ Deleted!")
+                        fetch_activities.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
