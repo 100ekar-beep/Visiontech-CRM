@@ -266,6 +266,7 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_all_dropdowns():
     try:
         res = supabase.table("dropdown_master").select("*").execute()
@@ -402,6 +403,7 @@ def manage_solar_teams_dialog(site_row, alloc_row):
             else:
                 supabase.table("solar_team_allocation").insert(payload).execute()
             st.success("✅ Solar Team Allocation Saved!")
+            fetch_solar_data_cached.clear()
             st.rerun()
         except Exception as e:
             err_str = str(e)
@@ -581,13 +583,37 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 6. FETCH SOLAR SITES (Project Name = Solar) FROM site_data ---
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_solar_data_cached(workspace):
+    """Bundles the 3 core Solar Project queries into one cached call.
+    Previously these ran unconditionally on EVERY rerun (every search
+    keystroke, every tab switch, every dialog interaction) — now they're
+    reused for 30s. Call fetch_solar_data_cached.clear() before st.rerun()
+    after saving/deleting a team allocation or a payment."""
+    try:
+        site_res = supabase.table("site_data").select("*").eq("workspace", workspace).ilike("Project Name", "%solar%").execute()
+        site_data_ = site_res.data if site_res.data else []
+        site_data_ = [r for r in site_data_ if str(r.get("Project Name", "")).strip().lower() == "solar"]
+    except Exception:
+        site_data_ = []
+
+    try:
+        alloc_res = supabase.table("solar_team_allocation").select("*").eq("workspace", workspace).execute()
+        alloc_data_ = alloc_res.data if alloc_res.data else []
+    except Exception:
+        alloc_data_ = []
+
+    try:
+        pay_res = supabase.table("solar_payments").select("*").eq("workspace", workspace).order("id", desc=True).execute()
+        solar_payments_data_ = pay_res.data if pay_res.data else []
+    except Exception:
+        solar_payments_data_ = []
+
+    return site_data_, alloc_data_, solar_payments_data_
+
+
 active_ws = st.session_state.get('active_workspace', 'VISPL')
-try:
-    site_res = supabase.table("site_data").select("*").eq("workspace", active_ws).ilike("Project Name", "%solar%").execute()
-    site_data = site_res.data if site_res.data else []
-    site_data = [r for r in site_data if str(r.get("Project Name", "")).strip().lower() == "solar"]
-except Exception:
-    site_data = []
+site_data, alloc_data, solar_payments_data = fetch_solar_data_cached(active_ws)
 
 if not site_data:
     try:
@@ -597,18 +623,6 @@ if not site_data:
             st.info(f"ℹ️ Koi 'Solar' site nahi mili. Aapke workspace mein 'Project Name' column ki actual values hain: {', '.join(distinct_pn)}")
     except Exception:
         pass
-
-try:
-    alloc_res = supabase.table("solar_team_allocation").select("*").eq("workspace", active_ws).execute()
-    alloc_data = alloc_res.data if alloc_res.data else []
-except Exception:
-    alloc_data = []
-
-try:
-    pay_res = supabase.table("solar_payments").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
-    solar_payments_data = pay_res.data if pay_res.data else []
-except Exception:
-    solar_payments_data = []
 
 alloc_map = {row.get("Project ID", ""): row for row in alloc_data}
 
@@ -1143,6 +1157,7 @@ elif st.session_state.solar_active_page == "payments":
                         supabase.table("solar_payments").insert(solar_payload).execute()
 
                         st.success(f"✅ Payment Saved! Yeh Team Billing page ke Payment Entry mein bhi save ho gaya hai.")
+                        fetch_solar_data_cached.clear()
                         st.rerun()
                     except Exception as e:
                         err_str = str(e)
@@ -1209,6 +1224,7 @@ elif st.session_state.solar_active_page == "payments":
                         if b_id:
                             supabase.table("billing_payments").delete().eq("id", b_id).execute()
                         st.success("✅ Payment Deleted!")
+                        fetch_solar_data_cached.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error deleting: {e}")
@@ -1239,6 +1255,7 @@ elif st.session_state.solar_active_page == "payments":
                             if b_id:
                                 supabase.table("billing_payments").delete().eq("id", b_id).execute()
                             st.success("✅ Payment Deleted!")
+                            fetch_solar_data_cached.clear()
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Error deleting: {e}")
