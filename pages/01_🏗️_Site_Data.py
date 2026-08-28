@@ -325,6 +325,48 @@ def init_connection():
 supabase: Client = init_connection()
 
 # -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
+# Without this, every keystroke in search / every rerun re-downloads the
+# whole table from Supabase, which is what was eating up the free-tier
+# egress quota. These cache results for a short time (30s) so repeated
+# reruns (typing in search, opening dialogs, pagination) reuse the same
+# data instead of hitting Supabase again. Call .clear() right before any
+# insert/update/delete so the next read is fresh, not stale.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_site_data_cached(workspace):
+    try:
+        response = supabase.table("site_data").select("*").eq("workspace", workspace).execute()
+        return response.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_po_upload_identifiers_cached(workspace):
+    """Returns the set of Project Name / Site ID values that already have a PO Working entry."""
+    identifiers = set()
+    try:
+        res_po = supabase.table("po_working").select("*").eq("workspace", workspace).execute()
+        for item in (res_po.data or []):
+            p_name = str(item.get("Project Name", "")).strip()
+            s_id = str(item.get("Site ID", "")).strip()
+            if p_name:
+                identifiers.add(p_name)
+            if s_id:
+                identifiers.add(s_id)
+    except Exception:
+        pass
+    return identifiers
+
+
+def clear_site_data_cache():
+    """Call this right before st.rerun() after any insert/update/delete on site_data or po_working."""
+    fetch_site_data_cached.clear()
+    fetch_po_upload_identifiers_cached.clear()
+
+
+# -------------------------------------------------------------
 # --- SMTP EMAIL SENDING CONFIGURATION
 # -------------------------------------------------------------
 SMTP_SERVER = "smtp.gmail.com"
@@ -818,6 +860,7 @@ def add_record_dialog():
                             "long_val": long_val,
                         }
                     
+                    clear_site_data_cache()
                     st.rerun() 
                 except Exception as e:
                     st.error(f"❌ Error Saving Data: {e}")
@@ -1101,6 +1144,7 @@ def edit_record_dialog(row_data):
 
                     if 'edit_po_count' in st.session_state:
                         del st.session_state['edit_po_count']
+                    clear_site_data_cache()
                     st.rerun() 
                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
@@ -1123,6 +1167,7 @@ def edit_record_dialog(row_data):
                 try:
                     supabase.table("site_data").delete().eq("id", row_data['id']).execute()
                     st.success("✅ Record Successfully Deleted!")
+                    clear_site_data_cache()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Deleting Record: {e}")
@@ -1480,6 +1525,7 @@ Visiontech Infra</p>
                 st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
                 
             st.session_state.pending_comm_email = False
+            clear_site_data_cache()
             st.rerun()
 
 # --- 3.8 BULK UPLOAD DIALOG FUNCTION ---
@@ -1554,6 +1600,7 @@ def bulk_upload_dialog():
                         
                 st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully. ({skipped_dup_count} skipped as duplicate Project ID in '{active_ws_bulk}')")
                 st.session_state.current_page = 1 # <--- NEW: Switch to page 1
+                clear_site_data_cache()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
@@ -1618,6 +1665,7 @@ def update_po_status_dialog():
                             
                     if updated_count > 0:
                         st.success(f"✅ Status Update Complete! {updated_count} records updated successfully. ({not_found_count} not found)")
+                        clear_site_data_cache()
                     else:
                         st.warning(f"⚠️ No records were updated. ({not_found_count} PO numbers not found in database)")
                     
@@ -1700,6 +1748,7 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
+        clear_site_data_cache()
         st.rerun() 
 with col_add:
     if st.button("➕ Add Record", use_container_width=True):
@@ -1718,15 +1767,10 @@ with col_export:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 5. FETCH & PREPARE DATA ---
+# --- 5. FETCH & PREPARE DATA (cached — see fetch_site_data_cached above) ---
 table_name = "site_data"
-try:
-    active_ws = st.session_state.get('active_workspace', 'VISPL')
-    # Removing explicit order from Supabase because UUIDs sort alphabetically, causing random placement
-    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
-    data = response.data
-except Exception:
-    data = []
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+data = fetch_site_data_cached(active_ws)
 
 columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
@@ -1893,18 +1937,7 @@ else:
         project_ids_on_page = [str(x).strip() for x in df_page['Project ID'].unique() if str(x).strip() and str(x).strip() != '-']
         site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
         
-        uploaded_po_identifiers = set()
-        if project_ids_on_page or site_ids_on_page:
-            try:
-                res_po = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
-                if res_po.data:
-                    for item in res_po.data:
-                        p_name = str(item.get("Project Name", "")).strip()
-                        s_id = str(item.get("Site ID", "")).strip()
-                        if p_name: uploaded_po_identifiers.add(p_name)
-                        if s_id: uploaded_po_identifiers.add(s_id)
-            except Exception:
-                pass
+        uploaded_po_identifiers = fetch_po_upload_identifiers_cached(active_ws) if (project_ids_on_page or site_ids_on_page) else set()
 
         # --- HEADER ROW ---
         h_cols = st.columns(COL_RATIOS)
