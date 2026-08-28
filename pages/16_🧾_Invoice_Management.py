@@ -603,11 +603,10 @@ BILL_FROM_DETAILS = {
 def bhagya_get_site_options():
     """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced."""
     try:
-        site_res = supabase.table("site_data").select(
-            "Project ID, Site ID, Site Name, Cluster, Project Name"
-        ).eq("workspace", BHAGYA_WORKSPACE).execute()
+        site_res = supabase.table("site_data").select("*").eq("workspace", BHAGYA_WORKSPACE).execute()
         sites = site_res.data if site_res.data else []
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Error fetching sites: {e}")
         sites = []
 
     try:
