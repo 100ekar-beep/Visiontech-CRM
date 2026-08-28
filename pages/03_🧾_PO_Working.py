@@ -359,6 +359,24 @@ def fetch_all_rows(query_builder, page_size: int = 1000):
         start += page_size
     return all_rows
 
+
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached site_data lookup ---
+# Used only to check "does this Site ID / Project ID already exist in
+# site_data" while rendering the PO table. Previously this ran up to 4
+# separate Supabase queries (including a full-table fallback fetch) on
+# EVERY rerun (every search keystroke, every pagination click). Now it's
+# fetched once and cached for 30s, then matched locally in Python.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_site_data_lookup_cached(workspace):
+    try:
+        return fetch_all_rows(
+            lambda start, end: supabase.table("site_data").select("*").eq("workspace", workspace).range(start, end).execute()
+        )
+    except Exception:
+        return []
+
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
 if 'po_working_df' not in st.session_state:
     try:
@@ -918,59 +936,21 @@ else:
     available_projects = set()
     project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
 
-    if site_ids_on_page:
-        try:
-            # FIX: Check Site ID column using select("*") to avoid PostgREST space parsing errors
-            res_check = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Site ID", site_ids_on_page).execute()
-            if res_check.data:
-                available_sites.update({str(item.get("Site ID")).strip() for item in res_check.data if item.get("Site ID")})
-        except Exception:
-            pass
-
-    if project_names_on_page:
-        try:
-            # FIX: Check Project ID column using select("*") to avoid PostgREST space parsing errors
-            res_check_pid = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project ID", project_names_on_page).execute()
-            if res_check_pid.data:
-                for item in res_check_pid.data:
-                    pid_val = str(item.get("Project ID", "")).strip()
-                    pname_val = str(item.get("Project Name", "")).strip()
-                    if pid_val:
-                        available_projects.add(pid_val)
-                        norm_key = pid_val.strip().upper()
-                        if pname_val:
-                            project_name_lookup[pid_val] = pname_val
-                            project_name_lookup[norm_key] = pname_val
-        except Exception:
-            pass
-
-        # Fallback: agar exact "in_" match nahi mila (spacing/case ke farak se), to workspace ke
-        # saare site_data rows utha kar normalized (trim + uppercase) match try karo.
-        missing_ids = [p for p in project_names_on_page if p.strip().upper() not in project_name_lookup]
-        if missing_ids:
-            try:
-                all_site_rows = fetch_all_rows(
-                    lambda start, end: supabase.table("site_data").select("*").eq("workspace", active_ws).range(start, end).execute()
-                )
-                for item in all_site_rows:
-                    pid_val = str(item.get("Project ID", "")).strip()
-                    pname_val = str(item.get("Project Name", "")).strip()
-                    if pid_val:
-                        norm_key = pid_val.strip().upper()
-                        if pname_val and norm_key not in project_name_lookup:
-                            project_name_lookup[norm_key] = pname_val
-                            project_name_lookup[pid_val] = pname_val
-                        available_projects.add(pid_val)
-            except Exception:
-                pass
-
-        try:
-            # Fallback: Check Project Name column as well using select("*")
-            res_check_pname = supabase.table("site_data").select("*").eq("workspace", active_ws).in_("Project Name", project_names_on_page).execute()
-            if res_check_pname.data:
-                available_projects.update({str(item.get("Project Name")).strip() for item in res_check_pname.data if item.get("Project Name")})
-        except Exception:
-            pass
+    all_site_rows = fetch_site_data_lookup_cached(active_ws)
+    for item in all_site_rows:
+        sid_val = str(item.get("Site ID", "")).strip()
+        pid_val = str(item.get("Project ID", "")).strip()
+        pname_val = str(item.get("Project Name", "")).strip()
+        if sid_val:
+            available_sites.add(sid_val)
+        if pid_val:
+            available_projects.add(pid_val)
+            norm_key = pid_val.upper()
+            if pname_val:
+                project_name_lookup[pid_val] = pname_val
+                project_name_lookup[norm_key] = pname_val
+        if pname_val:
+            available_projects.add(pname_val)
 
     if st.session_state.po_view_mode == "cards":
         # ---------------------------------------------------------------
