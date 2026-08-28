@@ -2,9 +2,16 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import json
 from supabase import create_client, Client
 from st_keyup import st_keyup
-from datetime import datetime
+from datetime import datetime, date
+
+# --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Invoice Management", page_icon="🧾", layout="wide")
@@ -572,6 +579,431 @@ def render_generic_tab(table_name, prefix, tab_title, icon):
 
 
 # =========================================================================
+# BHAGYASHREE INVOICE — Custom PO-based invoice builder
+# =========================================================================
+
+BHAGYA_WORKSPACE = "BHAGYASHREE"
+BHAGYA_TABLE = "bhagyashree_invoices"
+
+# Placeholder billing-entity details — update address/GSTIN as needed
+BILL_FROM_DETAILS = {
+    "VISPL": {
+        "full_name": "Visiontech Infra Solution Pvt. Ltd.",
+        "address": "Address line 1, City, State - PIN",
+        "gstin": "GSTIN NOT SET",
+    },
+    "Whizkey": {
+        "full_name": "Whizkey",
+        "address": "Address line 1, City, State - PIN",
+        "gstin": "GSTIN NOT SET",
+    },
+}
+
+
+def bhagya_get_site_options():
+    """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced."""
+    try:
+        site_res = supabase.table("site_data").select(
+            "Project ID, Site ID, Site Name, Cluster, Project Name"
+        ).eq("workspace", BHAGYA_WORKSPACE).execute()
+        sites = site_res.data if site_res.data else []
+    except Exception:
+        sites = []
+
+    try:
+        inv_res = supabase.table(BHAGYA_TABLE).select("project_id").eq("workspace", BHAGYA_WORKSPACE).execute()
+        already_invoiced = set(r.get("project_id") for r in (inv_res.data or []) if r.get("project_id"))
+    except Exception:
+        already_invoiced = set()
+
+    site_map = {}
+    for s in sites:
+        pid = str(s.get("Project ID", "")).strip()
+        if pid and pid not in already_invoiced and pid not in site_map:
+            site_map[pid] = s
+    return site_map
+
+
+def bhagya_get_po_lines(site_id):
+    try:
+        res = supabase.table("po_working").select("*") \
+            .eq("workspace", BHAGYA_WORKSPACE).eq("Site ID", site_id).execute()
+        rows = res.data if res.data else []
+        rows.sort(key=lambda r: (r.get("Line Number") is None, r.get("Line Number")))
+        return rows
+    except Exception:
+        return []
+
+
+def bhagya_generate_pdf(row_data):
+    if FPDF is None:
+        raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+
+    bill_from = row_data.get("bill_from", "")
+    bf_details = BILL_FROM_DETAILS.get(bill_from, {"full_name": bill_from, "address": "", "gstin": ""})
+    line_items = row_data.get("line_items", [])
+    if isinstance(line_items, str):
+        try:
+            line_items = json.loads(line_items)
+        except Exception:
+            line_items = []
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.add_page()
+
+    pdf.set_font("Arial", 'B', 16)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(190, 9, "TAX INVOICE", ln=True, align='C')
+    pdf.ln(2)
+
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(95, 6, "Bill From:", ln=False)
+    pdf.cell(95, 6, "Bill To:", ln=True)
+    pdf.set_font("Arial", '', 9)
+    pdf.cell(95, 5, str(bf_details.get("full_name", "")), ln=False)
+    pdf.cell(95, 5, "Bhagyashree Enterprises", ln=True)
+    pdf.cell(95, 5, str(bf_details.get("address", "")), ln=False)
+    pdf.cell(95, 5, f"Site: {row_data.get('site_name', '')}", ln=True)
+    pdf.cell(95, 5, f"GSTIN: {bf_details.get('gstin', '')}", ln=False)
+    pdf.cell(95, 5, f"Cluster: {row_data.get('cluster', '')}", ln=True)
+    pdf.ln(3)
+
+    pdf.set_font("Arial", '', 9)
+    pdf.cell(63, 6, f"Invoice No: {row_data.get('invoice_no', '')}", ln=False)
+    pdf.cell(63, 6, f"Invoice Date: {row_data.get('invoice_date', '')}", ln=False)
+    pdf.cell(64, 6, f"Project ID: {row_data.get('project_id', '')}", ln=True)
+    pdf.cell(63, 6, f"Site ID: {row_data.get('site_id', '')}", ln=False)
+    pdf.cell(127, 6, f"Project Name: {row_data.get('project_name', '')}", ln=True)
+    pdf.ln(4)
+
+    # --- Line items table ---
+    headers = ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]
+    widths = [12, 22, 62, 20, 22, 22, 30]
+
+    pdf.set_font("Arial", 'B', 8)
+    pdf.set_fill_color(59, 130, 246)
+    pdf.set_text_color(255, 255, 255)
+    for h, w in zip(headers, widths):
+        pdf.cell(w, 8, h, border=1, align='C', fill=True)
+    pdf.ln()
+
+    pdf.set_font("Arial", '', 8)
+    pdf.set_text_color(0, 0, 0)
+    fill = False
+    for li in line_items:
+        pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
+        pdf.cell(widths[0], 7, str(li.get("line_number", "")), border=1, align='C', fill=fill)
+        pdf.cell(widths[1], 7, str(li.get("item_code", ""))[:14], border=1, align='C', fill=fill)
+        pdf.cell(widths[2], 7, str(li.get("description", ""))[:40], border=1, align='L', fill=fill)
+        pdf.cell(widths[3], 7, str(li.get("po_qty", "")), border=1, align='C', fill=fill)
+        pdf.cell(widths[4], 7, f"{li.get('price', 0):,.0f}", border=1, align='R', fill=fill)
+        pdf.cell(widths[5], 7, str(li.get("claim_qty", "")), border=1, align='C', fill=fill)
+        pdf.cell(widths[6], 7, f"{li.get('amount', 0):,.0f}", border=1, align='R', fill=fill)
+        pdf.ln()
+        fill = not fill
+
+    pdf.ln(4)
+    subtotal = row_data.get("subtotal", 0) or 0
+    cgst = row_data.get("cgst", 0) or 0
+    sgst = row_data.get("sgst", 0) or 0
+    total = row_data.get("total", 0) or 0
+
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(150, 7, "Subtotal", border=0, align='R')
+    pdf.cell(40, 7, f"Rs. {subtotal:,.0f}", border=0, align='R', ln=True)
+    pdf.cell(150, 7, "CGST (9%)", border=0, align='R')
+    pdf.cell(40, 7, f"Rs. {cgst:,.0f}", border=0, align='R', ln=True)
+    pdf.cell(150, 7, "SGST (9%)", border=0, align='R')
+    pdf.cell(40, 7, f"Rs. {sgst:,.0f}", border=0, align='R', ln=True)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.set_text_color(59, 130, 246)
+    pdf.cell(150, 9, "Final Amount", border=0, align='R')
+    pdf.cell(40, 9, f"Rs. {total:,.0f}", border=0, align='R', ln=True)
+
+    pdf_output = pdf.output(dest='S')
+    if isinstance(pdf_output, (bytes, bytearray)):
+        return bytes(pdf_output)
+    return pdf_output.encode('latin1')
+
+
+@st.dialog("➕ Add New Invoice (Bhagyashree)", width="large")
+def bhagya_add_invoice_dialog():
+    st.caption("PO Working ke saamne wale Claim Qty bharke invoice banayein")
+
+    bf1, bf2 = st.columns(2)
+    with bf1:
+        bill_from = st.selectbox("Bill From *", options=list(BILL_FROM_DETAILS.keys()), key="bhagya_bill_from")
+    with bf2:
+        invoice_no = st.text_input("Invoice No *", key="bhagya_inv_no")
+
+    site_map = bhagya_get_site_options()
+    project_options = ["Select"] + sorted(site_map.keys())
+
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        selected_pid = st.selectbox("Project ID *", options=project_options, key="bhagya_project_id")
+    with pc2:
+        invoice_date = st.date_input("Invoice Date", value=date.today(), format="DD/MM/YYYY", key="bhagya_inv_date")
+
+    if selected_pid == "Select":
+        st.info("Pehle ek Project ID select karein.")
+        return
+
+    site_row = site_map.get(selected_pid, {})
+    site_id = site_row.get("Site ID", "")
+
+    st.markdown('<div class="modal-section-title">📍 SITE DETAILS</div>', unsafe_allow_html=True)
+    d1, d2, d3, d4 = st.columns(4)
+    with d1: st.text_input("Site ID", value=site_row.get("Site ID", ""), disabled=True, key="bhagya_disp_site_id")
+    with d2: st.text_input("Site Name", value=site_row.get("Site Name", ""), disabled=True, key="bhagya_disp_site_name")
+    with d3: st.text_input("Cluster", value=site_row.get("Cluster", ""), disabled=True, key="bhagya_disp_cluster")
+    with d4: st.text_input("Project Name", value=site_row.get("Project Name", ""), disabled=True, key="bhagya_disp_proj_name")
+
+    st.markdown('<div class="modal-section-title">📦 PO LINE ITEMS — Enter Claim Qty</div>', unsafe_allow_html=True)
+    po_lines = bhagya_get_po_lines(site_id)
+
+    if not po_lines:
+        st.warning("Is Project ID ke liye PO Working me koi line nahi mili.")
+        return
+
+    h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+    for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
+        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+
+    line_items = []
+    subtotal = 0.0
+    for po in po_lines:
+        r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+        line_no = po.get("Line Number", "")
+        item_code = po.get("Item Num", "")
+        description = po.get("Description", "")
+        po_qty = po.get("PO Qty", 0) or 0
+        price = po.get("Price", 0) or 0
+
+        r_cols[0].markdown(f"<div class='tbl-cell'>{line_no}</div>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<div class='tbl-cell'>{item_code}</div>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<div class='tbl-cell'>{description}</div>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<div class='tbl-cell'>{po_qty}</div>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<div class='tbl-cell'>{price:,.0f}</div>", unsafe_allow_html=True)
+
+        claim_qty = r_cols[5].number_input(
+            "Claim Qty", min_value=0, max_value=int(po_qty) if po_qty else 0, step=1, value=0,
+            key=f"bhagya_claim_{line_no}_{item_code}", label_visibility="collapsed"
+        )
+        amount = claim_qty * price
+        r_cols[6].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#3b82f6;'>{amount:,.0f}</div>", unsafe_allow_html=True)
+
+        subtotal += amount
+        line_items.append({
+            "line_number": line_no,
+            "item_code": item_code,
+            "description": description,
+            "po_qty": po_qty,
+            "price": price,
+            "claim_qty": claim_qty,
+            "amount": amount,
+        })
+
+    cgst = subtotal * 0.09
+    sgst = subtotal * 0.09
+    total = subtotal + cgst + sgst
+
+    st.markdown(f"""
+        <div style="background: rgba(255,255,255,0.05); padding: 14px 20px; border-radius: 10px; margin-top:15px;">
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">CGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {cgst:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">SGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {sgst:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:8px 0 0 0; border-top:1px solid rgba(255,255,255,0.15); margin-top:6px;"><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">Final Amount</span><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">₹ {total:,.0f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 Save Invoice", type="primary", use_container_width=True, key="bhagya_save_btn"):
+        if not invoice_no.strip():
+            st.error("⚠️ Invoice No is required!")
+        elif subtotal <= 0:
+            st.error("⚠️ Kam se kam ek line me Claim Qty > 0 dalein!")
+        else:
+            payload = {
+                "workspace": BHAGYA_WORKSPACE,
+                "invoice_no": invoice_no.strip(),
+                "invoice_date": str(invoice_date),
+                "bill_from": bill_from,
+                "project_id": selected_pid,
+                "site_id": site_row.get("Site ID", ""),
+                "site_name": site_row.get("Site Name", ""),
+                "cluster": site_row.get("Cluster", ""),
+                "project_name": site_row.get("Project Name", ""),
+                "line_items": line_items,
+                "subtotal": subtotal,
+                "cgst": cgst,
+                "sgst": sgst,
+                "total": total,
+            }
+            try:
+                supabase.table(BHAGYA_TABLE).insert(payload).execute()
+                st.success("✅ Invoice Saved! Neeche table me 🧾 button se PDF download kar sakte hain.")
+                st.session_state.bhagya_page = 1
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error saving invoice: {e}")
+
+
+@st.dialog("🧾 Invoice Detail & Download", width="large")
+def bhagya_view_invoice_dialog(row_data):
+    st.caption(f"Invoice No: {row_data.get('invoice_no','')}")
+
+    d1, d2, d3, d4 = st.columns(4)
+    with d1: st.text_input("Bill From", value=row_data.get("bill_from", ""), disabled=True)
+    with d2: st.text_input("Project ID", value=row_data.get("project_id", ""), disabled=True)
+    with d3: st.text_input("Site ID", value=row_data.get("site_id", ""), disabled=True)
+    with d4: st.text_input("Invoice Date", value=str(row_data.get("invoice_date", "")), disabled=True)
+
+    st.text_input("Site Name / Cluster / Project Name",
+                   value=f"{row_data.get('site_name','')} | {row_data.get('cluster','')} | {row_data.get('project_name','')}",
+                   disabled=True)
+
+    line_items = row_data.get("line_items", [])
+    if isinstance(line_items, str):
+        try:
+            line_items = json.loads(line_items)
+        except Exception:
+            line_items = []
+
+    st.markdown('<div class="modal-section-title">📦 LINE ITEMS</div>', unsafe_allow_html=True)
+    h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+    for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
+        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+    for li in line_items:
+        r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+        r_cols[0].markdown(f"<span style='color:#e2e8f0;'>{li.get('line_number','')}</span>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<span style='color:#e2e8f0;'>{li.get('item_code','')}</span>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<span style='color:#e2e8f0;'>{li.get('description','')}</span>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<span style='color:#e2e8f0;'>{li.get('po_qty','')}</span>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<span style='color:#e2e8f0;'>{li.get('price',0):,.0f}</span>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<span style='color:#e2e8f0;'>{li.get('claim_qty','')}</span>", unsafe_allow_html=True)
+        r_cols[6].markdown(f"<span style='color:#4ade80; font-weight:700;'>{li.get('amount',0):,.0f}</span>", unsafe_allow_html=True)
+
+    st.markdown(f"""
+        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px; display:flex; justify-content:space-between;">
+            <div style="color:#ffffff; font-weight:700;">Subtotal: <span style="color:#3b82f6;">₹ {row_data.get('subtotal',0):,.0f}</span></div>
+            <div style="color:#ffffff; font-weight:700;">CGST+SGST: <span style="color:#f59e0b;">₹ {(row_data.get('cgst',0)+row_data.get('sgst',0)):,.0f}</span></div>
+            <div style="color:#ffffff; font-weight:700;">Final: <span style="color:#4ade80;">₹ {row_data.get('total',0):,.0f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_dl, col_close = st.columns(2)
+    with col_dl:
+        try:
+            pdf_bytes = bhagya_generate_pdf(row_data)
+            st.download_button(
+                "📄 Download PDF", data=pdf_bytes,
+                file_name=f"{row_data.get('invoice_no','invoice')}.pdf", mime="application/pdf",
+                use_container_width=True, type="primary"
+            )
+        except Exception as e:
+            st.error(str(e))
+    with col_close:
+        if st.button("Close", use_container_width=True):
+            st.rerun()
+
+
+def render_bhagyashree_tab():
+    col_title, col_ref, col_add = st.columns([3.5, 1, 1.5])
+    with col_title:
+        st.markdown("<h2 style='margin:0; color:white;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
+    with col_ref:
+        if st.button("🔄 Refresh", use_container_width=True, key="bhagya_refresh"):
+            st.rerun()
+    with col_add:
+        if st.button("➕ Add New Invoice", use_container_width=True, key="bhagya_add_btn"):
+            bhagya_add_invoice_dialog()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    df = get_table_df(BHAGYA_TABLE)
+
+    if not df.empty:
+        buffer = io.BytesIO()
+        export_df = df.drop(columns=[c for c in ["line_items"] if c in df.columns])
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            export_df.to_excel(writer, index=False, sheet_name='Bhagyashree Invoices')
+        st.download_button(
+            "📥 Download Excel", data=buffer.getvalue(),
+            file_name="Bhagyashree_Invoices.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="bhagya_dl_btn"
+        )
+
+    if 'bhagya_page' not in st.session_state:
+        st.session_state.bhagya_page = 1
+
+    col_table_title, col_search = st.columns([7, 3])
+    with col_table_title:
+        st.markdown("##### 🗄️ Bhagyashree Invoices")
+    with col_search:
+        search_query = st_keyup("Search", placeholder="🔍 Search...", label_visibility="collapsed", key="bhagya_search")
+
+    if df.empty:
+        st.info("Abhi tak koi invoice nahi bani. ➕ Add New Invoice se shuru karein.")
+        return
+
+    view_df = df.copy()
+    if search_query:
+        mask = view_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        view_df = view_df[mask]
+
+    rows_per_page = 10
+    total_rows = len(view_df)
+    total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
+    if st.session_state.bhagya_page > total_pages: st.session_state.bhagya_page = total_pages
+    elif st.session_state.bhagya_page < 1: st.session_state.bhagya_page = 1
+    start_idx = (st.session_state.bhagya_page - 1) * rows_per_page
+    end_idx = start_idx + rows_per_page
+    page_df = view_df.iloc[start_idx:end_idx]
+
+    b_cols = ["#", "🧾", "Invoice No", "Date", "Bill From", "Project ID", "Site Name", "Subtotal", "GST", "Total"]
+    b_ratios = [0.3, 0.35, 1.1, 1.0, 1.0, 1.0, 1.4, 1.0, 1.0, 1.1]
+
+    with st.container(key="bhagya_table_wrap", height=520):
+        h_cols = st.columns(b_ratios)
+        for h_col, label in zip(h_cols, b_cols):
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+        for pos, (_, row) in enumerate(page_df.iterrows()):
+            row_dict = row.to_dict()
+            rid = row_dict.get("id")
+            r_cols = st.columns(b_ratios)
+            r_cols[0].markdown(f"<div class='tbl-cell tbl-serial'>{start_idx + pos + 1}</div>", unsafe_allow_html=True)
+            with r_cols[1]:
+                if st.button("🧾", key=f"bhagya_view_{rid}", use_container_width=True):
+                    bhagya_view_invoice_dialog(row_dict)
+            r_cols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
+            r_cols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
+            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
+            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
+            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('subtotal',0):,.0f}</div>", unsafe_allow_html=True)
+            gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
+            r_cols[8].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[9].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+    with col_p1:
+        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.bhagya_page == 1), key="bhagya_prev"):
+            st.session_state.bhagya_page -= 1
+            st.rerun()
+    with col_p2:
+        st.markdown(f"<div class='page-count'>Page {st.session_state.bhagya_page} of {total_pages} (Total: {total_rows})</div>", unsafe_allow_html=True)
+    with col_p3:
+        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.bhagya_page == total_pages), key="bhagya_next"):
+            st.session_state.bhagya_page += 1
+            st.rerun()
+
+
+# =========================================================================
 # VIS INVOICE — DIALOGS (unchanged logic from original file)
 # =========================================================================
 
@@ -1082,7 +1514,7 @@ elif st.session_state.active_page == "invdata":
 # TAB 4 — BHAGYASHREE INVOICE (Supabase table: "BhagyashreeInvoice")
 # =========================================================================
 elif st.session_state.active_page == "bhagya":
-    render_generic_tab(table_name="BhagyashreeInvoice", prefix="bhagya", tab_title="Bhagyashree Invoice", icon="🏢")
+    render_bhagyashree_tab()
 
 # =========================================================================
 # TAB 5 — SAI TELE INVOICE (Supabase table: "SaiTeleInvoice")
