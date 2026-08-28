@@ -165,6 +165,7 @@ def init_connection():
 supabase: Client = init_connection()
 
 # --- HELPER FUNCTIONS ---
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_mrn_data():
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
@@ -173,6 +174,7 @@ def fetch_mrn_data():
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_project_ids():
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
@@ -184,6 +186,7 @@ def fetch_project_ids():
         st.error(f"Error fetching Project IDs: {e}")
     return ["Select Project ID"]
 
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_project_details(proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
@@ -194,6 +197,7 @@ def fetch_project_details(proj_id):
         pass
     return {}
 
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_team_percentage(team_name):
     try:
         if team_name and team_name != "Select":
@@ -376,6 +380,7 @@ def delete_mrn_dialog(rid, mrn_no):
                 supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
                 
                 st.success("✅ MRN & Auto-Bill Deleted Successfully!")
+                fetch_mrn_data.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Deleting Record: {e}")
@@ -431,6 +436,7 @@ def edit_mrn_dialog(row_data):
                 supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
                 
                 st.success("✅ MRN Date Updated Successfully!")
+                fetch_mrn_data.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Updating MRN: {e}")
@@ -699,6 +705,7 @@ def add_mrn_dialog():
                         f"Payload attempted: {billing_payload}"
                     )
                 st.session_state.mrn_current_page = 1
+                fetch_mrn_data.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Generating MRN: {e}")
@@ -741,6 +748,8 @@ with col_title:
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         get_unlimited_po_working.clear()
+        fetch_mrn_data.clear()
+        fetch_project_ids.clear()
         st.rerun() 
 with col_add:
     if st.button("➕ Add New MRN", type="primary", use_container_width=True):
