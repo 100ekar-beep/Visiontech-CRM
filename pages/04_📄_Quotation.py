@@ -238,18 +238,19 @@ def fetch_quotation_templates():
 df_projects = fetch_quotation_projects(st.session_state.get('active_workspace', 'VISPL'))
 project_list = df_projects["Project ID"].dropna().unique().tolist() if not df_projects.empty else []
 
-def fetch_quotations():
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_quotations_cached(active_ws, cluster_map_items):
+    """cluster_map_items is a hashable tuple version of the Project ID -> Cluster map,
+    passed in so caching stays correct even if site_data changes."""
     try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        
         # STRICT WORKSPACE FILTERING (No cross-contamination)
         res = supabase.table("quotations").select("*").eq("workspace", active_ws).execute()
-            
+
         if res.data:
             df = pd.DataFrame(res.data)
             # --- Robust Cluster mapping from site_data using Project ID ---
-            if not df.empty and "Project ID" in df.columns and not df_projects.empty:
-                proj_cluster_map = dict(zip(df_projects["Project ID"], df_projects["Cluster"]))
+            if not df.empty and "Project ID" in df.columns and cluster_map_items:
+                proj_cluster_map = dict(cluster_map_items)
                 df["Cluster"] = df["Project ID"].map(proj_cluster_map).fillna("")
             else:
                 df["Cluster"] = ""
@@ -257,6 +258,16 @@ def fetch_quotations():
     except Exception:
         pass
     return pd.DataFrame(columns=["id", "Quotation Name", "Date", "Project ID", "Cluster", "Site ID", "Site Name", "Project Name", "Quotation Amount", "Status"])
+
+
+def fetch_quotations():
+    """Thin wrapper kept so existing call sites (incl. after inserts/updates/deletes) don't need changes."""
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    if not df_projects.empty and "Project ID" in df_projects.columns and "Cluster" in df_projects.columns:
+        cluster_map_items = tuple(zip(df_projects["Project ID"], df_projects["Cluster"]))
+    else:
+        cluster_map_items = tuple()
+    return fetch_quotations_cached(active_ws, cluster_map_items)
 
 df_items = fetch_item_master()
 if not df_items.empty:
@@ -517,6 +528,7 @@ def quotation_dialog(quotation_data=None):
                     if items_to_insert:
                         supabase.table("quotation_items").insert(items_to_insert).execute()
                 
+                fetch_quotations_cached.clear()
                 st.session_state.quotations_df = fetch_quotations()
                 st.success("✅ Quotation Saved Successfully!")
                 st.rerun()
@@ -671,6 +683,7 @@ if st.session_state.quo_view_mode == "cards":
                         try:
                             supabase.table("quotations").delete().eq("Quotation Name", q_name).execute()
                             supabase.table("quotation_items").delete().eq("Quotation Name", q_name).execute()
+                            fetch_quotations_cached.clear()
                             st.session_state.quotations_df = fetch_quotations()
                             st.success(f"✅ Deleted {q_name}")
                             st.rerun()
@@ -726,6 +739,7 @@ else:
                         q_name = actual_data["Quotation Name"]
                         supabase.table("quotations").delete().eq("Quotation Name", q_name).execute()
                         supabase.table("quotation_items").delete().eq("Quotation Name", q_name).execute()
+                        fetch_quotations_cached.clear()
                         st.session_state.quotations_df = fetch_quotations()
                         st.success(f"✅ Deleted {q_name}")
                         st.rerun()
