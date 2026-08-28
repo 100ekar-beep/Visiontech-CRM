@@ -548,8 +548,8 @@ if check_password():
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.markdown("### 📋 1. Select Target List")
-        selected_list = None
+        st.markdown("### 📋 1. Select Target List(s)")
+        selected_lists = []
         
         if supabase:
             try:
@@ -564,7 +564,15 @@ if check_password():
                 unique_lists.sort()
                 
                 if unique_lists:
-                    selected_list = st.selectbox("Kisko message bhejna hai?", unique_lists)
+                    # MULTI-SELECT: user ab ek se zyada target lists choose kar sakta
+                    # hai. Jab bhejenge, har list ko ek-ek karke (sequentially)
+                    # process kiya jayega, aur har list ke complete hone ke baad
+                    # uski apni row upar wali "Target Sending History" table me
+                    # add ho jayegi.
+                    selected_lists = st.multiselect(
+                        "Kisko message bhejna hai? (Multiple lists select kar sakte hain)",
+                        unique_lists
+                    )
                 else:
                     st.warning("Supabase me koi contact list nahi mili. Pehle data add karein.")
             except Exception as e:
@@ -637,12 +645,13 @@ if check_password():
     st.markdown("---")
 
     if st.button("📤 Send Message to All", use_container_width=True, type="primary"):
-        if not selected_list:
-            st.warning("⚠️ Kripya pehle Dropdown se List select karein.")
+        if not selected_lists:
+            st.warning("⚠️ Kripya pehle Dropdown se kam se kam ek List select karein.")
         else:
             ist_offset = timezone(timedelta(hours=5, minutes=30))
             current_dt_str = datetime.now(ist_offset).strftime("%d-%m-%Y %H:%M:%S")
-            st.success(f"⏳ **{selected_list}** ko messages bheje ja rahe hai... ({current_dt_str}) Please wait.")
+            lists_display = ", ".join(selected_lists)
+            st.success(f"⏳ **{len(selected_lists)} list(s)** ({lists_display}) ko ek-ek karke messages bheje ja rahe hai... ({current_dt_str}) Please wait.")
             
             if supabase:
                 media_url = ""
@@ -722,156 +731,171 @@ if check_password():
                             st.warning("👉🏻 Kripya dhyaan dein: Kya aapne secrets.toml me sahi Cloudinary cloud_name/api_key/api_secret daale hain?")
                             st.stop()
 
-                # FIX: paginate here too — a selected list with more than 1000
-                # active contacts would otherwise silently only message the first 1000.
-                contacts_list = fetch_all_rows(
-                    supabase, "whatsapp_contacts", "contact_name, mobile_number",
-                    filters={"list_name": selected_list, "is_active": True}
-                )
-                
-                st.write(f"Total **{len(contacts_list)}** active contacts mile.")
+                # --- 🔁 PROCESS EACH SELECTED LIST ONE AFTER ANOTHER (SEQUENTIALLY) ---
+                # Attachment/media_url upar ek hi baar upload ho chuki hai, ab wahi
+                # link har list ke saath reuse hogi. Har list ka apna alag progress
+                # bar, apna alag success/fail count, apna alag Supabase log batch,
+                # aur apna alag "Target Sending History" row hoga.
+                all_lists_reports = []
+                overall_success = 0
+                overall_error = 0
 
-                # --- 🟢 LIVE PROGRESS UI 🟢 ---
-                total_contacts = len(contacts_list)
-                progress_bar = st.progress(0)
-                status_placeholder = st.empty()
+                for list_idx, selected_list in enumerate(selected_lists, 1):
+                    st.markdown(f"#### 📤 List {list_idx}/{len(selected_lists)}: **{selected_list}**")
 
-                success_count = 0
-                error_count = 0
-                report_logs = []
+                    # FIX: paginate here too — a selected list with more than 1000
+                    # active contacts would otherwise silently only message the first 1000.
+                    contacts_list = fetch_all_rows(
+                        supabase, "whatsapp_contacts", "contact_name, mobile_number",
+                        filters={"list_name": selected_list, "is_active": True}
+                    )
+                    
+                    st.write(f"Total **{len(contacts_list)}** active contacts mile.")
 
-                for idx, person in enumerate(contacts_list, 1):
-                    name = person['contact_name']
-                    number = person['mobile_number']
+                    # --- 🟢 LIVE PROGRESS UI (per list) 🟢 ---
+                    total_contacts = len(contacts_list)
+                    progress_bar = st.progress(0)
+                    status_placeholder = st.empty()
 
-                    status_placeholder.info(f"📤 Sending {idx}/{total_contacts} → **{name}** ({number})...")
+                    success_count = 0
+                    error_count = 0
+                    report_logs = []
 
-                    # DYNAMIC BODY VALUES GENERATION
-                    final_body_values = [name] + [inp.strip() for inp in msg_inputs_list]
+                    for idx, person in enumerate(contacts_list, 1):
+                        name = person['contact_name']
+                        number = person['mobile_number']
 
-                    # AUTO COUNTRY-CODE DETECTION — works for India, Nepal, ya koi bhi
-                    # country ka number (pehle sirf hardcoded '+91' hota tha, jisse
-                    # Nepal (+977) jaise numbers par message jaata hi nahi tha).
-                    try:
-                        detected_code, local_number = split_country_code(number)
-                    except ValueError as e:
-                        error_count += 1
-                        report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {e}"})
+                        status_placeholder.info(f"📤 Sending {idx}/{total_contacts} → **{name}** ({number})...")
+
+                        # DYNAMIC BODY VALUES GENERATION
+                        final_body_values = [name] + [inp.strip() for inp in msg_inputs_list]
+
+                        # AUTO COUNTRY-CODE DETECTION — works for India, Nepal, ya koi bhi
+                        # country ka number (pehle sirf hardcoded '+91' hota tha, jisse
+                        # Nepal (+977) jaise numbers par message jaata hi nahi tha).
+                        try:
+                            detected_code, local_number = split_country_code(number)
+                        except ValueError as e:
+                            error_count += 1
+                            report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {e}"})
+                            progress_bar.progress(idx / total_contacts)
+                            status_placeholder.info(
+                                f"📤 Sent: {success_count} ✅  |  Failed: {error_count} ❌  |  ({idx}/{total_contacts})"
+                            )
+                            continue
+
+                        payload = {
+                            "countryCode": f"+{detected_code}",
+                            "phoneNumber": local_number,
+                            "type": "Template",
+                            "template": {
+                                "name": selected_template_name.strip().lower(),
+                                "languageCode": "hi",
+                                "bodyValues": final_body_values
+                            }
+                        }
+                        
+                        if media_url:
+                            payload["template"]["headerValues"] = [media_url]
+                        
+                        try:
+                            interakt_key = st.secrets["interakt"]["api_key"]
+                        except Exception:
+                            st.error("🚨 St.secrets me [interakt] api_key nahi mili! Kripya secrets.toml check karein.")
+                            st.stop()
+
+                        try:
+                            headers = {
+                                "Authorization": f"Basic {interakt_key}",
+                                "Content-Type": "application/json"
+                            }
+                            api_url = "https://api.interakt.ai/v1/public/message/"
+                            
+                            api_response = requests.post(api_url, json=payload, headers=headers)
+                            
+                            if api_response.status_code in [200, 201, 202]:
+                                success_count += 1
+                                report_logs.append({"Name": name, "Mobile": number, "Status": "Send Successfully"})
+                            else:
+                                error_count += 1
+                                err_msg = api_response.json().get("message", api_response.text) if api_response.content else "Failed"
+                                report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {err_msg}"})
+                        except Exception as e:
+                            error_count += 1
+                            report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
+
+                        # --- 🟢 LIVE PROGRESS UPDATE (runs every iteration) 🟢 ---
                         progress_bar.progress(idx / total_contacts)
                         status_placeholder.info(
                             f"📤 Sent: {success_count} ✅  |  Failed: {error_count} ❌  |  ({idx}/{total_contacts})"
                         )
-                        continue
 
-                    payload = {
-                        "countryCode": f"+{detected_code}",
-                        "phoneNumber": local_number,
-                        "type": "Template",
-                        "template": {
-                            "name": selected_template_name.strip().lower(),
-                            "languageCode": "hi",
-                            "bodyValues": final_body_values
-                        }
-                    }
-                    
-                    if media_url:
-                        payload["template"]["headerValues"] = [media_url]
-                    
-                    try:
-                        interakt_key = st.secrets["interakt"]["api_key"]
-                    except Exception:
-                        st.error("🚨 St.secrets me [interakt] api_key nahi mili! Kripya secrets.toml check karein.")
-                        st.stop()
+                    # Is list ka loop khatam — progress bar/status clear kar do
+                    progress_bar.empty()
+                    status_placeholder.empty()
 
-                    try:
-                        headers = {
-                            "Authorization": f"Basic {interakt_key}",
-                            "Content-Type": "application/json"
-                        }
-                        api_url = "https://api.interakt.ai/v1/public/message/"
-                        
-                        api_response = requests.post(api_url, json=payload, headers=headers)
-                        
-                        if api_response.status_code in [200, 201, 202]:
-                            success_count += 1
-                            report_logs.append({"Name": name, "Mobile": number, "Status": "Send Successfully"})
-                        else:
-                            error_count += 1
-                            err_msg = api_response.json().get("message", api_response.text) if api_response.content else "Failed"
-                            report_logs.append({"Name": name, "Mobile": number, "Status": f"Failed: {err_msg}"})
-                    except Exception as e:
-                        error_count += 1
-                        report_logs.append({"Name": name, "Mobile": number, "Status": f"Error: {str(e)}"})
+                    # ---> 🟢 LOGS TO SUPABASE (is list ke liye) 🟢 <---
+                    if supabase and len(report_logs) > 0:
+                        try:
+                            db_logs = []
+                            for log_item in report_logs:
+                                db_logs.append({
+                                    "list_name": selected_list,
+                                    "template_name": selected_template_name,
+                                    "contact_name": log_item["Name"],
+                                    "mobile_number": log_item["Mobile"],
+                                    "status": log_item["Status"]
+                                })
+                            supabase.table("whatsapp_campaign_logs").insert(db_logs).execute()
+                        except Exception as db_err:
+                            st.warning(f"⚠️ '{selected_list}' ke messages successfully chale gaye hain, par logs ko Supabase me save karte waqt error aayi: {db_err}. (Kya aapne SQL me 'whatsapp_campaign_logs' table create kar li hai?)")
+                    # ---> 🟢 SUPABASE LOGGING END 🟢 <---
 
-                    # --- 🟢 LIVE PROGRESS UPDATE (runs every iteration) 🟢 ---
-                    progress_bar.progress(idx / total_contacts)
-                    status_placeholder.info(
-                        f"📤 Sent: {success_count} ✅  |  Failed: {error_count} ❌  |  ({idx}/{total_contacts})"
-                    )
+                    # Is list ki report record karein (baad me combined report section me dikhegi)
+                    all_lists_reports.append({
+                        "list_name": selected_list,
+                        "template": selected_template_name,
+                        "message": preview_msg,
+                        "timestamp": current_dt_str,
+                        "total": len(contacts_list),
+                        "success": success_count,
+                        "failed": error_count,
+                        "logs": report_logs
+                    })
 
-                # Loop khatam — progress bar/status clear kar do, final summary neeche dikhega
-                progress_bar.empty()
-                status_placeholder.empty()
+                    # --- 📋 ADD ROW TO SESSION-ONLY TARGET HISTORY TABLE (is list ke liye) ---
+                    # (Supabase me nahi jaata — sirf is browser session me dikhta hai,
+                    # jab tak "Reset Table" na dabaya jaaye ya page reload na ho)
+                    st.session_state["target_history"].append({
+                        "Sr. No.": len(st.session_state["target_history"]) + 1,
+                        "Target Name": selected_list,
+                        "Contact Qty": len(contacts_list),
+                        "Success Qty": success_count,
+                        "Fail Qty": error_count
+                    })
 
-                # --- 🧹 CLEANUP: campaign khatam hone ke baad Cloudinary se media delete kar dein ---
-                # ⚠️ INTENTIONALLY DISABLED — media files ab Cloudinary par hi rehte hain har
-                # campaign ke baad. User ne khud yeh choose kiya hai taaki woh Media Library
-                # se ek saath (bulk me) delete kar sakein, ek-ek karke auto-delete hone ke bajaye.
-                # Agar future me wapas auto-delete chalu karna ho, toh neeche wali 2 lines ka
-                # comment hata dein:
-                #
-                # if cloudinary_public_id:
-                #     delete_from_cloudinary(cloudinary_public_id, cloudinary_resource_type)
-                pass
-                
-                # ---> 🟢 LOGS TO SUPABASE 🟢 <---
-                if supabase and len(report_logs) > 0:
-                    try:
-                        db_logs = []
-                        for log_item in report_logs:
-                            db_logs.append({
-                                "list_name": selected_list,
-                                "template_name": selected_template_name,
-                                "contact_name": log_item["Name"],
-                                "mobile_number": log_item["Mobile"],
-                                "status": log_item["Status"]
-                            })
-                        supabase.table("whatsapp_campaign_logs").insert(db_logs).execute()
-                    except Exception as db_err:
-                        st.warning(f"⚠️ Messages successfully chale gaye hain, par logs ko Supabase me save karte waqt error aayi: {db_err}. (Kya aapne SQL me 'whatsapp_campaign_logs' table create kar li hai?)")
-                # ---> 🟢 NEW CODE END 🟢 <---
+                    overall_success += success_count
+                    overall_error += error_count
 
-                st.session_state["last_report"] = {
-                    "list_name": selected_list,
-                    "template": selected_template_name,
-                    "message": preview_msg,
-                    "timestamp": current_dt_str,
-                    "total": len(contacts_list),
-                    "success": success_count,
-                    "failed": error_count,
-                    "logs": report_logs
-                }
+                    if success_count > 0:
+                        st.success(f"✅ '{selected_list}' — {success_count} logon ko message successfully send ho gaya!")
+                    if error_count > 0:
+                        st.warning(f"⚠️ '{selected_list}' — {error_count} logon ko message nahi gaya.")
+                    st.markdown("---")
+                    # --- Agli list par jaane se pehle loop यहीं continue hoga (sequential) ---
 
-                # --- 📋 ADD ROW TO SESSION-ONLY TARGET HISTORY TABLE ---
-                # (Supabase me nahi jaata — sirf is browser session me dikhta hai,
-                # jab tak "Reset Table" na dabaya jaaye ya page reload na ho)
-                st.session_state["target_history"].append({
-                    "Sr. No.": len(st.session_state["target_history"]) + 1,
-                    "Target Name": selected_list,
-                    "Contact Qty": len(contacts_list),
-                    "Success Qty": success_count,
-                    "Fail Qty": error_count
-                })
+                # --- SAARI LISTS PROCESS HO CHUKI — combined report session_state me save karein ---
+                st.session_state["last_reports"] = all_lists_reports
 
                 st.write("---")
-                if success_count > 0:
+                if overall_success > 0:
                     st.balloons()
-                    st.success(f"✅ {success_count} logon ko message successfully send ho gaya!")
-                if error_count > 0:
-                    st.warning(f"⚠️ {error_count} logon ko message nahi gaya. Upar errors check karein.")
+                    st.success(f"✅ Total {overall_success} logon ko (sabhi {len(selected_lists)} list(s) milakar) message successfully send ho gaya!")
+                if overall_error > 0:
+                    st.warning(f"⚠️ Total {overall_error} logon ko message nahi gaya. Upar list-wise errors check karein.")
 
                 # --- FORCE RERUN so the "Target Sending History" table (rendered
-                # earlier/above in the script) picks up the row we just appended
+                # earlier/above in the script) picks up all the rows we just appended
                 # to session_state in THIS same run. Without this, the table only
                 # updates on the NEXT user interaction/rerun, not right after sending.
                 time.sleep(1.2)  # brief pause so the user can see the balloons/success message first
@@ -882,220 +906,219 @@ if check_password():
     # ==========================================
     # --- REPORT & METRICS SECTION ---
     # ==========================================
-    if "last_report" in st.session_state:
-        rep = st.session_state["last_report"]
-        
-        st.markdown("---")
-        st.markdown("<h2>📊 Live Campaign Execution Report</h2>", unsafe_allow_html=True)
-        st.markdown(f"**Execution Date & Time:** {rep.get('timestamp', 'N/A')}")
-        
-        m_col1, m_col2, m_col3 = st.columns(3)
-        with m_col1:
-            st.metric(label="📱 Total Numbers Targeted", value=rep["total"])
-        with m_col2:
-            st.metric(label="✅ Successfully Sent", value=rep["success"])
-        with m_col3:
-            st.metric(label="❌ Failed", value=rep["failed"])
+    for rep_idx, rep in enumerate(st.session_state.get("last_reports", []), 1):
+            st.markdown("---")
+            st.markdown(f"<h2>📊 Live Campaign Execution Report — {rep['list_name']}</h2>", unsafe_allow_html=True)
+            st.markdown(f"**Execution Date & Time:** {rep.get('timestamp', 'N/A')}")
             
-        st.markdown("### 📝 Detailed Status Table:")
-        
-        table_data = []
-        for idx, item in enumerate(rep["logs"], 1):
-            table_data.append({
-                "Sr No": idx,
-                "Contact Name": item["Name"],
-                "Mobile Number": item["Mobile"],
-                "Delivery Status": item["Status"]
-            })
-            
-        st.dataframe(table_data, use_container_width=True)
-        
-        class PDF(FPDF):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.hindi_font_available = False
-                font_path = "NotoSansDevanagari-VariableFont_wdth,wght.ttf"
+            m_col1, m_col2, m_col3 = st.columns(3)
+            with m_col1:
+                st.metric(label="📱 Total Numbers Targeted", value=rep["total"])
+            with m_col2:
+                st.metric(label="✅ Successfully Sent", value=rep["success"])
+            with m_col3:
+                st.metric(label="❌ Failed", value=rep["failed"])
                 
-                # Check directly and inside fonts/ folder
-                paths_to_check = [font_path, f"fonts/{font_path}"]
-                for p in paths_to_check:
-                    if os.path.exists(p):
-                        try:
-                            # CRITICAL FIX: Register for Regular, Bold, AND Italic to prevent crash!
-                            self.add_font("HindiFont", "", p, uni=True)
-                            self.add_font("HindiFont", "B", p, uni=True)
-                            self.add_font("HindiFont", "I", p, uni=True)
-                            self.hindi_font_available = True
-                            break
-                        except Exception:
-                            pass
-
-            def header(self):
-                self.set_fill_color(30, 27, 75)
-                self.rect(10, 10, 190, 24, 'F')
-                
-                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
-                self.set_font(f_name, 'B', 14)
-                    
-                self.set_text_color(56, 189, 248)
-                self.set_xy(10, 13)
-                self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
-                
-                self.set_font(f_name, '', 9)
-                self.set_text_color(226, 232, 240)
-                self.set_xy(10, 22)
-                self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
-                self.ln(12)
-
-            def footer(self):
-                self.set_y(-15)
-                f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
-                self.set_font(f_name, 'I' if not self.hindi_font_available else '', 8)
-                self.set_text_color(148, 163, 184)
-                self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
-
-        def generate_pdf():
-            pdf = PDF()
-            pdf.add_page()
-            pdf.set_auto_page_break(auto=True, margin=15)
+            st.markdown("### 📝 Detailed Status Table:")
             
-            # Smartly enable advanced text shaping if library supports it (requires uharfbuzz)
-            try:
-                if hasattr(pdf, 'set_text_shaping'):
-                    pdf.set_text_shaping(True)
-            except Exception:
-                pass
-            
-            h_font = 'HindiFont' if pdf.hindi_font_available else 'Arial'
-            
-            # CAMPAIGN SUMMARY METRICS CENTERED HEADING
-            pdf.set_font(h_font, 'B', 12)
-            pdf.set_text_color(30, 41, 59)
-            pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
-            pdf.ln(2)
-            
-            box_width = 58
-            box_height = 20
-            start_x = 10
-            y_pos = pdf.get_y()
-            
-            # Box 1: Yellow
-            pdf.set_fill_color(254, 243, 199)
-            pdf.set_draw_color(217, 119, 6)
-            pdf.set_line_width(0.6)
-            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
-            pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font(h_font, 'B', 9)
-            pdf.set_text_color(180, 83, 9)
-            pdf.cell(box_width, 5, 'Total Target Numbers', 0, 1, 'C')
-            pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font(h_font, 'B', 12)
-            pdf.set_text_color(146, 64, 14)
-            pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
-            
-            # Box 2: Green
-            start_x += box_width + 8
-            pdf.set_fill_color(220, 252, 231)
-            pdf.set_draw_color(22, 163, 74)
-            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
-            pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font(h_font, 'B', 9)
-            pdf.set_text_color(21, 128, 61)
-            pdf.cell(box_width, 5, 'Successfully Sent', 0, 1, 'C')
-            pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font(h_font, 'B', 12)
-            pdf.set_text_color(20, 83, 45)
-            pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
-            
-            # Box 3: Orange
-            start_x += box_width + 8
-            pdf.set_fill_color(254, 215, 170)
-            pdf.set_draw_color(234, 88, 12)
-            pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
-            pdf.set_xy(start_x, y_pos + 3)
-            pdf.set_font(h_font, 'B', 9)
-            pdf.set_text_color(194, 65, 12)
-            pdf.cell(box_width, 5, 'Failed', 0, 1, 'C')
-            pdf.set_xy(start_x, y_pos + 10)
-            pdf.set_font(h_font, 'B', 12)
-            pdf.set_text_color(154, 52, 18)
-            pdf.cell(box_width, 6, str(rep['failed']), 0, 0, 'C')
-            
-            pdf.set_y(y_pos + box_height + 10)
-            
-            # Message Preview Section Box
-            pdf.set_font(h_font, 'B', 11)
-            pdf.set_text_color(30, 41, 59)
-            pdf.cell(0, 8, 'MESSAGE SENT PREVIEW:', 0, 1, 'L')
-            
-            pdf.set_fill_color(255, 255, 255)
-            pdf.set_draw_color(203, 213, 225)
-            pdf.set_line_width(0.4)
-            
-            # Process Hindi message via Visual Reshaper to fix complex ligatures
-            msg_text = rep['message']
-            if pdf.hindi_font_available:
-                msg_text = reshape_hindi_text(msg_text)
-            else:
-                msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
-                
-            pdf.set_font(h_font, '', 9)
-            pdf.set_text_color(51, 65, 85)
-            pdf.multi_cell(190, 5, msg_text, border=1, fill=True)
-            
-            pdf.ln(8)
-            
-            # Detailed Table Heading
-            pdf.set_font(h_font, 'B', 11)
-            pdf.set_text_color(30, 41, 59)
-            pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
-            
-            # Table Header
-            pdf.set_fill_color(30, 27, 75)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font(h_font, 'B', 9)
-            pdf.cell(15, 7, 'Sr', 1, 0, 'C', fill=True)
-            pdf.cell(65, 7, 'Contact Name', 1, 0, 'C', fill=True)
-            pdf.cell(45, 7, 'Mobile Number', 1, 0, 'C', fill=True)
-            pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
-            
-            # Table Rows
-            pdf.set_font(h_font, '', 9)
+            table_data = []
             for idx, item in enumerate(rep["logs"], 1):
-                c_name = item["Name"]
-                c_status = item["Status"]
-                if pdf.hindi_font_available:
-                    c_name = reshape_hindi_text(c_name)
-                    c_status = reshape_hindi_text(c_status)
-                else:
-                    c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
-                    c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
+                table_data.append({
+                    "Sr No": idx,
+                    "Contact Name": item["Name"],
+                    "Mobile Number": item["Mobile"],
+                    "Delivery Status": item["Status"]
+                })
                 
-                if idx % 2 == 0:
-                    pdf.set_fill_color(241, 245, 249)
-                else:
-                    pdf.set_fill_color(255, 255, 255)
+            st.dataframe(table_data, use_container_width=True)
+            
+            class PDF(FPDF):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.hindi_font_available = False
+                    font_path = "NotoSansDevanagari-VariableFont_wdth,wght.ttf"
                     
-                pdf.set_text_color(51, 65, 85)
-                pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
-                pdf.cell(65, 6, c_name, 1, 0, 'L', fill=True)
-                pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
-                pdf.cell(65, 6, c_status, 1, 1, 'L', fill=True)
+                    # Check directly and inside fonts/ folder
+                    paths_to_check = [font_path, f"fonts/{font_path}"]
+                    for p in paths_to_check:
+                        if os.path.exists(p):
+                            try:
+                                # CRITICAL FIX: Register for Regular, Bold, AND Italic to prevent crash!
+                                self.add_font("HindiFont", "", p, uni=True)
+                                self.add_font("HindiFont", "B", p, uni=True)
+                                self.add_font("HindiFont", "I", p, uni=True)
+                                self.hindi_font_available = True
+                                break
+                            except Exception:
+                                pass
+    
+                def header(self):
+                    self.set_fill_color(30, 27, 75)
+                    self.rect(10, 10, 190, 24, 'F')
+                    
+                    f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                    self.set_font(f_name, 'B', 14)
+                        
+                    self.set_text_color(56, 189, 248)
+                    self.set_xy(10, 13)
+                    self.cell(190, 8, 'WHATSAPP MARKETING CAMPAIGN REPORT', 0, 1, 'C')
+                    
+                    self.set_font(f_name, '', 9)
+                    self.set_text_color(226, 232, 240)
+                    self.set_xy(10, 22)
+                    self.cell(190, 6, f'Target List: {rep["list_name"]}  |  Template: {rep["template"]}  |  Date & Time: {rep.get("timestamp", "N/A")}', 0, 1, 'C')
+                    self.ln(12)
+    
+                def footer(self):
+                    self.set_y(-15)
+                    f_name = 'HindiFont' if self.hindi_font_available else 'Arial'
+                    self.set_font(f_name, 'I' if not self.hindi_font_available else '', 8)
+                    self.set_text_color(148, 163, 184)
+                    self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+    
+            def generate_pdf():
+                pdf = PDF()
+                pdf.add_page()
+                pdf.set_auto_page_break(auto=True, margin=15)
                 
-            pdf_out = pdf.output(dest='S')
-            if isinstance(pdf_out, str):
-                return pdf_out.encode('latin1')
-            else:
-                return bytes(pdf_out)
-
-        pdf_bytes = generate_pdf()
-        
-        st.markdown("---")
-        st.download_button(
-            label="📥 Download Professional PDF Report for Client",
-            data=pdf_bytes,
-            file_name=f"WhatsApp_Report_{rep['list_name']}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary"
-        )
+                # Smartly enable advanced text shaping if library supports it (requires uharfbuzz)
+                try:
+                    if hasattr(pdf, 'set_text_shaping'):
+                        pdf.set_text_shaping(True)
+                except Exception:
+                    pass
+                
+                h_font = 'HindiFont' if pdf.hindi_font_available else 'Arial'
+                
+                # CAMPAIGN SUMMARY METRICS CENTERED HEADING
+                pdf.set_font(h_font, 'B', 12)
+                pdf.set_text_color(30, 41, 59)
+                pdf.cell(190, 8, 'CAMPAIGN SUMMARY METRICS:', 0, 1, 'C')
+                pdf.ln(2)
+                
+                box_width = 58
+                box_height = 20
+                start_x = 10
+                y_pos = pdf.get_y()
+                
+                # Box 1: Yellow
+                pdf.set_fill_color(254, 243, 199)
+                pdf.set_draw_color(217, 119, 6)
+                pdf.set_line_width(0.6)
+                pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+                pdf.set_xy(start_x, y_pos + 3)
+                pdf.set_font(h_font, 'B', 9)
+                pdf.set_text_color(180, 83, 9)
+                pdf.cell(box_width, 5, 'Total Target Numbers', 0, 1, 'C')
+                pdf.set_xy(start_x, y_pos + 10)
+                pdf.set_font(h_font, 'B', 12)
+                pdf.set_text_color(146, 64, 14)
+                pdf.cell(box_width, 6, str(rep['total']), 0, 0, 'C')
+                
+                # Box 2: Green
+                start_x += box_width + 8
+                pdf.set_fill_color(220, 252, 231)
+                pdf.set_draw_color(22, 163, 74)
+                pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+                pdf.set_xy(start_x, y_pos + 3)
+                pdf.set_font(h_font, 'B', 9)
+                pdf.set_text_color(21, 128, 61)
+                pdf.cell(box_width, 5, 'Successfully Sent', 0, 1, 'C')
+                pdf.set_xy(start_x, y_pos + 10)
+                pdf.set_font(h_font, 'B', 12)
+                pdf.set_text_color(20, 83, 45)
+                pdf.cell(box_width, 6, str(rep['success']), 0, 0, 'C')
+                
+                # Box 3: Orange
+                start_x += box_width + 8
+                pdf.set_fill_color(254, 215, 170)
+                pdf.set_draw_color(234, 88, 12)
+                pdf.rect(start_x, y_pos, box_width, box_height, 'DF')
+                pdf.set_xy(start_x, y_pos + 3)
+                pdf.set_font(h_font, 'B', 9)
+                pdf.set_text_color(194, 65, 12)
+                pdf.cell(box_width, 5, 'Failed', 0, 1, 'C')
+                pdf.set_xy(start_x, y_pos + 10)
+                pdf.set_font(h_font, 'B', 12)
+                pdf.set_text_color(154, 52, 18)
+                pdf.cell(box_width, 6, str(rep['failed']), 0, 0, 'C')
+                
+                pdf.set_y(y_pos + box_height + 10)
+                
+                # Message Preview Section Box
+                pdf.set_font(h_font, 'B', 11)
+                pdf.set_text_color(30, 41, 59)
+                pdf.cell(0, 8, 'MESSAGE SENT PREVIEW:', 0, 1, 'L')
+                
+                pdf.set_fill_color(255, 255, 255)
+                pdf.set_draw_color(203, 213, 225)
+                pdf.set_line_width(0.4)
+                
+                # Process Hindi message via Visual Reshaper to fix complex ligatures
+                msg_text = rep['message']
+                if pdf.hindi_font_available:
+                    msg_text = reshape_hindi_text(msg_text)
+                else:
+                    msg_text = msg_text.encode('latin-1', 'replace').decode('latin-1')
+                    
+                pdf.set_font(h_font, '', 9)
+                pdf.set_text_color(51, 65, 85)
+                pdf.multi_cell(190, 5, msg_text, border=1, fill=True)
+                
+                pdf.ln(8)
+                
+                # Detailed Table Heading
+                pdf.set_font(h_font, 'B', 11)
+                pdf.set_text_color(30, 41, 59)
+                pdf.cell(0, 8, 'DETAILED CONTACT DELIVERY STATUS:', 0, 1, 'L')
+                
+                # Table Header
+                pdf.set_fill_color(30, 27, 75)
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font(h_font, 'B', 9)
+                pdf.cell(15, 7, 'Sr', 1, 0, 'C', fill=True)
+                pdf.cell(65, 7, 'Contact Name', 1, 0, 'C', fill=True)
+                pdf.cell(45, 7, 'Mobile Number', 1, 0, 'C', fill=True)
+                pdf.cell(65, 7, 'Delivery Status', 1, 1, 'C', fill=True)
+                
+                # Table Rows
+                pdf.set_font(h_font, '', 9)
+                for idx, item in enumerate(rep["logs"], 1):
+                    c_name = item["Name"]
+                    c_status = item["Status"]
+                    if pdf.hindi_font_available:
+                        c_name = reshape_hindi_text(c_name)
+                        c_status = reshape_hindi_text(c_status)
+                    else:
+                        c_name = c_name.encode('latin-1', 'replace').decode('latin-1')
+                        c_status = c_status.encode('latin-1', 'replace').decode('latin-1')
+                    
+                    if idx % 2 == 0:
+                        pdf.set_fill_color(241, 245, 249)
+                    else:
+                        pdf.set_fill_color(255, 255, 255)
+                        
+                    pdf.set_text_color(51, 65, 85)
+                    pdf.cell(15, 6, str(idx), 1, 0, 'C', fill=True)
+                    pdf.cell(65, 6, c_name, 1, 0, 'L', fill=True)
+                    pdf.cell(45, 6, str(item["Mobile"]), 1, 0, 'C', fill=True)
+                    pdf.cell(65, 6, c_status, 1, 1, 'L', fill=True)
+                    
+                pdf_out = pdf.output(dest='S')
+                if isinstance(pdf_out, str):
+                    return pdf_out.encode('latin1')
+                else:
+                    return bytes(pdf_out)
+    
+            pdf_bytes = generate_pdf()
+            
+            st.markdown("---")
+            st.download_button(
+                label=f"📥 Download PDF Report — {rep['list_name']}",
+                data=pdf_bytes,
+                file_name=f"WhatsApp_Report_{rep['list_name']}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+                key=f"pdf_download_{rep_idx}_{rep['list_name']}"
+            )
