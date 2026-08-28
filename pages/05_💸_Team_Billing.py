@@ -244,6 +244,7 @@ def number_to_words(n):
     return res.strip() + " Rupees Only"
 
 # --- 4. DATA FETCHING FUNCTIONS ---
+@st.cache_data(ttl=60, show_spinner=False)
 def get_dropdown_data(category_name):
     try:
         res = supabase.table("dropdown_master").select("option_value").eq("category", category_name).eq("is_active", True).execute()
@@ -374,6 +375,7 @@ def team_invoice_dialog(row_data=None):
                     pass
                 
                 st.success("✅ Team Invoice Saved Successfully!")
+                fetch_billing_invoices_cached.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
@@ -485,6 +487,7 @@ def vendor_invoice_dialog(row_data=None):
                     pass
                 
                 st.success("✅ Vendor Invoice Saved Successfully!")
+                fetch_billing_invoices_cached.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
@@ -551,6 +554,7 @@ def payment_dialog(row_data=None, mode="Team"):
                     pass
 
                 st.success(f"✅ {mode} Payment Saved Successfully!")
+                fetch_billing_payments_cached.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
@@ -576,6 +580,49 @@ with st.container(key="billing_nav_bar"):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_billing_invoices_cached(workspace):
+    try:
+        inv_res = supabase.table("billing_invoices").select("*").eq("workspace", workspace).order("id", desc=True).execute()
+        return inv_res.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_billing_payments_cached(workspace):
+    try:
+        pay_res = supabase.table("billing_payments").select("*").eq("workspace", workspace).order("id", desc=True).execute()
+        return pay_res.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_ledger_data_cached(workspace, rep_mode, inv_col, sel_name):
+    try:
+        res_inv = supabase.table("billing_invoices").select("*").eq("workspace", workspace).eq("invoice_type", rep_mode).eq(inv_col, sel_name).order("id", desc=True).execute()
+        inv_rows = res_inv.data or []
+    except Exception:
+        inv_rows = []
+    try:
+        res_pay = supabase.table("billing_payments").select("*").eq("workspace", workspace).eq("mode", rep_mode).eq("pay_to", sel_name).order("id", desc=True).execute()
+        pay_rows = res_pay.data or []
+    except Exception:
+        pay_rows = []
+    return inv_rows, pay_rows
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_pending_mrn_cached(workspace):
+    try:
+        p_res = supabase.table("pending_billing_invoices").select("*").eq("workspace", workspace).order("id", desc=True).execute()
+        return p_res.data or []
+    except Exception:
+        return []
+
+
 # ==========================================
 # PAGE 1: INVOICE ENTRY
 # ==========================================
@@ -594,9 +641,9 @@ if st.session_state.billing_active_page == "invoice":
 
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
-        inv_res = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
-        if inv_res.data:
-            df_inv = pd.DataFrame(inv_res.data)
+        inv_data_raw = fetch_billing_invoices_cached(active_ws)
+        if inv_data_raw:
+            df_inv = pd.DataFrame(inv_data_raw)
             
             if search_inv:
                 mask = df_inv.astype(str).apply(lambda x: x.str.contains(search_inv, case=False, na=False)).any(axis=1)
@@ -671,6 +718,7 @@ if st.session_state.billing_active_page == "invoice":
                             try:
                                 supabase.table("billing_invoices").delete().eq("id", orig_dict["id"]).execute()
                                 st.success("✅ Deleted successfully!")
+                                fetch_billing_invoices_cached.clear()
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error deleting: {e}")
@@ -683,6 +731,7 @@ if st.session_state.billing_active_page == "invoice":
     except Exception as e:
         st.error(f"Database error: {e}")
 
+# ==========================================
 # ==========================================
 # PAGE 2: PAYMENT ENTRY
 # ==========================================
@@ -701,9 +750,9 @@ elif st.session_state.billing_active_page == "payment":
 
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
-        pay_res = supabase.table("billing_payments").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
-        if pay_res.data:
-            df_pay = pd.DataFrame(pay_res.data)
+        pay_data_raw = fetch_billing_payments_cached(active_ws)
+        if pay_data_raw:
+            df_pay = pd.DataFrame(pay_data_raw)
             
             if search_pay:
                 mask_p = df_pay.astype(str).apply(lambda x: x.str.contains(search_pay, case=False, na=False)).any(axis=1)
@@ -749,6 +798,7 @@ elif st.session_state.billing_active_page == "payment":
                             try:
                                 supabase.table("billing_payments").delete().eq("id", p_row_dict["id"]).execute()
                                 st.success("✅ Deleted successfully!")
+                                fetch_billing_payments_cached.clear()
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error deleting: {e}")
@@ -782,10 +832,9 @@ elif st.session_state.billing_active_page == "ledger":
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
             inv_col = "team_name" if rep_mode == "Team" else "vendor_name"
-            # ---> UPDATED: Added .order("id", desc=True) so latest records appear at the top
-            res_inv = supabase.table("billing_invoices").select("*").eq("workspace", active_ws).eq("invoice_type", rep_mode).eq(inv_col, sel_name).order("id", desc=True).execute()
-            if res_inv.data:
-                df_inv_rep = pd.DataFrame(res_inv.data)
+            inv_rows, pay_rows = fetch_ledger_data_cached(active_ws, rep_mode, inv_col, sel_name)
+            if inv_rows:
+                df_inv_rep = pd.DataFrame(inv_rows)
                 tot_inv = df_inv_rep["amount"].sum()
                 
                 req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "gst_amount", "amount"]
@@ -808,10 +857,8 @@ elif st.session_state.billing_active_page == "ledger":
                 if "Invoice Date" in df_inv_rep.columns:
                     df_inv_rep["Invoice Date"] = pd.to_datetime(df_inv_rep["Invoice Date"], errors="coerce").dt.strftime('%d/%m/%Y')
 
-            # ---> UPDATED: Added .order("id", desc=True) so latest records appear at the top
-            res_pay = supabase.table("billing_payments").select("*").eq("workspace", active_ws).eq("mode", rep_mode).eq("pay_to", sel_name).order("id", desc=True).execute()
-            if res_pay.data:
-                df_pay_rep = pd.DataFrame(res_pay.data)
+            if pay_rows:
+                df_pay_rep = pd.DataFrame(pay_rows)
                 tot_pay = df_pay_rep["amount"].sum()
                 df_pay_rep = df_pay_rep[["date", "pay_from", "pay_type", "amount", "remark"]]
                 
@@ -981,9 +1028,9 @@ elif st.session_state.billing_active_page == "mrn":
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
             # ---> UPDATED: Added .order("id", desc=True) so latest pending records appear at the top
-            p_res = supabase.table("pending_billing_invoices").select("*").eq("workspace", active_ws).order("id", desc=True).execute()
-            if p_res.data:
-                df_pending = pd.DataFrame(p_res.data)
+            pending_rows = fetch_pending_mrn_cached(active_ws)
+            if pending_rows:
+                df_pending = pd.DataFrame(pending_rows)
                 
                 df_pending.insert(0, "Select", False)
                 if "date" in df_pending.columns:
@@ -1029,6 +1076,8 @@ elif st.session_state.billing_active_page == "mrn":
                                 supabase.table("billing_invoices").insert(full_row).execute()
                                 supabase.table("pending_billing_invoices").delete().eq("id", p_id).execute()
                             st.success("✅ MRN(s) Approved and Moved to Main Billing Ledger!")
+                            fetch_billing_invoices_cached.clear()
+                            fetch_pending_mrn_cached.clear()
                             st.rerun()
                             
                     with col_r:
@@ -1036,6 +1085,7 @@ elif st.session_state.billing_active_page == "mrn":
                             for _, r in sel_pending.iterrows():
                                 supabase.table("pending_billing_invoices").delete().eq("id", r["id"]).execute()
                             st.error("❌ Pending MRN(s) Rejected and Deleted from Queue!")
+                            fetch_pending_mrn_cached.clear()
                             st.rerun()
             else:
                 st.info("No pending MRNs waiting for approval.")
