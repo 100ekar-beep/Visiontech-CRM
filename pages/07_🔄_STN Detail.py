@@ -8,14 +8,44 @@ from supabase import create_client, Client
 st.set_page_config(page_title="STN Details", page_icon="🔄", layout="wide")
 
 # --- 2. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
+
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached warehouse_data fetch ---
+# ⚠️ BADI WAJAH: pehle teeno tabs (Pending / Closed / Return) apni
+# apni ALAG, BINA CACHING wali query chalate the — aur Streamlit ke
+# rerun-on-every-interaction model ki wajah se yeh har keystroke
+# (search box), har dialog open/close, har button click par poori
+# 'warehouse_data' table dobara Supabase se download kar rahe the.
+# Ab ek hi cached fetch (30s) sabhi teeno tabs ke liye reuse hota hai,
+# aur Closed/Return tabs bhi isi cached data ko locally Python me
+# filter karte hain instead of alag query chalane ke.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_warehouse_data_cached(workspace):
+    try:
+        response = supabase.table("warehouse_data").select("*").eq("workspace", workspace).execute()
+        return response.data if response.data else []
+    except Exception:
+        return []
+
+def clear_stn_cache():
+    """Call this right before st.rerun() after any insert/update/delete on warehouse_data."""
+    fetch_warehouse_data_cached.clear()
 
 # --- 3. SESSION STATE FOR TAB NAVIGATION ---
 if 'active_view' not in st.session_state:
@@ -255,6 +285,7 @@ def edit_stn_dialog(row_data):
 
             supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
             st.success("✅ Record Updated and Shifted Successfully!")
+            clear_stn_cache()
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error updating record: {e}")
@@ -291,18 +322,14 @@ with col3:
 
 st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
 
+# --- SHARED CACHED FETCH — used by all 3 tabs below (see fetch_warehouse_data_cached above) ---
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+wh_data = fetch_warehouse_data_cached(active_ws)
+
 # =====================================================================
 # ⏳ VIEW 1: STN PENDING
 # =====================================================================
 if st.session_state.active_view == 'Pending':
-
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        response = supabase.table("warehouse_data").select("*").eq("workspace", active_ws).execute()
-        wh_data = response.data if response.data else []
-    except Exception as e:
-        st.error(f"❌ Connection Failed: {e}")
-        wh_data = []
 
     if wh_data:
         df_raw = pd.DataFrame(wh_data)
@@ -402,6 +429,7 @@ if st.session_state.active_view == 'Pending':
                                 supabase.table("warehouse_data").delete().eq("id", rid).execute()
                                 st.session_state[f"stn_confirm_del_{rid}"] = False
                                 st.success("✅ Record Deleted!")
+                                clear_stn_cache()
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error deleting record: {e}")
@@ -428,15 +456,20 @@ if st.session_state.active_view == 'Pending':
 # =====================================================================
 elif st.session_state.active_view == 'Closed':
     st.markdown("### ✅ Closed STN Records")
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res_closed = supabase.table("warehouse_data").select("*").eq("STN Status", "Closed").eq("workspace", active_ws).execute()
-        closed_data = res_closed.data if res_closed.data else []
-    except Exception:
-        closed_data = []
-    
-    if closed_data:
-        df_closed = pd.DataFrame(closed_data)
+
+    # FIX: pehle yahan alag se ek uncached query chalti thi. Ab shared
+    # cached 'wh_data' (upar fetch hua) ko hi locally filter kar rahe hain.
+    if wh_data:
+        df_all = pd.DataFrame(wh_data)
+        stn_col = get_actual_col(df_all.columns, ["STN Status", "stn_status"])
+        if stn_col:
+            df_closed = df_all[df_all[stn_col].astype(str).str.strip().str.lower() == 'closed'].copy()
+        else:
+            df_closed = pd.DataFrame()
+    else:
+        df_closed = pd.DataFrame()
+
+    if not df_closed.empty:
         st.dataframe(df_closed, use_container_width=True, hide_index=True)
     else:
         st.info("No closed STN records found.")
@@ -446,15 +479,20 @@ elif st.session_state.active_view == 'Closed':
 # =====================================================================
 elif st.session_state.active_view == 'Return':
     st.markdown("### 🔙 Fresh Material Return to WH Records")
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res_ret = supabase.table("warehouse_data").select("*").eq("Material Status", "Returned").eq("workspace", active_ws).execute()
-        ret_data = res_ret.data if res_ret.data else []
-    except Exception:
-        ret_data = []
-        
-    if ret_data:
-        df_ret = pd.DataFrame(ret_data)
+
+    # FIX: pehle yahan alag se ek uncached query chalti thi. Ab shared
+    # cached 'wh_data' (upar fetch hua) ko hi locally filter kar rahe hain.
+    if wh_data:
+        df_all = pd.DataFrame(wh_data)
+        mat_col = get_actual_col(df_all.columns, ["Material Status", "material_status"])
+        if mat_col:
+            df_ret = df_all[df_all[mat_col].astype(str).str.strip().str.lower() == 'returned'].copy()
+        else:
+            df_ret = pd.DataFrame()
+    else:
+        df_ret = pd.DataFrame()
+
+    if not df_ret.empty:
         st.dataframe(df_ret, use_container_width=True, hide_index=True)
     else:
         st.info("No material return records found.")
