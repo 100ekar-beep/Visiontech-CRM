@@ -336,16 +336,35 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"       
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
-# --- HELPER FUNCTIONS ---
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
+# ⚠️ FIX (isi tarah ka issue jaise Site Data Hub mein tha): pehle
+# get_all_dropdowns(), get_site_projects() aur main warehouse_data fetch
+# — teeno BINA kisi caching ke the. Streamlit dialog ke andar HAR
+# keystroke/click par poora script phir se chalta hai, matlab har type
+# karne par, har dropdown select karne par, ye teeno poori tables Supabase
+# se dobara download kar rahe the — yahi Cached Egress ko bahut zyada
+# kha raha tha. Ab inhe 30s ke liye cache kiya gaya hai, aur kisi bhi
+# insert/update/delete se pehle .clear() call karke turant fresh data
+# le liya jaata hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
 def get_all_dropdowns():
     try:
         res = supabase.table("dropdown_master").select("*").execute()
@@ -357,16 +376,31 @@ def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
 
-def get_site_projects():
+@st.cache_data(ttl=30, show_spinner=False)
+def get_site_projects(workspace):
     try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
+        res = supabase.table("site_data").select("*").eq("workspace", workspace).execute()
         return res.data if res.data else []
     except Exception as e:
         st.toast(f"Database Error: {e}", icon="❌")
         return []
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_warehouse_data_cached(workspace):
+    try:
+        response = supabase.table("warehouse_data").select("*").eq("workspace", workspace).execute()
+        return response.data if response.data else []
+    except Exception:
+        return []
+
+def clear_warehouse_caches():
+    """Call this right before st.rerun() after any insert/update/delete on warehouse_data."""
+    fetch_warehouse_data_cached.clear()
+
 # --- NEW: LIVE ITEM MASTER SEARCH (matches Item Code OR Item Description, partial word) ---
+# Cached too (short TTL) since the same partial search term is often retyped/reused while
+# the user is narrowing down an item — avoids repeated identical queries hitting Supabase.
+@st.cache_data(ttl=60, show_spinner=False)
 def search_item_master(term, limit=25):
     """
     Search the Item Code master table for any row where item_code OR item_description
@@ -467,7 +501,7 @@ def add_warehouse_material_dialog():
     st.caption("Manage transaction items and asset movements against Project IDs")
     
     all_dd = get_all_dropdowns()
-    site_records = get_site_projects()
+    site_records = get_site_projects(st.session_state.get('active_workspace', 'VISPL'))
     
     unique_proj_ids = []
     for r in site_records:
@@ -676,6 +710,7 @@ def add_warehouse_material_dialog():
                            or k.startswith("w_icode_search_") or k.startswith("w_icode_match_"):
                             del st.session_state[k]
 
+                    clear_warehouse_caches()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
@@ -799,6 +834,7 @@ def edit_warehouse_material_dialog(row_data):
                         if k in st.session_state:
                             del st.session_state[k]
 
+                    clear_warehouse_caches()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Updating Material: {e}")
@@ -865,6 +901,9 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:white;'>📦 Warehouse Material Hub</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
+        clear_warehouse_caches()
+        get_all_dropdowns.clear()
+        get_site_projects.clear()
         st.rerun() 
 with col_add:
     if st.button("➕ Add New Material", use_container_width=True):
@@ -881,14 +920,10 @@ with col_export:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 5. FETCH & PREPARE DATA FROM WAREHOUSE ---
+# --- 5. FETCH & PREPARE DATA FROM WAREHOUSE (cached — see fetch_warehouse_data_cached above) ---
 table_name = "warehouse_data"
-try:
-    active_ws = st.session_state.get('active_workspace', 'VISPL')
-    response = supabase.table(table_name).select("*").eq("workspace", active_ws).execute()
-    data = response.data
-except Exception:
-    data = []
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+data = fetch_warehouse_data_cached(active_ws)
 
 columns_list = [
     "id", "Project ID", "Site ID", "Site Name", "Cluster", "Team", 
@@ -988,6 +1023,7 @@ def render_delete_confirm(rid, row_dict, key_prefix=""):
                     supabase.table(table_name).delete().eq("id", rid).execute()
                     st.session_state[f"confirm_del_{rid}"] = False
                     st.success("✅ Record Successfully Deleted!")
+                    clear_warehouse_caches()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Deleting Record: {e}")
