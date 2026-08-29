@@ -331,12 +331,19 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 2.5 SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"    
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
@@ -377,7 +384,43 @@ def fetch_site_data_lookup_cached(workspace):
     except Exception:
         return []
 
+# --- NEW: EGRESS OPTIMIZATION — cached per-site lookup used inside the
+# "Edit PO Detailed Working" dialog. Previously these 2 small queries
+# (site_data + Excalation/Escalation Matrix, both filtered by Site ID) ran
+# on EVERY rerun while the dialog was open — every cell edit in the data
+# editor re-triggers the whole script, so every keystroke was hitting
+# Supabase twice more. Now cached for 30s per Site ID.
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_po_detail_site_info_cached(site_id, workspace):
+    cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
+    if not site_id:
+        return cluster_val, rfai_val, srn_val, km_val
+    try:
+        res_site = supabase.table("site_data").select("*").eq("Site ID", str(site_id).strip()).eq("workspace", workspace).execute()
+        if res_site.data:
+            cluster_val = res_site.data[0].get("Cluster", "-")
+            rfai_val = res_site.data[0].get("RFAI Status", "-")
+            srn_val = res_site.data[0].get("SRN", "-")
+    except Exception:
+        pass
+    try:
+        res_exc = supabase.table("Excalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+        if res_exc.data:
+            km_val = res_exc.data[0].get("KM", "-")
+    except Exception:
+        try:
+            res_exc = supabase.table("Escalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+            if res_exc.data:
+                km_val = res_exc.data[0].get("KM", "-")
+        except Exception:
+            pass
+    return cluster_val, rfai_val, srn_val, km_val
+
+
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
+# NOTE: iska already accha pattern hai — poori po_working table sirf EK BAAR
+# session_state me load hoti hai (jab tak explicitly delete na ho, jaise
+# upload/edit/delete ke baad), baar baar Supabase se re-fetch nahi hoti.
 if 'po_working_df' not in st.session_state:
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
@@ -566,6 +609,9 @@ def po_upload_dialog():
                 
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
+
+                fetch_site_data_lookup_cached.clear()
+                fetch_po_detail_site_info_cached.clear()
                 
                 st.session_state['po_upload_success_msg'] = po_number_input
                 st.session_state['po_upload_summary'] = {
@@ -595,21 +641,18 @@ def export_dialog(df_export):
     available_sites = set()
     available_projects = set()
 
-    try:
-        # Fetching all site data for the workspace to bypass PostgREST .in_() limits on large exports
-        site_rows = fetch_all_rows(
-            lambda start, end: supabase.table("site_data").select("*").eq("workspace", active_ws).range(start, end).execute()
-        )
-        for item in site_rows:
-            s_id = str(item.get("Site ID", "")).strip()
-            p_id = str(item.get("Project ID", "")).strip()
-            p_name = str(item.get("Project Name", "")).strip()
-            
-            if s_id: available_sites.add(s_id)
-            if p_id: available_projects.add(p_id)
-            if p_name: available_projects.add(p_name)
-    except Exception:
-        pass
+    # Reuses the same 30s-cached lookup instead of a fresh full-table fetch —
+    # export is an occasional action, but no reason to hit Supabase again if
+    # the page-level lookup already has fresh-enough data.
+    site_rows = fetch_site_data_lookup_cached(active_ws)
+    for item in site_rows:
+        s_id = str(item.get("Site ID", "")).strip()
+        p_id = str(item.get("Project ID", "")).strip()
+        p_name = str(item.get("Project Name", "")).strip()
+        
+        if s_id: available_sites.add(s_id)
+        if p_id: available_projects.add(p_id)
+        if p_name: available_projects.add(p_name)
 
     def get_site_status(row):
         sid = str(row.get("Site ID", "")).strip()
@@ -649,31 +692,14 @@ def view_po_details_dialog(row_data):
     site_id = row_data['Site ID']
     site_name = row_data['Site Name']
     proj_name = row_data['Project Name']
-    
-    cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
-    if site_id:
-        try:
-            active_ws = st.session_state.get('active_workspace', 'VISPL')
-            
-            res_site = supabase.table("site_data").select("*").eq("Site ID", str(site_id).strip()).eq("workspace", active_ws).execute()
-            if res_site.data:
-                cluster_val = res_site.data[0].get("Cluster", "-")
-                rfai_val = res_site.data[0].get("RFAI Status", "-")
-                srn_val = res_site.data[0].get("SRN", "-") 
-            
-            try:
-                res_exc = supabase.table("Excalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
-                if res_exc.data:
-                    km_val = res_exc.data[0].get("KM", "-")
-            except:
-                try:
-                    res_exc = supabase.table("Escalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
-                    if res_exc.data:
-                        km_val = res_exc.data[0].get("KM", "-")
-                except:
-                    pass
-        except Exception:
-            pass
+
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    # FIX (egress optimization): ye 2 chhoti si single-row lookups (site_data +
+    # Excalation/Escalation Matrix) pehle BINA caching ke thi — dialog ke andar
+    # har interaction (jaise data editor me cell edit) par poora script phir
+    # se chalta hai, matlab har baar dono queries dobara Supabase ko hit karti
+    # thi. Ab 30s ke liye cache kiya gaya hai.
+    cluster_val, rfai_val, srn_val, km_val = fetch_po_detail_site_info_cached(site_id, active_ws)
 
     display_cols = [
         'id', 'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
@@ -800,6 +826,8 @@ with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         if 'po_working_df' in st.session_state:
             del st.session_state['po_working_df']
+        fetch_site_data_lookup_cached.clear()
+        fetch_po_detail_site_info_cached.clear()
         st.rerun() 
 with col_upload:
     if st.button("📤 PO Upload Notepad", type="primary", use_container_width=True):
