@@ -179,12 +179,19 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"        
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
@@ -233,6 +240,23 @@ def fetch_quotation_templates():
     except:
         pass
     return []
+
+# --- NEW: EGRESS OPTIMIZATION — cached KM lookup used inside the quotation
+# dialog. Previously this ran on EVERY rerun while the dialog was open
+# (every data-editor cell edit re-triggers the whole script) — now cached
+# for 60s per Site ID.
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_site_km_cached(site_id):
+    if not site_id:
+        return ""
+    try:
+        res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", site_id).execute()
+        if res_exc.data and len(res_exc.data) > 0:
+            km_val = res_exc.data[0].get("KM", "")
+            return "" if pd.isna(km_val) else str(km_val)
+    except Exception:
+        pass
+    return ""
 
 # Load Master Data First so cluster mapping is ready
 df_projects = fetch_quotation_projects(st.session_state.get('active_workspace', 'VISPL'))
@@ -336,15 +360,9 @@ def quotation_dialog(quotation_data=None):
             auto_site_id = str(proj_row.iloc[0].get("Site ID", ""))
             auto_site_name = str(proj_row.iloc[0].get("Site Name", ""))
             auto_cluster = str(proj_row.iloc[0].get("Cluster", ""))
-            
+
             if auto_site_id:
-                try:
-                    res_exc = supabase.table("Excalation Matrix").select("KM").eq("Site ID", auto_site_id).execute()
-                    if res_exc.data and len(res_exc.data) > 0:
-                        km_val = res_exc.data[0].get("KM", "")
-                        auto_km = "" if pd.isna(km_val) else str(km_val)
-                except Exception:
-                    pass
+                auto_km = fetch_site_km_cached(auto_site_id)
             auto_proj_name = str(proj_row.iloc[0].get("Project Name", ""))
             
     with col4:
