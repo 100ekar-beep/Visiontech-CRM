@@ -125,12 +125,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"      
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"   
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
@@ -146,6 +153,25 @@ categories = [
     "SRN Status", "Transaction Type", "Item Code", 
     "Item Description", "Material Status", "STN Status"
 ]
+
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached dropdown_master fetch ---
+# Pehle yeh table BINA caching ke fetch hoti thi har baar jab filter
+# category badalte ya row select karte — ab 30s ke liye cache kiya
+# gaya hai, aur kisi bhi insert/update/delete/status-toggle ke baad
+# .clear() call karke fresh data le liya jaata hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_master_data_cached(filter_cat):
+    if filter_cat == "View All":
+        response = supabase.table(master_table_name).select("*").execute()
+    else:
+        response = supabase.table(master_table_name).select("*").eq("category", filter_cat).execute()
+    return response.data
+
+def clear_master_cache():
+    """Call this right before st.rerun() after any insert/update/delete/toggle on dropdown_master."""
+    fetch_master_data_cached.clear()
 
 # --- NEW: BULK UPLOAD DIALOG POPUP ---
 @st.dialog("📤 Bulk Upload Item Codes", width="large")
@@ -200,6 +226,7 @@ def bulk_upload_item_dialog():
                 if added_count > 0:
                     st.success(f"✅ Bulk Upload Complete! {added_count} Item Codes Added Successfully. (Failed: {failed_count})")
                     if failed_count == 0:
+                        clear_master_cache()
                         st.rerun()
                 else:
                     st.error(f"⚠️ No records added. Please check Supabase table columns and data format!")
@@ -275,6 +302,7 @@ def edit_dialog(row_data):
             try:
                 supabase.table(master_table_name).update(update_data).eq("id", record_id).execute()
                 st.success("✅ Record updated!")
+                clear_master_cache()
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Update Error: {e}")
@@ -357,6 +385,7 @@ with col1:
                 try:
                     supabase.table(master_table_name).insert(insert_data).execute()
                     st.success(f"✅ '{new_option_value}' has been successfully added to {selected_category}!")
+                    clear_master_cache()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Database Error: {e}")
@@ -369,12 +398,7 @@ with col2:
     filter_cat = st.selectbox("Filter Database by Category", ["View All"] + categories)
     
     try:
-        if filter_cat == "View All":
-            response = supabase.table(master_table_name).select("*").execute()
-        else:
-            response = supabase.table(master_table_name).select("*").eq("category", filter_cat).execute()
-            
-        data = response.data
+        data = fetch_master_data_cached(filter_cat)
         
         if data:
             df = pd.DataFrame(data)
@@ -424,6 +448,7 @@ with col2:
                         new_status = not row_to_edit['is_active']
                         try:
                             supabase.table(master_table_name).update({"is_active": new_status}).eq("id", row_to_edit['id']).execute()
+                            clear_master_cache()
                             st.rerun()
                         except Exception as e:
                             st.error("Error updating status.")
@@ -432,6 +457,7 @@ with col2:
                     if st.button("🗑️ Delete", type="primary", use_container_width=True):
                         try:
                             supabase.table(master_table_name).delete().eq("id", row_to_edit['id']).execute()
+                            clear_master_cache()
                             st.rerun()
                         except Exception as e:
                             st.error("Error deleting record.")
