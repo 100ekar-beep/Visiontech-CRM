@@ -70,6 +70,18 @@ def init_connection():
 
 supabase = init_connection()
 
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached templates list fetch ---
+# Chhoti table hai, par phir bhi bina caching ke har page load/rerun par
+# dobara fetch ho rahi thi. Ab 30s cache kiya gaya hai, aur naya template
+# register karne ke turant baad cache clear karke fresh list dikhayi
+# jaati hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_templates_list_cached():
+    fetch_response = supabase.table("whatsapp_templates").select("id, template_name, variable_count, created_at").order("id", desc=True).execute()
+    return fetch_response.data
+
 st.markdown("<h1>📝 Interakt Template Registration</h1>", unsafe_allow_html=True)
 st.markdown("---")
 st.info("💡 Yaha wahi Template Name dalein jo Interakt par approved hai. Variable count me total variables likhein (Jaise agar {{1}} naam hai aur {{2}}, {{3}} message hai, toh total 3 likhein).")
@@ -92,6 +104,7 @@ with st.form("template_form", clear_on_submit=True):
                 }).execute()
                 st.success(f"🎉 Template '{t_name.strip()}' successfully register ho gaya hai!")
                 st.balloons()
+                fetch_templates_list_cached.clear()
             except Exception as e:
                 st.error(f"🚨 Error saving template: {e}")
         else:
@@ -103,13 +116,13 @@ st.markdown("<h3>🗃️ Registered Templates List</h3>", unsafe_allow_html=True
 
 if supabase:
     try:
-        # Fetching data from Supabase, ordered by newest first
-        fetch_response = supabase.table("whatsapp_templates").select("id, template_name, variable_count, created_at").order("id", desc=True).execute()
+        # Fetching data from Supabase (cached — see fetch_templates_list_cached above), newest first
+        data = fetch_templates_list_cached()
         
-        if fetch_response.data:
+        if data:
             # Formatting the data for a premium table display
             formatted_data = []
-            for row in fetch_response.data:
+            for row in data:
                 formatted_data.append({
                     "ID": row.get("id"),
                     "Template Name": row.get("template_name"),
