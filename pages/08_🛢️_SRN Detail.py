@@ -8,14 +8,41 @@ from supabase import create_client, Client
 st.set_page_config(page_title="SRN Details", page_icon="📦", layout="wide")
 
 # --- 2. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
+
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached warehouse_data fetch ---
+# ⚠️ BADI WAJAH (STN Detail page jaisa hi issue): dono tabs (SRN Detail /
+# SRN Submited) apni apni ALAG, BINA CACHING wali query chalate the —
+# har keystroke (search box), har dialog open/close, har button click par
+# poori 'warehouse_data' table dobara Supabase se download ho rahi thi.
+# Ab ek hi cached fetch (30s) dono tabs ke liye reuse hota hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_warehouse_data_cached(workspace):
+    try:
+        response = supabase.table("warehouse_data").select("*").eq("workspace", workspace).execute()
+        return response.data if response.data else []
+    except Exception:
+        return []
+
+def clear_srn_cache():
+    """Call this right before st.rerun() after any insert/update/delete on warehouse_data."""
+    fetch_warehouse_data_cached.clear()
 
 # --- 3. SESSION STATE FOR TAB NAVIGATION ---
 if 'srn_active_view' not in st.session_state:
@@ -258,6 +285,7 @@ def edit_srn_dialog(row_data):
 
             supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
             st.success("✅ Record Updated and Saved Successfully!")
+            clear_srn_cache()
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error updating record: {e}")
@@ -291,18 +319,14 @@ with col2:
 
 st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
 
+# --- SHARED CACHED FETCH — used by both tabs below (see fetch_warehouse_data_cached above) ---
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+wh_data = fetch_warehouse_data_cached(active_ws)
+
 # =====================================================================
 # 📦 VIEW 1: SRN DETAIL
 # =====================================================================
 if st.session_state.srn_active_view == 'SRN Detail':
-
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        response = supabase.table("warehouse_data").select("*").eq("workspace", active_ws).execute()
-        wh_data = response.data if response.data else []
-    except Exception as e:
-        st.error(f"❌ Connection Failed: {e}")
-        wh_data = []
 
     if wh_data:
         df_raw = pd.DataFrame(wh_data)
@@ -402,6 +426,7 @@ if st.session_state.srn_active_view == 'SRN Detail':
                                 supabase.table("warehouse_data").delete().eq("id", rid).execute()
                                 st.session_state[f"srn_confirm_del_{rid}"] = False
                                 st.success("✅ Record Deleted!")
+                                clear_srn_cache()
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error deleting record: {e}")
@@ -428,15 +453,20 @@ if st.session_state.srn_active_view == 'SRN Detail':
 # =====================================================================
 elif st.session_state.srn_active_view == 'SRN Submited':
     st.markdown("### ✅ Submitted SRN Records")
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        res_sub = supabase.table("warehouse_data").select("*").eq("SRN Status", "Submitted").eq("workspace", active_ws).execute()
-        sub_data = res_sub.data if res_sub.data else []
-    except Exception:
-        sub_data = []
-    
-    if sub_data:
-        df_sub = pd.DataFrame(sub_data)
+
+    # FIX: pehle yahan alag se ek uncached query chalti thi. Ab shared
+    # cached 'wh_data' (upar fetch hua) ko hi locally filter kar rahe hain.
+    if wh_data:
+        df_all = pd.DataFrame(wh_data)
+        srn_col = get_actual_col(df_all.columns, ["SRN Status", "srn_status"])
+        if srn_col:
+            df_sub = df_all[df_all[srn_col].astype(str).str.strip().str.lower() == 'submitted'].copy()
+        else:
+            df_sub = pd.DataFrame()
+    else:
+        df_sub = pd.DataFrame()
+
+    if not df_sub.empty:
         st.dataframe(df_sub, use_container_width=True, hide_index=True)
     else:
         st.info("No submitted SRN records found.")
