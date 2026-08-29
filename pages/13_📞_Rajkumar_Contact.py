@@ -43,14 +43,30 @@ def get_supabase_client():
 
 supabase = get_supabase_client()
 
-# --- FETCH DATA FUNCTION ---
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached contacts fetch ---
+# ⚠️ BADI WAJAH: fetch_data() poori 'whatsapp_contacts' table BINA
+# caching ke laata tha. Streamlit me jab tabs use hote hain, TEENO tabs
+# ka code HAR rerun me chalta hai (chahe koi bhi tab visually active ho)
+# — matlab Tab 2 ya Tab 3 me sirf text type karne se bhi Tab 1 ka yeh
+# poora fetch dobara chal jaata tha. Ab 30s ke liye cache kiya gaya hai,
+# aur kisi bhi save/insert/bulk-upload ke baad turant clear ho jaata hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_data_cached():
+    response = supabase.table("whatsapp_contacts").select("*").order("id", desc=True).execute()
+    return response.data
+
 def fetch_data():
     try:
-        response = supabase.table("whatsapp_contacts").select("*").order("id", desc=True).execute()
-        return pd.DataFrame(response.data)
+        return pd.DataFrame(fetch_data_cached())
     except Exception as e:
         st.error(f"Data fetch error: {e}")
         return pd.DataFrame()
+
+def clear_contacts_cache():
+    """Call this right before st.rerun() after any insert/update/delete on whatsapp_contacts."""
+    fetch_data_cached.clear()
 
 # --- MAIN UI LAYOUT (TABS) ---
 tab1, tab2, tab3 = st.tabs(["📋 View, Edit & Delete", "➕ Add New Contact", "📂 Bulk Upload (.tsv / .xlsx)"])
@@ -125,6 +141,7 @@ with tab1:
                         
                     if changes_made:
                         st.success("✅ Changes successfully saved to Database!")
+                        clear_contacts_cache()
                         st.rerun() # Page ko turant refresh karega naya data dikhane ke liye
                     else:
                         st.warning("⚠️ Koi naya change detect nahi hua. Pehle table me kuch edit karein.")
@@ -170,6 +187,7 @@ with tab2:
                 try:
                     supabase.table("whatsapp_contacts").insert(new_data).execute()
                     st.success("✅ Contact successfully add ho gaya!")
+                    clear_contacts_cache()
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {e}")
@@ -228,6 +246,7 @@ with tab3:
                     final_data = df_upload[['list_name', 'contact_name', 'mobile_number', 'is_active']].to_dict(orient="records")
                     supabase.table("whatsapp_contacts").insert(final_data).execute()
                     st.success(f"✅ Success! Total {len(final_data)} contacts upload ho gaye.")
+                    clear_contacts_cache()
                     
         except Exception as e:
             st.error(f"❌ Upload me error aayi. Ensure file format is correct. Error: {e}")
