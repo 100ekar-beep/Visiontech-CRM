@@ -5,11 +5,29 @@ import requests # API Call ke liye
 from supabase import create_client, Client
 
 # --- 1. CONNECTION ---
-URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain. Pehle yahan ek
+# lambi JWT-style anon key bhi hardcoded thi, jo bahut sensitive thi.
+@st.cache_resource
+def init_connection():
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
-# Meri galti theek kar di gayi hai, yahan ab aapki asli lambi API key set hai!
-KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwd2NyYWFhc3FqZ213cGNseGZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTE3NDAsImV4cCI6MjEwMDgyNzc0MH0.dtGic3APKdxtQWeF2i2k_sPMMewhHb-EtDPZCSVKXIs" 
-supabase: Client = create_client(URL, KEY)
+supabase: Client = init_connection()
+URL = None
+KEY = None
+try:
+    URL = st.secrets["supabase"]["url"].replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+    KEY = st.secrets["supabase"]["key"]
+except Exception:
+    pass
 
 # --- 2. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Indus Site Data", page_icon="📊", layout="wide")
@@ -108,6 +126,92 @@ st.markdown("""
 
 
 # =====================================================================
+# --- EGRESS OPTIMIZATION HELPERS ---
+# ⚠️ BADI WAJAH: pehle search logic 3 tables x 4 id-columns x 2 name-columns
+# = UP TO 24 SEPARATE QUERIES chalata tha, aur ye poora block
+# 'keep_search_active' session flag ki wajah se HAR chhoti si interaction par
+# (Team dropdown select karna, WhatsApp bhejna, Route me site add karna) phir
+# se poora chal jaata tha — matlab ek hi search result ke liye baar baar 24
+# queries Supabase ko jaa rahi thi. Ab dono search functions (Indus search +
+# Route "Add to List" lookup) cache kiye gaye hain, taaki same input par
+# dobara queries na chalein.
+# =====================================================================
+
+@st.cache_data(ttl=30, show_spinner=False)
+def search_indus_site(in_id, in_nm):
+    """Tries table/column-name variants (cached) to find a matching Indus site record."""
+    tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
+    id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
+    name_cols_to_try = ["Site Name", "site_name"]
+
+    for t in tables_to_try:
+        for id_col in id_cols_to_try:
+            for nm_col in name_cols_to_try:
+                try:
+                    query = supabase.table(t).select("*")
+                    if in_id:
+                        query = query.ilike(id_col, f"%{in_id.strip()}%")
+                    if in_nm:
+                        query = query.ilike(nm_col, f"%{in_nm.strip()}%")
+                    res = query.execute()
+
+                    if res.data:
+                        return res.data, "", True
+                    elif not in_id and not in_nm:
+                        return [], "", True
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+    return None, last_error if 'last_error' in dir() else "", False
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_team_dropdown_cached():
+    """Cached fetch of Team Name -> mobile mapping from dropdown_master."""
+    team_dict = {}
+    dropdown_data = []
+    try:
+        res = supabase.table("dropdown_master").select("category, option_value, mobile").execute()
+        if res.data:
+            dropdown_data = res.data
+    except Exception:
+        try:
+            headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+            r = requests.get(f"{URL}/rest/v1/dropdown_master?select=category,option_value,mobile", headers=headers)
+            if r.status_code == 200:
+                dropdown_data = r.json()
+        except Exception:
+            pass
+
+    if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
+        for r in dropdown_data:
+            cat_val = str(r.get('category', '')).strip()
+            if cat_val.lower() == 'team name':
+                team_name = r.get('option_value')
+                team_mobile = r.get('mobile')
+                if team_name:
+                    team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
+    return team_dict
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def search_site_for_route(add_sid):
+    """Cached lookup used by the Route Plan 'Add to List' form."""
+    tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
+    id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
+
+    for t in tables_to_try:
+        for id_col in id_cols_to_try:
+            try:
+                s_res = supabase.table(t).select("*").ilike(id_col, f"%{add_sid.strip()}%").execute()
+                if s_res.data:
+                    return s_res.data[0]
+            except Exception:
+                pass
+    return None
+
+
+# =====================================================================
 # 📊 INDUS BASIC DATA
 # =====================================================================
 
@@ -132,37 +236,9 @@ if st.session_state.get('keep_search_active'):
     in_id = st.session_state['saved_in_id']
     in_nm = st.session_state['saved_in_nm']
 
-    # --- Bulletproof Search Logic (Will not crash on API Errors) ---
-    search_success = False
-    res_data = None
-    res_ind = None # NameError ko block karne ke liye
-    last_error = "" # Database ke error ko pakadne ke liye
-    
-    tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
-    id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
-    name_cols_to_try = ["Site Name", "site_name"]
-    
-    for t in tables_to_try:
-        if search_success: break
-        for id_col in id_cols_to_try:
-            if search_success: break
-            for nm_col in name_cols_to_try:
-                try:
-                    query = supabase.table(t).select("*")
-                    if in_id: query = query.ilike(id_col, f"%{in_id.strip()}%")
-                    if in_nm: query = query.ilike(nm_col, f"%{in_nm.strip()}%")
-                    res_ind = query.execute()
-                    
-                    if res_ind.data:
-                        res_data = res_ind.data
-                        search_success = True
-                        break
-                    elif not in_id and not in_nm:
-                        search_success = True
-                        break
-                except Exception as e:
-                    last_error = str(e)
-                    pass
+    # --- Bulletproof Search Logic (cached — see search_indus_site above) ---
+    res_data, last_error, search_success = search_indus_site(in_id, in_nm)
+    res_ind = True if search_success else None  # kept for downstream compatibility
 
     if search_success and res_data:
         df_ind = pd.DataFrame(res_data)
@@ -172,36 +248,8 @@ if st.session_state.get('keep_search_active'):
         # --- NEW LOGIC: Team Dropdown & WhatsApp Button Immediately after Table ---
         st.markdown("### 💬 Assign Team & Send WhatsApp")
         
-        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING ---
-        team_dict = {}
-        dropdown_data = []
-        
-        # Double Bypass System to guarantee data fetch
-        try:
-            # Using exact column names as specified
-            res = supabase.table("dropdown_master").select("category, option_value, mobile").execute()
-            if res.data:
-                dropdown_data = res.data
-        except Exception:
-            try:
-                headers = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
-                r = requests.get(f"{URL}/rest/v1/dropdown_master?select=category,option_value,mobile", headers=headers)
-                if r.status_code == 200:
-                    dropdown_data = r.json()
-            except Exception:
-                pass # Silent fail
-
-        # Extracting data using exact column names
-        if isinstance(dropdown_data, list) and len(dropdown_data) > 0:
-            for r in dropdown_data:
-                cat_val = str(r.get('category', '')).strip()
-                
-                # Check condition for 'Team Name'
-                if cat_val.lower() == 'team name':
-                    team_name = r.get('option_value')
-                    team_mobile = r.get('mobile')
-                    if team_name:
-                        team_dict[str(team_name).strip()] = str(team_mobile).strip() if team_mobile else ""
+        # --- 100% BULLETPROOF DROPDOWN MASTER FETCHING (cached) ---
+        team_dict = fetch_team_dropdown_cached()
             
         row_in = res_data[0]
         
@@ -345,20 +393,8 @@ with st.expander("🛠️ Add Sites to Route", expanded=True):
         add_sid = st.text_input("📍 Add Site ID")
         if st.form_submit_button("➕ Add to List"):
             if add_sid:
-                # --- Crash-proof Route add logic ---
-                s_data = None
-                tables_to_try = ["Excalation Matrix", "Escalation Matrix", "Indus Data"]
-                id_cols_to_try = ["Indus ID", "Site ID", "indus_id", "site_id"]
-                
-                for t in tables_to_try:
-                    if s_data: break
-                    for id_col in id_cols_to_try:
-                        try:
-                            s_res = supabase.table(t).select("*").ilike(id_col, f"%{add_sid.strip()}%").execute()
-                            if s_res.data: 
-                                s_data = s_res.data[0]
-                                break
-                        except: pass
+                # --- Cached route add logic (see search_site_for_route above) ---
+                s_data = search_site_for_route(add_sid)
 
                 if s_data: 
                     # Data normalization for route table
