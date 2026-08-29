@@ -283,6 +283,39 @@ def fetch_all_rows(supabase_client, table_name, select_cols, filters=None, page_
     return all_rows
 
 
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached dropdown-population fetchers ---
+# ⚠️ FIX: pehle "list_name" (contact lists) aur "whatsapp_templates" ki
+# fetch queries BINA caching ke thi. Streamlit har widget interaction par
+# (message box me typing, template select karna, "Clear Message" dabana)
+# poora script phir se chalata hai — matlab har baar ye dono queries
+# dobara Supabase ko hit kar rahi thi. Ab dono 60s ke liye cache ki gayi
+# hain, campaign bhejne ki actual contact-fetch (jo per-send ek baar
+# chalti hai) waisi hi rakhi gayi hai.
+# -------------------------------------------------------------
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_active_list_names_cached():
+    all_rows = fetch_all_rows(
+        supabase, "whatsapp_contacts", "list_name",
+        filters={"is_active": True}
+    )
+    unique_lists = list(set([row["list_name"] for row in all_rows]))
+    unique_lists.sort()
+    return unique_lists
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_templates_cached():
+    template_data_dict = {"Sample": 2, "Text_Massage": 4}  # Base Defaults
+    try:
+        temp_resp = supabase.table("whatsapp_templates").select("template_name, variable_count").execute()
+        if temp_resp.data:
+            for row in temp_resp.data:
+                template_data_dict[row["template_name"]] = row["variable_count"]
+    except Exception:
+        pass
+    return template_data_dict
+
+
 def _run_ffmpeg_pass(tmp_in_path, tmp_out_path, crf, scale_factor, audio_bitrate="96k"):
     """Runs a single ffmpeg encode pass with a given quality (CRF) and resolution scale."""
     import subprocess
@@ -553,15 +586,10 @@ if check_password():
         
         if supabase:
             try:
-                # FIX: paginate instead of a single .execute() call, so lists
-                # whose rows sit beyond Supabase's default 1000-row cap
-                # (e.g. List_15) still show up in the dropdown.
-                all_rows = fetch_all_rows(
-                    supabase, "whatsapp_contacts", "list_name",
-                    filters={"is_active": True}
-                )
-                unique_lists = list(set([row["list_name"] for row in all_rows]))
-                unique_lists.sort()
+                # FIX: cached (see fetch_active_list_names_cached above) — also
+                # still paginates internally, so lists whose rows sit beyond
+                # Supabase's default 1000-row cap (e.g. List_15) still show up.
+                unique_lists = fetch_active_list_names_cached()
                 
                 if unique_lists:
                     # MULTI-SELECT: user ab ek se zyada target lists choose kar sakta
@@ -589,17 +617,8 @@ if check_password():
 
     st.markdown("### 🗂️ 3. Select Interakt Template")
     
-    # DYNAMIC TEMPLATE FETCHING FROM SUPABASE WITH MERGED DEFAULTS
-    template_data_dict = {"Sample": 2, "Text_Massage": 4} # Base Defaults
-    
-    if supabase:
-        try:
-            temp_resp = supabase.table("whatsapp_templates").select("template_name, variable_count").execute()
-            if temp_resp.data:
-                for row in temp_resp.data:
-                    template_data_dict[row["template_name"]] = row["variable_count"]
-        except Exception as e:
-            pass
+    # DYNAMIC TEMPLATE FETCHING FROM SUPABASE WITH MERGED DEFAULTS (cached)
+    template_data_dict = fetch_templates_cached() if supabase else {"Sample": 2, "Text_Massage": 4}
 
     unique_templates = list(template_data_dict.keys())
     selected_template_name = st.selectbox("Template choose karein:", unique_templates)
