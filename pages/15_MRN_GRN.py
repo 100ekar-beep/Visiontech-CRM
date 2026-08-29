@@ -143,24 +143,21 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
 
-# --- 3. BULLETPROOF SUPABASE CONNECTION ---
+# --- 3. SUPABASE CONNECTION ---
+# FIX: Pehle yahan agar secrets nahi milti thi to ek PURANI hardcoded
+# URL/key par silently fallback ho jaata tha — ye security risk tha aur
+# galti se purane/wrong project se connect karwa sakta tha. Ab sirf
+# st.secrets se hi connect karta hai, jaise baaki sabhi pages mein.
 @st.cache_resource
 def init_connection():
     try:
-        if "supabase" in st.secrets:
-            url = st.secrets["supabase"]["url"]
-            key = st.secrets["supabase"]["key"]
-        elif "SUPABASE_URL" in st.secrets:
-            url = st.secrets["SUPABASE_URL"]
-            key = st.secrets["SUPABASE_KEY"]
-        else:
-            url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-            key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
         return create_client(url, key)
-    except Exception:
-        url = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-        key = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
