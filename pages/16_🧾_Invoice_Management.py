@@ -280,12 +280,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-SUPABASE_URL = "https://bpwcraaasqjgmwpclxfb.supabase.co"
-SUPABASE_KEY = "sb_publishable_5NFP7vDScEQfQL-9OY67Xw_0ZcPfgwz"
-
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 supabase: Client = init_connection()
 
