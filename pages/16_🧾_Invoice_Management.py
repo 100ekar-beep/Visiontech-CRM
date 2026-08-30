@@ -399,18 +399,14 @@ def _ers_find_field(row_dict, candidates):
     return ""
 
 
-def generate_ers_checklist_pdf(row_dict):
+def generate_ers_checklist_pdf(invoice_no, po_no, inv_date):
     """Builds the fixed Indus Towers invoice-submission-checklist PDF in memory
-    (nothing is written to Supabase). Only 5 values come from the ERS Process
-    row: Inward Number, Inward Date, Invoice No., PO No, Invoice Date — the
-    rest of the checklist (names, contact info, all check/cross marks) is a
-    fixed template, identical every time."""
+    (nothing is written to Supabase). Takes the 3 values directly (confirmed/
+    edited by the user just before generating) instead of guessing column
+    names — the rest of the checklist (names, contact info, all check/cross
+    marks) is a fixed template, identical every time."""
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
-
-    invoice_no = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "inv number", "inv no", "ers number", "ers no", "ers_number", "invoice"])
-    po_no = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
-    inv_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(8, 8, 8)
@@ -535,8 +531,8 @@ def generate_ers_checklist_pdf(row_dict):
     return out.encode('latin1')
 
 
-def _ers_pdf_filename(row_dict):
-    inv_no_for_name = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "ers number", "ers no", "ers_number", "invoice"]) or "ERS"
+def _ers_pdf_filename(invoice_no):
+    inv_no_for_name = invoice_no or "ERS"
     # Replace slashes with hyphens (e.g. "VIS/26-27/1373" -> "VIS-26-27-1373")
     # instead of just stripping them out, then drop anything else unsafe for filenames.
     slashes_replaced = str(inv_no_for_name).replace("/", "-").replace("\\", "-")
@@ -835,6 +831,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
                     with rcols[4]:
                         pdf_ready_key = f"{prefix}_pdf_ready_{rid}"
                         pdf_bytes_key = f"{prefix}_pdf_bytes_{rid}"
+                        pdf_fname_key = f"{prefix}_pdf_fname_{rid}"
                         if st.session_state.get(pdf_ready_key) and st.session_state.get(pdf_bytes_key):
                             # PDF already generated (in-memory only, never saved to Supabase) —
                             # this is now a plain download button, so the click downloads
@@ -842,20 +839,40 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
                             st.download_button(
                                 "📥",
                                 data=st.session_state[pdf_bytes_key],
-                                file_name=_ers_pdf_filename(row_dict),
+                                file_name=st.session_state.get(pdf_fname_key, "DOC_ERS.pdf"),
                                 mime="application/pdf",
                                 key=f"{prefix}_pdfdl_{rid}",
                                 help="Download checklist PDF",
                                 use_container_width=True
                             )
                         else:
-                            if st.button("📄", key=f"{prefix}_pdfbtn_{rid}", help="Generate checklist PDF (not saved anywhere)", use_container_width=True):
-                                try:
-                                    st.session_state[pdf_bytes_key] = generate_ers_checklist_pdf(row_dict)
-                                    st.session_state[pdf_ready_key] = True
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Error generating PDF: {e}")
+                            # Column names in this table vary a lot, so instead of
+                            # guessing which column is the "real" invoice number, we
+                            # let the user quickly confirm/edit the 3 values here —
+                            # pre-filled with the best guess — right before generating.
+                            with st.popover("📄", use_container_width=True):
+                                st.caption("Values confirm/edit karein, phir PDF generate karein")
+                                guess_inv = _ers_find_field(row_dict, [
+                                    "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
+                                    "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
+                                    "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
+                                    "invoice", "ers number", "ers no", "ers_number"
+                                ])
+                                guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
+                                guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
+
+                                inv_val = st.text_input("Invoice Number", value=guess_inv, key=f"{prefix}_pdfinv_{rid}")
+                                po_val = st.text_input("PO Number", value=guess_po, key=f"{prefix}_pdfpo_{rid}")
+                                date_val = st.text_input("Invoice Date", value=guess_date, key=f"{prefix}_pdfdate_{rid}")
+
+                                if st.button("Generate PDF", key=f"{prefix}_pdfgen_{rid}", type="primary", use_container_width=True):
+                                    try:
+                                        st.session_state[pdf_bytes_key] = generate_ers_checklist_pdf(inv_val, po_val, date_val)
+                                        st.session_state[pdf_fname_key] = _ers_pdf_filename(inv_val)
+                                        st.session_state[pdf_ready_key] = True
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error generating PDF: {e}")
                     data_start_idx = 5
 
                 for idx, k in enumerate(data_cols, start=data_start_idx):
