@@ -296,6 +296,267 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# =========================================================================
+# ERS PROCESS — FIXED "Indus Towers Invoice Submission Checklist" PDF
+# ⚠️ IMPORTANT: Ye PDF sirf ON-DEMAND generate hoke seedha download hota hai.
+# Isko kabhi bhi Supabase me insert/save/upload NAHI kiya jaata — sirf memory
+# me banta hai aur turant user ko st.download_button se milta hai.
+# Sirf 5 fields row ke data se aate hain (Inward Number, Inward Date, Invoice
+# No., PO No, Invoice Date) — baaki poora checklist (Partner Name, User Name,
+# E-Mail, saare check/cross marks) fixed/static hai jaisa original template me hai.
+# =========================================================================
+
+ERS_CHECKLIST_PART1 = [
+    ("1", "Original Invoice", ["v", "v", "v", "v", "v"]),
+    ("a", "Printed Invoice/Digital Invoice. No Manual correction on Printed Invoice. Manual Correction, if any, should be only PO / WCC/WCR No, which needs to be duly signed and stamped by auth. Person", ["v", "v", "v", "v", "v"]),
+    ("b", 'Invoice No. should not exceed 16 characters, containing alphabets or numerals or special characters hyphen or dash and slash symbolised as "-" , "\\" and "/" respectively', ["v", "v", "v", "v", "v"]),
+    ("c", "In case of debit / credit note, Number and date of the corresponding original tax invoice", ["v", "v", "v", "v", "v"]),
+    ("d", "Name, Addresss & GSTIN of Partner & Indus Towers Limited on Invoice to be matched with PO", ["v", "v", "v", "v", "v"]),
+    ("e", "Ship TO & Bill TO need to mention on invoices", ["v", "x", "x", "x", "x"]),
+    ("f", "HSN/SAC code present on Invoice to be matched with PO/WCR", ["v", "v", "v", "v", "v"]),
+    ("g", "Description of Goods/ services", ["v", "v", "v", "v", "v"]),
+    ("h", "Quantity in case of goods and Unit/ Unique Quantity Code (UQC) of the same", ["v", "v", "v", "v", "v"]),
+    ("i", "Taxes applied (IGST/CGST+SGST) in invoices to be matched with GRN/WCR", ["v", "v", "v", "v", "v"]),
+    ("j", "Rate & Quantity should match with GRN/WCR", ["v", "v", "v", "v", "v"]),
+    ("k", "In case of Agreement based invoices, rates should match with valid contract summary/valid agreement.", ["x", "x", "x", "x", "v"]),
+    ("l", "Rates which are not part of PO/GBPA need to be verify through BOQ & for NON BOQ Rates circle SCM Head approval is required", ["x", "v", "v", "v", "x"]),
+    ("m", "Total value of supply of goods or services should match with GRN / WCR", ["v", "v", "v", "v", "v"]),
+    ("n", "Place of supply and name of State in case of inter-State Supply", ["v", "v", "v", "v", "v"]),
+    ("o", "Stamp & Signature on printed invoice or digital signature on a digital invoice", ["v", "v", "v", "v", "v"]),
+    ("p", "PO No & WCC/WCR No to be mentioned on Invoice. PO Date should be before Invoice Date", ["v", "v", "v", "v", "v"]),
+]
+
+ERS_CHECKLIST_PART2 = [
+    ("2", "E-Waybill /LR copy", ["v", "x", "x", "x", "x"]),
+    ("3", "Delivery Challans (in case multiple supply below 50K and consolidated bill above 50K is raised)", ["x", "x", "v", "x", "x"]),
+    ("4", "In case of Direct Tower Supply, PDI copy is required", ["v", "x", "x", "x", "x"]),
+    ("5", "Measurement sheet / Annexure sheet", ["x", "v", "x", "x", "x"]),
+    ("6", "PF/ESIC/Wages Register/Returns proof attached (in case labour charges are mentioned)", ["x", "v", "v", "x", "x"]),
+    ("7", "Receipt copy in cases of New connections / Load Up gradation / Transfer Installation", ["x", "x", "x", "v", "x"]),
+    ("8", "Original Receipt required in EB Reimbursement bills with security & other Expense bifurcation", ["x", "x", "x", "v", "x"]),
+    ("9", "Increase of HT EB Liaisoning Electricity Board approval letter required", ["x", "x", "x", "v", "x"]),
+    ("10", "STN (Stock Transfer note) / MRN / SRN", ["x", "v", "x", "x", "x"]),
+    ("11", "Photocopy of NOC from Gram panchayat in case of Municipal service charges", [None, None, None, None, None]),
+    ("12", "Photocopy Pollution control certificate copy in case of PUC Service Depart.", [None, None, None, None, None]),
+]
+
+
+def _ers_draw_check(pdf, cx, cy, size=3.2):
+    pdf.set_draw_color(20, 110, 20)
+    pdf.set_line_width(0.45)
+    x0, y0 = cx - size * 0.5, cy
+    x1, y1 = cx - size * 0.12, cy + size * 0.42
+    x2, y2 = cx + size * 0.55, cy - size * 0.5
+    pdf.line(x0, y0, x1, y1)
+    pdf.line(x1, y1, x2, y2)
+
+
+def _ers_draw_cross(pdf, cx, cy, size=2.6):
+    pdf.set_draw_color(160, 30, 30)
+    pdf.set_line_width(0.45)
+    half = size * 0.5
+    pdf.line(cx - half, cy - half, cx + half, cy + half)
+    pdf.line(cx - half, cy + half, cx + half, cy - half)
+
+
+def _ers_wrap_text(pdf, text, max_width):
+    words = text.replace("\n", " ").split(" ")
+    lines = []
+    current = ""
+    for w in words:
+        trial = (current + " " + w).strip()
+        if pdf.get_string_width(trial) <= max_width:
+            current = trial
+        else:
+            if current:
+                lines.append(current)
+            current = w
+    if current:
+        lines.append(current)
+    return lines if lines else [""]
+
+
+def _ers_find_field(row_dict, candidates):
+    """Case/space-insensitive lookup of a column value from a generic row dict.
+    Tries each candidate name (exact match first), then falls back to any
+    column whose name *contains* one of the candidate words."""
+    if not row_dict:
+        return ""
+    cleaned_map = {str(k).strip().lower().replace("_", " "): k for k in row_dict.keys()}
+    for cand in candidates:
+        c = cand.strip().lower().replace("_", " ")
+        if c in cleaned_map:
+            val = row_dict.get(cleaned_map[c], "")
+            if val not in (None, "", "nan"):
+                return str(val)
+    for cand in candidates:
+        c = cand.strip().lower().replace("_", " ")
+        for cleaned_key, orig_key in cleaned_map.items():
+            if c in cleaned_key:
+                val = row_dict.get(orig_key, "")
+                if val not in (None, "", "nan"):
+                    return str(val)
+    return ""
+
+
+def generate_ers_checklist_pdf(row_dict):
+    """Builds the fixed Indus Towers invoice-submission-checklist PDF in memory
+    (nothing is written to Supabase). Only 5 values come from the ERS Process
+    row: Inward Number, Inward Date, Invoice No., PO No, Invoice Date — the
+    rest of the checklist (names, contact info, all check/cross marks) is a
+    fixed template, identical every time."""
+    if FPDF is None:
+        raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+
+    invoice_no = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "inv number", "inv no", "invoice"])
+    po_no = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
+    inv_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.set_margins(8, 8, 8)
+    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.add_page()
+
+    PAGE_W = 194  # usable width (210mm page - 8mm margins each side)
+
+    # ---------------- TITLE BAR ----------------
+    pdf.set_fill_color(191, 191, 191)
+    pdf.set_draw_color(0, 0, 0)
+    pdf.set_line_width(0.3)
+    pdf.set_font("Arial", "B", 11)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(PAGE_W, 7, "Indus Towers Limited (Invoice submission checklist)", border=1, align="C", fill=True, ln=1)
+
+    # ---------------- HEADER INFO TABLE ----------------
+    label_w = 30
+    value_w = 67
+    row_h = 6.2
+
+    header_rows = [
+        ("Inward\nNumber-", invoice_no, "Inward Date-", inv_date),
+        ("Partner\nName : -", "Visiontech Infra Solutions", "Invoice No.", invoice_no),
+        ("PO NO:", po_no, "Invoice Date", inv_date),
+        ("User Name :-", "Pramodkumar Jaju", "Depart.", "Deployment"),
+        ("E-Mail ID : -", "vispltower@gmail.com", "Contact No-", "9552273181"),
+    ]
+
+    for lbl1, val1, lbl2, val2 in header_rows:
+        x_start = pdf.get_x()
+        y_start = pdf.get_y()
+        pdf.set_font("Arial", "B", 8)
+        pdf.multi_cell(label_w, row_h / 2 if "\n" in lbl1 else row_h, lbl1, border=1, align="L")
+        pdf.set_xy(x_start + label_w, y_start)
+        pdf.set_font("Arial", "", 8.5)
+        pdf.cell(value_w, row_h, " " + str(val1), border=1, align="L")
+        pdf.set_font("Arial", "B", 8)
+        pdf.cell(label_w, row_h, lbl2, border=1, align="L")
+        pdf.set_font("Arial", "", 8.5)
+        pdf.cell(value_w, row_h, " " + str(val2), border=1, align="L", ln=1)
+        pdf.set_xy(x_start, y_start + row_h)
+
+    # ---------------- CHECKLIST TABLE ----------------
+    col_widths = [10, 68, 16, 24, 24, 22, 30]  # SNo, Particulars, Supply, TSP, IME, EB, Others
+    headers_row2 = ["S.No.", "Particulars", "Supply\n(Y/N)", "TSP\n(Electrical/\nCivil & others)", "IME/OME/SMS/\nSME", "EB/Liasio\nning", "Others Services\n(Legal/Rent etc.)"]
+
+    pdf.set_font("Arial", "B", 8)
+    pdf.set_fill_color(255, 255, 255)
+    pdf.cell(sum(col_widths[:3]), 4.3, "", border=1)
+    pdf.cell(sum(col_widths[3:]), 4.3, "Services", border=1, align="C")
+    pdf.ln(4.3)
+
+    pdf.set_font("Arial", "B", 7)
+    y_h = pdf.get_y()
+    x_h = pdf.get_x()
+    max_lines = max(len(h.split("\n")) for h in headers_row2)
+    hdr_line_h = 2.9
+    hdr_h = hdr_line_h * max_lines
+    for w, h in zip(col_widths, headers_row2):
+        xx = pdf.get_x()
+        pdf.multi_cell(w, hdr_line_h, h, border=1, align="C")
+        pdf.set_xy(xx + w, y_h)
+    pdf.set_xy(x_h, y_h + hdr_h)
+
+    def render_row(no_label, particulars, marks):
+        pdf.set_font("Arial", "", 7)
+        lines = _ers_wrap_text(pdf, particulars, col_widths[1] - 2)
+        line_h = 3.05
+        row_height = max(line_h * len(lines), 4.8)
+
+        x_row = pdf.get_x()
+        y_row = pdf.get_y()
+
+        pdf.multi_cell(col_widths[0], row_height, no_label, border=1, align="C")
+        pdf.set_xy(x_row + col_widths[0], y_row)
+        pdf.multi_cell(col_widths[1], line_h, particulars, border=1, align="L")
+        cur_y = pdf.get_y()
+        if cur_y < y_row + row_height:
+            pdf.rect(x_row + col_widths[0], cur_y, col_widths[1], (y_row + row_height) - cur_y)
+
+        cx = x_row + col_widths[0] + col_widths[1]
+        for i, w in enumerate(col_widths[2:]):
+            pdf.rect(cx, y_row, w, row_height)
+            mark = marks[i] if i < len(marks) else None
+            if mark == "v":
+                _ers_draw_check(pdf, cx + w / 2, y_row + row_height / 2)
+            elif mark == "x":
+                _ers_draw_cross(pdf, cx + w / 2, y_row + row_height / 2)
+            cx += w
+
+        pdf.set_xy(x_row, y_row + row_height)
+
+    for no_label, particulars, marks in ERS_CHECKLIST_PART1:
+        if pdf.get_y() + 6 > 290:
+            pdf.add_page()
+        render_row(no_label, particulars, marks)
+
+    if pdf.get_y() + 6 > 290:
+        pdf.add_page()
+    pdf.set_font("Arial", "B", 7.5)
+    pdf.set_fill_color(235, 235, 235)
+    pdf.cell(sum(col_widths), 4.5, "  Mandatory Documents", border=1, align="L", fill=True, ln=1)
+
+    for no_label, particulars, marks in ERS_CHECKLIST_PART2:
+        if pdf.get_y() + 6 > 290:
+            pdf.add_page()
+        render_row(no_label, particulars, marks)
+
+    if pdf.get_y() + 14 > 290:
+        pdf.add_page()
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 8.5)
+    pdf.set_fill_color(255, 255, 255)
+    pdf.cell(PAGE_W, 5, "PHD USE ONLY", border=1, ln=1)
+    pdf.set_font("Arial", "", 8)
+    pdf.cell(PAGE_W, 7, "  PHD Inward No.(Mandatory)", border=1, ln=1)
+
+    out = pdf.output(dest='S')
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return out.encode('latin1')
+
+
+@st.dialog("📄 ERS Checklist PDF", width="small")
+def ers_pdf_dialog(row_dict):
+    """PDF sirf yahan, is dialog ke andar generate hoti hai (button click par) —
+    kabhi bhi Supabase me save/insert nahi hoti, sirf memory me bankar seedha
+    download button se milti hai."""
+    st.caption("Indus Towers invoice submission checklist — is record ke data se")
+    try:
+        pdf_bytes = generate_ers_checklist_pdf(row_dict)
+        inv_no_for_name = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "invoice"]) or "ERS"
+        safe_name = "".join(c for c in str(inv_no_for_name) if c.isalnum() or c in ("-", "_")) or "ERS_Checklist"
+        st.download_button(
+            "📥 Download PDF",
+            data=pdf_bytes,
+            file_name=f"Doc_{safe_name}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary"
+        )
+    except Exception as e:
+        st.error(f"❌ Error generating PDF: {e}")
+
+
 # --- SAFE DATE PARSER HELPER ---
 def parse_date_safely(val):
     if not val or str(val).strip() in ['', '-', 'nan', 'None']:
@@ -467,9 +728,12 @@ def generic_delete_dialog(table_name, rid, label, prefix):
                 st.error(f"❌ Error: {e}")
 
 
-def render_generic_tab(table_name, prefix, tab_title, icon):
+def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
     """Renders a full CRUD tab (refresh, add, search, export, paginated table with view/edit/delete)
-    for any Supabase table, auto-detecting whatever columns it has."""
+    for any Supabase table, auto-detecting whatever columns it has.
+    pdf_button=True adds an extra 📄 button per row (used only for ERS Process)
+    that opens the fixed Indus Towers checklist PDF dialog — this never touches
+    Supabase, it's purely a download generated on click."""
 
     col_title, col_ref, col_add, col_export = st.columns([3, 1, 1.5, 1.5])
     with col_title:
@@ -539,8 +803,12 @@ def render_generic_tab(table_name, prefix, tab_title, icon):
     df_page = df.iloc[start_idx:end_idx].copy()
 
     data_cols = [c for c in df.columns if c != 'id']
-    col_ratios = [0.3, 0.35, 0.35, 0.35] + [1.0] * len(data_cols)
-    col_labels = ["#", "👁️", "✏️", "🗑️"] + [c.replace("_", " ").title() for c in data_cols]
+    if pdf_button:
+        col_ratios = [0.3, 0.35, 0.35, 0.35, 0.35] + [1.0] * len(data_cols)
+        col_labels = ["#", "👁️", "✏️", "🗑️", "📄"] + [c.replace("_", " ").title() for c in data_cols]
+    else:
+        col_ratios = [0.3, 0.35, 0.35, 0.35] + [1.0] * len(data_cols)
+        col_labels = ["#", "👁️", "✏️", "🗑️"] + [c.replace("_", " ").title() for c in data_cols]
 
     wrap_key = f"{prefix}_table_wrap"
     min_width = max(1200, 260 + len(data_cols) * 170)
@@ -575,7 +843,14 @@ def render_generic_tab(table_name, prefix, tab_title, icon):
                     if st.button("🗑️", key=f"{prefix}_delbtn_{rid}", use_container_width=True):
                         generic_delete_dialog(table_name, rid, label_val, prefix)
 
-                for idx, k in enumerate(data_cols, start=4):
+                data_start_idx = 4
+                if pdf_button:
+                    with rcols[4]:
+                        if st.button("📄", key=f"{prefix}_pdfbtn_{rid}", help="Download checklist PDF (not saved anywhere)", use_container_width=True):
+                            ers_pdf_dialog(row_dict)
+                    data_start_idx = 5
+
+                for idx, k in enumerate(data_cols, start=data_start_idx):
                     val = row_dict.get(k, '')
                     display_val = val if val is not None and str(val).strip() != '' else '-'
                     rcols[idx].markdown(f"<div class='tbl-cell'>{display_val}</div>", unsafe_allow_html=True)
@@ -1516,7 +1791,7 @@ if st.session_state.active_page == "vis":
 # TAB 2 — ERS PROCESS (Supabase table: "ERSprocess")
 # =========================================================================
 elif st.session_state.active_page == "ers":
-    render_generic_tab(table_name="ERSprocess", prefix="ers", tab_title="ERS Process", icon="⚙️")
+    render_generic_tab(table_name="ERSprocess", prefix="ers", tab_title="ERS Process", icon="⚙️", pdf_button=True)
 
 # =========================================================================
 # TAB 3 — INVOICE DATA (Supabase table: "Invoicedata")
