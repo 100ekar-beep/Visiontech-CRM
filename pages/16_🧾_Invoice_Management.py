@@ -829,56 +829,39 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
                 data_start_idx = 4
                 if pdf_button:
                     with rcols[4]:
-                        pdf_ready_key = f"{prefix}_pdf_ready_{rid}"
-                        pdf_bytes_key = f"{prefix}_pdf_bytes_{rid}"
-                        pdf_fname_key = f"{prefix}_pdf_fname_{rid}"
-                        if st.session_state.get(pdf_ready_key) and st.session_state.get(pdf_bytes_key):
-                            # PDF already generated (in-memory only, never saved to Supabase) —
-                            # this is now a plain download button, so the click downloads
-                            # directly with no extra dialog/confirmation step.
+                        # TRUE 1-CLICK DOWNLOAD: PDF bytes are computed right here,
+                        # inline, every render (cheap — pure in-memory PDF build,
+                        # no Supabase/network calls, never saved anywhere) so the
+                        # button IS the download button — a single click downloads
+                        # immediately, no separate "generate" step needed anymore.
+                        guess_inv = _ers_find_field(row_dict, [
+                            "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
+                            "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
+                            "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
+                            "invoice", "ers number", "ers no", "ers_number"
+                        ])
+                        guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
+                        guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
+                        try:
+                            pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date)
                             st.download_button(
                                 "📥",
-                                data=st.session_state[pdf_bytes_key],
-                                file_name=st.session_state.get(pdf_fname_key, "DOC_ERS.pdf"),
+                                data=pdf_bytes,
+                                file_name=_ers_pdf_filename(guess_inv),
                                 mime="application/pdf",
                                 key=f"{prefix}_pdfdl_{rid}",
-                                help="Download checklist PDF",
+                                help="Download checklist PDF (not saved anywhere)",
                                 use_container_width=True
                             )
-                        else:
-                            # Column names in this table vary a lot, so instead of
-                            # guessing which column is the "real" invoice number, we
-                            # let the user quickly confirm/edit the 3 values here —
-                            # pre-filled with the best guess — right before generating.
-                            with st.popover("📄", use_container_width=True):
-                                st.caption("Values confirm/edit karein, phir PDF generate karein")
-                                guess_inv = _ers_find_field(row_dict, [
-                                    "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
-                                    "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
-                                    "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
-                                    "invoice", "ers number", "ers no", "ers_number"
-                                ])
-                                guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
-                                guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
-
-                                inv_val = st.text_input("Invoice Number", value=guess_inv, key=f"{prefix}_pdfinv_{rid}")
-                                po_val = st.text_input("PO Number", value=guess_po, key=f"{prefix}_pdfpo_{rid}")
-                                date_val = st.text_input("Invoice Date", value=guess_date, key=f"{prefix}_pdfdate_{rid}")
-
-                                if st.button("Generate PDF", key=f"{prefix}_pdfgen_{rid}", type="primary", use_container_width=True):
-                                    try:
-                                        st.session_state[pdf_bytes_key] = generate_ers_checklist_pdf(inv_val, po_val, date_val)
-                                        st.session_state[pdf_fname_key] = _ers_pdf_filename(inv_val)
-                                        st.session_state[pdf_ready_key] = True
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error generating PDF: {e}")
+                        except Exception as e:
+                            st.button("⚠️", key=f"{prefix}_pdferr_{rid}", help=f"PDF error: {e}", use_container_width=True, disabled=True)
                     data_start_idx = 5
 
                 for idx, k in enumerate(data_cols, start=data_start_idx):
                     val = row_dict.get(k, '')
                     display_val = val if val is not None and str(val).strip() != '' else '-'
                     rcols[idx].markdown(f"<div class='tbl-cell'>{display_val}</div>", unsafe_allow_html=True)
+
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
