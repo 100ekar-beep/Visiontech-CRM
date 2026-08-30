@@ -408,7 +408,7 @@ def generate_ers_checklist_pdf(row_dict):
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
 
-    invoice_no = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "inv number", "inv no", "invoice"])
+    invoice_no = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "inv number", "inv no", "ers number", "ers no", "ers_number", "invoice"])
     po_no = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
     inv_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
 
@@ -535,26 +535,13 @@ def generate_ers_checklist_pdf(row_dict):
     return out.encode('latin1')
 
 
-@st.dialog("📄 ERS Checklist PDF", width="small")
-def ers_pdf_dialog(row_dict):
-    """PDF sirf yahan, is dialog ke andar generate hoti hai (button click par) —
-    kabhi bhi Supabase me save/insert nahi hoti, sirf memory me bankar seedha
-    download button se milti hai."""
-    st.caption("Indus Towers invoice submission checklist — is record ke data se")
-    try:
-        pdf_bytes = generate_ers_checklist_pdf(row_dict)
-        inv_no_for_name = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "invoice"]) or "ERS"
-        safe_name = "".join(c for c in str(inv_no_for_name) if c.isalnum() or c in ("-", "_")) or "ERS_Checklist"
-        st.download_button(
-            "📥 Download PDF",
-            data=pdf_bytes,
-            file_name=f"Doc_{safe_name}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary"
-        )
-    except Exception as e:
-        st.error(f"❌ Error generating PDF: {e}")
+def _ers_pdf_filename(row_dict):
+    inv_no_for_name = _ers_find_field(row_dict, ["invoice_number", "invoice no", "invoiceno", "ers number", "ers no", "ers_number", "invoice"]) or "ERS"
+    # Replace slashes with hyphens (e.g. "VIS/26-27/1373" -> "VIS-26-27-1373")
+    # instead of just stripping them out, then drop anything else unsafe for filenames.
+    slashes_replaced = str(inv_no_for_name).replace("/", "-").replace("\\", "-")
+    safe_name = "".join(c for c in slashes_replaced if c.isalnum() or c in ("-", "_")) or "ERS_Checklist"
+    return f"DOC_{safe_name}.pdf"
 
 
 # --- SAFE DATE PARSER HELPER ---
@@ -846,8 +833,29 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
                 data_start_idx = 4
                 if pdf_button:
                     with rcols[4]:
-                        if st.button("📄", key=f"{prefix}_pdfbtn_{rid}", help="Download checklist PDF (not saved anywhere)", use_container_width=True):
-                            ers_pdf_dialog(row_dict)
+                        pdf_ready_key = f"{prefix}_pdf_ready_{rid}"
+                        pdf_bytes_key = f"{prefix}_pdf_bytes_{rid}"
+                        if st.session_state.get(pdf_ready_key) and st.session_state.get(pdf_bytes_key):
+                            # PDF already generated (in-memory only, never saved to Supabase) —
+                            # this is now a plain download button, so the click downloads
+                            # directly with no extra dialog/confirmation step.
+                            st.download_button(
+                                "📥",
+                                data=st.session_state[pdf_bytes_key],
+                                file_name=_ers_pdf_filename(row_dict),
+                                mime="application/pdf",
+                                key=f"{prefix}_pdfdl_{rid}",
+                                help="Download checklist PDF",
+                                use_container_width=True
+                            )
+                        else:
+                            if st.button("📄", key=f"{prefix}_pdfbtn_{rid}", help="Generate checklist PDF (not saved anywhere)", use_container_width=True):
+                                try:
+                                    st.session_state[pdf_bytes_key] = generate_ers_checklist_pdf(row_dict)
+                                    st.session_state[pdf_ready_key] = True
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error generating PDF: {e}")
                     data_start_idx = 5
 
                 for idx, k in enumerate(data_cols, start=data_start_idx):
