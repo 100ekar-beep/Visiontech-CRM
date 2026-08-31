@@ -102,7 +102,7 @@ st.markdown("""
         overflow: auto !important; padding: 0px 0 !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1900px !important; align-items: center !important;
+        min-width: 2100px !important; align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding: 6px 0 !important; flex-wrap: nowrap !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
@@ -396,13 +396,19 @@ def edit_mrn_dialog(row_data):
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("TEAM NAME", value=row_data.get("Team Name", ""), disabled=True)
     with c5: st.text_input("BASIC AMOUNT", value=f"₹ {row_data.get('Basic Amount', 0):,.2f}", disabled=True)
-    with c6: 
+    with c6:
+        st.text_input("TEAM RATE %", value=f"{row_data.get('Team Percent', 100)} %", disabled=True)
+
+    c_date, c_desc = st.columns([1, 2])
+    with c_date:
         def_date_str = row_data.get("Date", str(datetime.date.today().strftime("%d-%m-%Y")))
         try:
             def_date = pd.to_datetime(def_date_str, format="%d-%m-%Y").date()
         except:
             def_date = datetime.date.today()
         new_date = st.date_input("DATE", value=def_date, format="DD/MM/YYYY")
+    with c_desc:
+        st.text_area("DESCRIPTION / REMARKS", value=row_data.get("Description", ""), disabled=True, height=68)
         
     st.markdown('<div class="modal-section-title">📦 MRN LINE ITEMS (READ-ONLY)</div>', unsafe_allow_html=True)
     try:
@@ -520,7 +526,33 @@ def add_mrn_dialog():
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("RFAI STATUS", value=rfai_status, disabled=True)
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
-    with c6: st.text_input(f"TEAM NAME * (Rate: {team_percent}%)", value=team_name, disabled=True)
+    with c6: st.text_input("TEAM NAME *", value=team_name, disabled=True)
+
+    # ---> TEAM RATE % (auto-fetched from Team Master, editable per MRN) <---
+    # Example: Team Master has 10% cut for "Pramodkumar Jaju" => box shows 90%.
+    # User can change it here (e.g. to 85%) just for this MRN — Adjusted Price
+    # below will then use that PO-price % instead of the auto-fetched one.
+    fetched_team_percent = team_percent
+    c_rate, c_desc = st.columns([1, 2])
+    with c_rate:
+        team_percent = st.number_input(
+            "TEAM RATE % (Editable for this MRN)",
+            min_value=0.0, max_value=100.0,
+            value=float(team_percent),
+            step=0.5,
+            help="Auto-fetched from Team Master. Change it here to override the rate only for this MRN — Adjusted Price will use this %."
+        )
+        st.caption(
+            f"📌 Auto Rate: **{fetched_team_percent:g}%** "
+            f"(Team Cut: **{100 - fetched_team_percent:g}%**) → "
+            f"Currently Applying: **{team_percent:g}%** of PO Price"
+        )
+    with c_desc:
+        mrn_description = st.text_area(
+            "DESCRIPTION / REMARKS",
+            placeholder="Enter any description / remarks for this MRN...",
+            height=68
+        )
 
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
     
@@ -647,6 +679,8 @@ def add_mrn_dialog():
                 "Cluster": cluster,
                 "Basic Amount": grand_basic_total,
                 "Total Amount": final_amount,
+                "Team Percent": float(team_percent),
+                "Description": mrn_description.strip() if mrn_description else "",
                 "Date": datetime.date.today().strftime("%d-%m-%Y")
             }
             
@@ -762,7 +796,7 @@ df_mrn = fetch_mrn_data()
 
 columns_list = [
     "id", "MRN Number", "Team Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Basic Amount", "Total Amount", "Date"
+    "Site Name", "Cluster", "Basic Amount", "Total Amount", "Team Percent", "Description", "Date"
 ]
 
 if not df_mrn.empty:
@@ -807,9 +841,9 @@ end_idx = start_idx + rows_per_page
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
 # --- 10. MRN DATA TABLE ---
-# 12 Columns total mapping
-COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 1.0]
-COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "DATE"]
+# 14 Columns total mapping
+COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 0.8, 1.8, 1.0]
+COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "RATE %", "DESCRIPTION", "DATE"]
 
 with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
@@ -854,7 +888,12 @@ with st.container(key="site_table_wrap", height=560):
             
             rcols[9].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
             rcols[10].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
+
+            team_pct = pd.to_numeric(row_dict.get('Team Percent', ''), errors='coerce')
+            team_pct_display = f"{team_pct:g}%" if pd.notna(team_pct) else "-"
+            rcols[11].markdown(f"<div class='tbl-cell' style='color:#f59e0b; font-weight:bold;'>{team_pct_display}</div>", unsafe_allow_html=True)
+            rcols[12].markdown(f"<div class='tbl-cell' title='{row_dict.get('Description','') or ''}'>{row_dict.get('Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
