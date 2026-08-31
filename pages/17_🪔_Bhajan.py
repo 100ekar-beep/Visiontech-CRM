@@ -295,12 +295,26 @@ tab_library, tab_add = st.tabs(["📚 सभी भजन", "➕ नया भ�
 
 with tab_add:
     existing_categories = fetch_existing_categories()
+    category_mode = st.radio(
+        "Category चुनने का तरीका",
+        ["Existing Category", "नई Category"],
+        horizontal=True,
+        key="bhajan_category_mode",
+    )
+
+    if existing_categories:
+        st.markdown("**पहले से Registered Categories:**")
+        st.caption(" • ".join(existing_categories))
+
     with st.form("add_bhajan_form", clear_on_submit=True):
         title = st.text_input("भजन का नाम *", placeholder="जैसे: हनुमान चालीसा")
-        category_mode = st.radio("Category", ["Existing Category", "नई Category"], horizontal=True)
         if category_mode == "Existing Category":
             if existing_categories:
-                category = st.selectbox("Category चुनें *", existing_categories)
+                category = st.selectbox(
+                    "Existing Category dropdown से चुनें *",
+                    existing_categories,
+                    key="existing_bhajan_category",
+                )
             else:
                 st.info("अभी कोई existing category नहीं है। पहले नई Category बनाकर भजन save करें।")
                 category = ""
