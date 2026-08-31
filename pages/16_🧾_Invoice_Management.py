@@ -192,6 +192,22 @@ st.markdown("""
     }
 
     /* =========================================================
+       GLOBAL FIX: disabled st.text_input fields (used across every
+       "View Record" / read-only dialog) previously showed near-invisible
+       text on this dark theme. Force bold black text on a light
+       background everywhere a text input is disabled, app-wide.
+       ========================================================= */
+    div[data-testid="stTextInput"] input:disabled,
+    div[data-testid="stTextInput"] input[disabled] {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        opacity: 1 !important;
+        font-weight: 800 !important;
+        background-color: #f1f5f9 !important;
+        border: 1px solid rgba(0,0,0,0.08) !important;
+    }
+
+    /* =========================================================
        PREMIUM SIDEBAR NAVIGATION BUTTONS
        ========================================================= */
     [data-testid="stSidebar"] {
@@ -1501,14 +1517,15 @@ def bhagya_view_invoice_dialog(row_data):
     st.caption(f"Invoice No: {row_data.get('invoice_no','')}")
 
     d1, d2, d3, d4 = st.columns(4)
-    with d1: st.text_input("Bill From", value=row_data.get("bill_from", ""), disabled=True)
-    with d2: st.text_input("Project ID", value=row_data.get("project_id", ""), disabled=True)
-    with d3: st.text_input("Site ID", value=row_data.get("site_id", ""), disabled=True)
-    with d4: st.text_input("Invoice Date", value=str(row_data.get("invoice_date", "")), disabled=True)
+    with d1: st.markdown(display_box("Bill From", row_data.get("bill_from", "")), unsafe_allow_html=True)
+    with d2: st.markdown(display_box("Project ID", row_data.get("project_id", "")), unsafe_allow_html=True)
+    with d3: st.markdown(display_box("Site ID", row_data.get("site_id", "")), unsafe_allow_html=True)
+    with d4: st.markdown(display_box("Invoice Date", str(row_data.get("invoice_date", ""))), unsafe_allow_html=True)
 
-    st.text_input("Site Name / Cluster / Project Name",
-                   value=f"{row_data.get('site_name','')} | {row_data.get('cluster','')} | {row_data.get('project_name','')}",
-                   disabled=True)
+    st.markdown(display_box(
+        "Site Name / Cluster / Project Name",
+        f"{row_data.get('site_name','')} | {row_data.get('cluster','')} | {row_data.get('project_name','')}"
+    ), unsafe_allow_html=True)
 
     line_items = row_data.get("line_items", [])
     if isinstance(line_items, str):
