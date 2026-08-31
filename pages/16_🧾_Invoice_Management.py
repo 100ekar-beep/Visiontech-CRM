@@ -325,12 +325,25 @@ st.markdown("""
 @st.cache_resource
 def init_connection():
     try:
-        url: str = st.secrets["supabase"]["url"]
+        url: str = str(st.secrets["supabase"]["url"]).strip().strip('"').strip("'")
         url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-        key: str = st.secrets["supabase"]["key"]
+        # Most common cause of "Invalid URL": the scheme (https://) is missing
+        # from the value pasted into secrets.toml — auto-fix it instead of failing.
+        if url and not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        key: str = str(st.secrets["supabase"]["key"]).strip().strip('"').strip("'")
+        if not url or not key:
+            raise ValueError("Supabase 'url' or 'key' is empty in secrets.toml")
         return create_client(url, key)
     except Exception as e:
         st.error(f"🚨 Supabase connection error: {e}")
+        st.info(
+            "Streamlit Cloud → App → Settings → Secrets me format check karo:\n\n"
+            "[supabase]\n"
+            "url = \"https://YOUR-PROJECT-REF.supabase.co\"\n"
+            "key = \"YOUR-ANON-OR-SERVICE-KEY\"\n\n"
+            "(url ke aage 'https://' zaroor hona chahiye, aur '/rest/v1' ya trailing slash nahi hona chahiye.)"
+        )
         return None
 
 supabase: Client = init_connection()
@@ -619,7 +632,8 @@ def get_table_df(table_name):
     try:
         response = supabase.table(table_name).select("*").execute()
         data = response.data
-    except Exception:
+    except Exception as e:
+        st.error(f"⚠️ Could not load table '{table_name}': {e}")
         data = []
 
     if data:
