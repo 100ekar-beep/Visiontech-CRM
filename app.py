@@ -9,6 +9,39 @@ st.set_page_config(
     layout="wide"
 )
 
+# ==============================================================
+# --- NEW REQUIREMENT: SEPARATE BHAJAN LOGIN ---
+# ==============================================================
+if 'user_role' not in st.session_state:
+    st.session_state['user_role'] = 'CRM'
+
+with st.sidebar:
+    if st.session_state.get('user_role') == 'BHAJAN':
+        st.success("🪔 Bhajan Login Active")
+        if st.button("🚪 Bhajan Logout", key="bhajan_logout_home", use_container_width=True):
+            st.session_state['user_role'] = 'CRM'
+            st.rerun()
+    else:
+        with st.expander("🪔 Bhajan Login"):
+            with st.form("bhajan_login_form"):
+                bhajan_username = st.text_input("Username", key="bhajan_login_username")
+                bhajan_password = st.text_input("Password", type="password", key="bhajan_login_password")
+                bhajan_submit = st.form_submit_button("Login", use_container_width=True)
+
+            if bhajan_submit:
+                try:
+                    correct_username = str(st.secrets["bhajan_login"]["username"])
+                    correct_password = str(st.secrets["bhajan_login"]["password"])
+
+                    if bhajan_username.strip() == correct_username and bhajan_password == correct_password:
+                        st.session_state['user_role'] = 'BHAJAN'
+                        st.success("✅ Login successful!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Username ya Password galat hai.")
+                except Exception as e:
+                    st.error(f"🚨 Bhajan login configuration error: {e}")
+
 st.markdown("""
     <div style="padding: 2.5rem; background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); border-radius: 16px; text-align: center; color: white;">
         <h1>⚡ Visiontech CRM⚡</h1>
@@ -140,17 +173,23 @@ with col2:
 # Agar aapke actual sidebar labels different hain to yahan update kar dein.
 
 RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
+BHAJAN_PAGES = ["Bhajan"]
 
 _active_ws = st.session_state['active_workspace']
 
-if _active_ws == "RAJKUMAR KALYA":
+if st.session_state.get('user_role') == "BHAJAN":
+    _allowed_pages = BHAJAN_PAGES
+    _mode = "whitelist"       # Bhajan login me sirf Bhajan page dikhega
+elif _active_ws == "RAJKUMAR KALYA":
+    _allowed_pages = RAJKUMAR_PAGES
     _mode = "whitelist"       # sirf RAJKUMAR_PAGES dikhenge
 else:
-    _mode = "blacklist"       # RAJKUMAR_PAGES chhod kar baaki sab dikhenge
+    _allowed_pages = RAJKUMAR_PAGES + BHAJAN_PAGES
+    _mode = "blacklist"       # Rajkumar aur Bhajan pages chhod kar baaki sab dikhenge
 
 components.html(f"""
 <script>
-const allowedPages = {json.dumps(RAJKUMAR_PAGES)};
+const allowedPages = {json.dumps(_allowed_pages)};
 const mode = "{_mode}";
 
 function filterSidebarNav() {{
