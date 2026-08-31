@@ -28,14 +28,16 @@ st.markdown("""
     /* Tabs Styling */
     button[data-baseweb="tab"] { font-weight: 700 !important; font-size: 1.1rem !important; }
     
-    /* Buttons */
-    button[data-testid="baseButton-primary"] {
+    /* Buttons (support both old "baseButton-*" and newer "stBaseButton-*" testid naming) */
+    button[data-testid="baseButton-primary"], button[data-testid="stBaseButton-primary"],
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
         background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
         color: white !important; border: none !important; border-radius: 8px !important;
         font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
         box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4) !important;
     }
-    button[data-testid="baseButton-secondary"] {
+    button[data-testid="baseButton-secondary"], button[data-testid="stBaseButton-secondary"],
+    button[kind="secondary"], button[kind="secondaryFormSubmit"] {
         background: #ef4444 !important; color: white !important; border: none !important; border-radius: 8px !important;
         font-weight: 800 !important;
     }
@@ -124,14 +126,32 @@ st.markdown("""
        CUSTOM ROW-BASED TABLE (Site Data Hub style) — used on
        Invoice Entry / Payment Entry / Pending MRN Approval tabs,
        with round gear/trash/tick/cross icon action buttons.
+       Header and body are SEPARATE containers (not :first-child)
+       so the gradient only ever applies to the actual header row.
        ========================================================= */
+    .st-key-inv_table_header, .st-key-pay_table_header, .st-key-mrn_table_header {
+        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
+        border-radius: 14px 14px 0 0 !important;
+        overflow: hidden auto !important;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.10) !important;
+    }
+    .st-key-inv_table_header div[data-testid="stHorizontalBlock"],
+    .st-key-pay_table_header div[data-testid="stHorizontalBlock"],
+    .st-key-mrn_table_header div[data-testid="stHorizontalBlock"] {
+        min-width: 1500px !important;
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+        padding: 10px 0 !important;
+    }
     .st-key-inv_table_wrap, .st-key-pay_table_wrap, .st-key-mrn_table_wrap {
         background: #ffffff !important;
         border: 1px solid #e2e8f0 !important;
-        border-radius: 14px !important;
+        border-top: none !important;
+        border-radius: 0 0 14px 14px !important;
         overflow: auto !important;
         box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.10), 0 4px 6px -2px rgba(15, 23, 42, 0.04) !important;
         padding: 4px 0 !important;
+        margin-bottom: 20px !important;
     }
     .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"],
@@ -142,20 +162,19 @@ st.markdown("""
         padding: 7px 0 !important;
         flex-wrap: nowrap !important;
     }
-    .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"]:first-child,
-    .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"]:first-child,
-    .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"]:first-child {
-        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
-        border-radius: 12px 12px 0 0 !important;
-        border-bottom: none !important;
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 2 !important;
-    }
-    .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-child):hover,
-    .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-child):hover,
-    .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-child):hover {
+    .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"]:hover,
+    .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"]:hover,
+    .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"]:hover {
         background: #eef2ff !important;
+    }
+    .st-key-inv_table_header div[data-testid="column"],
+    .st-key-pay_table_header div[data-testid="column"],
+    .st-key-mrn_table_header div[data-testid="column"] {
+        padding: 0 12px !important;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border-right: 1px solid rgba(255, 255, 255, 0.15);
     }
     .st-key-inv_table_wrap div[data-testid="column"],
     .st-key-pay_table_wrap div[data-testid="column"],
@@ -166,21 +185,24 @@ st.markdown("""
         justify-content: flex-start;
         border-right: 1px solid #f8fafc;
     }
+    .st-key-inv_table_header div[data-testid="column"]:last-child,
+    .st-key-pay_table_header div[data-testid="column"]:last-child,
+    .st-key-mrn_table_header div[data-testid="column"]:last-child,
     .st-key-inv_table_wrap div[data-testid="column"]:last-child,
     .st-key-pay_table_wrap div[data-testid="column"]:last-child,
     .st-key-mrn_table_wrap div[data-testid="column"]:last-child {
         border-right: none;
     }
-    .st-key-inv_table_wrap .tbl-head,
-    .st-key-pay_table_wrap .tbl-head,
-    .st-key-mrn_table_wrap .tbl-head {
+    .st-key-inv_table_header .tbl-head,
+    .st-key-pay_table_header .tbl-head,
+    .st-key-mrn_table_header .tbl-head {
         color: #ffffff !important;
         font-size: 0.72rem !important;
         font-weight: 800 !important;
         letter-spacing: 0.6px !important;
         text-transform: uppercase !important;
         white-space: nowrap !important;
-        padding: 10px 0 !important;
+        padding: 4px 0 !important;
     }
     .st-key-inv_table_wrap .tbl-cell,
     .st-key-pay_table_wrap .tbl-cell,
@@ -403,6 +425,20 @@ def send_interakt_whatsapp(mobile, template_name, params):
         pass
 
 # --- AMOUNT TO WORDS CONVERTER (INDIAN SYSTEM) ---
+def cell(val):
+    """Safely render a table cell value: None / NaN / 'nan' string all become '-'."""
+    if val is None:
+        return "-"
+    try:
+        if isinstance(val, float) and pd.isna(val):
+            return "-"
+    except Exception:
+        pass
+    s = str(val).strip()
+    if s == "" or s.lower() in ("nan", "none", "nat"):
+        return "-"
+    return s
+
 def number_to_words(n):
     if n is None or pd.isna(n):
         return ""
@@ -823,11 +859,12 @@ if st.session_state.billing_active_page == "invoice":
                 INV_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.0, 1.1, 1.3]
                 INV_COL_LABELS = ["#", "⚙️", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TOTAL", "VENDOR", "REMARK"]
 
-                with st.container(key="inv_table_wrap", height=520):
+                with st.container(key="inv_table_header"):
                     h_cols = st.columns(INV_COL_RATIOS)
                     for h_col, label in zip(h_cols, INV_COL_LABELS):
                         h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+                with st.container(key="inv_table_wrap", height=500):
                     for pos, (_, row) in enumerate(df_inv.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
@@ -851,13 +888,13 @@ if st.session_state.billing_active_page == "invoice":
                                 except Exception as e:
                                     st.error(f"Error deleting: {e}")
 
-                        rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('team_name', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('date', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('cluster', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
 
                         basic_v = row_dict.get('basic_amount')
                         rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
@@ -866,8 +903,8 @@ if st.session_state.billing_active_page == "invoice":
                         amt_v = row_dict.get('amount')
                         rcols[12].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
 
-                        rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('vendor_name', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('remark', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[13].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                        rcols[14].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No invoices match your search.")
         else:
@@ -919,11 +956,12 @@ elif st.session_state.billing_active_page == "payment":
                 PAY_COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.0, 1.0, 1.0, 0.9, 1.4, 0.8]
                 PAY_COL_LABELS = ["#", "⚙️", "🗑️", "PAY FROM", "PAY TO", "PAY TYPE", "AMOUNT", "DATE", "REMARK", "MODE"]
 
-                with st.container(key="pay_table_wrap", height=520):
+                with st.container(key="pay_table_header"):
                     h_cols = st.columns(PAY_COL_RATIOS)
                     for h_col, label in zip(h_cols, PAY_COL_LABELS):
                         h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+                with st.container(key="pay_table_wrap", height=500):
                     for pos, (_, row) in enumerate(df_pay.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
@@ -944,14 +982,14 @@ elif st.session_state.billing_active_page == "payment":
                                 except Exception as e:
                                     st.error(f"Error deleting: {e}")
 
-                        rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('pay_from', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('pay_to', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('pay_type', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_from'))}</div>", unsafe_allow_html=True)
+                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_to'))}</div>", unsafe_allow_html=True)
+                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_type'))}</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
                         rcols[6].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('date', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('remark', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('mode', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('mode'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No payments match your search.")
         else:
@@ -1192,11 +1230,12 @@ elif st.session_state.billing_active_page == "mrn":
                 MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
                 MRN_COL_LABELS = ["#", "✅", "❌", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
 
-                with st.container(key="mrn_table_wrap", height=460):
+                with st.container(key="mrn_table_header"):
                     h_cols = st.columns(MRN_COL_RATIOS)
                     for h_col, label in zip(h_cols, MRN_COL_LABELS):
                         h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+                with st.container(key="mrn_table_wrap", height=440):
                     for pos, (_, row) in enumerate(df_pending.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
@@ -1227,19 +1266,19 @@ elif st.session_state.billing_active_page == "mrn":
                                 except Exception as e:
                                     st.error(f"Error rejecting: {e}")
 
-                        rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('team_name', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{display_dates.iloc[pos] or '-'}</div>", unsafe_allow_html=True)
-                        rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name', '') or '-'}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('cluster', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(display_dates.iloc[pos])}</div>", unsafe_allow_html=True)
+                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
 
                         basic_v = row_dict.get('basic_amount')
                         rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
                         rcols[11].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                        rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('remark', '') or '-'}</div>", unsafe_allow_html=True)
+                        rcols[12].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No pending MRNs waiting for approval.")
         except Exception as e:
