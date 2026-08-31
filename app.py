@@ -9,39 +9,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==============================================================
-# --- NEW REQUIREMENT: SEPARATE BHAJAN LOGIN ---
-# ==============================================================
-if 'user_role' not in st.session_state:
-    st.session_state['user_role'] = 'CRM'
-
-with st.sidebar:
-    if st.session_state.get('user_role') == 'BHAJAN':
-        st.success("🪔 Bhajan Login Active")
-        if st.button("🚪 Bhajan Logout", key="bhajan_logout_home", use_container_width=True):
-            st.session_state['user_role'] = 'CRM'
-            st.rerun()
-    else:
-        with st.expander("🪔 Bhajan Login"):
-            with st.form("bhajan_login_form"):
-                bhajan_username = st.text_input("Username", key="bhajan_login_username")
-                bhajan_password = st.text_input("Password", type="password", key="bhajan_login_password")
-                bhajan_submit = st.form_submit_button("Login", use_container_width=True)
-
-            if bhajan_submit:
-                try:
-                    correct_username = str(st.secrets["bhajan_login"]["username"])
-                    correct_password = str(st.secrets["bhajan_login"]["password"])
-
-                    if bhajan_username.strip() == correct_username and bhajan_password == correct_password:
-                        st.session_state['user_role'] = 'BHAJAN'
-                        st.success("✅ Login successful!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Username ya Password galat hai.")
-                except Exception as e:
-                    st.error(f"🚨 Bhajan login configuration error: {e}")
-
 st.markdown("""
     <div style="padding: 2.5rem; background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); border-radius: 16px; text-align: center; color: white;">
         <h1>⚡ Visiontech CRM⚡</h1>
@@ -89,7 +56,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 if 'active_workspace' not in st.session_state:
     # FIX: Session idle/websocket-reconnect hone par st.session_state reset ho jaata hai,
     # isliye pehle URL query_params me saved workspace check karte hain (ye reset nahi hota).
-    _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES"]
+    _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES", "BHAJAN"]
     _query_workspace = st.query_params.get('workspace', None)
     if _query_workspace in _valid_workspaces:
         st.session_state['active_workspace'] = _query_workspace
@@ -102,7 +69,7 @@ st.markdown("---")
 
 col1, col2 = st.columns([3, 7])
 with col1:
-    workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES"]
+    workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES", "BHAJAN"]
     current_index = workspaces.index(st.session_state['active_workspace'])
     
     selected_workspace = st.selectbox(
@@ -155,6 +122,14 @@ with col2:
             <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
         </div>
         """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'BHAJAN':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>🪔 BHAJAN SANGRAH</h2>
+            <p>Welcome to Bhajan Workspace! Yahan aap category-wise bhajan save, search, PDF download aur WhatsApp share kar sakte hain.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se <b>Bhajan</b> page select karke login karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # ==============================================================
@@ -177,7 +152,7 @@ BHAJAN_PAGES = ["Bhajan"]
 
 _active_ws = st.session_state['active_workspace']
 
-if st.session_state.get('user_role') == "BHAJAN":
+if _active_ws == "BHAJAN":
     _allowed_pages = BHAJAN_PAGES
     _mode = "whitelist"       # Bhajan login me sirf Bhajan page dikhega
 elif _active_ws == "RAJKUMAR KALYA":
