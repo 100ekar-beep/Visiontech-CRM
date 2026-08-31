@@ -473,6 +473,36 @@ def _ers_wrap_text(pdf, text, max_width):
     return lines if lines else [""]
 
 
+def _wrap_code_text(pdf, text, max_width):
+    """Wraps hyphen-separated codes with no spaces (e.g. item codes like
+    '12-C00000-0-01-ZZ-ZZ-013') by also allowing a line break right after
+    each hyphen — plain word-wrap treats such a string as a single
+    unbreakable "word" and lets it overflow the column instead of wrapping."""
+    tokens = []
+    buf = ""
+    for ch in text:
+        buf += ch
+        if ch in (" ", "-"):
+            tokens.append(buf)
+            buf = ""
+    if buf:
+        tokens.append(buf)
+
+    lines = []
+    current = ""
+    for tok in tokens:
+        trial = current + tok
+        if pdf.get_string_width(trial.strip()) <= max_width:
+            current = trial
+        else:
+            if current.strip():
+                lines.append(current.strip())
+            current = tok
+    if current.strip():
+        lines.append(current.strip())
+    return lines if lines else [""]
+
+
 def _ers_find_field(row_dict, candidates):
     """Case/space-insensitive lookup of a column value from a generic row dict.
     Tries each candidate name (exact match first), then falls back to any
@@ -1296,8 +1326,8 @@ def bhagya_generate_pdf(row_data):
 
         pdf.set_font("Arial", "", 7.2)
         desc_lines = _ers_wrap_text(pdf, description, widths[3] - 2)
-        code_lines = _ers_wrap_text(pdf, str(li.get("item_code", "")), widths[2] - 2)
-        row_h2 = max(line_h2 * len(desc_lines), line_h2 * len(code_lines), 6)
+        code_lines = _wrap_code_text(pdf, str(li.get("item_code", "")), widths[2] - 2)
+        row_h2 = max(line_h2 * len(desc_lines), line_h2 * len(code_lines), 6) + 1.5
 
         x_row = pdf.get_x()
         y_row = pdf.get_y()
@@ -1306,20 +1336,21 @@ def bhagya_generate_pdf(row_data):
         pdf.cell(widths[0], row_h2, str(li.get("line_number", "")), border=1, align="C", fill=fill)
         pdf.cell(widths[1], row_h2, str(hsn), border=1, align="C", fill=fill)
 
+        fill_style = "DF" if fill else "D"
+
         x_code = pdf.get_x()
-        y_code = pdf.get_y()
-        pdf.multi_cell(widths[2], line_h2, str(li.get("item_code", "")), border=1, align="C", fill=fill)
-        cur_y_code = pdf.get_y()
-        if cur_y_code < y_code + row_h2:
-            pdf.rect(x_code, cur_y_code, widths[2], (y_code + row_h2) - cur_y_code)
+        pdf.rect(x_code, y_row, widths[2], row_h2, style=fill_style)
+        for i, ln in enumerate(code_lines):
+            pdf.set_xy(x_code, y_row + 1 + i * line_h2)
+            pdf.cell(widths[2], line_h2, ln, align="C")
         pdf.set_xy(x_code + widths[2], y_row)
 
         x_desc = pdf.get_x()
-        y_desc = pdf.get_y()
-        pdf.multi_cell(widths[3], line_h2, description, border=1, align="L", fill=fill)
-        cur_y = pdf.get_y()
-        if cur_y < y_desc + row_h2:
-            pdf.rect(x_desc, cur_y, widths[3], (y_desc + row_h2) - cur_y)
+        pdf.rect(x_desc, y_row, widths[3], row_h2, style=fill_style)
+        for i, ln in enumerate(desc_lines):
+            pdf.set_xy(x_desc + 1, y_row + 1 + i * line_h2)
+            pdf.cell(widths[3] - 2, line_h2, ln, align="L")
+        pdf.set_xy(x_desc + widths[3], y_row)
 
         cx = x_desc + widths[3]
         numeric_vals = [str(qty), f"{disc_rate:,.2f}", f"{disc_basic:,.2f}", f"{disc_cgst:,.2f}", f"{disc_sgst:,.2f}", f"{disc_total:,.2f}"]
@@ -1745,8 +1776,86 @@ def bhagya_delete_dialog(rid, invoice_no):
                 st.error(f"❌ Error: {e}")
 
 
+@st.dialog("📤 Bulk Update HSN (from Tally Export)", width="large")
+def bhagya_bulk_hsn_dialog():
+    st.caption(
+        "Tally ke HSN/SAC Summary export (Gateway of Tally → Display More Reports → "
+        "Statutory Reports → GST → HSN/SAC Summary → Alt+E → Export → Excel) ki file yahan "
+        "upload karo. Isme 'Item Code' aur 'HSN' naam ke (ya milte-julte) do columns hone chahiye. "
+        "Matching Item Code wale saare PO Working rows me HSN update ho jayega — invoice PDF me "
+        "wahi HSN aayega."
+    )
+    uploaded_file = st.file_uploader("Choose Excel/CSV File", type=["xlsx", "xls", "csv"], key="bhagya_hsn_file")
+
+    if uploaded_file and st.button("🚀 Process & Update HSN", type="primary", use_container_width=True, key="bhagya_hsn_process"):
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                df_upload = pd.read_csv(uploaded_file)
+            else:
+                df_upload = pd.read_excel(uploaded_file)
+
+            # Flexible, case-insensitive detection of the two needed columns —
+            # Tally exports (and manual sheets) don't always use the exact
+            # same header names.
+            cols_lower = {str(c).strip().lower(): c for c in df_upload.columns}
+
+            code_col = None
+            for cand in ["item code", "item num", "item number", "code", "stock item", "item name", "particulars"]:
+                if cand in cols_lower:
+                    code_col = cols_lower[cand]
+                    break
+
+            hsn_col = None
+            for cand in ["hsn", "hsn code", "hsn/sac", "hsn sac", "sac", "hsn/sac code", "hsn code/sac code"]:
+                if cand in cols_lower:
+                    hsn_col = cols_lower[cand]
+                    break
+
+            if not code_col or not hsn_col:
+                st.error(
+                    f"❌ Item Code / HSN column nahi mil paaya. File me ye columns hain: "
+                    f"{list(df_upload.columns)}. Column ka naam 'Item Code' aur 'HSN' (ya 'HSN/SAC') jaisa rakho."
+                )
+            else:
+                updated_rows = 0
+                matched_codes = 0
+                skipped = 0
+                errors = []
+                for _, row in df_upload.iterrows():
+                    item_code = str(row.get(code_col, "")).strip()
+                    hsn_val = str(row.get(hsn_col, "")).strip()
+                    if not item_code or not hsn_val or item_code.lower() == "nan" or hsn_val.lower() == "nan":
+                        skipped += 1
+                        continue
+                    try:
+                        res = supabase.table("po_working").update({"HSN": hsn_val}).eq("Item Num", item_code).execute()
+                        n = len(res.data) if res.data else 0
+                        if n > 0:
+                            matched_codes += 1
+                            updated_rows += n
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        errors.append(f"{item_code}: {e}")
+
+                st.success(f"✅ Done! {matched_codes} item codes matched — {updated_rows} PO Working rows updated with HSN.")
+                if skipped:
+                    st.info(f"ℹ️ {skipped} rows skipped (blank values, or Item Code not found in PO Working).")
+                if errors:
+                    st.warning(f"⚠️ {len(errors)} error(s). First few: {errors[:5]}")
+                    if any("HSN" in str(e) for e in errors):
+                        st.error(
+                            "Agar error me 'HSN column not found' jaisa kuch dikh raha hai, to pehle Supabase me "
+                            "po_working table par HSN column add karo (SQL Editor me: "
+                            "ALTER TABLE public.po_working ADD COLUMN IF NOT EXISTS \"HSN\" text;)."
+                        )
+                bhagya_get_po_lines.clear()
+        except Exception as e:
+            st.error(f"❌ Error processing file: {e}")
+
+
 def render_bhagyashree_tab():
-    col_title, col_ref, col_add = st.columns([3.5, 1, 1.5])
+    col_title, col_ref, col_hsn, col_add = st.columns([3, 1, 1.6, 1.5])
     with col_title:
         st.markdown("<h2 style='margin:0; color:white;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
     with col_ref:
@@ -1754,6 +1863,9 @@ def render_bhagyashree_tab():
             get_table_df.clear()
             bhagya_get_site_options.clear()
             st.rerun()
+    with col_hsn:
+        if st.button("📤 Bulk Update HSN", use_container_width=True, key="bhagya_hsn_btn"):
+            bhagya_bulk_hsn_dialog()
     with col_add:
         if st.button("➕ Add New Invoice", use_container_width=True, key="bhagya_add_btn"):
             bhagya_add_invoice_dialog()
