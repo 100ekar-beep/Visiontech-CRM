@@ -975,7 +975,9 @@ WORKSPACE_DISCOUNT_PCT = {
     "SAITELE": 5.0,
 }
 
-# Billing-entity ("Bill From") details
+# Billing-entity ("Bill From") details — this is whichever company is picked
+# in the "Bill From" dropdown on the Add Invoice dialog; the PDF header uses
+# these details for the seller box (dynamically, per selected company).
 BILL_FROM_DETAILS = {
     "VISPL": {
         "full_name": "Visiontech Infra Solution Pvt. Ltd.",
@@ -985,22 +987,90 @@ BILL_FROM_DETAILS = {
         "contact_person": "Radhika Jaju",
         "mobile": "9742514121",
         "email": "vispltower@gmail.com",
+        "state": "Maharashtra, Code : 27",
     },
     "Whizkey": {
         "full_name": "Whizkey",
         "address": "Address line 1, City, State - PIN",
         "gstin": "GSTIN NOT SET",
+        "state": "",
     },
 }
 
-# "Bill To" details, keyed by workspace
+# "Bill To" / "Ship To" details, keyed by workspace — Bhagyashree invoices
+# always bill (and ship) to Bhagyashree Enterprises itself.
 BILL_TO_DETAILS = {
     BHAGYA_WORKSPACE: {
         "full_name": "Bhagyashree Enterprises",
         "address": "S. No. 66, Sai Pritam Nagar Rahtani, BLD - A Flat - 7 Pune Pune,Maharashtra-411017,India.",
         "gstin": "27ABWPV2922M1ZQ",
+        "state": "Maharashtra, Code : 27",
     },
 }
+
+
+def _po_field(po_dict, candidates):
+    """Case/space-insensitive lookup of a value from a PO-line dict — used to
+    pull an HSN code from po_working if that column exists there under any
+    common naming, without breaking if it's absent (returns "")."""
+    if not po_dict:
+        return ""
+    low_map = {str(k).strip().lower().replace("_", " "): k for k in po_dict.keys()}
+    for cand in candidates:
+        c = cand.strip().lower().replace("_", " ")
+        if c in low_map:
+            val = po_dict.get(low_map[c], "")
+            if val not in (None, "", "nan"):
+                return str(val)
+    return ""
+
+
+_NUM_WORDS_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+                   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+                   "Seventeen", "Eighteen", "Nineteen"]
+_NUM_WORDS_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+
+def _two_digit_words(n):
+    if n < 20:
+        return _NUM_WORDS_ONES[n]
+    tens, ones = divmod(n, 10)
+    return (_NUM_WORDS_TENS[tens] + (" " + _NUM_WORDS_ONES[ones] if ones else "")).strip()
+
+
+def _three_digit_words(n):
+    parts = []
+    if n >= 100:
+        parts.append(_NUM_WORDS_ONES[n // 100] + " Hundred")
+        n %= 100
+    if n:
+        parts.append(_two_digit_words(n))
+    return " ".join(parts)
+
+
+def number_to_words_indian(num):
+    """Converts a non-negative number into Indian-numbering-system words
+    (Crore/Lakh/Thousand), e.g. 654900 -> 'Six Lakh Fifty Four Thousand Nine Hundred'."""
+    num = int(round(num))
+    if num == 0:
+        return "Zero"
+    crore, num = divmod(num, 10000000)
+    lakh, num = divmod(num, 100000)
+    thousand, hundred = divmod(num, 1000)
+    parts = []
+    if crore:
+        parts.append(_three_digit_words(crore) + " Crore")
+    if lakh:
+        parts.append(_three_digit_words(lakh) + " Lakh")
+    if thousand:
+        parts.append(_three_digit_words(thousand) + " Thousand")
+    if hundred:
+        parts.append(_three_digit_words(hundred))
+    return " ".join(parts).strip()
+
+
+def amount_in_words_inr(amount):
+    return f"INR {number_to_words_indian(amount)} Only"
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -1041,12 +1111,21 @@ def bhagya_get_po_lines(site_id):
 
 
 def bhagya_generate_pdf(row_data):
+    """Builds the Bhagyashree tax-invoice PDF entirely in memory (never saved
+    to Supabase — only returned as bytes for an on-demand download button).
+    Layout follows the reference "VIS/26-27/1362" Indus-Towers-style invoice
+    the user supplied, EXCEPT: no IRN/Ack-No box at the top (Bhagyashree
+    invoices are not e-invoices); Bill To AND Ship To are always Bhagyashree
+    Enterprises (the buyer); the seller box on the right is whichever company
+    was picked in "Bill From" (dynamic); and every Rate/Basic/GST figure is
+    already net of the fixed workspace discount (2% for Bhagyashree)."""
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
 
     bill_from = row_data.get("bill_from", "")
     bf_details = BILL_FROM_DETAILS.get(bill_from, {"full_name": bill_from, "address": "", "gstin": ""})
     bt_details = BILL_TO_DETAILS.get(BHAGYA_WORKSPACE, {"full_name": "Bhagyashree Enterprises", "address": "", "gstin": ""})
+
     line_items = row_data.get("line_items", [])
     if isinstance(line_items, str):
         try:
@@ -1054,103 +1133,222 @@ def bhagya_generate_pdf(row_data):
         except Exception:
             line_items = []
 
-    pdf = FPDF(orientation='P', unit='mm', format='A4')
-    pdf.add_page()
+    discount_pct = row_data.get("discount_pct", WORKSPACE_DISCOUNT_PCT.get(BHAGYA_WORKSPACE, 0.0)) or 0.0
+    discount_factor = 1 - (discount_pct / 100.0)
 
-    pdf.set_font("Arial", 'B', 16)
-    pdf.set_text_color(15, 23, 42)
-    pdf.cell(190, 9, "TAX INVOICE", ln=True, align='C')
+    subtotal_v = row_data.get("subtotal", 0) or 0
+    taxable_amount_v = row_data.get("taxable_amount", subtotal_v * discount_factor) or 0
+    cgst_v = row_data.get("cgst", 0) or 0
+    sgst_v = row_data.get("sgst", 0) or 0
+    total_v = row_data.get("total", 0) or 0
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.set_margins(8, 8, 8)
+    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.add_page()
+    PAGE_W = 194  # usable width (A4 210mm - 8mm margins each side)
+
+    # ---------------- LETTERHEAD ----------------
+    pdf.set_font("Arial", "B", 16)
+    pdf.set_text_color(15, 40, 110)
+    pdf.cell(PAGE_W, 8, "VISIONTECH INFRA SOLUTION PVT. LTD.", align="C", ln=1)
+    pdf.set_draw_color(15, 40, 110)
+    pdf.set_line_width(0.6)
+    pdf.line(8, pdf.get_y() + 1, 8 + PAGE_W, pdf.get_y() + 1)
+    pdf.ln(4)
+    pdf.set_text_color(0, 0, 0)
+
+    # ---------------- TITLE BAR ("INVOICE", no IRN/Ack-No box) ----------------
+    pdf.set_fill_color(230, 230, 230)
+    pdf.set_draw_color(0, 0, 0)
+    pdf.set_line_width(0.3)
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(PAGE_W, 8, "INVOICE", border=1, align="C", fill=True, ln=1)
+
+    # ---------------- BILL TO / SHIP TO (left)  |  SELLER (right) ----------------
+    col_w = PAGE_W / 2.0
+    line_h = 4.2
+    pdf.set_font("Arial", "", 8.5)  # for accurate wrap-width calc below
+
+    left_lines = []
+    left_lines.append(("B", f"Bill To : {bt_details.get('full_name', '')}"))
+    for ln in _ers_wrap_text(pdf, bt_details.get("address", ""), col_w - 4):
+        left_lines.append(("", ln))
+    left_lines.append(("", f"GSTIN No : {bt_details.get('gstin', '')}"))
+    left_lines.append(("", ""))
+    left_lines.append(("B", f"Ship To : {bt_details.get('full_name', '')}"))
+    for ln in _ers_wrap_text(pdf, bt_details.get("address", ""), col_w - 4):
+        left_lines.append(("", ln))
+    left_lines.append(("", f"GSTIN No : {bt_details.get('gstin', '')}"))
+
+    right_lines = []
+    right_lines.append(("B", str(bf_details.get("full_name", ""))))
+    for ln in _ers_wrap_text(pdf, bf_details.get("address", ""), col_w - 4):
+        right_lines.append(("", ln))
+    if bf_details.get("state"):
+        right_lines.append(("", f"State Name : {bf_details.get('state', '')}"))
+    right_lines.append(("", f"GSTIN/UIN : {bf_details.get('gstin', '')}"))
+    if bf_details.get("pan"):
+        right_lines.append(("", f"PAN : {bf_details.get('pan', '')}"))
+    if bf_details.get("contact_person"):
+        right_lines.append(("", f"Contact : {bf_details.get('contact_person', '')}  Mobile : {bf_details.get('mobile', '')}"))
+    right_lines.append(("", f"E-Mail : {bf_details.get('email', '')}"))
+
+    max_lines = max(len(left_lines), len(right_lines))
+    box_x = pdf.get_x()
+    box_top_y = pdf.get_y()
+    for i in range(max_lines):
+        y = box_top_y + i * line_h
+        if i < len(left_lines):
+            style, txt = left_lines[i]
+            pdf.set_xy(box_x, y)
+            pdf.set_font("Arial", style, 9 if style == "B" else 8.3)
+            pdf.cell(col_w, line_h, " " + txt if txt else "", border="LR")
+        else:
+            pdf.set_xy(box_x, y)
+            pdf.cell(col_w, line_h, "", border="LR")
+        if i < len(right_lines):
+            style, txt = right_lines[i]
+            pdf.set_xy(box_x + col_w, y)
+            pdf.set_font("Arial", style, 10 if style == "B" else 8.3)
+            pdf.cell(col_w, line_h, " " + txt if txt else "", border="LR")
+        else:
+            pdf.set_xy(box_x + col_w, y)
+            pdf.cell(col_w, line_h, "", border="LR")
+
+    box_bottom_y = box_top_y + max_lines * line_h
+    pdf.line(box_x, box_top_y, box_x + PAGE_W, box_top_y)
+    pdf.line(box_x, box_bottom_y, box_x + PAGE_W, box_bottom_y)
+    pdf.line(box_x + col_w, box_top_y, box_x + col_w, box_bottom_y)
+    pdf.set_xy(box_x, box_bottom_y)
+
+    # ---------------- INVOICE DETAILS GRID ----------------
+    label_w = 32
+    value_w = PAGE_W / 2.0 - label_w
+    row_h = 6
+    detail_rows = [
+        ("Invoice Number", row_data.get("invoice_no", ""), "Invoice Date", str(row_data.get("invoice_date", ""))),
+        ("Project ID", row_data.get("project_id", ""), "Site ID", row_data.get("site_id", "")),
+        ("Site Name", row_data.get("site_name", ""), "Cluster", row_data.get("cluster", "")),
+        ("Project Name", row_data.get("project_name", ""), "Place of Supply", bt_details.get("state", "Maharashtra")),
+    ]
+    for lbl1, val1, lbl2, val2 in detail_rows:
+        pdf.set_font("Arial", "B", 8)
+        pdf.cell(label_w, row_h, lbl1, border=1)
+        pdf.set_font("Arial", "", 8.3)
+        pdf.cell(value_w, row_h, " " + str(val1), border=1)
+        pdf.set_font("Arial", "B", 8)
+        pdf.cell(label_w, row_h, lbl2, border=1)
+        pdf.set_font("Arial", "", 8.3)
+        pdf.cell(value_w, row_h, " " + str(val2), border=1, ln=1)
+
     pdf.ln(2)
 
-    # ---------------- BILL FROM ----------------
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_text_color(59, 130, 246)
-    pdf.cell(190, 5, "Bill From:", ln=True)
-    pdf.set_font("Arial", 'B', 9)
-    pdf.set_text_color(15, 23, 42)
-    pdf.cell(190, 5, str(bf_details.get("full_name", "")), ln=True)
-    pdf.set_font("Arial", '', 8.5)
-    pdf.multi_cell(190, 4.3, str(bf_details.get("address", "")))
-    pdf.cell(95, 4.5, f"GSTIN: {bf_details.get('gstin', '')}", ln=False)
-    pdf.cell(95, 4.5, f"PAN: {bf_details.get('pan', '')}", ln=True)
-    pdf.cell(95, 4.5, f"Contact: {bf_details.get('contact_person', '')}", ln=False)
-    pdf.cell(95, 4.5, f"Mobile: {bf_details.get('mobile', '')}", ln=True)
-    pdf.cell(190, 4.5, f"Email: {bf_details.get('email', '')}", ln=True)
-    pdf.ln(3)
+    # ---------------- LINE ITEMS TABLE (Rate/Basic/GST already discount-adjusted) ----------------
+    widths = [8, 13, 27, 39, 10, 16, 20, 18, 18, 25]  # Line,HSN,ItemCode,Description,Qty,Rate,Basic,CGST,SGST,Total
+    headers_row = ["Line", "HSN", "Item\nCode", "Description", "Qty", "Price",
+                   "Basic\nAmount", "CGST\nAmount", "SGST\nAmount", "Total\nAmount"]
 
-    # ---------------- BILL TO ----------------
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_text_color(59, 130, 246)
-    pdf.cell(190, 5, "Bill To:", ln=True)
-    pdf.set_font("Arial", 'B', 9)
-    pdf.set_text_color(15, 23, 42)
-    pdf.cell(190, 5, str(bt_details.get("full_name", "")), ln=True)
-    pdf.set_font("Arial", '', 8.5)
-    pdf.multi_cell(190, 4.3, str(bt_details.get("address", "")))
-    pdf.cell(95, 4.5, f"GSTIN: {bt_details.get('gstin', '')}", ln=False)
-    pdf.cell(95, 4.5, f"Site: {row_data.get('site_name', '')} | Cluster: {row_data.get('cluster', '')}", ln=True)
-    pdf.ln(3)
-
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 9)
-    pdf.cell(63, 6, f"Invoice No: {row_data.get('invoice_no', '')}", ln=False)
-    pdf.cell(63, 6, f"Invoice Date: {row_data.get('invoice_date', '')}", ln=False)
-    pdf.cell(64, 6, f"Project ID: {row_data.get('project_id', '')}", ln=True)
-    pdf.cell(63, 6, f"Site ID: {row_data.get('site_id', '')}", ln=False)
-    pdf.cell(127, 6, f"Project Name: {row_data.get('project_name', '')}", ln=True)
-    pdf.ln(4)
-
-    # --- Line items table ---
-    headers = ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]
-    widths = [12, 22, 62, 20, 22, 22, 30]
-
-    pdf.set_font("Arial", 'B', 8)
+    pdf.set_font("Arial", "B", 7.2)
     pdf.set_fill_color(59, 130, 246)
     pdf.set_text_color(255, 255, 255)
-    for h, w in zip(headers, widths):
-        pdf.cell(w, 8, h, border=1, align='C', fill=True)
-    pdf.ln()
+    y_h = pdf.get_y()
+    x_h = pdf.get_x()
+    hdr_line_h = 3.0
+    max_hdr_lines = max(len(h.split("\n")) for h in headers_row)
+    hdr_h = hdr_line_h * max_hdr_lines
+    for w, h in zip(widths, headers_row):
+        xx = pdf.get_x()
+        pdf.multi_cell(w, hdr_line_h, h, border=1, align="C", fill=True)
+        pdf.set_xy(xx + w, y_h)
+    pdf.set_xy(x_h, y_h + hdr_h)
 
-    pdf.set_font("Arial", '', 8)
     pdf.set_text_color(0, 0, 0)
     fill = False
+    line_h2 = 3.1
     for li in line_items:
+        qty = li.get("claim_qty", 0) or 0
+        raw_price = li.get("price", 0) or 0
+        disc_rate = raw_price * discount_factor
+        disc_basic = qty * disc_rate
+        disc_cgst = disc_basic * 0.09
+        disc_sgst = disc_basic * 0.09
+        disc_total = disc_basic + disc_cgst + disc_sgst
+        hsn = _po_field(li, ["hsn", "hsn code", "hsn/sac"]) or "-"
+        description = str(li.get("description", ""))
+
+        pdf.set_font("Arial", "", 7.2)
+        desc_lines = _ers_wrap_text(pdf, description, widths[3] - 2)
+        code_lines = _ers_wrap_text(pdf, str(li.get("item_code", "")), widths[2] - 2)
+        row_h2 = max(line_h2 * len(desc_lines), line_h2 * len(code_lines), 6)
+
+        x_row = pdf.get_x()
+        y_row = pdf.get_y()
         pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
-        pdf.cell(widths[0], 7, str(li.get("line_number", "")), border=1, align='C', fill=fill)
-        pdf.cell(widths[1], 7, str(li.get("item_code", ""))[:14], border=1, align='C', fill=fill)
-        pdf.cell(widths[2], 7, str(li.get("description", ""))[:40], border=1, align='L', fill=fill)
-        pdf.cell(widths[3], 7, str(li.get("po_qty", "")), border=1, align='C', fill=fill)
-        pdf.cell(widths[4], 7, f"{li.get('price', 0):,.0f}", border=1, align='R', fill=fill)
-        pdf.cell(widths[5], 7, str(li.get("claim_qty", "")), border=1, align='C', fill=fill)
-        pdf.cell(widths[6], 7, f"{li.get('amount', 0):,.0f}", border=1, align='R', fill=fill)
-        pdf.ln()
+
+        pdf.cell(widths[0], row_h2, str(li.get("line_number", "")), border=1, align="C", fill=fill)
+        pdf.cell(widths[1], row_h2, str(hsn), border=1, align="C", fill=fill)
+
+        x_code = pdf.get_x()
+        y_code = pdf.get_y()
+        pdf.multi_cell(widths[2], line_h2, str(li.get("item_code", "")), border=1, align="C", fill=fill)
+        cur_y_code = pdf.get_y()
+        if cur_y_code < y_code + row_h2:
+            pdf.rect(x_code, cur_y_code, widths[2], (y_code + row_h2) - cur_y_code)
+        pdf.set_xy(x_code + widths[2], y_row)
+
+        x_desc = pdf.get_x()
+        y_desc = pdf.get_y()
+        pdf.multi_cell(widths[3], line_h2, description, border=1, align="L", fill=fill)
+        cur_y = pdf.get_y()
+        if cur_y < y_desc + row_h2:
+            pdf.rect(x_desc, cur_y, widths[3], (y_desc + row_h2) - cur_y)
+
+        cx = x_desc + widths[3]
+        numeric_vals = [str(qty), f"{disc_rate:,.2f}", f"{disc_basic:,.2f}", f"{disc_cgst:,.2f}", f"{disc_sgst:,.2f}", f"{disc_total:,.2f}"]
+        for w, v in zip(widths[4:], numeric_vals):
+            pdf.rect(cx, y_row, w, row_h2)
+            pdf.set_xy(cx, y_row + max((row_h2 - 3.2) / 2, 0))
+            pdf.cell(w - 1, 3.2, v, align="R")
+            cx += w
+
+        pdf.set_xy(x_row, y_row + row_h2)
         fill = not fill
 
-    pdf.ln(4)
-    subtotal = row_data.get("subtotal", 0) or 0
-    discount_pct = row_data.get("discount_pct", 0) or 0
-    discount_amount = row_data.get("discount_amount", (subtotal * discount_pct / 100.0)) or 0
-    taxable_amount = row_data.get("taxable_amount", subtotal - discount_amount) or 0
-    cgst = row_data.get("cgst", 0) or 0
-    sgst = row_data.get("sgst", 0) or 0
-    total = row_data.get("total", 0) or 0
+    # ---------------- TOTAL ROW ----------------
+    pdf.set_font("Arial", "B", 7.5)
+    pdf.set_fill_color(235, 235, 235)
+    lead_w = sum(widths[:6])
+    pdf.cell(lead_w, 6, "  TOTAL", border=1, align="L", fill=True)
+    pdf.cell(widths[6], 6, f"{taxable_amount_v:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(widths[7], 6, f"{cgst_v:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(widths[8], 6, f"{sgst_v:,.2f}", border=1, align="R", fill=True)
+    pdf.cell(widths[9], 6, f"{total_v:,.2f}", border=1, align="R", fill=True, ln=1)
 
-    pdf.set_font("Arial", 'B', 10)
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 11)
     pdf.set_text_color(0, 0, 0)
-    pdf.cell(150, 7, "Subtotal", border=0, align='R')
-    pdf.cell(40, 7, f"Rs. {subtotal:,.0f}", border=0, align='R', ln=True)
-    pdf.cell(150, 7, f"Discount ({discount_pct:.0f}%)", border=0, align='R')
-    pdf.cell(40, 7, f"- Rs. {discount_amount:,.0f}", border=0, align='R', ln=True)
-    pdf.cell(150, 7, "Taxable Amount", border=0, align='R')
-    pdf.cell(40, 7, f"Rs. {taxable_amount:,.0f}", border=0, align='R', ln=True)
-    pdf.cell(150, 7, "CGST (9%)", border=0, align='R')
-    pdf.cell(40, 7, f"Rs. {cgst:,.0f}", border=0, align='R', ln=True)
-    pdf.cell(150, 7, "SGST (9%)", border=0, align='R')
-    pdf.cell(40, 7, f"Rs. {sgst:,.0f}", border=0, align='R', ln=True)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.set_text_color(59, 130, 246)
-    pdf.cell(150, 9, "Final Amount", border=0, align='R')
-    pdf.cell(40, 9, f"Rs. {total:,.0f}", border=0, align='R', ln=True)
+    pdf.cell(PAGE_W, 7, f"Total Amount : {total_v:,.2f}", border=0, align="R", ln=1)
+
+    pdf.ln(2)
+    pdf.set_font("Arial", "B", 8.5)
+    pdf.cell(30, 5, "Amount In Words :", border=0)
+    pdf.set_font("Arial", "", 8.5)
+    pdf.multi_cell(PAGE_W - 30, 5, amount_in_words_inr(total_v))
+
+    pdf.ln(1)
+    pdf.set_font("Arial", "", 7.5)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(PAGE_W, 4, f"(Price & Basic Amount above are already net of the {discount_pct:.0f}% discount before GST.)", ln=1)
+    pdf.set_text_color(0, 0, 0)
+
+    pdf.ln(10)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(PAGE_W, 5, f"for {bf_details.get('full_name', '')}", align="R", ln=1)
+    pdf.ln(10)
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(PAGE_W, 5, "Authorised Signatory", align="R", ln=1)
 
     pdf_output = pdf.output(dest='S')
     if isinstance(pdf_output, (bytes, bytearray)):
@@ -1238,6 +1436,7 @@ def bhagya_add_invoice_dialog():
             "price": price,
             "claim_qty": claim_qty,
             "amount": amount,
+            "hsn": _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
         })
 
     # --- Discount (fixed per workspace) applied before GST ---
@@ -1422,8 +1621,8 @@ def render_bhagyashree_tab():
     end_idx = start_idx + rows_per_page
     page_df = view_df.iloc[start_idx:end_idx]
 
-    b_cols = ["#", "🧾", "Invoice No", "Date", "Bill From", "Project ID", "Site Name", "Subtotal", "GST", "Total"]
-    b_ratios = [0.3, 0.35, 1.1, 1.0, 1.0, 1.0, 1.4, 1.0, 1.0, 1.1]
+    b_cols = ["#", "🧾", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
+    b_ratios = [0.3, 0.35, 1.1, 1.0, 1.0, 1.0, 1.1, 1.4, 1.0, 1.0, 1.1]
 
     with st.container(key="bhagya_table_wrap", height=520):
         h_cols = st.columns(b_ratios)
@@ -1442,11 +1641,16 @@ def render_bhagyashree_tab():
             r_cols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
             r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
             r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
-            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('subtotal',0):,.0f}</div>", unsafe_allow_html=True)
+            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
+            # "Basic" = taxable amount AFTER the workspace discount has been
+            # cut (matches the "Basic Amount" total that will show on the PDF).
+            subtotal_v = row_dict.get('subtotal', 0) or 0
+            basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
+            r_cols[8].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
             gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
-            r_cols[8].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
-            r_cols[9].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
+            r_cols[9].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[10].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
