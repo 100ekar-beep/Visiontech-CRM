@@ -32,10 +32,37 @@ supabase = init_connection()
 if supabase is None:
     st.stop()
 
-# यह page केवल अलग username/password वाले Bhajan login के लिए है.
-if st.session_state.get("user_role") != "BHAJAN":
-    st.error("🔐 Bhajan Login Required")
-    st.info("Home page खोलकर sidebar में Bhajan Login करें।")
+# यह page केवल BHAJAN workspace के लिए है.
+if st.session_state.get("active_workspace", "VISPL") != "BHAJAN":
+    st.error("🚫 यह page केवल BHAJAN workspace में उपलब्ध है।")
+    st.info("Home page पर Master Workspace में BHAJAN select करें।")
+    st.stop()
+
+# Login इसी Bhajan page पर होगा.
+if "bhajan_authenticated" not in st.session_state:
+    st.session_state["bhajan_authenticated"] = False
+
+if not st.session_state.get("bhajan_authenticated"):
+    st.title("🪔 Bhajan Login")
+    st.caption("Bhajan संग्रह खोलने के लिए login करें")
+
+    with st.form("bhajan_page_login_form"):
+        login_username = st.text_input("Username")
+        login_password = st.text_input("Password", type="password")
+        login_submit = st.form_submit_button("🔐 Login", type="primary", use_container_width=True)
+
+    if login_submit:
+        try:
+            correct_username = str(st.secrets["bhajan_login"]["username"])
+            correct_password = str(st.secrets["bhajan_login"]["password"])
+            if login_username.strip() == correct_username and login_password == correct_password:
+                st.session_state["bhajan_authenticated"] = True
+                st.success("✅ Login successful!")
+                st.rerun()
+            else:
+                st.error("❌ Username ya Password galat hai।")
+        except Exception as exc:
+            st.error(f"🚨 Bhajan login configuration error: {exc}")
     st.stop()
 
 
@@ -218,8 +245,14 @@ def edit_bhajan(row: dict, categories: list[str]):
             st.rerun()
 
 
-st.title("🪔 Bhajan संग्रह")
-st.caption("Category-wise भजन save, search, read, PDF download और WhatsApp share")
+title_col, logout_col = st.columns([8, 2])
+with title_col:
+    st.title("🪔 Bhajan संग्रह")
+    st.caption("Category-wise भजन save, search, read, PDF download और WhatsApp share")
+with logout_col:
+    if st.button("🚪 Logout", use_container_width=True):
+        st.session_state["bhajan_authenticated"] = False
+        st.rerun()
 
 tab_library, tab_add = st.tabs(["📚 सभी भजन", "➕ नया भजन"])
 
