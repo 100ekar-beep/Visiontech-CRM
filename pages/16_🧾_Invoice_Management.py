@@ -1012,6 +1012,26 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
 BHAGYA_WORKSPACE = "BHAGYASHREE"
 BHAGYA_TABLE = "bhagyashree_invoices"
 
+# Dedicated Item Code -> HSN lookup table (see create_and_populate_hsn_table.sql).
+# This is the primary source of truth for HSN codes now — po_working's own
+# "HSN" column (if present) is only used as a fallback when an item code
+# isn't found here.
+HSN_TABLE = "HSN"
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_hsn_map():
+    """Fetch the whole Item Code -> HSN table into a dict. Cached for 60s;
+    call get_hsn_map.clear() after any bulk HSN update so new values show
+    up without waiting for the cache to expire."""
+    try:
+        res = supabase.table(HSN_TABLE).select("item_code, hsn").execute()
+        rows = res.data if res.data else []
+    except Exception:
+        rows = []
+    return {str(r.get("item_code", "")).strip(): str(r.get("hsn", "")).strip() for r in rows if r.get("item_code")}
+
+
 # Fixed discount % applied to the line-items subtotal BEFORE GST, per
 # workspace. "Sai Tele" does not yet have a custom PO-based invoice
 # builder (it uses the generic CRUD tab), so this constant is ready to
@@ -1313,6 +1333,7 @@ def bhagya_generate_pdf(row_data):
     pdf.set_text_color(0, 0, 0)
     fill = False
     line_h2 = 3.1
+    hsn_map = get_hsn_map()
     for li in line_items:
         qty = li.get("claim_qty", 0) or 0
         raw_price = li.get("price", 0) or 0
@@ -1321,7 +1342,7 @@ def bhagya_generate_pdf(row_data):
         disc_cgst = disc_basic * 0.09
         disc_sgst = disc_basic * 0.09
         disc_total = disc_basic + disc_cgst + disc_sgst
-        hsn = _po_field(li, ["hsn", "hsn code", "hsn/sac"]) or "-"
+        hsn = hsn_map.get(str(li.get("item_code", "")).strip()) or li.get("hsn") or "-"
         description = str(li.get("description", ""))
 
         pdf.set_font("Arial", "", 7.2)
@@ -1449,6 +1470,7 @@ def bhagya_add_invoice_dialog():
 
     line_items = []
     subtotal = 0.0
+    hsn_map = get_hsn_map()
     for po in po_lines:
         r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
         line_no = po.get("Line Number", "")
@@ -1483,7 +1505,9 @@ def bhagya_add_invoice_dialog():
             "price": price,
             "claim_qty": claim_qty,
             "amount": amount,
-            "hsn": _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
+            # Primary source: the dedicated HSN table (Item Code -> HSN);
+            # fallback: an "HSN" column on po_working itself, if present.
+            "hsn": hsn_map.get(str(item_code).strip()) or _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
         })
 
     # --- Discount (fixed per workspace) applied before GST ---
@@ -1670,6 +1694,7 @@ def bhagya_edit_invoice_dialog(row_data):
 
     line_items = []
     subtotal = 0.0
+    hsn_map = get_hsn_map()
     for po in po_lines:
         r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
         line_no = po.get("Line Number", "")
@@ -1702,7 +1727,7 @@ def bhagya_edit_invoice_dialog(row_data):
             "price": price,
             "claim_qty": claim_qty,
             "amount": amount,
-            "hsn": _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
+            "hsn": hsn_map.get(str(item_code).strip()) or _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
         })
 
     discount_pct = WORKSPACE_DISCOUNT_PCT.get(BHAGYA_WORKSPACE, 0.0)
@@ -1779,11 +1804,9 @@ def bhagya_delete_dialog(rid, invoice_no):
 @st.dialog("📤 Bulk Update HSN (from Tally Export)", width="large")
 def bhagya_bulk_hsn_dialog():
     st.caption(
-        "Tally ke HSN/SAC Summary export (Gateway of Tally → Display More Reports → "
-        "Statutory Reports → GST → HSN/SAC Summary → Alt+E → Export → Excel) ki file yahan "
-        "upload karo. Isme 'Item Code' aur 'HSN' naam ke (ya milte-julte) do columns hone chahiye. "
-        "Matching Item Code wale saare PO Working rows me HSN update ho jayega — invoice PDF me "
-        "wahi HSN aayega."
+        "Tally ke GST Rate Setup / HSN export ki Excel/CSV file yahan upload karo. Isme "
+        "'Item Code' aur 'HSN' naam ke (ya milte-julte) do columns hone chahiye. Ye seedha "
+        "dedicated 'HSN' table me save hoga (Item Code -> HSN) — invoice PDF wahi se HSN uthata hai."
     )
     uploaded_file = st.file_uploader("Choose Excel/CSV File", type=["xlsx", "xls", "csv"], key="bhagya_hsn_file")
 
@@ -1817,8 +1840,7 @@ def bhagya_bulk_hsn_dialog():
                     f"{list(df_upload.columns)}. Column ka naam 'Item Code' aur 'HSN' (ya 'HSN/SAC') jaisa rakho."
                 )
             else:
-                updated_rows = 0
-                matched_codes = 0
+                upserted = 0
                 skipped = 0
                 errors = []
                 for _, row in df_upload.iterrows():
@@ -1828,28 +1850,24 @@ def bhagya_bulk_hsn_dialog():
                         skipped += 1
                         continue
                     try:
-                        res = supabase.table("po_working").update({"HSN": hsn_val}).eq("Item Num", item_code).execute()
-                        n = len(res.data) if res.data else 0
-                        if n > 0:
-                            matched_codes += 1
-                            updated_rows += n
-                        else:
-                            skipped += 1
+                        supabase.table(HSN_TABLE).upsert(
+                            {"item_code": item_code, "hsn": hsn_val}, on_conflict="item_code"
+                        ).execute()
+                        upserted += 1
                     except Exception as e:
                         errors.append(f"{item_code}: {e}")
 
-                st.success(f"✅ Done! {matched_codes} item codes matched — {updated_rows} PO Working rows updated with HSN.")
+                st.success(f"✅ Done! {upserted} item codes saved/updated in the HSN table.")
                 if skipped:
-                    st.info(f"ℹ️ {skipped} rows skipped (blank values, or Item Code not found in PO Working).")
+                    st.info(f"ℹ️ {skipped} rows skipped (blank Item Code or HSN value).")
                 if errors:
                     st.warning(f"⚠️ {len(errors)} error(s). First few: {errors[:5]}")
-                    if any("HSN" in str(e) for e in errors):
+                    if any("HSN" in str(e) or "does not exist" in str(e) for e in errors):
                         st.error(
-                            "Agar error me 'HSN column not found' jaisa kuch dikh raha hai, to pehle Supabase me "
-                            "po_working table par HSN column add karo (SQL Editor me: "
-                            "ALTER TABLE public.po_working ADD COLUMN IF NOT EXISTS \"HSN\" text;)."
+                            "Lagta hai 'HSN' table Supabase me abhi bana hi nahi hai. Pehle "
+                            "create_and_populate_hsn_table.sql script Supabase SQL Editor me run karo."
                         )
-                bhagya_get_po_lines.clear()
+                get_hsn_map.clear()
         except Exception as e:
             st.error(f"❌ Error processing file: {e}")
 
