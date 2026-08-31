@@ -52,7 +52,73 @@ st.markdown("""
 
     /* Inputs & Labels */
     label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
-    [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; }
+
+    /* =========================================================
+       LAVISH TABLE STYLING (st.dataframe + st.data_editor)
+       ========================================================= */
+    [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.05) !important;
+        border: 1px solid #e2e8f0 !important;
+        background: #ffffff !important;
+    }
+    [data-testid="stDataFrame"] > div, [data-testid="stDataEditor"] > div {
+        border-radius: 16px !important;
+        overflow: hidden !important;
+    }
+    /* Header row */
+    [data-testid="stDataFrame"] th, [data-testid="stDataEditor"] th,
+    [data-testid="stDataFrame"] [role="columnheader"], [data-testid="stDataEditor"] [role="columnheader"] {
+        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 0.8rem !important;
+        letter-spacing: 0.4px !important;
+        text-transform: uppercase !important;
+        border: none !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+    }
+    /* Body cells */
+    [data-testid="stDataFrame"] td, [data-testid="stDataEditor"] td,
+    [data-testid="stDataFrame"] [role="gridcell"], [data-testid="stDataEditor"] [role="gridcell"] {
+        font-size: 0.88rem !important;
+        color: #1e293b !important;
+        border-bottom: 1px solid #f1f5f9 !important;
+        border-right: 1px solid #f8fafc !important;
+    }
+    /* Zebra striping */
+    [data-testid="stDataFrame"] tr:nth-child(even) td,
+    [data-testid="stDataEditor"] tr:nth-child(even) td {
+        background-color: #f8fafc !important;
+    }
+    /* Row hover highlight */
+    [data-testid="stDataFrame"] tr:hover td,
+    [data-testid="stDataEditor"] tr:hover td {
+        background-color: #eef2ff !important;
+        transition: background-color 0.15s ease-in-out !important;
+    }
+    /* Canvas-based grid (glide-data-grid) rounding + shadow wrapper fallback */
+    [data-testid="stDataFrame"] canvas, [data-testid="stDataEditor"] canvas {
+        border-radius: 0 0 16px 16px !important;
+    }
+    /* Scrollbar polish inside tables */
+    [data-testid="stDataFrame"] ::-webkit-scrollbar, [data-testid="stDataEditor"] ::-webkit-scrollbar {
+        height: 10px !important; width: 10px !important;
+    }
+    [data-testid="stDataFrame"] ::-webkit-scrollbar-thumb, [data-testid="stDataEditor"] ::-webkit-scrollbar-thumb {
+        background: #c7d2fe !important; border-radius: 8px !important;
+    }
+    [data-testid="stDataFrame"] ::-webkit-scrollbar-track, [data-testid="stDataEditor"] ::-webkit-scrollbar-track {
+        background: #f1f5f9 !important;
+    }
+    /* Toolbar (search/download icons) that appears on dataframe hover */
+    [data-testid="stElementToolbar"] {
+        background: #ffffff !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12) !important;
+        border: 1px solid #e2e8f0 !important;
+    }
 
     /* Dialog/Popup Premium Styling */
     div[data-testid="stDialog"] > div {
