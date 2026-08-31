@@ -324,29 +324,43 @@ st.markdown("""
 # Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    try:
-        url: str = str(st.secrets["supabase"]["url"]).strip().strip('"').strip("'")
-        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-        # Most common cause of "Invalid URL": the scheme (https://) is missing
-        # from the value pasted into secrets.toml — auto-fix it instead of failing.
-        if url and not url.startswith(("http://", "https://")):
-            url = "https://" + url
-        key: str = str(st.secrets["supabase"]["key"]).strip().strip('"').strip("'")
-        if not url or not key:
-            raise ValueError("Supabase 'url' or 'key' is empty in secrets.toml")
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"🚨 Supabase connection error: {e}")
-        st.info(
-            "Streamlit Cloud → App → Settings → Secrets me format check karo:\n\n"
-            "[supabase]\n"
-            "url = \"https://YOUR-PROJECT-REF.supabase.co\"\n"
-            "key = \"YOUR-ANON-OR-SERVICE-KEY\"\n\n"
-            "(url ke aage 'https://' zaroor hona chahiye, aur '/rest/v1' ya trailing slash nahi hona chahiye.)"
-        )
-        return None
+    # IMPORTANT: this function must not catch its own exceptions — if it
+    # raises, @st.cache_resource does NOT cache anything, so the very next
+    # rerun (or the Retry button below) will attempt to connect again.
+    # Previously the try/except lived *inside* here and returned None on
+    # failure, and that None got cached forever, so one transient failure
+    # (e.g. a paused/sleeping free-tier Supabase project, a brief network
+    # blip) meant the app kept showing the error permanently until it was
+    # fully restarted — even though nothing in secrets.toml had changed.
+    url: str = str(st.secrets["supabase"]["url"]).strip().strip('"').strip("'")
+    url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+    # Most common cause of "Invalid URL": the scheme (https://) is missing
+    # from the value pasted into secrets.toml — auto-fix it instead of failing.
+    if url and not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    key: str = str(st.secrets["supabase"]["key"]).strip().strip('"').strip("'")
+    if not url or not key:
+        raise ValueError("Supabase 'url' or 'key' is empty in secrets.toml")
+    return create_client(url, key)
 
-supabase: Client = init_connection()
+
+try:
+    supabase: Client = init_connection()
+except Exception as e:
+    st.error(f"🚨 Supabase connection error: {e}")
+    st.info(
+        "Ye aksar TEMPORARY hota hai (Supabase free-tier project 'sleep' me chala jaata hai, "
+        "ya network ka thoda glitch). Neeche 'Retry Connection' dabao. Agar baar baar aaye "
+        "to secrets.toml format check karo:\n\n"
+        "[supabase]\n"
+        "url = \"https://YOUR-PROJECT-REF.supabase.co\"\n"
+        "key = \"YOUR-ANON-OR-SERVICE-KEY\"\n\n"
+        "(url ke aage 'https://' zaroor hona chahiye, aur '/rest/v1' ya trailing slash nahi hona chahiye.)"
+    )
+    if st.button("🔄 Retry Connection"):
+        init_connection.clear()
+        st.rerun()
+    st.stop()
 
 
 def display_box(label, value):
