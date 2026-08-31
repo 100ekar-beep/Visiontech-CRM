@@ -1046,6 +1046,7 @@ elif st.session_state.billing_active_page == "mrn":
                                 p_id = r["id"]
                                 full_row = df_pending[df_pending['id'] == p_id].iloc[0].to_dict()
                                 full_row.pop("Select", None)
+                                full_row.pop("id", None)
                                 full_row["date"] = str(full_row["date"])
                                 supabase.table("billing_invoices").insert(full_row).execute()
                                 supabase.table("pending_billing_invoices").delete().eq("id", p_id).execute()
