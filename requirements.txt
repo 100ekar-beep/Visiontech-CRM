@@ -11,3 +11,5 @@ Pillow
 phonenumbers
 streamlit-autorefresh
 cloudinary
+fpdf2>=2.8.2
+uharfbuzz>=0.49.0
