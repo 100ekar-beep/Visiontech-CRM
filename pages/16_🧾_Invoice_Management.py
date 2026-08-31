@@ -1378,7 +1378,7 @@ def add_invoice_dialog():
                 "cgst": cgst,
                 "sgst": sgst,
                 "igst": igst,
-                "total": total,
+                "Total": total,
                 "project_id": project_id,
                 "site_id": site_id,
                 "site_name": site_name,
@@ -1476,7 +1476,7 @@ def edit_invoice_dialog(row_data):
                 "cgst": cgst,
                 "sgst": sgst,
                 "igst": igst,
-                "total": total,
+                "Total": total,
                 "project_id": project_id,
                 "site_id": site_id,
                 "site_name": site_name,
@@ -1526,7 +1526,7 @@ def view_invoice_dialog(row_data):
     c_amt = float(row_data.get('cgst', 0) or 0)
     s_amt = float(row_data.get('sgst', 0) or 0)
     i_amt = float(row_data.get('igst', 0) or 0)
-    t_amt = row_data.get('total')
+    t_amt = row_data.get('Total')
     if not t_amt or str(t_amt).lower() in ['nan', 'none', '']:
         t_amt = b_amt + c_amt + s_amt + i_amt
 
@@ -1591,7 +1591,7 @@ def bulk_upload_dialog():
                     c = float(insert_dict.get('cgst', 0) or 0)
                     s = float(insert_dict.get('sgst', 0) or 0)
                     i = float(insert_dict.get('igst', 0) or 0)
-                    insert_dict['total'] = b + c + s + i
+                    insert_dict['Total'] = b + c + s + i
                 except:
                     pass
 
@@ -1619,7 +1619,7 @@ st.markdown("""
 
 # --- TABS ---
 columns_list = [
-    "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "total",
+    "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "Total",
     "project_id", "site_id", "site_name", "po_number", "wcc_number", "receipt_number", "percentage_amount",
     "Sub_status",
     "payment_1_amount", "payment_1_date", "payment_2_amount", "payment_2_date", "payment_3_amount", "payment_3_date",
@@ -1723,7 +1723,7 @@ if st.session_state.active_page == "vis":
     df_page = df.iloc[start_idx:end_idx].copy()
 
     keys_seq = [
-        'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'total',
+        'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'Total',
         'project_id', 'site_id', 'site_name', 'po_number', 'wcc_number', 'receipt_number', 'percentage_amount',
         'Sub_status',
         'payment_1_amount', 'payment_1_date', 'payment_2_amount', 'payment_2_date', 'payment_3_amount', 'payment_3_date',
@@ -1767,7 +1767,7 @@ if st.session_state.active_page == "vis":
                 for idx, k in enumerate(keys_seq, start=4):
                     val = row_dict.get(k, '')
 
-                    if k == 'total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
+                    if k == 'Total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
                         try:
                             b = float(row_dict.get('basic_amount', 0) or 0)
                             c = float(row_dict.get('cgst', 0) or 0)
