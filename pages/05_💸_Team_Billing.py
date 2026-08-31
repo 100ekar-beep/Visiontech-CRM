@@ -6,6 +6,7 @@ import os
 import math
 import requests
 from supabase import create_client, Client
+from st_keyup import st_keyup
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
 try:
@@ -835,7 +836,7 @@ if st.session_state.billing_active_page == "invoice":
 
     col_search, col_teamfilter, col_tbtn, col_vbtn, col_dl = st.columns([2.6, 1.8, 1.6, 1.6, 1.6])
     with col_search:
-        search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
+        search_inv = st_keyup("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
     with col_teamfilter:
         team_filter_inv = st.selectbox("Team Filter", options=inv_team_opts, label_visibility="collapsed", key="inv_team_filter")
     with col_tbtn:
@@ -935,7 +936,7 @@ if st.session_state.billing_active_page == "invoice":
 elif st.session_state.billing_active_page == "payment":
     col_search_p, col_tpbtn, col_vpbtn, col_dl_p = st.columns([4, 2, 2, 2])
     with col_search_p:
-        search_pay = st.text_input("Search", placeholder="🔍 Search Payments...", label_visibility="collapsed", key="search_pay_input")
+        search_pay = st_keyup("Search", placeholder="🔍 Search Payments...", label_visibility="collapsed", key="search_pay_input")
     with col_tpbtn:
         if st.button("➕ Add Team Payment", type="primary", use_container_width=True):
             payment_dialog(mode="Team")
