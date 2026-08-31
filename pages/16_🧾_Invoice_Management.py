@@ -1386,7 +1386,7 @@ def add_invoice_dialog():
                 "wcc_number": wcc_number,
                 "receipt_number": receipt_number,
                 "percentage_amount": percentage_amount,
-                "sub_status": sub_status,
+                "Sub_status": sub_status,
                 "payment_1_amount": payment_1_amount,
                 "payment_1_date": payment_1_date,
                 "payment_2_amount": payment_2_amount,
@@ -1442,7 +1442,7 @@ def edit_invoice_dialog(row_data):
         with c14: receipt_number = st.text_input("Receipt_number", value=str(row_data.get('receipt_number', '')), key="ed_receipt")
         with c15: percentage_amount = st.number_input("%Amount", value=float(row_data.get('percentage_amount', 0.0) or 0.0), format="%.2f", key="ed_pct")
 
-        sub_status = st.text_input("Sub_status", value=str(row_data.get('sub_status', '')), key="ed_substatus")
+        sub_status = st.text_input("Sub_status", value=str(row_data.get('Sub_status', '')), key="ed_substatus")
 
         st.markdown('<div class="modal-section-title">💳 PAYMENTS & BALANCE</div>', unsafe_allow_html=True)
         p1, p2, p3, p4, p5, p6 = st.columns(6)
@@ -1484,7 +1484,7 @@ def edit_invoice_dialog(row_data):
                 "wcc_number": wcc_number,
                 "receipt_number": receipt_number,
                 "percentage_amount": percentage_amount,
-                "sub_status": sub_status,
+                "Sub_status": sub_status,
                 "payment_1_amount": payment_1_amount,
                 "payment_1_date": payment_1_date,
                 "payment_2_amount": payment_2_amount,
@@ -1537,7 +1537,7 @@ def view_invoice_dialog(row_data):
     with c13: st.text_input("Total", value=str(t_amt), disabled=True)
     with c14: st.text_input("% Amount", value=str(row_data.get('percentage_amount', '')), disabled=True)
 
-    st.text_input("Sub Status", value=row_data.get('sub_status', ''), disabled=True)
+    st.text_input("Sub Status", value=row_data.get('Sub_status', ''), disabled=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Close", use_container_width=True):
@@ -1621,7 +1621,7 @@ st.markdown("""
 columns_list = [
     "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "total",
     "project_id", "site_id", "site_name", "po_number", "wcc_number", "receipt_number", "percentage_amount",
-    "sub_status",
+    "Sub_status",
     "payment_1_amount", "payment_1_date", "payment_2_amount", "payment_2_date", "payment_3_amount", "payment_3_date",
     "balance", "remark"
 ]
@@ -1725,7 +1725,7 @@ if st.session_state.active_page == "vis":
     keys_seq = [
         'circle', 'invoice_number', 'invoice_date', 'basic_amount', 'cgst', 'sgst', 'igst', 'total',
         'project_id', 'site_id', 'site_name', 'po_number', 'wcc_number', 'receipt_number', 'percentage_amount',
-        'sub_status',
+        'Sub_status',
         'payment_1_amount', 'payment_1_date', 'payment_2_amount', 'payment_2_date', 'payment_3_amount', 'payment_3_date',
         'balance', 'remark'
     ]
