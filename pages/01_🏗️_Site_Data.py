@@ -770,7 +770,7 @@ def add_record_dialog():
             if not has_error:
                 active_ws_check = st.session_state.get('active_workspace', 'VISPL')
                 try:
-                    dup_check = supabase.table("site_data").select("Project ID").eq("Project ID", proj_id).eq("workspace", active_ws_check).execute()
+                    dup_check = supabase.table("site_data").select("id").eq("Project ID", proj_id).eq("workspace", active_ws_check).execute()
                     if len(dup_check.data) > 0:
                         st.error(f"❌ Project ID already exist in '{active_ws_check}' workspace")
                         has_error = True
@@ -843,7 +843,7 @@ def add_record_dialog():
                             }
                             try:
                                 # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
-                                dup_wh = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).eq("workspace", active_ws_save).execute()
+                                dup_wh = supabase.table("warehouse_data").select("id").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).eq("workspace", active_ws_save).execute()
                                 if not dup_wh.data:
                                     supabase.table("warehouse_data").insert(insert_wh).execute()
                             except Exception:
@@ -1062,7 +1062,7 @@ def edit_record_dialog(row_data):
                 try:
                     dup_check = (
                         supabase.table("site_data")
-                        .select("Project ID")
+                        .select("id")
                         .eq("Project ID", proj_id.strip())
                         .eq("workspace", active_ws_check)
                         .neq("id", row_data['id'])
@@ -1335,7 +1335,7 @@ def material_movement_dialog(row_data):
                 for ic in mat_item_codes:
                     code_str = ic.strip()
                     try:
-                        dup_check = supabase.table("warehouse_data").select("Item Code").eq("Project ID", proj_id).eq("Item Code", code_str).eq("workspace", active_ws_mat).execute()
+                        dup_check = supabase.table("warehouse_data").select("id").eq("Project ID", proj_id).eq("Item Code", code_str).eq("workspace", active_ws_mat).execute()
                         if dup_check.data and len(dup_check.data) > 0:
                             st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}' in '{active_ws_mat}' workspace.")
                             has_m_err = True
@@ -1612,7 +1612,7 @@ def bulk_upload_dialog():
                 try:
                     dup_bulk = (
                         supabase.table("site_data")
-                        .select("Project ID")
+                        .select("id")
                         .eq("Project ID", p_id)
                         .eq("workspace", active_ws_bulk)
                         .execute()
