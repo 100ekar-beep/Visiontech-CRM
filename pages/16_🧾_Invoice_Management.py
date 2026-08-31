@@ -588,7 +588,7 @@ def field_widget(col_name, value, key, container):
     if 'date' in cl:
         parsed = parse_date_safely(value) if value not in (None, '') else None
         raw = container.date_input(col_name.replace("_", " ").title(), value=parsed, key=key)
-        return raw.strftime("%Y-%m-%d") if raw else ""
+        return raw.strftime("%Y-%m-%d") if raw else None
     elif any(k in cl for k in ['amount', 'gst', 'total', 'balance', 'percentage', 'price', 'rate']) and 'number' not in cl:
         try:
             fv = float(value) if value not in (None, '', 'nan') else 0.0
@@ -1323,7 +1323,7 @@ def add_invoice_dialog():
         with c2: invoice_number = st.text_input("Invoice_number", placeholder="Inv Number")
         with c3:
             raw_inv_date = st.date_input("Invoice_date", value=None)
-            invoice_date = raw_inv_date.strftime("%Y-%m-%d") if raw_inv_date else ""
+            invoice_date = raw_inv_date.strftime("%Y-%m-%d") if raw_inv_date else None
         with c4: project_id = st.text_input("Project_id", placeholder="Project ID")
 
         c5, c6, c7, c8 = st.columns(4)
@@ -1354,15 +1354,15 @@ def add_invoice_dialog():
         with p1: payment_1_amount = st.number_input("Paymet_1_amount", value=0.0, format="%.2f")
         with p2:
             raw_p1_date = st.date_input("Payment_1_date", value=None)
-            payment_1_date = raw_p1_date.strftime("%Y-%m-%d") if raw_p1_date else ""
+            payment_1_date = raw_p1_date.strftime("%Y-%m-%d") if raw_p1_date else None
         with p3: payment_2_amount = st.number_input("Paymet_2_amount", value=0.0, format="%.2f")
         with p4:
             raw_p2_date = st.date_input("Payment_2_date", value=None)
-            payment_2_date = raw_p2_date.strftime("%Y-%m-%d") if raw_p2_date else ""
+            payment_2_date = raw_p2_date.strftime("%Y-%m-%d") if raw_p2_date else None
         with p5: payment_3_amount = st.number_input("Paymet_3_amount", value=0.0, format="%.2f")
         with p6:
             raw_p3_date = st.date_input("Payment_3_date", value=None)
-            payment_3_date = raw_p3_date.strftime("%Y-%m-%d") if raw_p3_date else ""
+            payment_3_date = raw_p3_date.strftime("%Y-%m-%d") if raw_p3_date else None
 
         b1, b2 = st.columns([2, 4])
         with b1: balance = st.number_input("Balance", value=0.0, format="%.2f")
@@ -1418,7 +1418,7 @@ def edit_invoice_dialog(row_data):
         with c3:
             parsed_date = parse_date_safely(row_data.get('invoice_date', ''))
             raw_inv_date = st.date_input("Invoice_date", value=parsed_date, key="ed_inv_date")
-            invoice_date = raw_inv_date.strftime("%Y-%m-%d") if raw_inv_date else ""
+            invoice_date = raw_inv_date.strftime("%Y-%m-%d") if raw_inv_date else None
         with c4: project_id = st.text_input("Project_id", value=str(row_data.get('project_id', '')), key="ed_proj_id")
 
         c5, c6, c7, c8 = st.columns(4)
@@ -1450,17 +1450,17 @@ def edit_invoice_dialog(row_data):
         with p2:
             p1_d = parse_date_safely(row_data.get('payment_1_date', ''))
             raw_p1 = st.date_input("Payment_1_date", value=p1_d, key="ed_p1_date")
-            payment_1_date = raw_p1.strftime("%Y-%m-%d") if raw_p1 else ""
+            payment_1_date = raw_p1.strftime("%Y-%m-%d") if raw_p1 else None
         with p3: payment_2_amount = st.number_input("Paymet_2_amount", value=float(row_data.get('payment_2_amount', 0.0) or 0.0), format="%.2f", key="ed_p2_amt")
         with p4:
             p2_d = parse_date_safely(row_data.get('payment_2_date', ''))
             raw_p2 = st.date_input("Payment_2_date", value=p2_d, key="ed_p2_date")
-            payment_2_date = raw_p2.strftime("%Y-%m-%d") if raw_p2 else ""
+            payment_2_date = raw_p2.strftime("%Y-%m-%d") if raw_p2 else None
         with p5: payment_3_amount = st.number_input("Paymet_3_amount", value=float(row_data.get('payment_3_amount', 0.0) or 0.0), format="%.2f", key="ed_p3_amt")
         with p6:
             p3_d = parse_date_safely(row_data.get('payment_3_date', ''))
             raw_p3 = st.date_input("Payment_3_date", value=p3_d, key="ed_p3_date")
-            payment_3_date = raw_p3.strftime("%Y-%m-%d") if raw_p3 else ""
+            payment_3_date = raw_p3.strftime("%Y-%m-%d") if raw_p3 else None
 
         b1, b2 = st.columns([2, 4])
         with b1: balance = st.number_input("Balance", value=float(row_data.get('balance', 0.0) or 0.0), format="%.2f", key="ed_bal")
