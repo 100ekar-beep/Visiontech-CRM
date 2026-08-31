@@ -1582,6 +1582,169 @@ def bhagya_view_invoice_dialog(row_data):
             st.rerun()
 
 
+@st.dialog("✏️ Edit Invoice (Bhagyashree)", width="large")
+def bhagya_edit_invoice_dialog(row_data):
+    """Edit an existing Bhagyashree invoice: Bill From / Invoice No / Invoice
+    Date and the Claim Qty per PO line can be changed. Project ID / Site ID
+    stay fixed (the invoice keeps pointing at the same site it was created
+    for) — this keeps editing simple and avoids re-triggering the "already
+    invoiced" project filter used by the Add dialog."""
+    rid = row_data.get("id")
+    st.caption(f"Editing Invoice No: {row_data.get('invoice_no','')}")
+
+    existing_line_items = row_data.get("line_items", [])
+    if isinstance(existing_line_items, str):
+        try:
+            existing_line_items = json.loads(existing_line_items)
+        except Exception:
+            existing_line_items = []
+    existing_qty_map = {
+        (li.get("line_number"), li.get("item_code")): li.get("claim_qty", 0)
+        for li in existing_line_items
+    }
+
+    bf1, bf2 = st.columns(2)
+    with bf1:
+        bf_options = list(BILL_FROM_DETAILS.keys())
+        current_bf = row_data.get("bill_from", bf_options[0] if bf_options else "")
+        bf_index = bf_options.index(current_bf) if current_bf in bf_options else 0
+        bill_from = st.selectbox("Bill From *", options=bf_options, index=bf_index, key=f"bhagya_edit_bf_{rid}")
+    with bf2:
+        invoice_no = st.text_input("Invoice No *", value=row_data.get("invoice_no", ""), key=f"bhagya_edit_no_{rid}")
+
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        parsed_date = parse_date_safely(row_data.get("invoice_date", "")) or date.today()
+        invoice_date = st.date_input("Invoice Date", value=parsed_date, format="DD/MM/YYYY", key=f"bhagya_edit_date_{rid}")
+    with dc2:
+        st.markdown(display_box("Project ID", row_data.get("project_id", "")), unsafe_allow_html=True)
+
+    site_id = row_data.get("site_id", "")
+
+    st.markdown('<div class="modal-section-title">📍 SITE DETAILS</div>', unsafe_allow_html=True)
+    d1, d2, d3 = st.columns(3)
+    with d1: st.markdown(display_box("Site ID", site_id), unsafe_allow_html=True)
+    with d2: st.markdown(display_box("Site Name", row_data.get("site_name", "")), unsafe_allow_html=True)
+    with d3: st.markdown(display_box("Cluster", row_data.get("cluster", "")), unsafe_allow_html=True)
+
+    st.markdown('<div class="modal-section-title">📦 PO LINE ITEMS — Update Claim Qty</div>', unsafe_allow_html=True)
+    po_lines = bhagya_get_po_lines(site_id)
+    if not po_lines:
+        st.warning("Is site ke liye PO Working me koi line nahi mili.")
+        return
+
+    h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+    for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
+        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+
+    line_items = []
+    subtotal = 0.0
+    for po in po_lines:
+        r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
+        line_no = po.get("Line Number", "")
+        item_code = po.get("Item Num", "")
+        description = po.get("Description", "")
+        po_qty = po.get("PO Qty", 0) or 0
+        price = po.get("Price", 0) or 0
+
+        r_cols[0].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{line_no}</div>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{item_code}</div>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{description}</div>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{po_qty}</div>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{price:,.0f}</div>", unsafe_allow_html=True)
+
+        default_qty = int(existing_qty_map.get((line_no, item_code), 0) or 0)
+        max_qty = int(po_qty) if po_qty else 0
+        claim_qty = r_cols[5].number_input(
+            "Claim Qty", min_value=0, max_value=max_qty, step=1, value=min(default_qty, max_qty),
+            key=f"bhagya_edit_claim_{rid}_{line_no}_{item_code}", label_visibility="collapsed"
+        )
+        amount = claim_qty * price
+        r_cols[6].markdown(f"<div style='color:#3b82f6; font-size:0.86rem; font-weight:800;'>{amount:,.0f}</div>", unsafe_allow_html=True)
+
+        subtotal += amount
+        line_items.append({
+            "line_number": line_no,
+            "item_code": item_code,
+            "description": description,
+            "po_qty": po_qty,
+            "price": price,
+            "claim_qty": claim_qty,
+            "amount": amount,
+            "hsn": _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
+        })
+
+    discount_pct = WORKSPACE_DISCOUNT_PCT.get(BHAGYA_WORKSPACE, 0.0)
+    discount_amount = subtotal * (discount_pct / 100.0)
+    taxable_amount = subtotal - discount_amount
+    cgst = taxable_amount * 0.09
+    sgst = taxable_amount * 0.09
+    total = taxable_amount + cgst + sgst
+
+    st.markdown(f"""
+        <div style="background: rgba(255,255,255,0.05); padding: 14px 20px; border-radius: 10px; margin-top:15px;">
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:6px 0 3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">CGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {cgst:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">SGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {sgst:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:8px 0 0 0; border-top:1px solid rgba(255,255,255,0.15); margin-top:6px;"><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">Final Amount</span><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">₹ {total:,.0f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 Update Invoice", type="primary", use_container_width=True, key=f"bhagya_edit_save_{rid}"):
+        if not invoice_no.strip():
+            st.error("⚠️ Invoice No is required!")
+        elif subtotal <= 0:
+            st.error("⚠️ Kam se kam ek line me Claim Qty > 0 dalein!")
+        else:
+            payload = {
+                "invoice_no": invoice_no.strip(),
+                "invoice_date": str(invoice_date),
+                "bill_from": bill_from,
+                "line_items": line_items,
+                "subtotal": subtotal,
+                "discount_pct": discount_pct,
+                "discount_amount": discount_amount,
+                "taxable_amount": taxable_amount,
+                "cgst": cgst,
+                "sgst": sgst,
+                "total": total,
+            }
+            try:
+                supabase.table(BHAGYA_TABLE).update(payload).eq("id", rid).execute()
+                st.success("✅ Invoice Updated Successfully!")
+                get_table_df.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error updating invoice: {e}")
+
+
+@st.dialog("🗑️ Confirm Deletion", width="small")
+def bhagya_delete_dialog(rid, invoice_no):
+    st.warning(f"Delete invoice '{invoice_no}'? This action cannot be undone.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("❌ Cancel", use_container_width=True, key=f"bhagya_del_cancel_{rid}"):
+            st.rerun()
+    with col2:
+        if st.button("✅ Confirm", type="primary", use_container_width=True, key=f"bhagya_del_confirm_{rid}"):
+            try:
+                supabase.table(BHAGYA_TABLE).delete().eq("id", rid).execute()
+                st.success("✅ Deleted Successfully!")
+                get_table_df.clear()
+                # A deleted invoice frees its project_id back up as
+                # selectable in the Add dialog, so the cached site-options
+                # list (which excludes already-invoiced project_ids) needs
+                # to be refreshed too.
+                bhagya_get_site_options.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+
+
 def render_bhagyashree_tab():
     col_title, col_ref, col_add = st.columns([3.5, 1, 1.5])
     with col_title:
@@ -1638,8 +1801,8 @@ def render_bhagyashree_tab():
     end_idx = start_idx + rows_per_page
     page_df = view_df.iloc[start_idx:end_idx]
 
-    b_cols = ["#", "🧾", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
-    b_ratios = [0.3, 0.35, 1.1, 1.0, 1.0, 1.0, 1.1, 1.4, 1.0, 1.0, 1.1]
+    b_cols = ["#", "🧾", "✏️", "🗑️", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
+    b_ratios = [0.3, 0.35, 0.35, 0.35, 1.1, 1.0, 1.0, 1.0, 1.1, 1.4, 1.0, 1.0, 1.1]
 
     with st.container(key="bhagya_table_wrap", height=520):
         h_cols = st.columns(b_ratios)
@@ -1654,20 +1817,26 @@ def render_bhagyashree_tab():
             with r_cols[1]:
                 if st.button("🧾", key=f"bhagya_view_{rid}", use_container_width=True):
                     bhagya_view_invoice_dialog(row_dict)
-            r_cols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
-            r_cols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
-            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
-            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
+            with r_cols[2]:
+                if st.button("✏️", key=f"bhagya_editbtn_{rid}", use_container_width=True):
+                    bhagya_edit_invoice_dialog(row_dict)
+            with r_cols[3]:
+                if st.button("🗑️", key=f"bhagya_delbtn_{rid}", use_container_width=True):
+                    bhagya_delete_dialog(rid, row_dict.get('invoice_no', ''))
+            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
+            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
+            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
+            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
             # "Basic" = taxable amount AFTER the workspace discount has been
             # cut (matches the "Basic Amount" total that will show on the PDF).
             subtotal_v = row_dict.get('subtotal', 0) or 0
             basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
-            r_cols[8].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[10].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
             gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
-            r_cols[9].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
-            r_cols[10].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
+            r_cols[11].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[12].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
