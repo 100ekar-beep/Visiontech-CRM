@@ -822,9 +822,22 @@ def fetch_pending_mrn_cached(workspace):
 # PAGE 1: INVOICE ENTRY
 # ==========================================
 if st.session_state.billing_active_page == "invoice":
-    col_search, col_tbtn, col_vbtn, col_dl = st.columns([4, 2, 2, 2])
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    try:
+        inv_data_raw = fetch_billing_invoices_cached(active_ws)
+    except Exception:
+        inv_data_raw = []
+
+    inv_team_opts = ["All Teams"]
+    if inv_data_raw:
+        _teams = sorted(set(str(r.get("team_name", "")).strip() for r in inv_data_raw if str(r.get("team_name", "")).strip()))
+        inv_team_opts += _teams
+
+    col_search, col_teamfilter, col_tbtn, col_vbtn, col_dl = st.columns([2.6, 1.8, 1.6, 1.6, 1.6])
     with col_search:
         search_inv = st.text_input("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
+    with col_teamfilter:
+        team_filter_inv = st.selectbox("Team Filter", options=inv_team_opts, label_visibility="collapsed", key="inv_team_filter")
     with col_tbtn:
         if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
             team_invoice_dialog()
@@ -835,11 +848,12 @@ if st.session_state.billing_active_page == "invoice":
     st.markdown("<br>", unsafe_allow_html=True)
 
     try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        inv_data_raw = fetch_billing_invoices_cached(active_ws)
         if inv_data_raw:
             df_inv = pd.DataFrame(inv_data_raw)
-            
+
+            if team_filter_inv and team_filter_inv != "All Teams" and "team_name" in df_inv.columns:
+                df_inv = df_inv[df_inv["team_name"].astype(str).str.strip() == team_filter_inv]
+
             if search_inv:
                 mask = df_inv.astype(str).apply(lambda x: x.str.contains(search_inv, case=False, na=False)).any(axis=1)
                 df_inv = df_inv[mask]
