@@ -362,25 +362,6 @@ def team_invoice_dialog(row_data=None):
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
                 
-                try:
-                    mob = get_mobile_number("Team Name", team_val)
-                    if mob:
-                        wa_date_str = inv_date.strftime("%d/%m/%Y")
-                        wa_params = [
-                            str(team_val), 
-                            str(inv_no), 
-                            str(wa_date_str), 
-                            str(proj_id), 
-                            str(site_id), 
-                            str(site_name), 
-                            str(int(safe_basic)), 
-                            str(int(gst_amt)), 
-                            str(int(total_calc))
-                        ]
-                        send_interakt_whatsapp(mob, "teaminvoice_r7", wa_params) 
-                except:
-                    pass
-                
                 st.success("✅ Team Invoice Saved Successfully!")
                 fetch_billing_invoices_cached.clear()
                 st.rerun()
@@ -478,20 +459,6 @@ def vendor_invoice_dialog(row_data=None):
                     supabase.table("billing_invoices").insert(payload).execute()
                 else:
                     supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
-                
-                try:
-                    team_mob = get_mobile_number("Team Name", team_val)
-                    vend_mob = get_mobile_number("Vendor Name", vendor_val)
-                    
-                    wa_date_str = inv_date.strftime("%d/%m/%Y")
-                    wa_params = [team_val, vendor_val, inv_no, wa_date_str, str(int(total_calc)), team_val]
-                    
-                    if team_mob:
-                        send_interakt_whatsapp(team_mob, "vendorinvoice", wa_params)
-                    if vend_mob:
-                        send_interakt_whatsapp(vend_mob, "vendorinvoice", wa_params)
-                except:
-                    pass
                 
                 st.success("✅ Vendor Invoice Saved Successfully!")
                 fetch_billing_invoices_cached.clear()
