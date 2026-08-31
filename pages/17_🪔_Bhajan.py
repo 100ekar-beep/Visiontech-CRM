@@ -66,6 +66,16 @@ if not st.session_state.get("bhajan_authenticated"):
             st.error(f"🚨 Bhajan login configuration error: {exc}")
     st.stop()
 
+# BHAJAN workspace में default navigation hidden रहता है, इसलिए Home वापसी का
+# permanent sidebar control रखा गया है ताकि user दूसरा workspace चुन सके.
+with st.sidebar:
+    st.markdown("### 🪔 Bhajan Menu")
+    if st.button("🏠 Home / Change Workspace", key="bhajan_back_home", use_container_width=True):
+        st.switch_page("app.py")
+    if st.button("🚪 Logout", key="bhajan_sidebar_logout", use_container_width=True):
+        st.session_state["bhajan_authenticated"] = False
+        st.switch_page("app.py")
+
 
 st.markdown(
     """
