@@ -153,6 +153,45 @@ st.markdown("""
     }
 
     /* =========================================================
+       GENERIC (unscoped) TABLE-CELL FALLBACK — used anywhere a
+       .tbl-cell/.tbl-head is rendered OUTSIDE a "_table_wrap"
+       container (e.g. inside dialogs), where the scoped rules
+       below would otherwise never match and text stays invisible
+       on the dark background.
+       ========================================================= */
+    .tbl-cell {
+        color: #f1f5f9;
+        font-size: 0.86rem;
+    }
+    .tbl-head {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+    }
+
+    /* Bold, clearly-legible read-only "display box" used for
+       Site ID / Site Name / Cluster / Project Name etc. */
+    .display-box-label {
+        color: #94a3b8;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    .display-box-value {
+        background: #f1f5f9;
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: #0f172a !important;
+        font-weight: 800 !important;
+        font-size: 0.95rem;
+        min-height: 20px;
+    }
+
+    /* =========================================================
        PREMIUM SIDEBAR NAVIGATION BUTTONS
        ========================================================= */
     [data-testid="stSidebar"] {
@@ -295,6 +334,21 @@ def init_connection():
         return None
 
 supabase: Client = init_connection()
+
+
+def display_box(label, value):
+    """Small helper: renders a bold, clearly-legible read-only value box
+    (dark bold text on a light background) — used instead of a disabled
+    st.text_input, whose value text was not visible on the dark theme."""
+    safe_val = "" if value is None else str(value)
+    if safe_val.strip() == "" or safe_val.lower() == "nan":
+        safe_val = "-"
+    return f"""
+        <div>
+            <div class="display-box-label">{label}</div>
+            <div class="display-box-value">{safe_val}</div>
+        </div>
+    """
 
 # =========================================================================
 # ERS PROCESS — FIXED "Indus Towers Invoice Submission Checklist" PDF
@@ -884,17 +938,39 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
 BHAGYA_WORKSPACE = "BHAGYASHREE"
 BHAGYA_TABLE = "bhagyashree_invoices"
 
-# Placeholder billing-entity details — update address/GSTIN as needed
+# Fixed discount % applied to the line-items subtotal BEFORE GST, per
+# workspace. "Sai Tele" does not yet have a custom PO-based invoice
+# builder (it uses the generic CRUD tab), so this constant is ready to
+# be wired in if/when a similar builder is added for it.
+WORKSPACE_DISCOUNT_PCT = {
+    "BHAGYASHREE": 2.0,
+    "SAITELE": 5.0,
+}
+
+# Billing-entity ("Bill From") details
 BILL_FROM_DETAILS = {
     "VISPL": {
         "full_name": "Visiontech Infra Solution Pvt. Ltd.",
-        "address": "Address line 1, City, State - PIN",
-        "gstin": "GSTIN NOT SET",
+        "address": "Near Vikas Mitra Madal Chowk, Survey No 8/9/7, House No 81 Santkrupa Building, Canal Road, Lane Number 2, Karve Nagar, Pune, Pune, Maharashtra, 411052",
+        "gstin": "27AAICV3205F1ZI",
+        "pan": "AAICV3205F",
+        "contact_person": "Radhika Jaju",
+        "mobile": "9742514121",
+        "email": "vispltower@gmail.com",
     },
     "Whizkey": {
         "full_name": "Whizkey",
         "address": "Address line 1, City, State - PIN",
         "gstin": "GSTIN NOT SET",
+    },
+}
+
+# "Bill To" details, keyed by workspace
+BILL_TO_DETAILS = {
+    BHAGYA_WORKSPACE: {
+        "full_name": "Bhagyashree Enterprises",
+        "address": "S. No. 66, Sai Pritam Nagar Rahtani, BLD - A Flat - 7 Pune Pune,Maharashtra-411017,India.",
+        "gstin": "27ABWPV2922M1ZQ",
     },
 }
 
@@ -942,6 +1018,7 @@ def bhagya_generate_pdf(row_data):
 
     bill_from = row_data.get("bill_from", "")
     bf_details = BILL_FROM_DETAILS.get(bill_from, {"full_name": bill_from, "address": "", "gstin": ""})
+    bt_details = BILL_TO_DETAILS.get(BHAGYA_WORKSPACE, {"full_name": "Bhagyashree Enterprises", "address": "", "gstin": ""})
     line_items = row_data.get("line_items", [])
     if isinstance(line_items, str):
         try:
@@ -957,18 +1034,36 @@ def bhagya_generate_pdf(row_data):
     pdf.cell(190, 9, "TAX INVOICE", ln=True, align='C')
     pdf.ln(2)
 
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(95, 6, "Bill From:", ln=False)
-    pdf.cell(95, 6, "Bill To:", ln=True)
-    pdf.set_font("Arial", '', 9)
-    pdf.cell(95, 5, str(bf_details.get("full_name", "")), ln=False)
-    pdf.cell(95, 5, "Bhagyashree Enterprises", ln=True)
-    pdf.cell(95, 5, str(bf_details.get("address", "")), ln=False)
-    pdf.cell(95, 5, f"Site: {row_data.get('site_name', '')}", ln=True)
-    pdf.cell(95, 5, f"GSTIN: {bf_details.get('gstin', '')}", ln=False)
-    pdf.cell(95, 5, f"Cluster: {row_data.get('cluster', '')}", ln=True)
+    # ---------------- BILL FROM ----------------
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_text_color(59, 130, 246)
+    pdf.cell(190, 5, "Bill From:", ln=True)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(190, 5, str(bf_details.get("full_name", "")), ln=True)
+    pdf.set_font("Arial", '', 8.5)
+    pdf.multi_cell(190, 4.3, str(bf_details.get("address", "")))
+    pdf.cell(95, 4.5, f"GSTIN: {bf_details.get('gstin', '')}", ln=False)
+    pdf.cell(95, 4.5, f"PAN: {bf_details.get('pan', '')}", ln=True)
+    pdf.cell(95, 4.5, f"Contact: {bf_details.get('contact_person', '')}", ln=False)
+    pdf.cell(95, 4.5, f"Mobile: {bf_details.get('mobile', '')}", ln=True)
+    pdf.cell(190, 4.5, f"Email: {bf_details.get('email', '')}", ln=True)
     pdf.ln(3)
 
+    # ---------------- BILL TO ----------------
+    pdf.set_font("Arial", 'B', 10)
+    pdf.set_text_color(59, 130, 246)
+    pdf.cell(190, 5, "Bill To:", ln=True)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.set_text_color(15, 23, 42)
+    pdf.cell(190, 5, str(bt_details.get("full_name", "")), ln=True)
+    pdf.set_font("Arial", '', 8.5)
+    pdf.multi_cell(190, 4.3, str(bt_details.get("address", "")))
+    pdf.cell(95, 4.5, f"GSTIN: {bt_details.get('gstin', '')}", ln=False)
+    pdf.cell(95, 4.5, f"Site: {row_data.get('site_name', '')} | Cluster: {row_data.get('cluster', '')}", ln=True)
+    pdf.ln(3)
+
+    pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 9)
     pdf.cell(63, 6, f"Invoice No: {row_data.get('invoice_no', '')}", ln=False)
     pdf.cell(63, 6, f"Invoice Date: {row_data.get('invoice_date', '')}", ln=False)
@@ -1005,13 +1100,21 @@ def bhagya_generate_pdf(row_data):
 
     pdf.ln(4)
     subtotal = row_data.get("subtotal", 0) or 0
+    discount_pct = row_data.get("discount_pct", 0) or 0
+    discount_amount = row_data.get("discount_amount", (subtotal * discount_pct / 100.0)) or 0
+    taxable_amount = row_data.get("taxable_amount", subtotal - discount_amount) or 0
     cgst = row_data.get("cgst", 0) or 0
     sgst = row_data.get("sgst", 0) or 0
     total = row_data.get("total", 0) or 0
 
     pdf.set_font("Arial", 'B', 10)
+    pdf.set_text_color(0, 0, 0)
     pdf.cell(150, 7, "Subtotal", border=0, align='R')
     pdf.cell(40, 7, f"Rs. {subtotal:,.0f}", border=0, align='R', ln=True)
+    pdf.cell(150, 7, f"Discount ({discount_pct:.0f}%)", border=0, align='R')
+    pdf.cell(40, 7, f"- Rs. {discount_amount:,.0f}", border=0, align='R', ln=True)
+    pdf.cell(150, 7, "Taxable Amount", border=0, align='R')
+    pdf.cell(40, 7, f"Rs. {taxable_amount:,.0f}", border=0, align='R', ln=True)
     pdf.cell(150, 7, "CGST (9%)", border=0, align='R')
     pdf.cell(40, 7, f"Rs. {cgst:,.0f}", border=0, align='R', ln=True)
     pdf.cell(150, 7, "SGST (9%)", border=0, align='R')
@@ -1055,10 +1158,10 @@ def bhagya_add_invoice_dialog():
 
     st.markdown('<div class="modal-section-title">📍 SITE DETAILS</div>', unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
-    with d1: st.text_input("Site ID", value=site_row.get("Site ID", ""), disabled=True, key="bhagya_disp_site_id")
-    with d2: st.text_input("Site Name", value=site_row.get("Site Name", ""), disabled=True, key="bhagya_disp_site_name")
-    with d3: st.text_input("Cluster", value=site_row.get("Cluster", ""), disabled=True, key="bhagya_disp_cluster")
-    with d4: st.text_input("Project Name", value=site_row.get("Project Name", ""), disabled=True, key="bhagya_disp_proj_name")
+    with d1: st.markdown(display_box("Site ID", site_row.get("Site ID", "")), unsafe_allow_html=True)
+    with d2: st.markdown(display_box("Site Name", site_row.get("Site Name", "")), unsafe_allow_html=True)
+    with d3: st.markdown(display_box("Cluster", site_row.get("Cluster", "")), unsafe_allow_html=True)
+    with d4: st.markdown(display_box("Project Name", site_row.get("Project Name", "")), unsafe_allow_html=True)
 
     st.markdown('<div class="modal-section-title">📦 PO LINE ITEMS — Enter Claim Qty</div>', unsafe_allow_html=True)
     po_lines = bhagya_get_po_lines(site_id)
@@ -1081,18 +1184,22 @@ def bhagya_add_invoice_dialog():
         po_qty = po.get("PO Qty", 0) or 0
         price = po.get("Price", 0) or 0
 
-        r_cols[0].markdown(f"<div class='tbl-cell'>{line_no}</div>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<div class='tbl-cell'>{item_code}</div>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<div class='tbl-cell'>{description}</div>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<div class='tbl-cell'>{po_qty}</div>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<div class='tbl-cell'>{price:,.0f}</div>", unsafe_allow_html=True)
+        # Explicit light text color here (not relying on the scoped
+        # "_table_wrap .tbl-cell" rule, since this table lives inside a
+        # dialog, not a "_table_wrap" container) so values are visible
+        # on the dark dialog background.
+        r_cols[0].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{line_no}</div>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{item_code}</div>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{description}</div>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{po_qty}</div>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{price:,.0f}</div>", unsafe_allow_html=True)
 
         claim_qty = r_cols[5].number_input(
             "Claim Qty", min_value=0, max_value=int(po_qty) if po_qty else 0, step=1, value=0,
             key=f"bhagya_claim_{line_no}_{item_code}", label_visibility="collapsed"
         )
         amount = claim_qty * price
-        r_cols[6].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#3b82f6;'>{amount:,.0f}</div>", unsafe_allow_html=True)
+        r_cols[6].markdown(f"<div style='color:#3b82f6; font-size:0.86rem; font-weight:800;'>{amount:,.0f}</div>", unsafe_allow_html=True)
 
         subtotal += amount
         line_items.append({
@@ -1105,13 +1212,20 @@ def bhagya_add_invoice_dialog():
             "amount": amount,
         })
 
-    cgst = subtotal * 0.09
-    sgst = subtotal * 0.09
-    total = subtotal + cgst + sgst
+    # --- Discount (fixed per workspace) applied before GST ---
+    discount_pct = WORKSPACE_DISCOUNT_PCT.get(BHAGYA_WORKSPACE, 0.0)
+    discount_amount = subtotal * (discount_pct / 100.0)
+    taxable_amount = subtotal - discount_amount
+
+    cgst = taxable_amount * 0.09
+    sgst = taxable_amount * 0.09
+    total = taxable_amount + cgst + sgst
 
     st.markdown(f"""
         <div style="background: rgba(255,255,255,0.05); padding: 14px 20px; border-radius: 10px; margin-top:15px;">
             <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:6px 0 3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount:,.0f}</span></div>
             <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">CGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {cgst:,.0f}</span></div>
             <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">SGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {sgst:,.0f}</span></div>
             <div style="display:flex; justify-content:space-between; padding:8px 0 0 0; border-top:1px solid rgba(255,255,255,0.15); margin-top:6px;"><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">Final Amount</span><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">₹ {total:,.0f}</span></div>
@@ -1137,6 +1251,9 @@ def bhagya_add_invoice_dialog():
                 "project_name": site_row.get("Project Name", ""),
                 "line_items": line_items,
                 "subtotal": subtotal,
+                "discount_pct": discount_pct,
+                "discount_amount": discount_amount,
+                "taxable_amount": taxable_amount,
                 "cgst": cgst,
                 "sgst": sgst,
                 "total": total,
@@ -1179,19 +1296,28 @@ def bhagya_view_invoice_dialog(row_data):
         c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
     for li in line_items:
         r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
-        r_cols[0].markdown(f"<span style='color:#e2e8f0;'>{li.get('line_number','')}</span>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<span style='color:#e2e8f0;'>{li.get('item_code','')}</span>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<span style='color:#e2e8f0;'>{li.get('description','')}</span>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<span style='color:#e2e8f0;'>{li.get('po_qty','')}</span>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<span style='color:#e2e8f0;'>{li.get('price',0):,.0f}</span>", unsafe_allow_html=True)
-        r_cols[5].markdown(f"<span style='color:#e2e8f0;'>{li.get('claim_qty','')}</span>", unsafe_allow_html=True)
+        r_cols[0].markdown(f"<span style='color:#f8fafc;'>{li.get('line_number','')}</span>", unsafe_allow_html=True)
+        r_cols[1].markdown(f"<span style='color:#f8fafc;'>{li.get('item_code','')}</span>", unsafe_allow_html=True)
+        r_cols[2].markdown(f"<span style='color:#f8fafc;'>{li.get('description','')}</span>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<span style='color:#f8fafc;'>{li.get('po_qty','')}</span>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<span style='color:#f8fafc;'>{li.get('price',0):,.0f}</span>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<span style='color:#f8fafc;'>{li.get('claim_qty','')}</span>", unsafe_allow_html=True)
         r_cols[6].markdown(f"<span style='color:#4ade80; font-weight:700;'>{li.get('amount',0):,.0f}</span>", unsafe_allow_html=True)
 
+    subtotal_v = row_data.get('subtotal', 0) or 0
+    discount_pct_v = row_data.get('discount_pct', 0) or 0
+    discount_amount_v = row_data.get('discount_amount', 0) or 0
+    taxable_amount_v = row_data.get('taxable_amount', subtotal_v - discount_amount_v) or 0
+
     st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px; display:flex; justify-content:space-between;">
-            <div style="color:#ffffff; font-weight:700;">Subtotal: <span style="color:#3b82f6;">₹ {row_data.get('subtotal',0):,.0f}</span></div>
-            <div style="color:#ffffff; font-weight:700;">CGST+SGST: <span style="color:#f59e0b;">₹ {(row_data.get('cgst',0)+row_data.get('sgst',0)):,.0f}</span></div>
-            <div style="color:#ffffff; font-weight:700;">Final: <span style="color:#4ade80;">₹ {row_data.get('total',0):,.0f}</span></div>
+        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px;">
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal_v:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct_v:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount_v:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px; padding-top:6px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount_v:,.0f}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:6px 0 0 0;">
+                <div style="color:#ffffff; font-weight:700;">CGST+SGST: <span style="color:#f59e0b;">₹ {(row_data.get('cgst',0)+row_data.get('sgst',0)):,.0f}</span></div>
+                <div style="color:#ffffff; font-weight:700;">Final: <span style="color:#4ade80;">₹ {row_data.get('total',0):,.0f}</span></div>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
