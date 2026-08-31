@@ -1537,12 +1537,39 @@ Visiontech Infra</p>
             clear_site_data_cache()
             st.rerun()
 
-# --- 3.8 BULK UPLOAD DIALOG FUNCTION ---
+# --- 3.8 BULK UPLOAD DIALOG FUNCTION (FIXED: proper error reporting + summary popup) ---
 @st.dialog("📤 Bulk Upload Site Data", width="large")
 def bulk_upload_dialog():
     st.caption("Upload an Excel (.xlsx) or .tsv file to bulk import site records.")
     uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_site_file")
-    
+
+    # --- SHOW LAST UPLOAD RESULT (persists across the rerun so it doesn't vanish) ---
+    if st.session_state.get("bulk_upload_result"):
+        result = st.session_state["bulk_upload_result"]
+        st.markdown("---")
+        st.markdown(f"""
+            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px;">
+                <div style="font-weight:800; color:#ffffff; font-size:1.05rem; margin-bottom:10px;">📊 Upload Summary</div>
+                <div style="color:#e2e8f0; margin-bottom:4px;">📄 Total Rows in File: <b>{result['total']}</b></div>
+                <div style="color:#4ade80; margin-bottom:4px;">✅ Successfully Added: <b>{result['added']}</b></div>
+                <div style="color:#facc15; margin-bottom:4px;">🟡 Skipped (Duplicate Project ID in '{result['workspace']}'): <b>{result['dup']}</b></div>
+                <div style="color:#94a3b8; margin-bottom:4px;">⚪ Skipped (Missing/Blank Project ID): <b>{result['missing_pid']}</b></div>
+                <div style="color:#f87171;">❌ Failed (Error): <b>{result['failed']}</b></div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if result["fail_details"]:
+            with st.expander(f"❌ View {len(result['fail_details'])} Failed Row Details (Reason)"):
+                for f in result["fail_details"]:
+                    st.markdown(f"- **Excel Row {f['row']}** (Project ID: `{f['pid'] or 'N/A'}`) → {f['reason']}")
+
+        col_close, _ = st.columns([1, 3])
+        with col_close:
+            if st.button("✅ OK, Close This Summary", type="primary", use_container_width=True):
+                st.session_state["bulk_upload_result"] = None
+                st.rerun()
+        st.markdown("---")
+
     if uploaded_file:
         if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
             try:
@@ -1550,69 +1577,108 @@ def bulk_upload_dialog():
                     df_upload = pd.read_excel(uploaded_file)
                 else:
                     df_upload = pd.read_csv(uploaded_file, sep='\t')
-                    
-                active_ws_bulk = st.session_state.get('active_workspace', 'VISPL')
-                added_count = 0
-                skipped_dup_count = 0
-                for index, row in df_upload.iterrows():
-                    p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
-                    if not p_id or p_id.lower() == "nan":
-                        continue
-
-                    # --- FIX: SKIP DUPLICATE PROJECT ID WITHIN CURRENT WORKSPACE ---
-                    try:
-                        dup_bulk = supabase.table("site_data").select("Project ID").eq("Project ID", p_id).eq("workspace", active_ws_bulk).execute()
-                        if dup_bulk.data and len(dup_bulk.data) > 0:
-                            skipped_dup_count += 1
-                            continue
-                    except Exception:
-                        pass
-                    
-                    insert_dict = {}
-                    insert_dict["workspace"] = active_ws_bulk
-                    for col in columns_list:
-                        if col != "id" and col != "🎯 Select":
-                            val = row.get(col, row.get(col.lower(), ""))
-                            val_str = str(val).strip() if pd.notna(val) else ""
-                            if val_str.lower() == 'nan': val_str = ""
-                            insert_dict[col] = val_str
-                            
-                    # ---> FIXED: DIRECT LINE-BY-LINE QUERY FOR AUTO-FETCH TO BYPASS 1000 ROWS LIMIT <---
-                    site_id_val = insert_dict.get("Site ID", "").strip()
-                    if site_id_val.endswith(".0"): site_id_val = site_id_val[:-2] # Handle Excel float issue
-                    insert_dict["Site ID"] = site_id_val
-                    
-                    if site_id_val:
-                        sn = insert_dict.get("Site Name", "").strip()
-                        cl = insert_dict.get("Cluster", "").strip()
-                        
-                        is_sn_empty = not sn or sn.lower() in ["-", "nan", "none", "empty"]
-                        is_cl_empty = not cl or cl.lower() in ["-", "nan", "none", "empty"]
-                        
-                        if is_sn_empty or is_cl_empty:
-                            try:
-                                # DIRECT QUERY PER ROW (Just like manual entry, no 1000 rows limit issue)
-                                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
-                                if master_res.data:
-                                    if is_sn_empty:
-                                        insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
-                                    if is_cl_empty:
-                                        insert_dict["Cluster"] = str(master_res.data[0].get("Cluster", "") or "").strip()
-                            except Exception:
-                                pass
-                            
-                    try:
-                        supabase.table("site_data").insert(insert_dict).execute()
-                        added_count += 1
-                    except Exception:
-                        pass
-                        
-                st.success(f"✅ Bulk Upload Complete! {added_count} records added successfully. ({skipped_dup_count} skipped as duplicate Project ID in '{active_ws_bulk}')")
-                st.session_state.current_page = 1 # <--- NEW: Switch to page 1
-                clear_site_data_cache()
-                st.rerun()
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
+                return
+
+            if df_upload.empty:
+                st.warning("⚠️ Uploaded file me koi data row nahi mili.")
+                return
+
+            active_ws_bulk = st.session_state.get('active_workspace', 'VISPL')
+            added_count = 0
+            skipped_dup_count = 0
+            missing_pid_count = 0
+            fail_details = []
+
+            total_rows = len(df_upload)
+            progress = st.progress(0, text="Processing rows...")
+
+            for index, row in df_upload.iterrows():
+                progress.progress(
+                    min((index + 1) / total_rows, 1.0),
+                    text=f"Processing row {index + 1} of {total_rows}..."
+                )
+
+                # Excel row number as user sees it (header = row 1, data starts row 2)
+                excel_row_no = index + 2
+
+                p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
+                if not p_id or p_id.lower() == "nan":
+                    missing_pid_count += 1
+                    continue
+
+                # --- DUPLICATE PROJECT ID CHECK (scoped to current workspace) ---
+                try:
+                    dup_bulk = (
+                        supabase.table("site_data")
+                        .select("Project ID")
+                        .eq("Project ID", p_id)
+                        .eq("workspace", active_ws_bulk)
+                        .execute()
+                    )
+                    if dup_bulk.data and len(dup_bulk.data) > 0:
+                        skipped_dup_count += 1
+                        continue
+                except Exception as e:
+                    fail_details.append({"row": excel_row_no, "pid": p_id, "reason": f"Duplicate-check DB error: {e}"})
+                    continue
+
+                insert_dict = {"workspace": active_ws_bulk}
+                for col in columns_list:
+                    if col not in ("id", "🎯 Select"):
+                        val = row.get(col, row.get(col.lower(), ""))
+                        val_str = str(val).strip() if pd.notna(val) else ""
+                        if val_str.lower() == 'nan':
+                            val_str = ""
+                        insert_dict[col] = val_str
+
+                # Handle Excel float artifact on Site ID (e.g. "123.0" -> "123")
+                site_id_val = insert_dict.get("Site ID", "").strip()
+                if site_id_val.endswith(".0"):
+                    site_id_val = site_id_val[:-2]
+                insert_dict["Site ID"] = site_id_val
+
+                # Auto-fetch Site Name / Cluster from Excalation Matrix if blank
+                if site_id_val:
+                    sn = insert_dict.get("Site Name", "").strip()
+                    cl = insert_dict.get("Cluster", "").strip()
+                    is_sn_empty = not sn or sn.lower() in ["-", "nan", "none", "empty"]
+                    is_cl_empty = not cl or cl.lower() in ["-", "nan", "none", "empty"]
+                    if is_sn_empty or is_cl_empty:
+                        try:
+                            master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
+                            if master_res.data:
+                                if is_sn_empty:
+                                    insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
+                                if is_cl_empty:
+                                    insert_dict["Cluster"] = str(master_res.data[0].get("Cluster", "") or "").strip()
+                        except Exception:
+                            pass  # non-fatal: auto-fetch failing shouldn't block the insert
+
+                try:
+                    supabase.table("site_data").insert(insert_dict).execute()
+                    added_count += 1
+                except Exception as e:
+                    # THIS is the actual reason a row failed — now captured instead of swallowed
+                    fail_details.append({"row": excel_row_no, "pid": p_id, "reason": str(e)})
+
+            progress.empty()
+
+            # --- Save summary in session_state so it survives st.rerun() below ---
+            st.session_state["bulk_upload_result"] = {
+                "total": total_rows,
+                "added": added_count,
+                "dup": skipped_dup_count,
+                "missing_pid": missing_pid_count,
+                "failed": len(fail_details),
+                "fail_details": fail_details,
+                "workspace": active_ws_bulk,
+            }
+
+            st.session_state.current_page = 1
+            clear_site_data_cache()
+            st.rerun()
 
 # --- 3.8.5 NEW: FIXED UPDATE PO STATUS DIALOG FUNCTION ---
 @st.dialog("📝 Update PO Status", width="large")
