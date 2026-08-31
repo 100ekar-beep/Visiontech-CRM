@@ -10,6 +10,7 @@ from urllib.parse import quote
 import pandas as pd
 import streamlit as st
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 from supabase import Client, create_client
 
 
@@ -75,6 +76,19 @@ st.markdown(
       padding:18px;margin:10px 0;box-shadow:0 5px 18px rgba(124,45,18,.08)}
     .bhajan-text {white-space:pre-wrap;line-height:1.9;font-size:1.08rem;color:#292524;}
     div.stButton>button {border-radius:9px;font-weight:700;}
+    @media (max-width: 768px) {
+      .main .block-container {padding:1rem .75rem 4rem .75rem !important;max-width:100% !important;}
+      h1 {font-size:1.75rem !important;}
+      h2 {font-size:1.35rem !important;}
+      .bhajan-card {padding:14px;margin:8px 0;border-radius:12px;}
+      .bhajan-text {font-size:1rem;line-height:1.75;overflow-wrap:anywhere;}
+      div[data-testid="stDialog"] > div {width:96vw !important;max-width:96vw !important;padding:10px !important;}
+      div[data-testid="stDataFrame"] {font-size:.82rem !important;}
+      div.stButton > button, div.stDownloadButton > button, a[data-testid="stLinkButton"] {
+        min-height:44px !important;width:100% !important;
+      }
+      textarea {min-height:240px !important;}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -93,8 +107,28 @@ def fetch_bhajans():
     return result.data or []
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_existing_categories():
+    result = (
+        supabase.table("bhajans")
+        .select("category")
+        .eq("workspace", "BHAJAN")
+        .order("category")
+        .execute()
+    )
+    return sorted(
+        {
+            str(row.get("category", "")).strip()
+            for row in (result.data or [])
+            if str(row.get("category", "")).strip()
+        },
+        key=str.casefold,
+    )
+
+
 def clear_cache():
     fetch_bhajans.clear()
+    fetch_existing_categories.clear()
 
 
 def safe_filename(value: str) -> str:
@@ -127,22 +161,25 @@ def make_pdf(title: str, category: str, lyrics: str) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
     pdf.add_font("Noto", fname=str(font_path))
-    pdf.set_text_shaping(True)
+    try:
+        pdf.set_text_shaping(True)
+    except Exception:
+        pass
     pdf.set_font("Noto", size=18)
     pdf.set_text_color(124, 45, 18)
-    pdf.multi_cell(0, 10, title, align="C")
+    pdf.multi_cell(0, 10, title, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(2)
     pdf.set_font("Noto", size=10)
     pdf.set_text_color(146, 64, 14)
-    pdf.multi_cell(0, 7, f"श्रेणी: {category}", align="C")
+    pdf.multi_cell(0, 7, f"श्रेणी: {category}", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(7)
     pdf.set_font("Noto", size=13)
     pdf.set_text_color(41, 37, 36)
-    pdf.multi_cell(0, 8, lyrics)
+    pdf.multi_cell(0, 8, lyrics, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(8)
     pdf.set_font("Noto", size=8)
     pdf.set_text_color(120, 113, 108)
-    pdf.multi_cell(0, 5, "॥ भजन संग्रह ॥", align="C")
+    pdf.multi_cell(0, 5, "॥ भजन संग्रह ॥", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     return bytes(pdf.output())
 
 
@@ -257,13 +294,16 @@ with logout_col:
 tab_library, tab_add = st.tabs(["📚 सभी भजन", "➕ नया भजन"])
 
 with tab_add:
-    existing_rows = fetch_bhajans()
-    existing_categories = sorted({str(x.get("category", "")).strip() for x in existing_rows if x.get("category")})
+    existing_categories = fetch_existing_categories()
     with st.form("add_bhajan_form", clear_on_submit=True):
         title = st.text_input("भजन का नाम *", placeholder="जैसे: हनुमान चालीसा")
         category_mode = st.radio("Category", ["Existing Category", "नई Category"], horizontal=True)
-        if category_mode == "Existing Category" and existing_categories:
-            category = st.selectbox("Category चुनें *", existing_categories)
+        if category_mode == "Existing Category":
+            if existing_categories:
+                category = st.selectbox("Category चुनें *", existing_categories)
+            else:
+                st.info("अभी कोई existing category नहीं है। पहले नई Category बनाकर भजन save करें।")
+                category = ""
         else:
             category = st.text_input("नई Category का नाम *", placeholder="जैसे: हनुमान भजन")
         lyrics = st.text_area("पूरा भजन लिखें *", height=420, placeholder="यहाँ पूरा भजन paste करें...")
@@ -323,17 +363,20 @@ with tab_library:
     if not filtered:
         st.info("कोई भजन नहीं मिला।")
     else:
-        table_df = pd.DataFrame(filtered)[["title", "category", "created_at"]].copy()
-        table_df.columns = ["भजन का नाम", "Category", "Save Date"]
-        table_df["Save Date"] = pd.to_datetime(table_df["Save Date"], errors="coerce").dt.strftime("%d-%m-%Y")
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
+        with st.expander("📋 सभी भजनों की Table देखें"):
+            table_df = pd.DataFrame(filtered)[["title", "category", "created_at"]].copy()
+            table_df.columns = ["भजन का नाम", "Category", "Save Date"]
+            table_df["Save Date"] = pd.to_datetime(table_df["Save Date"], errors="coerce").dt.strftime("%d-%m-%Y")
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
 
         st.markdown("### भजन खोलें")
         for row in filtered:
             with st.container(border=True):
-                a, b, c, d = st.columns([6, 2, 1, 1])
-                a.markdown(f"**🪔 {row['title']}**  \n<span style='color:#78716c'>{row['category']}</span>", unsafe_allow_html=True)
-                if b.button("📖 पूरा खोलें", key=f"open_{row['id']}", use_container_width=True):
+                safe_title = html.escape(str(row["title"]))
+                safe_category = html.escape(str(row["category"]))
+                st.markdown(f"**🪔 {safe_title}**  \n<span style='color:#78716c'>{safe_category}</span>", unsafe_allow_html=True)
+                b, c, d = st.columns(3)
+                if b.button("📖 खोलें", key=f"open_{row['id']}", use_container_width=True):
                     st.session_state.pop("pdf_share_url", None)
                     view_bhajan(row)
                 if c.button("✏️", key=f"edit_{row['id']}", help="Edit", use_container_width=True):
