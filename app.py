@@ -21,6 +21,7 @@ def init_login_connection():
     url = st.secrets["supabase"]["url"]
     url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
     key = st.secrets["supabase"]["key"]
+    st.write("DEBUG URL:", url)   # <-- TEMPORARY DEBUG LINE
     return create_client(url, key)
 
 supabase_login: Client = init_login_connection()
@@ -207,14 +208,9 @@ with col2:
 # ==============================================================
 # --- SIDEBAR PAGE FILTER (LOGIN-BASED, PRIORITY) ---
 # ==============================================================
-# Agar user ADMIN hai -> sab pages dikhte hain (koi filter nahi)
-# Agar user ADMIN nahi hai (ground team) -> SIRF unke allowed_pages dikhenge,
-# "Add User" page bhi hamesha ground team se hide rahega.
-
 is_admin_user = st.session_state.get('is_admin', False)
 
 if is_admin_user:
-    # Admin ke liye purana workspace-based filter continue rahega
     RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
     BHAJAN_PAGES = ["Bhajan"]
     _active_ws = st.session_state['active_workspace']
@@ -229,7 +225,6 @@ if is_admin_user:
         _allowed_pages = RAJKUMAR_PAGES + BHAJAN_PAGES
         _mode = "blacklist"
 else:
-    # Ground team: sirf unke allowed_pages dikhenge, Add User bhi hidden
     _allowed_pages = st.session_state.get('allowed_pages', [])
     _mode = "whitelist"
 
