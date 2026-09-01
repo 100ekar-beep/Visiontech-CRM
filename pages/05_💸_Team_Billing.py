@@ -490,6 +490,49 @@ VISIONTECH_GSTIN = "27AAICV3205F1ZI"
 VISIONTECH_PAN = "AAICV3205F"
 
 # --- INVOICE PDF GENERATOR (fully in-memory — NEVER saved/uploaded to Supabase) ---
+def _wrap_text_for_pdf(pdf, text, width_mm):
+    """Word-wrap text to fit within width_mm using the PDF's currently set font."""
+    words = str(text).split(" ")
+    lines = []
+    current = ""
+    for w in words:
+        test = (current + " " + w).strip()
+        if pdf.get_string_width(test) <= width_mm - 2:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = w
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _draw_item_row(pdf, sr, item_code, desc, qty, price, total, widths, line_h=4):
+    """Draw one item-table row with word-wrapped description; all columns share the row's total height."""
+    pdf.set_font("Arial", '', 8)
+    desc_lines = _wrap_text_for_pdf(pdf, desc, widths[2])
+    row_height = max(1, len(desc_lines)) * line_h
+
+    x0 = pdf.get_x()
+    y0 = pdf.get_y()
+
+    pdf.cell(widths[0], row_height, str(sr), border=1, align='C')
+    pdf.set_font("Arial", '', 7)
+    pdf.cell(widths[1], row_height, str(item_code), border=1, align='C')
+    pdf.set_font("Arial", '', 8)
+
+    pdf.set_xy(x0 + widths[0] + widths[1], y0)
+    pdf.multi_cell(widths[2], line_h, str(desc), border=1, align='L')
+
+    pdf.set_xy(x0 + widths[0] + widths[1] + widths[2], y0)
+    pdf.cell(widths[3], row_height, str(qty), border=1, align='C')
+    pdf.cell(widths[4], row_height, f"{price:,.2f}", border=1, align='R')
+    pdf.cell(widths[5], row_height, f"{total:,.2f}", border=1, align='R')
+
+    pdf.set_xy(x0, y0 + row_height)
+
+
 def generate_invoice_pdf(row_dict):
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
@@ -520,6 +563,21 @@ def generate_invoice_pdf(row_dict):
         total_amt = float(row_dict.get("amount") or basic_amt)
     except Exception:
         total_amt = basic_amt
+
+    # --- Fetch MRN line items (PO Number, Item Code, Description, Qty, Price, Total) ---
+    mrn_items_rows = []
+    try:
+        ws_val = row_dict.get("workspace") or st.session_state.get('active_workspace', 'VISPL')
+        res_items = (
+            supabase.table("mrn_items")
+            .select("*")
+            .eq("MRN Number", invoice_no)
+            .eq("workspace", ws_val)
+            .execute()
+        )
+        mrn_items_rows = res_items.data or []
+    except Exception:
+        mrn_items_rows = []
 
     try:
         entity_mobile = get_mobile_number(
@@ -602,33 +660,48 @@ def generate_invoice_pdf(row_dict):
 
     pdf.ln(4)
 
-    # --- Items table (single summary line — GST removed, no team is charged GST) ---
+    # --- Items table: real MRN line items when available, else a single fallback row ---
     pdf.set_font("Arial", 'B', 8)
     pdf.set_fill_color(37, 60, 122)
     pdf.set_text_color(255, 255, 255)
     headers = ["SR", "ITEM CODE", "ITEM DESCRIPTION", "QTY", "PRICE (Rs.)", "TOTAL (Rs.)"]
-    widths = [12, 28, 65, 15, 30, 40]
+    widths = [10, 40, 53, 15, 32, 40]
     for h, w in zip(headers, widths):
         pdf.cell(w, 8, h, border=1, align='C', fill=True)
     pdf.ln()
 
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 8)
-    item_code = str(row_dict.get("item_code", "") or "-")
-    desc = "Tower Work"
-    pdf.cell(12, 8, "1", border=1, align='C')
-    pdf.cell(28, 8, item_code[:16], border=1, align='C')
-    pdf.cell(65, 8, desc[:42], border=1)
-    pdf.cell(15, 8, "1", border=1, align='C')
-    pdf.cell(30, 8, f"{basic_amt:,.2f}", border=1, align='R')
-    pdf.cell(40, 8, f"{basic_amt:,.2f}", border=1, align='R', ln=True)
+
+    if mrn_items_rows:
+        gross_value = 0.0
+        for idx, it in enumerate(mrn_items_rows, start=1):
+            i_code = it.get("Item Code", "-")
+            i_desc = it.get("Description", "-")
+            try:
+                i_qty_raw = float(it.get("User Qty") or 0)
+                i_qty = int(i_qty_raw) if i_qty_raw.is_integer() else i_qty_raw
+            except Exception:
+                i_qty = it.get("User Qty", "-")
+            try:
+                i_price = float(it.get("Adjusted Price") or 0)
+            except Exception:
+                i_price = 0.0
+            try:
+                i_total = float(it.get("Total") or 0)
+            except Exception:
+                i_total = 0.0
+            gross_value += i_total
+            _draw_item_row(pdf, idx, i_code, i_desc, i_qty, i_price, i_total, widths)
+    else:
+        gross_value = basic_amt
+        _draw_item_row(pdf, 1, "-", "Tower Work", 1, basic_amt, basic_amt, widths)
 
     pdf.set_font("Arial", 'B', 9)
     pdf.cell(150, 8, "Gross Invoice Value", border=1, align='R')
-    pdf.cell(40, 8, f"{total_amt:,.2f}", border=1, align='R', ln=True)
+    pdf.cell(40, 8, f"{gross_value:,.2f}", border=1, align='R', ln=True)
 
-    tds_amt = total_amt * 0.02
-    net_payable = total_amt - tds_amt
+    tds_amt = gross_value * 0.02
+    net_payable = gross_value - tds_amt
 
     pdf.set_font("Arial", '', 9)
     pdf.cell(150, 8, "Less: TDS 2%", border=1, align='R')
@@ -936,23 +1009,6 @@ def payment_dialog(row_data=None, mode="Team"):
             except Exception as e:
                 st.error(f"Error: {e}")
 
-@st.dialog("📥 Download Invoice PDF", width="large")
-def download_invoice_dialog(row_dict):
-    st.caption("This PDF is generated on the fly for this invoice only — it is never saved or uploaded to the database.")
-    try:
-        pdf_bytes = generate_invoice_pdf(row_dict)
-        file_no = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
-        st.download_button(
-            label="⬇️ Download Invoice PDF",
-            data=pdf_bytes,
-            file_name=f"Invoice_{file_no}.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True
-        )
-    except Exception as e:
-        st.error(f"❌ Error generating PDF: {e}")
-
 # --- 6. MAIN PAGE NAVIGATION (custom buttons, replaces st.tabs for guaranteed styling) ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 
@@ -1092,8 +1148,16 @@ if st.session_state.billing_active_page == "invoice":
                                 else:
                                     vendor_invoice_dialog(row_dict)
                         with rcols[2]:
-                            if st.button("📥", key=f"inv_dl_{rid}", help="Download Invoice PDF", use_container_width=True):
-                                download_invoice_dialog(row_dict)
+                            try:
+                                pdf_bytes_row = generate_invoice_pdf(row_dict)
+                                file_no_row = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+                                st.download_button(
+                                    "📥", data=pdf_bytes_row, file_name=f"Invoice_{file_no_row}.pdf",
+                                    mime="application/pdf", key=f"inv_dl_{rid}", help="Download Invoice PDF",
+                                    use_container_width=True
+                                )
+                            except Exception:
+                                st.button("📥", key=f"inv_dl_{rid}", help="PDF generation error", use_container_width=True, disabled=True)
                         with rcols[3]:
                             if st.button("🗑️", key=f"inv_del_{rid}", help="Delete Invoice", use_container_width=True):
                                 try:
