@@ -21,10 +21,14 @@ def init_login_connection():
     url = st.secrets["supabase"]["url"]
     url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
     key = st.secrets["supabase"]["key"]
-    st.write("DEBUG URL:", url)   # <-- TEMPORARY DEBUG LINE
     return create_client(url, key)
 
 supabase_login: Client = init_login_connection()
+
+# --- DEBUG: har rerun pe dikhega (cached function ke bahar) ---
+_debug_url = st.secrets["supabase"]["url"].replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+st.write("DEBUG URL:", _debug_url)
+st.write("DEBUG KEY (first 15 chars):", st.secrets["supabase"]["key"][:15])
 
 # ==============================================================
 # --- LOGIN SYSTEM (mobile number + password) ---
