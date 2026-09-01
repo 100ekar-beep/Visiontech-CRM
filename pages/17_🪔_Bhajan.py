@@ -1,9 +1,7 @@
-import io
 import html
 import re
-import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -27,6 +25,32 @@ def init_connection() -> Client | None:
     except Exception as exc:
         st.error(f"Supabase connection error: {exc}")
         return None
+
+
+def go_home():
+    """app.py पर वापस भेजता है; अगर multipage setup में app.py नहीं मिलता तो
+    पूरा page crash होने की बजाय एक साफ़ सन्देश दिखाता है."""
+    try:
+        st.switch_page("app.py")
+    except Exception:
+        st.error("🚫 Home page (app.py) नहीं मिला। कृपया apna multipage app.py file naam confirm karein.")
+
+
+# ---------------------------------------------------------------------------
+# SIDEBAR — अब हमेशा दिखेगा (login screen से पहले भी), पहले सिर्फ़ login के
+# बाद दिखता था क्योंकि यह block login-check के नीचे था और st.stop() उसे रोक
+# देता था. यही missing-sidebar वाला bug था.
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🪔 Bhajan Menu")
+    if st.button("🏠 Home / Change Workspace", key="bhajan_back_home", use_container_width=True):
+        go_home()
+    if st.session_state.get("bhajan_authenticated"):
+        if st.button("🚪 Logout", key="bhajan_sidebar_logout", use_container_width=True):
+            st.session_state["bhajan_authenticated"] = False
+            st.rerun()
+    else:
+        st.caption("Login करने के बाद यहाँ और options दिखेंगे।")
 
 
 supabase = init_connection()
@@ -65,16 +89,6 @@ if not st.session_state.get("bhajan_authenticated"):
         except Exception as exc:
             st.error(f"🚨 Bhajan login configuration error: {exc}")
     st.stop()
-
-# BHAJAN workspace में default navigation hidden रहता है, इसलिए Home वापसी का
-# permanent sidebar control रखा गया है ताकि user दूसरा workspace चुन सके.
-with st.sidebar:
-    st.markdown("### 🪔 Bhajan Menu")
-    if st.button("🏠 Home / Change Workspace", key="bhajan_back_home", use_container_width=True):
-        st.switch_page("app.py")
-    if st.button("🚪 Logout", key="bhajan_sidebar_logout", use_container_width=True):
-        st.session_state["bhajan_authenticated"] = False
-        st.switch_page("app.py")
 
 
 st.markdown(
@@ -195,6 +209,9 @@ def make_pdf(title: str, category: str, lyrics: str) -> bytes:
     pdf.add_page()
     pdf.add_font("Noto", fname=str(font_path))
     try:
+        # सही जोड़ाक्षर/मात्रा दिखाने के लिए ज़रूरी — requirements.txt में
+        # "uharfbuzz" जोड़ना ना भूलें, वरना यह silently fail होकर हिंदी टूटी
+        # हुई दिखेगी.
         pdf.set_text_shaping(True)
     except Exception:
         pass
@@ -220,21 +237,8 @@ def whatsapp_url(message: str) -> str:
     return f"https://wa.me/?text={quote(message)}"
 
 
-def upload_pdf_and_get_url(row: dict, pdf_bytes: bytes) -> str:
-    stamp = int(time.time())
-    filename = f"{safe_filename(row['title'])}_{row['id']}_{stamp}.pdf"
-    storage_path = f"shared/{filename}"
-    supabase.storage.from_("bhajan-pdfs").upload(
-        storage_path,
-        pdf_bytes,
-        {"content-type": "application/pdf", "upsert": "true"},
-    )
-    public_result = supabase.storage.from_("bhajan-pdfs").get_public_url(storage_path)
-    if isinstance(public_result, str):
-        return public_result
-    if isinstance(public_result, dict):
-        return public_result.get("publicUrl") or public_result.get("publicURL") or ""
-    return ""
+# PDF कहीं भी Supabase Storage या किसी और cloud पर save नहीं होती — यह सिर्फ़
+# memory में बनती है और सीधे user के device पर download होती है।
 
 
 @st.dialog("🪔 पूरा भजन", width="large")
@@ -251,7 +255,7 @@ def view_bhajan(row: dict):
     except Exception as exc:
         pdf_error = str(exc)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
         if pdf_bytes:
             st.download_button(
@@ -265,27 +269,10 @@ def view_bhajan(row: dict):
             st.button("⬇️ PDF उपलब्ध नहीं", disabled=True, use_container_width=True)
     with c2:
         text_message = f"🪔 *{row['title']}*\n📂 {row['category']}\n\n{row['lyrics']}"
-        st.link_button("📲 WhatsApp Text", whatsapp_url(text_message), use_container_width=True)
-    with c3:
-        if st.button("📄 WhatsApp PDF", use_container_width=True, disabled=not bool(pdf_bytes)):
-            try:
-                with st.spinner("PDF share link बन रही है..."):
-                    public_url = upload_pdf_and_get_url(row, pdf_bytes)
-                if not public_url:
-                    raise RuntimeError("Public PDF URL नहीं मिली")
-                st.session_state["pdf_share_url"] = whatsapp_url(
-                    f"🪔 *{row['title']}*\n📂 {row['category']}\n\nPDF खोलें:\n{public_url}"
-                )
-            except Exception as exc:
-                st.error(f"PDF share error: {exc}")
+        st.link_button("📲 WhatsApp पर Text भेजें", whatsapp_url(text_message), use_container_width=True)
 
-    if st.session_state.get("pdf_share_url"):
-        st.link_button(
-            "✅ WhatsApp खोलें और व्यक्ति चुनें",
-            st.session_state["pdf_share_url"],
-            type="primary",
-            use_container_width=True,
-        )
+    if pdf_bytes:
+        st.caption("PDF को WhatsApp पर भेजने के लिए: ऊपर Download करें, फिर WhatsApp में Attach कर दें।")
     if pdf_error:
         st.warning(pdf_error)
 
@@ -307,7 +294,7 @@ def edit_bhajan(row: dict, categories: list[str]):
                     "title": title.strip(),
                     "category": category.strip(),
                     "lyrics": lyrics.strip(),
-                    "updated_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             ).eq("id", row["id"]).execute()
             clear_cache()
@@ -424,7 +411,6 @@ with tab_library:
                 st.markdown(f"**🪔 {safe_title}**  \n<span style='color:#78716c'>{safe_category}</span>", unsafe_allow_html=True)
                 b, c, d = st.columns(3)
                 if b.button("📖 खोलें", key=f"open_{row['id']}", use_container_width=True):
-                    st.session_state.pop("pdf_share_url", None)
                     view_bhajan(row)
                 if c.button("✏️", key=f"edit_{row['id']}", help="Edit", use_container_width=True):
                     edit_bhajan(row, categories)
@@ -432,7 +418,7 @@ with tab_library:
                     st.session_state["delete_bhajan_id"] = row["id"]
 
                 if st.session_state.get("delete_bhajan_id") == row["id"]:
-                    st.warning(f"क्या आप ‘{row['title']}’ permanently delete करना चाहते हैं?")
+                    st.warning(f"क्या आप '{row['title']}' permanently delete करना चाहते हैं?")
                     yes, no = st.columns(2)
                     if yes.button("हाँ, Delete", key=f"confirm_{row['id']}", type="primary", use_container_width=True):
                         supabase.table("bhajans").delete().eq("id", row["id"]).execute()
