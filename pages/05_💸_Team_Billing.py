@@ -139,7 +139,7 @@ st.markdown("""
     .st-key-inv_table_header div[data-testid="stHorizontalBlock"],
     .st-key-pay_table_header div[data-testid="stHorizontalBlock"],
     .st-key-mrn_table_header div[data-testid="stHorizontalBlock"] {
-        min-width: 1500px !important;
+        min-width: 1600px !important;
         align-items: center !important;
         flex-wrap: nowrap !important;
         padding: 10px 0 !important;
@@ -157,7 +157,7 @@ st.markdown("""
     .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1500px !important;
+        min-width: 1600px !important;
         align-items: center !important;
         border-bottom: 1px solid #f1f5f9 !important;
         padding: 7px 0 !important;
@@ -243,6 +243,14 @@ st.markdown("""
     }
     div[class*="st-key-inv_mgr_"] button:hover, div[class*="st-key-pay_mgr_"] button:hover {
         background: #6366f1 !important;
+        transform: translateY(-2px) !important;
+    }
+    div[class*="st-key-inv_dl_"] button {
+        background: rgba(59, 130, 246, 0.14) !important;
+        border: 1px solid rgba(59, 130, 246, 0.35) !important;
+    }
+    div[class*="st-key-inv_dl_"] button:hover {
+        background: #3b82f6 !important;
         transform: translateY(-2px) !important;
     }
     div[class*="st-key-inv_del_"] button, div[class*="st-key-pay_del_"] button, div[class*="st-key-mrn_rej_"] button {
@@ -471,6 +479,178 @@ def number_to_words(n):
         res += num_to_words_below_1000(n)
         
     return res.strip() + " Rupees Only"
+
+# --- VISIONTECH FIXED COMPANY DETAILS (used inside Bill To / Ship To block) ---
+VISIONTECH_ADDRESS_LINES = [
+    "Near Vikas Mitra Madal Chowk, Survey No 8/9/7, House No 81",
+    "Santkrupa Building, Canal Road, Lane Number 2, Karve Nagar,",
+    "Pune, Pune, Maharashtra, 411052",
+]
+VISIONTECH_GSTIN = "27AAICV3205F1ZI"
+VISIONTECH_PAN = "AAICV3205F"
+
+# --- INVOICE PDF GENERATOR (fully in-memory — NEVER saved/uploaded to Supabase) ---
+def generate_invoice_pdf(row_dict):
+    if FPDF is None:
+        raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+
+    invoice_type = str(row_dict.get("invoice_type", "") or "").strip()
+    if invoice_type == "Vendor" and str(row_dict.get("vendor_name", "") or "").strip():
+        entity_name = str(row_dict.get("vendor_name")).strip()
+    else:
+        entity_name = str(row_dict.get("team_name", "") or "").strip() or "TEAM"
+
+    invoice_no = str(row_dict.get("invoice_no", "") or "-")
+    date_raw = row_dict.get("date", "")
+    try:
+        date_fmt = pd.to_datetime(date_raw).strftime("%d-%b-%Y") if date_raw else "-"
+    except Exception:
+        date_fmt = str(date_raw) or "-"
+    project_id = str(row_dict.get("project_id", "") or "-")
+    site_id = str(row_dict.get("site_id", "") or "-")
+    site_name = str(row_dict.get("site_name", "") or "-")
+    cluster = str(row_dict.get("cluster", "") or "-")
+    remark = str(row_dict.get("remark", "") or "-")
+
+    try:
+        basic_amt = float(row_dict.get("basic_amount") or 0)
+    except Exception:
+        basic_amt = 0.0
+    try:
+        total_amt = float(row_dict.get("amount") or basic_amt)
+    except Exception:
+        total_amt = basic_amt
+
+    try:
+        entity_mobile = get_mobile_number(
+            "Vendor Name" if invoice_type == "Vendor" else "Team Name", entity_name
+        ) or "-"
+    except Exception:
+        entity_mobile = "-"
+
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # --- HEADER: Team / Vendor Name (big, blue, centered) ---
+    pdf.set_text_color(30, 58, 138)
+    pdf.set_font("Arial", 'B', 20)
+    pdf.cell(0, 12, entity_name.upper(), align='C', ln=True)
+    pdf.set_draw_color(30, 58, 138)
+    pdf.set_line_width(0.8)
+    pdf.line(10, pdf.get_y() + 1, 200, pdf.get_y() + 1)
+    pdf.ln(6)
+
+    # --- INVOICE title bar ---
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_draw_color(0, 0, 0)
+    pdf.set_line_width(0.3)
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(190, 9, "INVOICE", border=1, align='C', ln=True)
+
+    # --- Bill To / Ship To (left = Visiontech) + Entity Info (right) box ---
+    box_top = pdf.get_y()
+    box_height = 50
+    pdf.rect(10, box_top, 190, box_height)
+    pdf.line(105, box_top, 105, box_top + box_height)
+
+    left_x = 12
+    pdf.set_xy(left_x, box_top + 2)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(90, 5, "Bill To : Visiontech Infra Solution Pvt. Ltd.", ln=2)
+    pdf.set_x(left_x)
+    pdf.set_font("Arial", '', 8)
+    addr_block = "\n".join(VISIONTECH_ADDRESS_LINES) + f"\nGSTIN/UIN : {VISIONTECH_GSTIN}\nPAN : {VISIONTECH_PAN}"
+    pdf.multi_cell(90, 4, addr_block)
+    pdf.ln(1)
+    pdf.set_x(left_x)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(90, 5, "Ship To : Visiontech Infra Solution Pvt. Ltd.", ln=2)
+    pdf.set_x(left_x)
+    pdf.set_font("Arial", '', 8)
+    pdf.multi_cell(90, 4, "\n".join(VISIONTECH_ADDRESS_LINES) + f"\nGSTIN/UIN : {VISIONTECH_GSTIN}")
+
+    right_x = 107
+    pdf.set_xy(right_x, box_top + 2)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(90, 5, entity_name, ln=2)
+    pdf.set_x(right_x)
+    pdf.set_font("Arial", '', 8)
+    pdf.multi_cell(90, 4, f"Contact : {entity_name}\nMobile : {entity_mobile}\nPAN : ABCD")
+
+    pdf.set_y(box_top + box_height + 2)
+
+    # --- Invoice detail table ---
+    detail_rows = [
+        ("MRN Number", invoice_no, "MRN Date", date_fmt),
+        ("Project ID", project_id, "Site ID", site_id),
+        ("Site Name", site_name, "Cluster", cluster),
+        ("Remark", "Tower Work", "Place of Supply", "Maharashtra, Code : 27"),
+    ]
+    row_h = 7
+    for label1, val1, label2, val2 in detail_rows:
+        pdf.set_font("Arial", 'B', 8)
+        pdf.set_fill_color(245, 245, 245)
+        pdf.cell(35, row_h, label1, border=1, fill=True)
+        pdf.set_font("Arial", '', 8)
+        pdf.cell(60, row_h, val1, border=1)
+        pdf.set_font("Arial", 'B', 8)
+        pdf.set_fill_color(245, 245, 245)
+        pdf.cell(35, row_h, label2, border=1, fill=True)
+        pdf.set_font("Arial", '', 8)
+        pdf.cell(60, row_h, val2, border=1, ln=True)
+
+    pdf.ln(4)
+
+    # --- Items table (single summary line — GST removed, no team is charged GST) ---
+    pdf.set_font("Arial", 'B', 8)
+    pdf.set_fill_color(37, 60, 122)
+    pdf.set_text_color(255, 255, 255)
+    headers = ["SR", "ITEM CODE", "ITEM DESCRIPTION", "QTY", "PRICE (Rs.)", "TOTAL (Rs.)"]
+    widths = [12, 28, 65, 15, 30, 40]
+    for h, w in zip(headers, widths):
+        pdf.cell(w, 8, h, border=1, align='C', fill=True)
+    pdf.ln()
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", '', 8)
+    item_code = str(row_dict.get("item_code", "") or "-")
+    desc = "Tower Work"
+    pdf.cell(12, 8, "1", border=1, align='C')
+    pdf.cell(28, 8, item_code[:16], border=1, align='C')
+    pdf.cell(65, 8, desc[:42], border=1)
+    pdf.cell(15, 8, "1", border=1, align='C')
+    pdf.cell(30, 8, f"{basic_amt:,.2f}", border=1, align='R')
+    pdf.cell(40, 8, f"{basic_amt:,.2f}", border=1, align='R', ln=True)
+
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(150, 8, "Gross Invoice Value", border=1, align='R')
+    pdf.cell(40, 8, f"{total_amt:,.2f}", border=1, align='R', ln=True)
+
+    tds_amt = total_amt * 0.02
+    net_payable = total_amt - tds_amt
+
+    pdf.set_font("Arial", '', 9)
+    pdf.cell(150, 8, "Less: TDS 2%", border=1, align='R')
+    pdf.cell(40, 8, f"{tds_amt:,.2f}", border=1, align='R', ln=True)
+
+    pdf.ln(4)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, f"Net Payable : Rs. {net_payable:,.2f}", align='R', ln=True)
+    pdf.ln(2)
+
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(30, 6, "Amount In Words :")
+    pdf.set_font("Arial", '', 9)
+    pdf.multi_cell(150, 6, f"INR {number_to_words(net_payable)}")
+
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 6, f"for {entity_name}", align='R', ln=True)
+    pdf.ln(24)
+    pdf.cell(0, 6, "Authorised Signatory", align='R', ln=True)
+
+    return pdf.output(dest='S').encode('latin1')
 
 # --- 4. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60, show_spinner=False)
@@ -755,6 +935,23 @@ def payment_dialog(row_data=None, mode="Team"):
             except Exception as e:
                 st.error(f"Error: {e}")
 
+@st.dialog("📥 Download Invoice PDF", width="large")
+def download_invoice_dialog(row_dict):
+    st.caption("This PDF is generated on the fly for this invoice only — it is never saved or uploaded to the database.")
+    try:
+        pdf_bytes = generate_invoice_pdf(row_dict)
+        file_no = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+        st.download_button(
+            label="⬇️ Download Invoice PDF",
+            data=pdf_bytes,
+            file_name=f"Invoice_{file_no}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"❌ Error generating PDF: {e}")
+
 # --- 6. MAIN PAGE NAVIGATION (custom buttons, replaces st.tabs for guaranteed styling) ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 
@@ -871,8 +1068,8 @@ if st.session_state.billing_active_page == "invoice":
 
                 df_inv = df_inv.reset_index(drop=True)
 
-                INV_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.0, 1.1, 1.3]
-                INV_COL_LABELS = ["#", "⚙️", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TOTAL", "VENDOR", "REMARK"]
+                INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.0, 1.1, 1.3]
+                INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TOTAL", "VENDOR", "REMARK"]
 
                 with st.container(key="inv_table_header"):
                     h_cols = st.columns(INV_COL_RATIOS)
@@ -894,6 +1091,9 @@ if st.session_state.billing_active_page == "invoice":
                                 else:
                                     vendor_invoice_dialog(row_dict)
                         with rcols[2]:
+                            if st.button("📥", key=f"inv_dl_{rid}", help="Download Invoice PDF", use_container_width=True):
+                                download_invoice_dialog(row_dict)
+                        with rcols[3]:
                             if st.button("🗑️", key=f"inv_del_{rid}", help="Delete Invoice", use_container_width=True):
                                 try:
                                     supabase.table("billing_invoices").delete().eq("id", rid).execute()
@@ -903,23 +1103,23 @@ if st.session_state.billing_active_page == "invoice":
                                 except Exception as e:
                                     st.error(f"Error deleting: {e}")
 
-                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
+                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                        rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
 
                         basic_v = row_dict.get('basic_amount')
-                        rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         gst_v = row_dict.get('gst_amount')
-                        rcols[11].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
-                        rcols[12].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        rcols[13].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
 
-                        rcols[13].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                        rcols[14].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                        rcols[14].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                        rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No invoices match your search.")
         else:
