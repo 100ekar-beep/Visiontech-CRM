@@ -291,8 +291,8 @@ class LavishBhajanPDF(FPDF):
         self.rect(11, 11, self.w - 22, self.h - 22)
 
     def _watermark(self):
-        with self.local_context(fill_opacity=0.10):
-            self.set_font("Noto", style="B", size=10)
+        with self.local_context(fill_opacity=0.13):
+            self.set_font("Noto", size=11.5)
             self.set_text_color(*MAROON)
             text_w = self.get_string_width(ORG_NAME)
             row_h = 48
