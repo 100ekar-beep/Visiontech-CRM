@@ -185,7 +185,12 @@ def safe_filename(value: str) -> str:
 
 def _find_asset(*names: str) -> Path | None:
     roots = [
+        Path(__file__).resolve().parent / "assets",
         Path(__file__).resolve().parent.parent / "assets",
+        Path(__file__).resolve().parent,        # pages/ folder सीधे (assets के बिना)
+        Path(__file__).resolve().parent.parent,  # repo root सीधे (assets के बिना)
+        Path.cwd() / "assets",
+        Path.cwd(),
         Path("assets"),
         Path("."),
     ]
@@ -195,6 +200,18 @@ def _find_asset(*names: str) -> Path | None:
             if candidate.exists():
                 return candidate
     return None
+
+
+def _asset_search_paths(*names: str) -> list[str]:
+    roots = [
+        Path(__file__).resolve().parent / "assets",
+        Path(__file__).resolve().parent.parent / "assets",
+        Path(__file__).resolve().parent,
+        Path(__file__).resolve().parent.parent,
+        Path.cwd() / "assets",
+        Path.cwd(),
+    ]
+    return [str(root / name) for root in roots for name in names]
 
 
 def find_font_regular() -> Path | None:
@@ -211,7 +228,23 @@ def find_font_black() -> Path | None:
 
 
 def find_logo() -> Path | None:
-    return _find_asset("logo.png")
+    exact = _find_asset("logo.png")
+    if exact:
+        return exact
+    # अगर logo.png नाम से नहीं मिला, तो root/pages/assets में जो भी पहली PNG
+    # image मिले उसे logo मान लें (uploaded_files के original नाम वाले लिए).
+    search_dirs = [
+        Path(__file__).resolve().parent / "assets",
+        Path(__file__).resolve().parent.parent / "assets",
+        Path(__file__).resolve().parent,
+        Path(__file__).resolve().parent.parent,
+    ]
+    for d in search_dirs:
+        if d.exists():
+            pngs = sorted(d.glob("*.png"))
+            if pngs:
+                return pngs[0]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -258,22 +291,19 @@ class LavishBhajanPDF(FPDF):
         self.rect(11, 11, self.w - 22, self.h - 22)
 
     def _watermark(self):
-        with self.local_context(fill_opacity=0.05):
-            self.set_font("Noto", style="B", size=9.5)
+        with self.local_context(fill_opacity=0.10):
+            self.set_font("Noto", style="B", size=10)
             self.set_text_color(*MAROON)
             text_w = self.get_string_width(ORG_NAME)
-            angle = 22
-            row_h = 26
-            col_w = text_w + 18
-            y = 20
+            row_h = 48
+            col_w = text_w + 30
+            y = 34
             row_i = 0
-            while y < self.h - 10:
+            while y < self.h - 12:
                 offset = (col_w / 2) if (row_i % 2) else 0
-                x = -col_w + offset
-                while x < self.w + col_w:
-                    cx, cy = x + col_w / 2, y
-                    with self.rotation(angle, cx, cy):
-                        self.text(x, y, ORG_NAME)
+                x = -offset
+                while x < self.w:
+                    self.text(x, y, ORG_NAME)
                     x += col_w
                 y += row_h
                 row_i += 1
@@ -343,17 +373,8 @@ class LavishBhajanPDF(FPDF):
             y += 6.5
 
 
-def make_pdf(title: str, category: str, lyrics: str) -> bytes:
-    font_regular = find_font_regular()
-    font_bold = find_font_bold()
-    font_black = find_font_black()
-    if not font_regular or not font_bold:
-        raise FileNotFoundError(
-            "assets में NotoSansDevanagari-Regular.ttf / -Bold.ttf नहीं मिली। "
-            "दोनों font files assets folder में रखें।"
-        )
-    logo_path = find_logo()  # ना मिले तो भी PDF बन जाएगी, बस logo के बिना.
-
+def _render_pdf(font_regular, font_bold, font_black, logo_path,
+                 title: str, category: str, lyrics: str, lyrics_size: float) -> LavishBhajanPDF:
     pdf = LavishBhajanPDF(
         font_regular=font_regular, font_bold=font_bold, font_black=font_black,
         logo_path=logo_path, format="A4",
@@ -366,9 +387,37 @@ def make_pdf(title: str, category: str, lyrics: str) -> bytes:
     pdf.set_text_color(*GOLD)
     pdf.multi_cell(0, 6.5, f"श्रेणी: {category}", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(6)
-    pdf.set_font("Noto", style="B", size=15.5)
+    pdf.set_font("Noto", style="B", size=lyrics_size)
     pdf.set_text_color(*DARK_TEXT)
-    pdf.multi_cell(0, 9.5, lyrics, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(0, lyrics_size * 0.62, lyrics, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    return pdf
+
+
+def make_pdf(title: str, category: str, lyrics: str) -> bytes:
+    font_regular = find_font_regular()
+    font_bold = find_font_bold()
+    font_black = find_font_black()
+    if not font_regular or not font_bold:
+        tried = _asset_search_paths("NotoSansDevanagari-Regular.ttf", "NotoSansDevanagari-Bold.ttf")
+        tried_list = "\n".join(f"• {p}" for p in tried)
+        raise FileNotFoundError(
+            "Font files नहीं मिलीं। इन जगहों पर ढूंढा गया, पर कहीं नहीं मिलीं:\n"
+            f"{tried_list}\n\n"
+            "इनमें से किसी एक 'assets' folder में NotoSansDevanagari-Regular.ttf और "
+            "NotoSansDevanagari-Bold.ttf दोनों रखें (यह app file जिस folder में है, "
+            "उसी में या उसके parent folder में 'assets' नाम का folder बनाएं)।"
+        )
+    logo_path = find_logo()  # ना मिले तो भी PDF बन जाएगी, बस logo के बिना.
+
+    # भजन को हो सके तो 1 ही page में fit करने की कोशिश — बड़े size से शुरू करके
+    # ज़रूरत पड़ने पर छोटा करते जाते हैं; अगर फिर भी ना समाए तो जितना बड़ा size
+    # 1 page में possible नहीं, उसे छोड़ते हुए आख़िरी (सबसे छोटे) size पर भजन
+    # अगले page पर अपने आप चला जाएगा — यह पूरी तरह सामान्य है, कोई ग़लती नहीं.
+    pdf = None
+    for size in (15.5, 14, 12.5, 11.5, 10.5):
+        pdf = _render_pdf(font_regular, font_bold, font_black, logo_path, title, category, lyrics, size)
+        if pdf.page_no() == 1:
+            break
     return bytes(pdf.output())
 
 
