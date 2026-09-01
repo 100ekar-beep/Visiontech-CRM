@@ -1,111 +1,78 @@
 import streamlit as st
+import streamlit.components.v1 as components
+import json
 import bcrypt
 from supabase import create_client, Client
 
-st.set_page_config(page_title="Add User", page_icon="👤", layout="wide")
+# ==============================================================
+# --- LOGIN SYSTEM (mobile number + password) ---
+# ==============================================================
+st.set_page_config(
+    page_title="Visiontech CRM | Home",
+    page_icon="⚡",
+    layout="wide"
+)
 
-# --- ADMIN-ONLY GATE (login system agle step mein banega) ---
-if not st.session_state.get('is_admin', False):
-    st.error("🚫 Access Restricted! Sirf Admin ye page dekh sakta hai.")
-    st.stop()
-
-# --- SUPABASE CONNECTION ---
 @st.cache_resource
-def init_connection():
+def init_login_connection():
     url = st.secrets["supabase"]["url"].rstrip("/")
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
-supabase: Client = init_connection()
+supabase_login: Client = init_login_connection()
 
-st.title("👤 Add / Manage Ground Team User")
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
-# --- FETCH TEAM NAMES FROM dropdown_master ---
-@st.cache_data(ttl=30)
-def get_team_names():
-    res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").execute()
-    return res.data or []
+if not st.session_state['logged_in']:
+    st.markdown("""
+        <div style="max-width: 420px; margin: 80px auto; padding: 2.5rem; 
+                    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
+                    border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+            <h2 style="color:white; text-align:center; margin-bottom: 5px;">⚡ Visiontech CRM</h2>
+            <p style="color:#94a3b8; text-align:center; margin-bottom: 25px;">Login to continue</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-teams = get_team_names()
-team_options = ["Select"] + [t["option_value"] for t in teams]
+    col_a, col_b, col_c = st.columns([1, 1.2, 1])
+    with col_b:
+        mobile_input = st.text_input("📱 Mobile Number", placeholder="10 digit mobile number")
+        password_input = st.text_input("🔒 Password", type="password")
+        login_btn = st.button("Login", type="primary", use_container_width=True)
 
-# --- LIST OF ALL AVAILABLE PAGES (aap yahan apne actual page names daal dena) ---
-ALL_PAGES = [
-    "Pending Task", "Site Data", "Solar Project", "Invoice Management",
-    "Warehouse", "PO Working", "Quotation", "MRN GRN", "Team Billing",
-    "Indus Site Data", "STN Detail", "SRN Detail", "Master Data",
-    "Quotation Template", "Marketing", "Template Registration",
-    "Rajkumar Contact", "Bhajan"
-]
+        if login_btn:
+            if not mobile_input or not password_input:
+                st.error("⚠️ Mobile number aur password dono bharo")
+            else:
+                try:
+                    res = supabase_login.table("app_users").select("*").eq("mobile_number", mobile_input.strip()).execute()
+                    if not res.data:
+                        st.error("❌ Ye mobile number registered nahi hai")
+                    else:
+                        user = res.data[0]
+                        stored_hash = user.get("password_hash", "").encode('utf-8')
+                        if bcrypt.checkpw(password_input.encode('utf-8'), stored_hash):
+                            st.session_state['logged_in'] = True
+                            st.session_state['is_admin'] = user.get('is_admin', False)
+                            st.session_state['allowed_pages'] = user.get('allowed_pages', [])
+                            st.session_state['full_name'] = user.get('full_name', '')
+                            st.session_state['user_mobile'] = mobile_input.strip()
+                            st.rerun()
+                        else:
+                            st.error("❌ Password galat hai")
+                except Exception as e:
+                    st.error(f"❌ Login Error: {e}")
+    st.stop()
 
-st.markdown("### ➕ Create New User")
+# --- LOGOUT BUTTON (sidebar mein) ---
+with st.sidebar:
+    st.markdown(f"👤 **{st.session_state.get('full_name', 'User')}**")
+    if st.button("🚪 Logout", use_container_width=True):
+        for key in ['logged_in', 'is_admin', 'allowed_pages', 'full_name', 'user_mobile']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
 
-with st.form("add_user_form", clear_on_submit=True):
-    c1, c2 = st.columns(2)
-    with c1:
-        selected_team = st.selectbox("Team Name (dropdown_master se)", team_options)
-        mobile_number = st.text_input("Mobile Number (Login ID)", placeholder="10 digit mobile number")
-    with c2:
-        password = st.text_input("Password", type="password")
-        full_name = st.text_input("Full Name (optional)", value="")
-
-    st.markdown("**Allowed Pages** (sirf ye pages is user ko dikhenge)")
-    allowed_pages = st.multiselect("Select Pages", ALL_PAGES)
-
-    submitted = st.form_submit_button("💾 Create User", type="primary", use_container_width=True)
-
-    if submitted:
-        errors = []
-        if selected_team == "Select":
-            errors.append("Team Name select karo")
-        if not mobile_number or not mobile_number.isdigit() or len(mobile_number) != 10:
-            errors.append("Mobile Number 10 digit ka valid number hona chahiye")
-        if not password or len(password) < 4:
-            errors.append("Password kam se kam 4 characters ka hona chahiye")
-        if not allowed_pages:
-            errors.append("Kam se kam 1 page select karo")
-
-        if errors:
-            for e in errors:
-                st.error(f"⚠️ {e}")
-        else:
-            try:
-                # Check duplicate mobile number
-                existing = supabase.table("app_users").select("id").eq("mobile_number", mobile_number).execute()
-                if existing.data:
-                    st.error("❌ Ye mobile number already registered hai!")
-                else:
-                    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    supabase.table("app_users").insert({
-                        "mobile_number": mobile_number,
-                        "password_hash": hashed_pw,
-                        "full_name": full_name if full_name else selected_team,
-                        "allowed_pages": allowed_pages,
-                        "is_admin": False
-                    }).execute()
-                    st.success(f"✅ User successfully created for team '{selected_team}'!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
-
-st.markdown("---")
-st.markdown("### 📋 Existing Users")
-
-try:
-    all_users = supabase.table("app_users").select("*").execute().data or []
-    if all_users:
-        for u in all_users:
-            with st.container(border=True):
-                col1, col2, col3 = st.columns([2, 2, 1])
-                with col1:
-                    st.write(f"**{u.get('full_name', 'N/A')}** — {u.get('mobile_number')}")
-                with col2:
-                    st.write(f"Pages: {', '.join(u.get('allowed_pages', []))}")
-                with col3:
-                    if st.button("🗑️ Delete", key=f"del_{u['id']}"):
-                        supabase.table("app_users").delete().eq("id", u['id']).execute()
-                        st.rerun()
-    else:
-        st.info("Abhi koi user nahi bana hai.")
-except Exception as e:
-    st.error(f"Error loading users: {e}")
+# ==============================================================
+# --- YAHAN SE AAPKA PURANA EXISTING CODE START HOTA HAI (waisa hi rehne do) ---
+# ==============================================================
