@@ -139,7 +139,7 @@ st.markdown("""
     .st-key-inv_table_header div[data-testid="stHorizontalBlock"],
     .st-key-pay_table_header div[data-testid="stHorizontalBlock"],
     .st-key-mrn_table_header div[data-testid="stHorizontalBlock"] {
-        min-width: 1600px !important;
+        min-width: 1700px !important;
         align-items: center !important;
         flex-wrap: nowrap !important;
         padding: 10px 0 !important;
@@ -157,7 +157,7 @@ st.markdown("""
     .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"],
     .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1600px !important;
+        min-width: 1700px !important;
         align-items: center !important;
         border-bottom: 1px solid #f1f5f9 !important;
         padding: 7px 0 !important;
@@ -806,9 +806,53 @@ def team_invoice_dialog(row_data=None):
     
     gst_amt = safe_basic * (safe_gst / 100)
     total_calc = safe_basic + gst_amt
-    
+
+    tds_calc = total_calc * 0.02
+    net_payable_calc = total_calc - tds_calc
+
     c11.markdown(f"**GST Amount:**<br><span class='gst-highlight'>₹ {gst_amt:,.0f}</span>", unsafe_allow_html=True)
-    st.markdown(f"<div style='text-align:right; margin-top:15px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:right; margin-top:8px;'><span style='font-weight:700; color:#64748b;'>Less: TDS (2%): </span><span style='color:#f59e0b; font-weight:800; font-size:1.05rem;'>₹ {tds_calc:,.0f}</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:right; margin-top:10px; margin-bottom:15px;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total (After TDS): </span><span class='total-highlight'>₹ {net_payable_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(net_payable_calc)}</span></div>", unsafe_allow_html=True)
+
+    # --- MRN LINE ITEMS (read-only, fetched live from mrn_items by Invoice/MRN Number) ---
+    st.markdown("---")
+    st.markdown("<div style='color:#64748b; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px;'>📦 MRN Line Items</div>", unsafe_allow_html=True)
+
+    mrn_items_dialog_rows = []
+    if inv_no:
+        try:
+            ws_items = st.session_state.get('active_workspace', 'VISPL')
+            mrn_items_res = supabase.table("mrn_items").select("*").eq("MRN Number", inv_no).eq("workspace", ws_items).execute()
+            mrn_items_dialog_rows = mrn_items_res.data or []
+        except Exception:
+            mrn_items_dialog_rows = []
+
+    if mrn_items_dialog_rows:
+        df_mrn_items = pd.DataFrame(mrn_items_dialog_rows)
+        rename_map = {
+            "PO Number": "PO Number",
+            "Item Code": "Item Code",
+            "Description": "Item Description",
+            "Adjusted Price": "Price",
+            "User Qty": "Qty",
+            "Total": "Total",
+        }
+        show_cols = [c for c in rename_map if c in df_mrn_items.columns]
+        df_mrn_show = df_mrn_items[show_cols].rename(columns=rename_map)
+        st.dataframe(df_mrn_show, hide_index=True, use_container_width=True)
+
+        gross_items_val = float(df_mrn_items["Total"].sum()) if "Total" in df_mrn_items.columns else 0.0
+        tds_items_val = gross_items_val * 0.02
+        net_items_val = gross_items_val - tds_items_val
+
+        mi1, mi2, mi3 = st.columns(3)
+        mi1.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Gross Invoice Value</span><br><span style='font-size:1.15rem; font-weight:800; color:#3b82f6;'>₹ {gross_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+        mi2.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>TDS (2%)</span><br><span style='font-size:1.15rem; font-weight:800; color:#f59e0b;'>₹ {tds_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+        mi3.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Net Payable</span><br><span style='font-size:1.15rem; font-weight:800; color:#10b981;'>₹ {net_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+    else:
+        st.caption("No MRN line items found for this Invoice/MRN number.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
     
     if st.button("💾 Save Team Invoice", type="primary", use_container_width=True):
         if not inv_no:
@@ -1125,8 +1169,8 @@ if st.session_state.billing_active_page == "invoice":
 
                 df_inv = df_inv.reset_index(drop=True)
 
-                INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.0, 1.1, 1.3]
-                INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TOTAL", "VENDOR", "REMARK"]
+                INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
+                INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
 
                 with st.container(key="inv_table_header"):
                     h_cols = st.columns(INV_COL_RATIOS)
@@ -1181,10 +1225,17 @@ if st.session_state.billing_active_page == "invoice":
                         gst_v = row_dict.get('gst_amount')
                         rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
-                        rcols[13].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        if pd.notna(amt_v):
+                            tds_v = amt_v * 0.02
+                            net_v = amt_v - tds_v
+                            rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
+                            rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
+                        else:
+                            rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
 
-                        rcols[14].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                        rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                        rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                        rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No invoices match your search.")
         else:
