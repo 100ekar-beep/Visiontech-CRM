@@ -183,53 +183,192 @@ def safe_filename(value: str) -> str:
     return cleaned.strip("_")[:80] or "bhajan"
 
 
-def find_font() -> Path | None:
-    candidates = [
-        Path(__file__).resolve().parent.parent / "assets" / "NotoSansDevanagari-Regular.ttf",
-        Path("assets/NotoSansDevanagari-Regular.ttf"),
-        Path("NotoSansDevanagari-Regular.ttf"),
+def _find_asset(*names: str) -> Path | None:
+    roots = [
+        Path(__file__).resolve().parent.parent / "assets",
+        Path("assets"),
+        Path("."),
     ]
-    direct = next((path for path in candidates if path.exists()), None)
-    if direct:
-        return direct
-    project_root = Path(__file__).resolve().parent.parent
-    matching_fonts = list(project_root.glob("NotoSansDevanagari*.ttf"))
-    return matching_fonts[0] if matching_fonts else None
+    for root in roots:
+        for name in names:
+            candidate = root / name
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def find_font_regular() -> Path | None:
+    return _find_asset("NotoSansDevanagari-Regular.ttf")
+
+
+def find_font_bold() -> Path | None:
+    return _find_asset("NotoSansDevanagari-Bold.ttf")
+
+
+def find_font_black() -> Path | None:
+    # Black न मिले तो Bold से ही काम चला लेंगे (हल्का कम भारी दिखेगा, टूटेगा नहीं).
+    return _find_asset("NotoSansDevanagari-Black.ttf") or find_font_bold()
+
+
+def find_logo() -> Path | None:
+    return _find_asset("logo.png")
+
+
+# ---------------------------------------------------------------------------
+# PDF — मंडळ का नाम, logo, marketing tagline box, double border, हल्का
+# watermark और नीचे colourful संपर्क सूची
+# ---------------------------------------------------------------------------
+ORG_NAME = "कर्वेनगर माहेश्वरी भजनी मंडळ"
+TAGLINE = "काया के भजन । संगीतमय हनुमान चालिसा । सुंदरकांड । भजन संध्या"
+CONTACT_PEOPLE = [
+    ("रामकिशोर जाजू", "8830928952"),
+    ("विष्णू काळ्या", "9822443350"),
+]
+
+MAROON = (122, 24, 24)
+MAROON_DARK = (84, 14, 14)
+GOLD = (180, 131, 46)
+GOLD_LIGHT = (250, 236, 204)
+DARK_TEXT = (35, 24, 16)
+
+
+class LavishBhajanPDF(FPDF):
+    def __init__(self, font_regular: Path, font_bold: Path, font_black: Path,
+                 logo_path: Path | None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logo_path = logo_path
+        self.add_font("Noto", fname=str(font_regular))
+        self.add_font("Noto", style="B", fname=str(font_bold))
+        self.add_font("NotoBlack", fname=str(font_black))
+        try:
+            # सही जोड़ाक्षर/मात्रा दिखाने के लिए ज़रूरी — requirements.txt में
+            # "uharfbuzz" ज़रूर जोड़ें, वरना पूरा हिंदी टेक्स्ट (सिर्फ़
+            # watermark नहीं, हर जगह) टूटा/गलत क्रम में दिखेगा.
+            self.set_text_shaping(True)
+        except Exception:
+            pass
+        self.set_auto_page_break(auto=True, margin=56)
+
+    def _border(self):
+        self.set_draw_color(*MAROON)
+        self.set_line_width(1.1)
+        self.rect(8, 8, self.w - 16, self.h - 16)
+        self.set_draw_color(*GOLD)
+        self.set_line_width(0.4)
+        self.rect(11, 11, self.w - 22, self.h - 22)
+
+    def _watermark(self):
+        with self.local_context(fill_opacity=0.05):
+            self.set_font("Noto", style="B", size=9.5)
+            self.set_text_color(*MAROON)
+            text_w = self.get_string_width(ORG_NAME)
+            angle = 22
+            row_h = 26
+            col_w = text_w + 18
+            y = 20
+            row_i = 0
+            while y < self.h - 10:
+                offset = (col_w / 2) if (row_i % 2) else 0
+                x = -col_w + offset
+                while x < self.w + col_w:
+                    cx, cy = x + col_w / 2, y
+                    with self.rotation(angle, cx, cy):
+                        self.text(x, y, ORG_NAME)
+                    x += col_w
+                y += row_h
+                row_i += 1
+
+    def _tagline_box(self, y: float) -> float:
+        box_h = 9
+        x = 22
+        w = self.w - 44
+        self.set_fill_color(*MAROON)
+        self.set_draw_color(*GOLD)
+        self.set_line_width(0.5)
+        self.rect(x, y, w, box_h, style="DF")
+        self.set_xy(x, y + 1.3)
+        self.set_font("Noto", style="B", size=10.5)
+        self.set_text_color(*GOLD_LIGHT)
+        self.cell(w, box_h - 2.2, TAGLINE, align="C")
+        return y + box_h
+
+    def header(self):
+        self._border()
+        self._watermark()
+        if self.page_no() == 1:
+            if self.logo_path:
+                logo_w = 28
+                self.image(str(self.logo_path), x=(self.w - logo_w) / 2, y=14, w=logo_w)
+                y = 14 + logo_w + 5
+            else:
+                y = 18
+            self.set_xy(15, y)
+            self.set_font("NotoBlack", size=25)
+            self.set_text_color(*MAROON_DARK)
+            self.cell(self.w - 30, 12, ORG_NAME, align="C")
+            y += 12
+            self.set_draw_color(*GOLD)
+            self.set_line_width(0.6)
+            self.line(self.w / 2 - 30, y, self.w / 2 + 30, y)
+            self.set_y(y + 5)
+        else:
+            self.set_y(14)
+            self.set_font("Noto", style="B", size=11)
+            self.set_text_color(*GOLD)
+            self.cell(0, 6, ORG_NAME, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            self.ln(5)
+
+    def footer(self):
+        self.set_y(-54)
+        y = self._tagline_box(self.get_y())
+        y += 2.5
+        self.set_draw_color(*GOLD)
+        self.set_line_width(0.4)
+        self.line(20, y, self.w - 20, y)
+        y += 2.5
+        self.set_xy(15, y)
+        self.set_font("NotoBlack", size=13)
+        self.set_text_color(*MAROON_DARK)
+        self.cell(self.w - 30, 7, "भजन के लिये संपर्क", align="C")
+        y += 8
+        self.set_font("Noto", style="B", size=12)
+        for name, number in CONTACT_PEOPLE:
+            name_w = self.get_string_width(name + "  ")
+            num_w = self.get_string_width(number)
+            self.set_xy((self.w - (name_w + num_w)) / 2, y)
+            self.set_text_color(*DARK_TEXT)
+            self.cell(name_w, 6.5, name + "  ")
+            self.set_text_color(*GOLD)
+            self.cell(num_w, 6.5, number)
+            y += 6.5
 
 
 def make_pdf(title: str, category: str, lyrics: str) -> bytes:
-    font_path = find_font()
-    if not font_path:
+    font_regular = find_font_regular()
+    font_bold = find_font_bold()
+    font_black = find_font_black()
+    if not font_regular or not font_bold:
         raise FileNotFoundError(
-            "assets/NotoSansDevanagari-Regular.ttf नहीं मिली। README के अनुसार font file जोड़ें।"
+            "assets में NotoSansDevanagari-Regular.ttf / -Bold.ttf नहीं मिली। "
+            "दोनों font files assets folder में रखें।"
         )
+    logo_path = find_logo()  # ना मिले तो भी PDF बन जाएगी, बस logo के बिना.
 
-    pdf = FPDF(format="A4")
-    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf = LavishBhajanPDF(
+        font_regular=font_regular, font_bold=font_bold, font_black=font_black,
+        logo_path=logo_path, format="A4",
+    )
     pdf.add_page()
-    pdf.add_font("Noto", fname=str(font_path))
-    try:
-        # सही जोड़ाक्षर/मात्रा दिखाने के लिए ज़रूरी — requirements.txt में
-        # "uharfbuzz" जोड़ना ना भूलें, वरना यह silently fail होकर हिंदी टूटी
-        # हुई दिखेगी.
-        pdf.set_text_shaping(True)
-    except Exception:
-        pass
-    pdf.set_font("Noto", size=18)
-    pdf.set_text_color(124, 45, 18)
-    pdf.multi_cell(0, 10, title, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(2)
-    pdf.set_font("Noto", size=10)
-    pdf.set_text_color(146, 64, 14)
-    pdf.multi_cell(0, 7, f"श्रेणी: {category}", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(7)
-    pdf.set_font("Noto", size=13)
-    pdf.set_text_color(41, 37, 36)
-    pdf.multi_cell(0, 8, lyrics, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(8)
-    pdf.set_font("Noto", size=8)
-    pdf.set_text_color(120, 113, 108)
-    pdf.multi_cell(0, 5, "॥ भजन संग्रह ॥", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("NotoBlack", size=21)
+    pdf.set_text_color(*MAROON_DARK)
+    pdf.multi_cell(0, 11, title, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Noto", style="B", size=11)
+    pdf.set_text_color(*GOLD)
+    pdf.multi_cell(0, 6.5, f"श्रेणी: {category}", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(6)
+    pdf.set_font("Noto", style="B", size=15.5)
+    pdf.set_text_color(*DARK_TEXT)
+    pdf.multi_cell(0, 9.5, lyrics, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     return bytes(pdf.output())
 
 
