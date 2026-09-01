@@ -650,7 +650,8 @@ def generate_invoice_pdf(row_dict):
     pdf.ln(24)
     pdf.cell(0, 6, "Authorised Signatory", align='R', ln=True)
 
-    return pdf.output(dest='S').encode('latin1')
+    raw = pdf.output(dest='S')
+    return bytes(raw) if isinstance(raw, (bytearray, bytes)) else raw.encode('latin1')
 
 # --- 4. DATA FETCHING FUNCTIONS ---
 @st.cache_data(ttl=60, show_spinner=False)
@@ -1407,7 +1408,8 @@ elif st.session_state.billing_active_page == "ledger":
                 create_table("INVOICES (BILLED)", df_inv_rep, secondary_color)
                 create_table("PAYMENTS (PAID)", df_pay_rep, green_color)
                 
-                return pdf.output(dest='S').encode('latin1')
+                raw = pdf.output(dest='S')
+                return bytes(raw) if isinstance(raw, (bytearray, bytes)) else raw.encode('latin1')
 
             try:
                 pdf_bytes = generate_pdf()
