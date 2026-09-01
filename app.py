@@ -1,14 +1,89 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
+import bcrypt
+from supabase import create_client, Client
 
-# --- EXISTING CODE (100% UNTOUCHED) ---
+# ==============================================================
+# --- PAGE CONFIG (sirf ek hi baar, sabse upar) ---
+# ==============================================================
 st.set_page_config(
     page_title="Visiontech CRM | Home",
     page_icon="⚡",
     layout="wide"
 )
 
+# ==============================================================
+# --- SUPABASE CONNECTION (login ke liye) ---
+# ==============================================================
+@st.cache_resource
+def init_login_connection():
+    url = st.secrets["supabase"]["url"]
+    url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
+
+supabase_login: Client = init_login_connection()
+
+# ==============================================================
+# --- LOGIN SYSTEM (mobile number + password) ---
+# ==============================================================
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    st.markdown("""
+        <div style="max-width: 420px; margin: 80px auto; padding: 2.5rem; 
+                    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
+                    border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+            <h2 style="color:white; text-align:center; margin-bottom: 5px;">⚡ Visiontech CRM</h2>
+            <p style="color:#94a3b8; text-align:center; margin-bottom: 25px;">Login to continue</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col_a, col_b, col_c = st.columns([1, 1.2, 1])
+    with col_b:
+        mobile_input = st.text_input("📱 Mobile Number", placeholder="10 digit mobile number")
+        password_input = st.text_input("🔒 Password", type="password")
+        login_btn = st.button("Login", type="primary", use_container_width=True)
+
+        if login_btn:
+            if not mobile_input or not password_input:
+                st.error("⚠️ Mobile number aur password dono bharo")
+            else:
+                try:
+                    res = supabase_login.table("app_users").select("*").eq("mobile_number", mobile_input.strip()).execute()
+                    if not res.data:
+                        st.error("❌ Ye mobile number registered nahi hai")
+                    else:
+                        user = res.data[0]
+                        stored_hash = user.get("password_hash", "").encode('utf-8')
+                        if bcrypt.checkpw(password_input.encode('utf-8'), stored_hash):
+                            st.session_state['logged_in'] = True
+                            st.session_state['is_admin'] = user.get('is_admin', False)
+                            st.session_state['allowed_pages'] = user.get('allowed_pages', [])
+                            st.session_state['full_name'] = user.get('full_name', '')
+                            st.session_state['user_mobile'] = mobile_input.strip()
+                            st.rerun()
+                        else:
+                            st.error("❌ Password galat hai")
+                except Exception as e:
+                    st.error(f"❌ Login Error: {e}")
+    st.stop()
+
+# --- LOGOUT BUTTON (sidebar mein, login ke baad hamesha dikhega) ---
+with st.sidebar:
+    st.markdown(f"👤 **{st.session_state.get('full_name', 'User')}**")
+    if st.button("🚪 Logout", use_container_width=True):
+        for key in ['logged_in', 'is_admin', 'allowed_pages', 'full_name', 'user_mobile']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+    st.markdown("---")
+
+# ==============================================================
+# --- EXISTING CODE (100% UNTOUCHED) ---
+# ==============================================================
 st.markdown("""
     <div style="padding: 2.5rem; background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); border-radius: 16px; text-align: center; color: white;">
         <h1>⚡ Visiontech CRM⚡</h1>
@@ -54,8 +129,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # --- SESSION STATE INITIALIZATION ---
 if 'active_workspace' not in st.session_state:
-    # FIX: Session idle/websocket-reconnect hone par st.session_state reset ho jaata hai,
-    # isliye pehle URL query_params me saved workspace check karte hain (ye reset nahi hota).
     _valid_workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES", "BHAJAN"]
     _query_workspace = st.query_params.get('workspace', None)
     if _query_workspace in _valid_workspaces:
@@ -81,10 +154,9 @@ with col1:
     
     if selected_workspace != st.session_state['active_workspace']:
         st.session_state['active_workspace'] = selected_workspace
-        st.query_params['workspace'] = selected_workspace  # FIX: URL me bhi persist karo
+        st.query_params['workspace'] = selected_workspace
         st.rerun()
 
-    # FIX: Agar URL me query param abhi tak set nahi hai (pehli baar load), to sync kar do
     if st.query_params.get('workspace', None) != st.session_state['active_workspace']:
         st.query_params['workspace'] = st.session_state['active_workspace']
 
@@ -133,34 +205,33 @@ with col2:
 
 
 # ==============================================================
-# --- NEW REQUIREMENT: WORKSPACE-BASED SIDEBAR PAGE FILTER ---
+# --- SIDEBAR PAGE FILTER (LOGIN-BASED, PRIORITY) ---
 # ==============================================================
-# Rajkumar Kalya login me sirf ye 2 page dikhne chahiye:
-#   1. Marketing
-#   2. Rajkumar Contact
-# Baaki sab workspaces (VISPL, Bhagyashree, Sai Tele Services) me
-# ye 2 page CHHOD KAR baaki sab pages dikhne chahiye.
-#
-# IMPORTANT: Neeche list me EXACT wahi naam daalein jo aapke
-# "pages/" folder ki files se sidebar me dikh rahe hain
-# (numbers "1_", "2_" aur underscores hat jaate hain, emoji/icon
-# alag se render hota hai — sirf text label match karna hai).
-# Agar aapke actual sidebar labels different hain to yahan update kar dein.
+# Agar user ADMIN hai -> sab pages dikhte hain (koi filter nahi)
+# Agar user ADMIN nahi hai (ground team) -> SIRF unke allowed_pages dikhenge,
+# "Add User" page bhi hamesha ground team se hide rahega.
 
-RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
-BHAJAN_PAGES = ["Bhajan"]
+is_admin_user = st.session_state.get('is_admin', False)
 
-_active_ws = st.session_state['active_workspace']
+if is_admin_user:
+    # Admin ke liye purana workspace-based filter continue rahega
+    RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
+    BHAJAN_PAGES = ["Bhajan"]
+    _active_ws = st.session_state['active_workspace']
 
-if _active_ws == "BHAJAN":
-    _allowed_pages = BHAJAN_PAGES
-    _mode = "whitelist"       # Bhajan login me sirf Bhajan page dikhega
-elif _active_ws == "RAJKUMAR KALYA":
-    _allowed_pages = RAJKUMAR_PAGES
-    _mode = "whitelist"       # sirf RAJKUMAR_PAGES dikhenge
+    if _active_ws == "BHAJAN":
+        _allowed_pages = BHAJAN_PAGES
+        _mode = "whitelist"
+    elif _active_ws == "RAJKUMAR KALYA":
+        _allowed_pages = RAJKUMAR_PAGES
+        _mode = "whitelist"
+    else:
+        _allowed_pages = RAJKUMAR_PAGES + BHAJAN_PAGES
+        _mode = "blacklist"
 else:
-    _allowed_pages = RAJKUMAR_PAGES + BHAJAN_PAGES
-    _mode = "blacklist"       # Rajkumar aur Bhajan pages chhod kar baaki sab dikhenge
+    # Ground team: sirf unke allowed_pages dikhenge, Add User bhi hidden
+    _allowed_pages = st.session_state.get('allowed_pages', [])
+    _mode = "whitelist"
 
 components.html(f"""
 <script>
@@ -190,7 +261,6 @@ if (navContainer) {{
     observer.observe(navContainer, {{ childList: true, subtree: true }});
 }}
 
-// Fallback: Streamlit kabhi kabhi nav ko re-render karta hai bina mutation trigger kiye
 setInterval(filterSidebarNav, 400);
 </script>
 """, height=0)
