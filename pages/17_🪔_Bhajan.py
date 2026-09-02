@@ -425,6 +425,20 @@ def whatsapp_url(message: str) -> str:
     return f"https://wa.me/?text={quote(message)}"
 
 
+def whatsapp_signature_block() -> str:
+    lines = [
+        f"*{ORG_NAME}*",
+        "👉🏻काया के भजन",
+        "👉🏻संगीतमय हनुमान चालिसा",
+        "👉🏻सुंदरकांड",
+        "👉🏻भजन संध्या",
+        "",
+        "*भजन के लिये संपर्क*",
+    ]
+    lines += [f"{name} - {number}" for name, number in CONTACT_PEOPLE]
+    return "\n".join(lines)
+
+
 # PDF कहीं भी Supabase Storage या किसी और cloud पर save नहीं होती — यह सिर्फ़
 # memory में बनती है और सीधे user के device पर download होती है।
 
@@ -456,7 +470,10 @@ def view_bhajan(row: dict):
         else:
             st.button("⬇️ PDF उपलब्ध नहीं", disabled=True, use_container_width=True)
     with c2:
-        text_message = f"🪔 *{row['title']}*\n📂 {row['category']}\n\n{row['lyrics']}"
+        text_message = (
+            f"🪔 *{row['title']}*\n📂 {row['category']}\n\n{row['lyrics']}"
+            f"\n\n{whatsapp_signature_block()}"
+        )
         st.link_button("📲 WhatsApp पर Text भेजें", whatsapp_url(text_message), use_container_width=True)
 
     if pdf_bytes:
