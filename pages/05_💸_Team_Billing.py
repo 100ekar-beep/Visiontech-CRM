@@ -640,7 +640,7 @@ def generate_invoice_pdf(row_dict):
 
     # --- Invoice detail table ---
     detail_rows = [
-        ("MRN Number", invoice_no, "MRN Date", date_fmt),
+        ("Invoice Number", invoice_no, "MRN Date", date_fmt),
         ("Project ID", project_id, "Site ID", site_id),
         ("Site Name", site_name, "Cluster", cluster),
         ("Remark", "Tower Work", "Place of Supply", "Maharashtra, Code : 27"),
