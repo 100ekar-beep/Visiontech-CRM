@@ -5,7 +5,7 @@ openpyxl
 fpdf2
 geopy
 streamlit-keyup
-FPDF
+
 ffmpeg
 Pillow
 phonenumbers
