@@ -20,6 +20,8 @@ st.set_page_config(page_title="Team & Vendor Billing", page_icon="💸", layout=
 # --- INIT SESSION STATE (nav) ---
 if 'billing_active_page' not in st.session_state:
     st.session_state.billing_active_page = "invoice"
+if 'billing_view_mode' not in st.session_state:
+    st.session_state.billing_view_mode = "table"
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -269,6 +271,17 @@ st.markdown("""
         background: #10b981 !important;
         transform: translateY(-2px) !important;
     }
+
+    /* =========================================================
+       MOBILE CARD VIEW (light theme) — used when the Mobile View
+       toggle is on, instead of the wide horizontal-scroll tables.
+       ========================================================= */
+    .billing-card-title { font-size: 1.02rem; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
+    .billing-card-sub { font-size: 0.8rem; color: #64748b; margin-bottom: 10px; }
+    .billing-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; }
+    .billing-card-row:last-child { border-bottom: none; }
+    .billing-card-label { color: #64748b; font-weight: 600; }
+    .billing-card-value { color: #1e293b; font-weight: 600; text-align: right; }
 
     /* Dialog/Popup Premium Styling */
     div[data-testid="stDialog"] > div {
@@ -1074,6 +1087,15 @@ with st.container(key="billing_nav_bar"):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+col_viewtoggle_space, col_viewtoggle = st.columns([5, 2])
+with col_viewtoggle:
+    toggle_label = "📱 Mobile View" if st.session_state.billing_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="billing_view_toggle"):
+        st.session_state.billing_view_mode = "cards" if st.session_state.billing_view_mode == "table" else "table"
+        st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_billing_invoices_cached(workspace):
@@ -1169,73 +1191,136 @@ if st.session_state.billing_active_page == "invoice":
 
                 df_inv = df_inv.reset_index(drop=True)
 
-                INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
-                INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
-
-                with st.container(key="inv_table_header"):
-                    h_cols = st.columns(INV_COL_RATIOS)
-                    for h_col, label in zip(h_cols, INV_COL_LABELS):
-                        h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
-
-                with st.container(key="inv_table_wrap", height=500):
+                if st.session_state.billing_view_mode == "cards":
+                    # ---------------------------------------------------------------
+                    # MOBILE CARD VIEW
+                    # ---------------------------------------------------------------
                     for pos, (_, row) in enumerate(df_inv.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
-                        rcols = st.columns(INV_COL_RATIOS)
-
-                        rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-
-                        with rcols[1]:
-                            if st.button("⚙️", key=f"inv_mgr_{rid}", help="Edit Invoice", use_container_width=True):
-                                if row_dict.get("invoice_type") == "Team":
-                                    team_invoice_dialog(row_dict)
-                                else:
-                                    vendor_invoice_dialog(row_dict)
-                        with rcols[2]:
-                            try:
-                                pdf_bytes_row = generate_invoice_pdf(row_dict)
-                                file_no_row = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
-                                st.download_button(
-                                    "📥", data=pdf_bytes_row, file_name=f"Invoice_{file_no_row}.pdf",
-                                    mime="application/pdf", key=f"inv_dl_{rid}", help="Download Invoice PDF",
-                                    use_container_width=True
-                                )
-                            except Exception:
-                                st.button("📥", key=f"inv_dl_{rid}", help="PDF generation error", use_container_width=True, disabled=True)
-                        with rcols[3]:
-                            if st.button("🗑️", key=f"inv_del_{rid}", help="Delete Invoice", use_container_width=True):
-                                try:
-                                    supabase.table("billing_invoices").delete().eq("id", rid).execute()
-                                    st.success("✅ Deleted successfully!")
-                                    fetch_billing_invoices_cached.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error deleting: {e}")
-
-                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                        rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
-
                         basic_v = row_dict.get('basic_amount')
-                        rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         gst_v = row_dict.get('gst_amount')
-                        rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
                         if pd.notna(amt_v):
                             tds_v = amt_v * 0.01
                             net_v = amt_v - tds_v
-                            rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
-                            rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
                         else:
-                            rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                            rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            tds_v = None
+                            net_v = None
 
-                        rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                        rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                        with st.container(border=True):
+                            st.markdown(f"""
+                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('team_name'))}</div>
+                                <div class="billing-card-sub">{cell(row_dict.get('invoice_no'))} • {cell(row_dict.get('date'))}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{cell(row_dict.get('project_id'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{cell(row_dict.get('site_id'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{cell(row_dict.get('site_name'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{cell(row_dict.get('cluster'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Basic Amount</span><span class="billing-card-value">{'₹ %s' % format(basic_v, ',.0f') if pd.notna(basic_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">GST Amount</span><span class="billing-card-value">{'₹ %s' % format(gst_v, ',.0f') if pd.notna(gst_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">TDS (1%)</span><span class="billing-card-value">{'₹ %s' % format(tds_v, ',.0f') if tds_v is not None else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Total (Net)</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(net_v, ',.0f') if net_v is not None else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Vendor</span><span class="billing-card-value">{cell(row_dict.get('vendor_name'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                            """, unsafe_allow_html=True)
+
+                            bc1, bc2, bc3 = st.columns(3)
+                            with bc1:
+                                if st.button("⚙️ Manage", key=f"invc_mgr_{rid}", use_container_width=True):
+                                    if row_dict.get("invoice_type") == "Team":
+                                        team_invoice_dialog(row_dict)
+                                    else:
+                                        vendor_invoice_dialog(row_dict)
+                            with bc2:
+                                try:
+                                    pdf_bytes_card = generate_invoice_pdf(row_dict)
+                                    file_no_card = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+                                    st.download_button(
+                                        "📥 PDF", data=pdf_bytes_card, file_name=f"Invoice_{file_no_card}.pdf",
+                                        mime="application/pdf", key=f"invc_dl_{rid}", use_container_width=True
+                                    )
+                                except Exception:
+                                    st.button("📥 PDF", key=f"invc_dl_{rid}", disabled=True, use_container_width=True)
+                            with bc3:
+                                if st.button("🗑️ Delete", key=f"invc_del_{rid}", use_container_width=True):
+                                    try:
+                                        supabase.table("billing_invoices").delete().eq("id", rid).execute()
+                                        st.success("✅ Deleted successfully!")
+                                        fetch_billing_invoices_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting: {e}")
+                else:
+                    # ---------------------------------------------------------------
+                    # DESKTOP WIDE TABLE VIEW
+                    # ---------------------------------------------------------------
+                    INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
+                    INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
+
+                    with st.container(key="inv_table_header"):
+                        h_cols = st.columns(INV_COL_RATIOS)
+                        for h_col, label in zip(h_cols, INV_COL_LABELS):
+                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+                    with st.container(key="inv_table_wrap", height=500):
+                        for pos, (_, row) in enumerate(df_inv.iterrows()):
+                            row_dict = row.to_dict()
+                            rid = row_dict.get("id")
+                            rcols = st.columns(INV_COL_RATIOS)
+
+                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+
+                            with rcols[1]:
+                                if st.button("⚙️", key=f"inv_mgr_{rid}", help="Edit Invoice", use_container_width=True):
+                                    if row_dict.get("invoice_type") == "Team":
+                                        team_invoice_dialog(row_dict)
+                                    else:
+                                        vendor_invoice_dialog(row_dict)
+                            with rcols[2]:
+                                try:
+                                    pdf_bytes_row = generate_invoice_pdf(row_dict)
+                                    file_no_row = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+                                    st.download_button(
+                                        "📥", data=pdf_bytes_row, file_name=f"Invoice_{file_no_row}.pdf",
+                                        mime="application/pdf", key=f"inv_dl_{rid}", help="Download Invoice PDF",
+                                        use_container_width=True
+                                    )
+                                except Exception:
+                                    st.button("📥", key=f"inv_dl_{rid}", help="PDF generation error", use_container_width=True, disabled=True)
+                            with rcols[3]:
+                                if st.button("🗑️", key=f"inv_del_{rid}", help="Delete Invoice", use_container_width=True):
+                                    try:
+                                        supabase.table("billing_invoices").delete().eq("id", rid).execute()
+                                        st.success("✅ Deleted successfully!")
+                                        fetch_billing_invoices_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting: {e}")
+
+                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                            rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                            rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
+
+                            basic_v = row_dict.get('basic_amount')
+                            rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            gst_v = row_dict.get('gst_amount')
+                            rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            amt_v = row_dict.get('amount')
+                            if pd.notna(amt_v):
+                                tds_v = amt_v * 0.01
+                                net_v = amt_v - tds_v
+                                rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
+                                rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
+                            else:
+                                rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+
+                            rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                            rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No invoices match your search.")
         else:
@@ -1284,43 +1369,78 @@ elif st.session_state.billing_active_page == "payment":
 
                 df_pay = df_pay.reset_index(drop=True)
 
-                PAY_COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.0, 1.0, 1.0, 0.9, 1.4, 0.8]
-                PAY_COL_LABELS = ["#", "⚙️", "🗑️", "PAY FROM", "PAY TO", "PAY TYPE", "AMOUNT", "DATE", "REMARK", "MODE"]
-
-                with st.container(key="pay_table_header"):
-                    h_cols = st.columns(PAY_COL_RATIOS)
-                    for h_col, label in zip(h_cols, PAY_COL_LABELS):
-                        h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
-
-                with st.container(key="pay_table_wrap", height=500):
+                if st.session_state.billing_view_mode == "cards":
+                    # ---------------------------------------------------------------
+                    # MOBILE CARD VIEW
+                    # ---------------------------------------------------------------
                     for pos, (_, row) in enumerate(df_pay.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
-                        rcols = st.columns(PAY_COL_RATIOS)
-
-                        rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-
-                        with rcols[1]:
-                            if st.button("⚙️", key=f"pay_mgr_{rid}", help="Edit Payment", use_container_width=True):
-                                payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
-                        with rcols[2]:
-                            if st.button("🗑️", key=f"pay_del_{rid}", help="Delete Payment", use_container_width=True):
-                                try:
-                                    supabase.table("billing_payments").delete().eq("id", rid).execute()
-                                    st.success("✅ Deleted successfully!")
-                                    fetch_billing_payments_cached.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error deleting: {e}")
-
-                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_from'))}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_to'))}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_type'))}</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
-                        rcols[6].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('mode'))}</div>", unsafe_allow_html=True)
+
+                        with st.container(border=True):
+                            st.markdown(f"""
+                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('pay_to'))}</div>
+                                <div class="billing-card-sub">{cell(row_dict.get('date'))} • {cell(row_dict.get('pay_type'))} • {cell(row_dict.get('mode'))}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Pay From</span><span class="billing-card-value">{cell(row_dict.get('pay_from'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Amount</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(amt_v, ',.0f') if pd.notna(amt_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                            """, unsafe_allow_html=True)
+
+                            bc1, bc2 = st.columns(2)
+                            with bc1:
+                                if st.button("⚙️ Manage", key=f"payc_mgr_{rid}", use_container_width=True):
+                                    payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
+                            with bc2:
+                                if st.button("🗑️ Delete", key=f"payc_del_{rid}", use_container_width=True):
+                                    try:
+                                        supabase.table("billing_payments").delete().eq("id", rid).execute()
+                                        st.success("✅ Deleted successfully!")
+                                        fetch_billing_payments_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting: {e}")
+                else:
+                    # ---------------------------------------------------------------
+                    # DESKTOP WIDE TABLE VIEW
+                    # ---------------------------------------------------------------
+                    PAY_COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.0, 1.0, 1.0, 0.9, 1.4, 0.8]
+                    PAY_COL_LABELS = ["#", "⚙️", "🗑️", "PAY FROM", "PAY TO", "PAY TYPE", "AMOUNT", "DATE", "REMARK", "MODE"]
+
+                    with st.container(key="pay_table_header"):
+                        h_cols = st.columns(PAY_COL_RATIOS)
+                        for h_col, label in zip(h_cols, PAY_COL_LABELS):
+                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+                    with st.container(key="pay_table_wrap", height=500):
+                        for pos, (_, row) in enumerate(df_pay.iterrows()):
+                            row_dict = row.to_dict()
+                            rid = row_dict.get("id")
+                            rcols = st.columns(PAY_COL_RATIOS)
+
+                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+
+                            with rcols[1]:
+                                if st.button("⚙️", key=f"pay_mgr_{rid}", help="Edit Payment", use_container_width=True):
+                                    payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
+                            with rcols[2]:
+                                if st.button("🗑️", key=f"pay_del_{rid}", help="Delete Payment", use_container_width=True):
+                                    try:
+                                        supabase.table("billing_payments").delete().eq("id", rid).execute()
+                                        st.success("✅ Deleted successfully!")
+                                        fetch_billing_payments_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting: {e}")
+
+                            rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_from'))}</div>", unsafe_allow_html=True)
+                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_to'))}</div>", unsafe_allow_html=True)
+                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_type'))}</div>", unsafe_allow_html=True)
+                            amt_v = row_dict.get('amount')
+                            rcols[6].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('mode'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No payments match your search.")
         else:
@@ -1559,58 +1679,108 @@ elif st.session_state.billing_active_page == "mrn":
 
                 st.markdown("##### 🕒 Pending MRNs")
 
-                MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
-                MRN_COL_LABELS = ["#", "✅", "❌", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
-
-                with st.container(key="mrn_table_header"):
-                    h_cols = st.columns(MRN_COL_RATIOS)
-                    for h_col, label in zip(h_cols, MRN_COL_LABELS):
-                        h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
-
-                with st.container(key="mrn_table_wrap", height=440):
+                if st.session_state.billing_view_mode == "cards":
+                    # ---------------------------------------------------------------
+                    # MOBILE CARD VIEW
+                    # ---------------------------------------------------------------
                     for pos, (_, row) in enumerate(df_pending.iterrows()):
                         row_dict = row.to_dict()
                         rid = row_dict.get("id")
-                        rcols = st.columns(MRN_COL_RATIOS)
-
-                        rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-
-                        with rcols[1]:
-                            if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN", use_container_width=True):
-                                try:
-                                    full_row = dict(row_dict)
-                                    full_row.pop("id", None)
-                                    supabase.table("billing_invoices").insert(full_row).execute()
-                                    supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
-                                    st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
-                                    fetch_billing_invoices_cached.clear()
-                                    fetch_pending_mrn_cached.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error approving: {e}")
-                        with rcols[2]:
-                            if st.button("❌", key=f"mrn_rej_{rid}", help="Reject MRN", use_container_width=True):
-                                try:
-                                    supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
-                                    st.error("❌ Pending MRN Rejected and Deleted from Queue!")
-                                    fetch_pending_mrn_cached.clear()
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error rejecting: {e}")
-
-                        rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                        rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                        rcols[5].markdown(f"<div class='tbl-cell'>{cell(display_dates.iloc[pos])}</div>", unsafe_allow_html=True)
-                        rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                        rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                        rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                        rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
-
                         basic_v = row_dict.get('basic_amount')
-                        rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                         amt_v = row_dict.get('amount')
-                        rcols[11].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                        rcols[12].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+
+                        with st.container(border=True):
+                            st.markdown(f"""
+                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('team_name'))}</div>
+                                <div class="billing-card-sub">{cell(row_dict.get('invoice_no'))} • {cell(display_dates.iloc[pos])}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{cell(row_dict.get('project_id'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{cell(row_dict.get('site_id'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{cell(row_dict.get('site_name'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{cell(row_dict.get('cluster'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Basic Amount</span><span class="billing-card-value">{'₹ %s' % format(basic_v, ',.0f') if pd.notna(basic_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Total</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(amt_v, ',.0f') if pd.notna(amt_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                            """, unsafe_allow_html=True)
+
+                            bc1, bc2 = st.columns(2)
+                            with bc1:
+                                if st.button("✅ Approve", key=f"mrnc_app_{rid}", use_container_width=True):
+                                    try:
+                                        full_row = dict(row_dict)
+                                        full_row.pop("id", None)
+                                        supabase.table("billing_invoices").insert(full_row).execute()
+                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                        st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
+                                        fetch_billing_invoices_cached.clear()
+                                        fetch_pending_mrn_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error approving: {e}")
+                            with bc2:
+                                if st.button("❌ Reject", key=f"mrnc_rej_{rid}", use_container_width=True):
+                                    try:
+                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                        st.error("❌ Pending MRN Rejected and Deleted from Queue!")
+                                        fetch_pending_mrn_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error rejecting: {e}")
+                else:
+                    # ---------------------------------------------------------------
+                    # DESKTOP WIDE TABLE VIEW
+                    # ---------------------------------------------------------------
+                    MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
+                    MRN_COL_LABELS = ["#", "✅", "❌", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
+
+                    with st.container(key="mrn_table_header"):
+                        h_cols = st.columns(MRN_COL_RATIOS)
+                        for h_col, label in zip(h_cols, MRN_COL_LABELS):
+                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+                    with st.container(key="mrn_table_wrap", height=440):
+                        for pos, (_, row) in enumerate(df_pending.iterrows()):
+                            row_dict = row.to_dict()
+                            rid = row_dict.get("id")
+                            rcols = st.columns(MRN_COL_RATIOS)
+
+                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+
+                            with rcols[1]:
+                                if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN", use_container_width=True):
+                                    try:
+                                        full_row = dict(row_dict)
+                                        full_row.pop("id", None)
+                                        supabase.table("billing_invoices").insert(full_row).execute()
+                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                        st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
+                                        fetch_billing_invoices_cached.clear()
+                                        fetch_pending_mrn_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error approving: {e}")
+                            with rcols[2]:
+                                if st.button("❌", key=f"mrn_rej_{rid}", help="Reject MRN", use_container_width=True):
+                                    try:
+                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                        st.error("❌ Pending MRN Rejected and Deleted from Queue!")
+                                        fetch_pending_mrn_cached.clear()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error rejecting: {e}")
+
+                            rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(display_dates.iloc[pos])}</div>", unsafe_allow_html=True)
+                            rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
+
+                            basic_v = row_dict.get('basic_amount')
+                            rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            amt_v = row_dict.get('amount')
+                            rcols[11].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                            rcols[12].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No pending MRNs waiting for approval.")
         except Exception as e:
