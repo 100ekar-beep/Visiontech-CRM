@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import math
 import io
-import requests # <--- NEW: Added requests for WhatsApp API
 import smtplib  # <--- NEW: For Email Sending
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -410,66 +409,8 @@ def send_commissioning_email(to_email, cc_email, subject, body):
         return False, f"SMTP Error: {str(e)}"
 
 # -------------------------------------------------------------
-# --- WHATSAPP INTERACT API FUNCTION
+# --- WHATSAPP SENDING LOGIC REMOVED (disabled for now) ---
 # -------------------------------------------------------------
-def send_whatsapp_to_team(team_name, site_id, site_name, proj_id, cluster, work_desc, area, lat_val, long_val, tech, fse, aom):
-    try:
-        res = supabase.table("dropdown_master").select("*").eq("category", "Team Name").eq("option_value", team_name).execute()
-        if not res.data:
-            st.toast(f"⚠️ Team '{team_name}' not found in database.", icon="⚠️")
-            return False
-        
-        mobile_no = res.data[0].get("mobile", "")
-        
-        if not mobile_no or str(mobile_no).strip().upper() == "EMPTY" or str(mobile_no).strip() == "nan":
-            st.toast(f"⚠️ No valid mobile number for Team '{team_name}'", icon="⚠️")
-            return False
-            
-        mobile_no = str(mobile_no).replace("+91", "").replace(" ", "").strip()
-        
-    except Exception as e:
-        st.toast(f"Error fetching team mobile: {e}")
-        return False
-
-    url = "https://api.interakt.ai/v1/public/message/"
-    headers = {
-        "Authorization": "Basic S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo=",
-        "Content-Type": "application/json"
-    }
-    
-    lat_long = f"{lat_val} {long_val}"
-    
-    def clean_val(v):
-        val = str(v).strip()
-        return val if val and val != "None" else "N/A"
-    
-    payload = {
-        "countryCode": "+91",
-        "phoneNumber": mobile_no,
-        "callbackData": "site_allocation_event",
-        "type": "Template",
-        "template": {
-            "name": "site_allocation",
-            "languageCode": "mr",
-            "headerValues": [],
-            "bodyValues": [
-                clean_val(team_name), clean_val(site_id), clean_val(site_name), clean_val(proj_id), 
-                clean_val(area), clean_val(cluster), clean_val(work_desc), clean_val(lat_long), 
-                clean_val(tech), clean_val(fse), clean_val(aom)
-            ]
-        }
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code in [200, 201, 202]:
-            st.toast("✅ WhatsApp Message Sent to Team!", icon="🟢")
-            return True
-        else:
-            st.toast(f"⚠️ WhatsApp API Error: {response.text}", icon="⚠️")
-            return False
-    except Exception as e:
-        return False
 
 # --- 3.1 HELPER FOR DYNAMIC DROPDOWNS ---
 def get_all_dropdowns():
@@ -810,14 +751,7 @@ def add_record_dialog():
                     res = supabase.table("site_data").insert(insert_data).execute()
                     new_id = res.data[0].get('id') if (hasattr(res, 'data') and res.data) else None
                     
-                    # --- SEND WHATSAPP MESSAGE ON FIRST ASSIGNMENT ---
-                    if team_name and team_name != "Select":
-                        send_whatsapp_to_team(
-                            team_name=team_name, site_id=site_id, site_name=site_name, 
-                            proj_id=proj_id, cluster=cluster, work_desc=work_desc, 
-                            area=area_val, lat_val=lat_val, long_val=long_val, 
-                            tech=tech_val, fse=fse_val, aom=aom_val
-                        )
+                    # --- WHATSAPP MESSAGE ON FIRST ASSIGNMENT: DISABLED FOR NOW ---
                     
                     # --- SAVE OPTIONAL WAREHOUSE MATERIAL ---
                     active_ws_save = st.session_state.get('active_workspace', 'VISPL')
@@ -1109,13 +1043,7 @@ def edit_record_dialog(row_data):
                 try:
                     supabase.table("site_data").update(update_data).eq("id", row_data['id']).execute()
                     
-                    if team_name and team_name != "Select" and team_name != old_team_name:
-                        send_whatsapp_to_team(
-                            team_name=team_name, site_id=site_id, site_name=site_name, 
-                            proj_id=proj_id, cluster=cluster, work_desc=work_desc, 
-                            area=area_val, lat_val=lat_val, long_val=long_val, 
-                            tech=tech_val, fse=fse_val, aom=aom_val
-                        )
+                    # --- WHATSAPP MESSAGE ON TEAM CHANGE: DISABLED FOR NOW ---
                     
                     st.success("✅ Record Successfully Updated!")
                     
