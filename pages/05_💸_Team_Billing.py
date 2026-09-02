@@ -22,6 +22,8 @@ if 'billing_active_page' not in st.session_state:
     st.session_state.billing_active_page = "invoice"
 if 'billing_view_mode' not in st.session_state:
     st.session_state.billing_view_mode = "table"
+if 'invoice_sub_tab' not in st.session_state:
+    st.session_state.invoice_sub_tab = "team"
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -366,6 +368,39 @@ st.markdown("""
         color: #ffffff !important;
         font-weight: 800 !important;
         font-size: 1.05rem !important;
+    }
+
+    /* =========================================================
+       INVOICE SUB-TAB BAR (Team Invoices / Vendor Invoices)
+       Reuses the same look as the main nav bar, just smaller.
+       ========================================================= */
+    .st-key-invoice_sub_tab_bar div[data-testid="stHorizontalBlock"] {
+        gap: 10px !important;
+    }
+    .st-key-invoice_sub_tab_bar button {
+        font-size: 0.92rem !important;
+        font-weight: 800 !important;
+        padding: 10px 8px !important;
+        height: auto !important;
+        border-radius: 10px !important;
+        box-shadow: none !important;
+    }
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] {
+        background: #ffffff !important;
+        color: #475569 !important;
+        border: 1.5px solid #e2e8f0 !important;
+    }
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] p,
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] span,
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] div {
+        color: #475569 !important;
+        font-weight: 800 !important;
+    }
+    .st-key-invoice_sub_tab_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        box-shadow: 0 4px 10px rgba(79, 70, 229, 0.35) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1145,27 +1180,45 @@ def fetch_pending_mrn_cached(workspace):
 if st.session_state.billing_active_page == "invoice":
     active_ws = st.session_state.get('active_workspace', 'VISPL')
     try:
-        inv_data_raw = fetch_billing_invoices_cached(active_ws)
+        inv_data_raw_all = fetch_billing_invoices_cached(active_ws)
     except Exception:
-        inv_data_raw = []
+        inv_data_raw_all = []
+
+    # --- Team Invoices / Vendor Invoices sub-tabs ---
+    INVOICE_SUB_TABS = [("team", "👥 Team Invoices"), ("vendor", "🏭 Vendor Invoices")]
+    with st.container(key="invoice_sub_tab_bar"):
+        sub_cols = st.columns(len(INVOICE_SUB_TABS))
+        for sub_col, (tab_id, tab_label) in zip(sub_cols, INVOICE_SUB_TABS):
+            is_active_sub = st.session_state.invoice_sub_tab == tab_id
+            with sub_col:
+                if st.button(tab_label, key=f"invoice_sub_{tab_id}", use_container_width=True, type=("primary" if is_active_sub else "secondary")):
+                    st.session_state.invoice_sub_tab = tab_id
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    active_invoice_type = "Team" if st.session_state.invoice_sub_tab == "team" else "Vendor"
+    inv_data_raw = [r for r in inv_data_raw_all if str(r.get("invoice_type", "")).strip() == active_invoice_type]
 
     inv_team_opts = ["All Teams"]
     if inv_data_raw:
         _teams = sorted(set(str(r.get("team_name", "")).strip() for r in inv_data_raw if str(r.get("team_name", "")).strip()))
         inv_team_opts += _teams
 
-    col_search, col_teamfilter, col_tbtn, col_vbtn, col_dl = st.columns([2.6, 1.8, 1.6, 1.6, 1.6])
+    col_search, col_teamfilter, col_addbtn, col_dl = st.columns([3.2, 2.0, 1.8, 1.6])
+
     with col_search:
         search_inv = st_keyup("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
     with col_teamfilter:
         team_filter_inv = st.selectbox("Team Filter", options=inv_team_opts, label_visibility="collapsed", key="inv_team_filter")
-    with col_tbtn:
-        if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
-            team_invoice_dialog()
-    with col_vbtn:
-        if st.button("➕ Add Vendor Invoice", type="primary", use_container_width=True):
-            vendor_invoice_dialog()
-            
+    with col_addbtn:
+        if st.session_state.invoice_sub_tab == "team":
+            if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
+                team_invoice_dialog()
+        else:
+            if st.button("➕ Add Vendor Invoice", type="primary", use_container_width=True):
+                vendor_invoice_dialog()
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     try:
