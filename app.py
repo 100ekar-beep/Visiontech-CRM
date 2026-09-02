@@ -66,3 +66,119 @@ if 'active_workspace' not in st.session_state:
 # --- MASTER WORKSPACE SELECTOR ---
 st.markdown("<h2>🏢 Master Workspace Controller</h2>", unsafe_allow_html=True)
 st.markdown("---")
+
+col1, col2 = st.columns([3, 7])
+with col1:
+    workspaces = ["VISPL", "BHAGYASHREE", "RAJKUMAR KALYA", "SAI TELE SERVICES", "BHAJAN"]
+    current_index = workspaces.index(st.session_state['active_workspace'])
+    
+    selected_workspace = st.selectbox(
+        "Active Workspace Select Karein:", 
+        workspaces, 
+        index=current_index,
+        key="workspace_selector"
+    )
+    
+    if selected_workspace != st.session_state['active_workspace']:
+        st.session_state['active_workspace'] = selected_workspace
+        st.query_params['workspace'] = selected_workspace  # FIX: URL me bhi persist karo
+        st.rerun()
+
+    # FIX: Agar URL me query param abhi tak set nahi hai (pehli baar load), to sync kar do
+    if st.query_params.get('workspace', None) != st.session_state['active_workspace']:
+        st.query_params['workspace'] = st.session_state['active_workspace']
+
+# --- DYNAMIC DASHBOARD DISPLAY ---
+with col2:
+    if st.session_state['active_workspace'] == 'RAJKUMAR KALYA':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>📱 Personal Marketing Zone</h2>
+            <p>Welcome! Ye aapka personal aur fully isolated workspace hai. Yahan se aap apne WhatsApp campaigns aur Interakt templates manage kar sakte hain.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se <b>Marketing</b> ya <b>Template Registration</b> select karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'VISPL':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>🚀 VISPL Enterprise Operations</h2>
+            <p>Welcome to VISPL Workspace! Yahan aap apne saare bills, quotations, POs aur site data ko securely manage kar sakte hain. Data completely isolated hai.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'BHAGYASHREE':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>🏗️ BHAGYASHREE Management</h2>
+            <p>Welcome to Bhagyashree Workspace! Yahan aapki property aur construction ventures ka saara record secure aur isolated rakha gaya hai.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'SAI TELE SERVICES':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>📡 SAI TELE SERVICES Operations</h2>
+            <p>Welcome to Sai Tele Services Workspace! Yahan aap apne saare bills, quotations, POs aur service data ko securely manage kar sakte hain. Data completely isolated hai.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se apne desired business modules select karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    elif st.session_state['active_workspace'] == 'BHAJAN':
+        st.markdown("""
+        <div class="dash-card">
+            <h2>🪔 BHAJAN SANGRAH</h2>
+            <p>Welcome to Bhajan Workspace! Yahan aap category-wise bhajan save, search, PDF download aur WhatsApp share kar sakte hain.</p>
+            <p style="color: #38bdf8 !important;">👈 Kripya sidebar se <b>Bhajan</b> page select karke login karein.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ==============================================================
+# --- NEW REQUIREMENT: WORKSPACE-BASED SIDEBAR PAGE FILTER ---
+# ==============================================================
+RAJKUMAR_PAGES = ["Marketing", "Rajkumar Contact"]
+BHAJAN_PAGES = ["Bhajan"]
+
+_active_ws = st.session_state['active_workspace']
+
+if _active_ws == "BHAJAN":
+    _allowed_pages = BHAJAN_PAGES
+    _mode = "whitelist"       # Bhajan login me sirf Bhajan page dikhega
+elif _active_ws == "RAJKUMAR KALYA":
+    _allowed_pages = RAJKUMAR_PAGES
+    _mode = "whitelist"       # sirf RAJKUMAR_PAGES dikhenge
+else:
+    _allowed_pages = RAJKUMAR_PAGES + BHAJAN_PAGES
+    _mode = "blacklist"       # Rajkumar aur Bhajan pages chhod kar baaki sab dikhenge
+
+components.html(f"""
+<script>
+const allowedPages = {json.dumps(_allowed_pages)};
+const mode = "{_mode}";
+
+function filterSidebarNav() {{
+    const navLinks = window.parent.document.querySelectorAll('[data-testid="stSidebarNav"] a');
+    navLinks.forEach(function(link) {{
+        const span = link.querySelector('span');
+        const label = (span ? span.textContent : link.textContent).trim();
+        let hide = false;
+        if (mode === "whitelist") {{
+            hide = !allowedPages.includes(label);
+        }} else {{
+            hide = allowedPages.includes(label);
+        }}
+        link.style.display = hide ? "none" : "flex";
+    }});
+}}
+
+filterSidebarNav();
+
+const navContainer = window.parent.document.querySelector('[data-testid="stSidebarNav"]');
+if (navContainer) {{
+    const observer = new MutationObserver(filterSidebarNav);
+    observer.observe(navContainer, {{ childList: true, subtree: true }});
+}}
+
+// Fallback: Streamlit kabhi kabhi nav ko re-render karta hai bina mutation trigger kiye
+setInterval(filterSidebarNav, 400);
+</script>
+""", height=0)
