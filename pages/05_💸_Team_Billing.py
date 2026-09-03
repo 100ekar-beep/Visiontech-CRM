@@ -451,6 +451,15 @@ def get_mobile_number(category, name):
         pass
     return ""
 
+def get_pan_number(category, name):
+    try:
+        res = supabase.table("dropdown_master").select("pan").eq("category", category).eq("option_value", name).eq("is_active", True).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0].get("pan", "")
+    except Exception:
+        pass
+    return ""
+
 def send_interakt_whatsapp(mobile, template_name, params):
     if not mobile or not INTERAKT_API_KEY:
         return
@@ -634,6 +643,13 @@ def generate_invoice_pdf(row_dict):
     except Exception:
         entity_mobile = "-"
 
+    try:
+        entity_pan = get_pan_number(
+            "Vendor Name" if invoice_type == "Vendor" else "Team Name", entity_name
+        ) or "-"
+    except Exception:
+        entity_pan = "-"
+
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -682,7 +698,7 @@ def generate_invoice_pdf(row_dict):
     pdf.cell(90, 5, entity_name, ln=2)
     pdf.set_x(right_x)
     pdf.set_font("Arial", '', 8)
-    pdf.multi_cell(90, 4, f"Contact : {entity_name}\nMobile : {entity_mobile}\nPAN : ABCD")
+    pdf.multi_cell(90, 4, f"Contact : {entity_name}\nMobile : {entity_mobile}\nPAN : {entity_pan}")
 
     pdf.set_y(box_top + box_height + 2)
 
