@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
-from datetime import datetime # <--- Added for parsing existing date strings
+from datetime import datetime, timedelta # <--- Added for parsing existing date strings
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
@@ -721,6 +721,7 @@ def add_record_dialog():
             if not has_error:
                 insert_data = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                    "created_at": datetime.utcnow().isoformat(),
                     "Department": dept if dept != "Select" else "",
                     "Operator": operator if operator != "Select" else "",
                     "Project Name": proj_name if proj_name != "Select" else "",
@@ -1521,6 +1522,7 @@ def bulk_upload_dialog():
 
             total_rows = len(df_upload)
             progress = st.progress(0, text="Processing rows...")
+            bulk_upload_base_time = datetime.utcnow()  # base time; each row gets +1ms so file order is preserved
 
             for index, row in df_upload.iterrows():
                 progress.progress(
@@ -1552,7 +1554,10 @@ def bulk_upload_dialog():
                     fail_details.append({"row": excel_row_no, "pid": p_id, "reason": f"Duplicate-check DB error: {e}"})
                     continue
 
-                insert_dict = {"workspace": active_ws_bulk}
+                insert_dict = {
+                    "workspace": active_ws_bulk,
+                    "created_at": (bulk_upload_base_time + timedelta(milliseconds=index)).isoformat(),
+                }
                 for col in columns_list:
                     if col not in ("id", "🎯 Select"):
                         val = row.get(col, row.get(col.lower(), ""))
@@ -1847,6 +1852,11 @@ if st.session_state.current_page > total_pages:
 elif st.session_state.current_page < 1:
     st.session_state.current_page = 1
 
+# Keep the "go to page" input box in sync if current_page got clamped
+# (e.g. after a search filters the results down to fewer pages)
+if st.session_state.get('page_jump_input', 1) > total_pages or st.session_state.get('page_jump_input', 1) < 1:
+    st.session_state['page_jump_input'] = st.session_state.current_page
+
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
@@ -2003,18 +2013,36 @@ else:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 8. NEXT / PREVIOUS PAGINATION CONTROLS ---
+# --- 8. NEXT / PREVIOUS PAGINATION CONTROLS (with Go-To-Page box) ---
+if 'page_jump_input' not in st.session_state:
+    st.session_state['page_jump_input'] = st.session_state.current_page
+
 col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
 
 with col_p1:
     if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1)):
         st.session_state.current_page -= 1
+        st.session_state['page_jump_input'] = st.session_state.current_page
         st.rerun()
 
 with col_p2:
+    jc1, jc2, jc3 = st.columns([2, 1.3, 2])
+    with jc2:
+        page_input = st.number_input(
+            "Go to page",
+            min_value=1,
+            max_value=total_pages,
+            step=1,
+            key="page_jump_input",
+            label_visibility="collapsed"
+        )
     st.markdown(f"<div class='page-count'>Page {st.session_state.current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
+    if page_input != st.session_state.current_page:
+        st.session_state.current_page = int(page_input)
+        st.rerun()
 
 with col_p3:
     if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages)):
         st.session_state.current_page += 1
+        st.session_state['page_jump_input'] = st.session_state.current_page
         st.rerun()
