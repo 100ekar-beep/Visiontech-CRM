@@ -429,7 +429,7 @@ if 'po_working_df' not in st.session_state:
         )
         if all_data and len(all_data) > 0:
             df_fetched = pd.DataFrame(all_data)
-            num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+            num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
             for col in num_cols:
                 if col in df_fetched.columns:
                     df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
@@ -439,13 +439,13 @@ if 'po_working_df' not in st.session_state:
             st.session_state.po_working_df = pd.DataFrame(columns=[
                 'id', 'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
                 'Item Num', 'Description', 'UOM', 'PO Qty', 
-                'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+                'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
             ])
     except Exception:
         st.session_state.po_working_df = pd.DataFrame(columns=[
             'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
             'Item Num', 'Description', 'UOM', 'PO Qty', 
-            'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+            'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
         ])
 
 if 'id' not in st.session_state.po_working_df.columns:
@@ -703,7 +703,7 @@ def view_po_details_dialog(row_data):
 
     display_cols = [
         'id', 'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
-        'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+        'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
     
     editor_key = f"po_editor_{po_no}_{proj_name}"
@@ -735,6 +735,20 @@ def view_po_details_dialog(row_data):
     
     df_temp['Diff'] = df_temp['PO Qty'] - df_temp['VIS Qty']
     df_temp['Amount'] = df_temp['VIS Qty'] * df_temp['Price']
+
+    # 🟢 WCC Qty / WCC Status — pushed here by the WCC Upload automation.
+    # Display-only in this dialog (not editable, not recalculated).
+    if 'wcc_qty' in df_temp.columns:
+        df_temp['wcc_qty'] = df_temp['wcc_qty'].astype(str).str.replace(',', '', regex=True)
+        df_temp['wcc_qty'] = pd.to_numeric(df_temp['wcc_qty'], errors='coerce').fillna(0).astype(int)
+    else:
+        df_temp['wcc_qty'] = 0
+
+    if 'wcc_status' in df_temp.columns:
+        df_temp['wcc_status'] = df_temp['wcc_status'].fillna('').astype(str)
+        df_temp['wcc_status'] = df_temp['wcc_status'].replace('nan', '')
+    else:
+        df_temp['wcc_status'] = ''
     
     df_temp['User Qty'] = df_temp['User Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(int)
@@ -783,6 +797,8 @@ def view_po_details_dialog(row_data):
             "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%d", step=1),
             "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
             "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
+            "wcc_qty": st.column_config.NumberColumn("WCC QTY", disabled=True, alignment="center", format="%d"),
+            "wcc_status": st.column_config.TextColumn("WCC STATUS", disabled=True, alignment="center"),
             "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", alignment="center", format="%d", step=1),
             "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", alignment="center", format="%d", step=1),
             "Price": st.column_config.NumberColumn("Price", alignment="center", format="%d"),
