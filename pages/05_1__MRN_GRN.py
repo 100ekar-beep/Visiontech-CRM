@@ -355,6 +355,29 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         st.error(f"❌ Error in fetch_po_line_items: {e}")
     return pd.DataFrame()
 
+
+# ---> 🟢 NEW: pull a representative WCC Number / WCC Status for a set of
+# already-fetched PO line-item dataframes (po_working now carries
+# "wcc_qty" / "wcc_status" / "wcc_number" per line, pushed there by the
+# WCC Upload automation). This is DISPLAY-ONLY — it is never written back
+# to Supabase from the MRN screen. <---
+def _derive_wcc_defaults(po_dfs_dict):
+    wcc_number_default, wcc_status_default = "", ""
+    for _po, df_po in po_dfs_dict.items():
+        if df_po is None or df_po.empty:
+            continue
+        if "wcc_number" in df_po.columns and not wcc_number_default:
+            vals = [str(v).strip() for v in df_po["wcc_number"].tolist() if str(v).strip() and str(v).strip().lower() != "nan"]
+            if vals:
+                wcc_number_default = vals[0]
+        if "wcc_status" in df_po.columns and not wcc_status_default:
+            vals = [str(v).strip() for v in df_po["wcc_status"].tolist() if str(v).strip() and str(v).strip().lower() != "nan"]
+            if vals:
+                wcc_status_default = vals[0]
+        if wcc_number_default and wcc_status_default:
+            break
+    return wcc_number_default, wcc_status_default
+
 # --- 4. DIALOG FUNCTIONS (ADD, EDIT, DELETE) ---
 
 @st.dialog("🗑️ Confirm Deletion", width="small")
@@ -528,6 +551,23 @@ def add_mrn_dialog():
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
     with c6: st.text_input("TEAM NAME *", value=team_name, disabled=True)
 
+    # ---> 🟢 NEW: PO SELECTION widget is declared with a stable key so we
+    # can peek at "the PO(s) selected last run" via session_state BEFORE
+    # this widget is physically rendered further down. That lets us show
+    # WCC Number / WCC Status (derived from those POs' po_working rows)
+    # right after the Team Rate row, exactly where it was asked to appear,
+    # without changing the on-screen order of the dialog. <---
+    PO_MULTISELECT_KEY = "mrn_po_multiselect"
+    preview_selected_pos = [p for p in st.session_state.get(PO_MULTISELECT_KEY, []) if p in po_list]
+
+    preview_po_dfs = {}
+    for _po in preview_selected_pos:
+        _df = fetch_po_line_items(_po, site_id, selected_proj)
+        if not _df.empty:
+            preview_po_dfs[_po] = _df
+
+    default_wcc_number, default_wcc_status = _derive_wcc_defaults(preview_po_dfs)
+
     # ---> TEAM RATE % (auto-fetched from Team Master, editable per MRN) <---
     # Example: Team Master has 10% cut for "Pramodkumar Jaju" => box shows 90%.
     # User can change it here (e.g. to 85%) just for this MRN — Adjusted Price
@@ -554,12 +594,32 @@ def add_mrn_dialog():
             height=68
         )
 
+    # ---> 🟢 NEW: WCC NUMBER & WCC STATUS — display/reference only.
+    # Auto-filled from the selected PO's po_working rows (pushed there by
+    # the WCC Upload automation) but editable here for convenience. NOT
+    # included in the MRN save payload — nothing from these two fields is
+    # written to Supabase. <---
+    c_wcc1, c_wcc2 = st.columns(2)
+    with c_wcc1:
+        wcc_number_display = st.text_input(
+            "WCC NUMBER (reference only)",
+            value=default_wcc_number,
+            help="Auto-filled from the selected PO's WCC data. Editable here for reference only — not saved with the MRN."
+        )
+    with c_wcc2:
+        wcc_status_display = st.text_input(
+            "WCC STATUS (reference only)",
+            value=default_wcc_status,
+            help="Auto-filled from the selected PO's WCC data. Editable here for reference only — not saved with the MRN."
+        )
+    st.caption("ℹ️ WCC Number / WCC Status shown above are for reference only and are **not** saved when this MRN is generated.")
+
     st.markdown('<div class="modal-section-title">📑 PO SELECTION & LINE ITEMS</div>', unsafe_allow_html=True)
     
     if not po_list and selected_proj != "Select Project ID":
         st.warning("⚠️ No POs found for this Project ID in Site Data.")
         
-    selected_pos = st.multiselect("SEARCH & SELECT PO(s)", po_list, placeholder="Choose one or multiple POs")
+    selected_pos = st.multiselect("SEARCH & SELECT PO(s)", po_list, placeholder="Choose one or multiple POs", key=PO_MULTISELECT_KEY)
     
     grand_basic_total = 0.0
     all_po_dfs = {}
@@ -567,7 +627,11 @@ def add_mrn_dialog():
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
-        df_po = fetch_po_line_items(po, site_id, selected_proj)
+        # Reuse the already-fetched dataframe from the preview pass above
+        # when available, to avoid hitting Supabase twice for the same PO.
+        df_po = preview_po_dfs.get(po)
+        if df_po is None:
+            df_po = fetch_po_line_items(po, site_id, selected_proj)
         
         if df_po.empty:
             st.info(f"No line items found in PO Working for PO: {po}")
@@ -583,6 +647,12 @@ def add_mrn_dialog():
         raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
         
         df_display["PO Qty"] = raw_po_qty
+
+        # ---> 🟢 NEW: WCC Qty, shown right after PO Qty (display only,
+        # sourced from po_working.wcc_qty for this same line). <---
+        raw_wcc_qty = pd.to_numeric(df_po.get("wcc_qty", [0]*len(df_po)), errors='coerce').fillna(0)
+        df_display["WCC Qty"] = raw_wcc_qty
+
         df_display["Available Qty"] = raw_po_qty - raw_used_qty
         df_display["User Qty"] = 0
         
@@ -602,6 +672,7 @@ def add_mrn_dialog():
                 "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
                 "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
                 "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True),
+                "WCC Qty": st.column_config.NumberColumn("WCC QTY", disabled=True),
                 "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True),
                 "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0, required=True),
                 "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
@@ -669,6 +740,11 @@ def add_mrn_dialog():
                 except Exception:
                     break 
             
+            # 🟢 NOTE: wcc_number_display / wcc_status_display are
+            # intentionally NOT included below — WCC Number/Status are
+            # display-only on this screen and are never written to Supabase
+            # from the MRN flow (they already live on po_working, pushed
+            # there by the WCC Upload automation).
             header_data = {
                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
                 "MRN Number": new_mrn_no,
