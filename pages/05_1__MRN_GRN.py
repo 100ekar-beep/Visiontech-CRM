@@ -273,6 +273,31 @@ def _clean_number(val):
         return digits if digits else s.strip().lower()
 
 
+# ---> 🟢 PERF FIX: this "how much of this PO's items has already been used
+# in an MRN" lookup used to hit Supabase fresh on EVERY dialog rerun
+# (every keystroke/edit inside the Add MRN dialog triggers a full script
+# rerun). That made the dialog feel slow, especially once the WCC preview
+# started calling fetch_po_line_items earlier in the flow too. Caching this
+# for 30s cuts it down to one round-trip per PO per ~30s instead of one
+# per interaction. <---
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_mrn_used_qty_map(po_no):
+    used_map = {}
+    try:
+        # NOTE: PostgREST requires column names containing spaces to be wrapped
+        # in double-quotes inside the select() string, otherwise it silently
+        # strips the space and looks for a column like "ItemCode" (which fails).
+        res_used = supabase.table("mrn_items").select('"Item Code","User Qty"').eq("PO Number", po_no).execute()
+        if res_used.data:
+            for r in res_used.data:
+                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
+                uq = int(r.get("User Qty", 0))
+                used_map[ic] = used_map.get(ic, 0) + uq
+    except Exception:
+        pass
+    return used_map
+
+
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
@@ -334,16 +359,7 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             final_df = df_filtered.copy()
 
         # --- Available Qty Logic ---
-        # NOTE: PostgREST requires column names containing spaces to be wrapped
-        # in double-quotes inside the select() string, otherwise it silently
-        # strips the space and looks for a column like "ItemCode" (which fails).
-        res_used = supabase.table("mrn_items").select('"Item Code","User Qty"').eq("PO Number", po_no).execute()
-        used_map = {}
-        if res_used.data:
-            for r in res_used.data:
-                ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                uq = int(r.get("User Qty", 0))
-                used_map[ic] = used_map.get(ic, 0) + uq
+        used_map = fetch_mrn_used_qty_map(po_no)
 
         if item_col:
             final_df["Used Qty"] = final_df[item_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower().map(used_map).fillna(0)
