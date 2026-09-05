@@ -694,6 +694,10 @@ def add_record_dialog():
             submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
             
         if submitted:
+            # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
+            po_nos = ["" if p.strip().lower() in ("nan", "none", "null") else p for p in po_nos]
+            wcc_nums = ["" if w.strip().lower() in ("nan", "none", "null") else w for w in wcc_nums]
+
             has_error = False
             if not proj_id or not site_id:
                 st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
@@ -908,11 +912,21 @@ def edit_record_dialog(row_data):
 
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
-        po_no_list = [x.strip() for x in str(row_data.get("PO No.", "")).split(",") if x.strip()]
-        po_date_list = [x.strip() for x in str(row_data.get("PO Date", "")).split(",") if x.strip()]
-        po_status_list = [x.strip() for x in str(row_data.get("PO Status", "")).split(",") if x.strip()]
-        wcc_num_list = [x.strip() for x in str(row_data.get("WCC Number", "")).split(",") if x.strip()]
-        wcc_status_list = [x.strip() for x in str(row_data.get("WCC Status", "")).split(",") if x.strip()]
+        def _clean_stored_list(raw_value):
+            """Split a comma-joined DB field into a list, dropping empty and
+            'nan'/'none'/'null' junk values so they never pre-fill a text box."""
+            items = []
+            for x in str(raw_value if raw_value is not None else "").split(","):
+                x = x.strip()
+                if x and x.lower() not in ("nan", "none", "null"):
+                    items.append(x)
+            return items
+
+        po_no_list = _clean_stored_list(row_data.get("PO No.", ""))
+        po_date_list = _clean_stored_list(row_data.get("PO Date", ""))
+        po_status_list = _clean_stored_list(row_data.get("PO Status", ""))
+        wcc_num_list = _clean_stored_list(row_data.get("WCC Number", ""))
+        wcc_status_list = _clean_stored_list(row_data.get("WCC Status", ""))
         
         max_boxes = max(1, len(po_no_list), len(wcc_num_list))
         if 'edit_po_count' not in st.session_state:
@@ -974,6 +988,10 @@ def edit_record_dialog(row_data):
             submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
             
         if submitted:
+            # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
+            po_nos = ["" if p.strip().lower() in ("nan", "none", "null") else p for p in po_nos]
+            wcc_nums = ["" if w.strip().lower() in ("nan", "none", "null") else w for w in wcc_nums]
+
             has_error = False
             if not site_id:
                 st.error("⚠️ Site ID dalna compulsory hai!")
