@@ -3,13 +3,11 @@ Material Dispatch Tracking App (Supabase backend)
 ---------------------------------------------------
 Run with:  streamlit run material_dispatch_app.py
 
-Requires in .streamlit/secrets.toml:
+Requires in .streamlit/secrets.toml (same nested format as your other pages):
 
-    SUPABASE_URL = "https://xxxxx.supabase.co"
-    SUPABASE_KEY = "your-anon-or-service-key"
-
-(agar tumhare existing app me alag naam se secrets save hai, to neeche
-get_supabase_client() function me sirf wahi 2 lines badal dena)
+    [supabase]
+    url = "https://xxxxx.supabase.co"
+    key = "your-anon-or-service-key"
 
 Ye app 3 Supabase tables use karta hai:
 
@@ -33,7 +31,64 @@ from supabase import create_client, Client
 # ----------------------------------------------------------------------
 # CONFIG
 # ----------------------------------------------------------------------
-st.set_page_config(page_title="Material Dispatch", layout="wide")
+st.set_page_config(page_title="Material Dispatch", page_icon="📦", layout="wide")
+
+# --- PREMIUM THEME (same look as the rest of the app) ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+    button[data-baseweb="tab"] { font-weight: 700 !important; font-size: 1.1rem !important; }
+    button[data-testid="baseButton-primary"], button[data-testid="stBaseButton-primary"],
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
+        color: white !important; border: none !important; border-radius: 8px !important;
+        font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
+        box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4) !important;
+    }
+    button[data-testid="baseButton-secondary"], button[data-testid="stBaseButton-secondary"],
+    button[kind="secondary"], button[kind="secondaryFormSubmit"] {
+        background: #ef4444 !important; color: white !important; border: none !important; border-radius: 8px !important;
+        font-weight: 800 !important;
+    }
+    label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
+    [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+        border-radius: 16px !important; overflow: hidden !important;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.05) !important;
+        border: 1px solid #e2e8f0 !important; background: #ffffff !important;
+    }
+    [data-testid="stDataFrame"] th, [data-testid="stDataEditor"] th,
+    [data-testid="stDataFrame"] [role="columnheader"], [data-testid="stDataEditor"] [role="columnheader"] {
+        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
+        color: #ffffff !important; font-weight: 800 !important; font-size: 0.8rem !important;
+        letter-spacing: 0.4px !important; text-transform: uppercase !important; border: none !important;
+    }
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    div[data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+    div[data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
+    div[data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important; border-color: transparent !important;
+    }
+    div[data-testid="stSidebarNav"] a span { color: inherit !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- TOP SINGLE WORKSPACE BANNER (same as rest of app) ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
 
 COMPANIES = ["VISPL", "Bhagyashree", "Sai Tele"]
 STATUS_OPTIONS = ["Dispatch Pending", "Dispatched"]
@@ -68,8 +123,9 @@ DISPLAY_RENAME = {
 # ----------------------------------------------------------------------
 @st.cache_resource
 def get_supabase_client() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    url = st.secrets["supabase"]["url"]
+    url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+    key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
 
