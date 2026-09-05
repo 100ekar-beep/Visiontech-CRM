@@ -593,19 +593,13 @@ def add_mrn_dialog():
         editor_key = f"editor_mrn_{po}"
         
         # ---> Pull in any User Qty the user already typed (from this widget's
-        # session state) BEFORE drawing the table, and recompute Line Total on
-        # df_display itself. Without this, the TOTAL column always showed
-        # ₹0.00 because it was only recalculated AFTER the table had already
-        # been rendered on screen (fixed one render-cycle too late). <---
+        # session state) so the recap table below stays in sync even before
+        # this rerun's data_editor has been (re)drawn. <---
         if editor_key in st.session_state and st.session_state[editor_key].get("edited_rows"):
             for row_idx, changes in st.session_state[editor_key]["edited_rows"].items():
                 row_idx = int(row_idx)
                 if "User Qty" in changes and row_idx in df_display.index:
                     df_display.at[row_idx, "User Qty"] = changes["User Qty"]
-        
-        df_display["Line Total"] = (
-            pd.to_numeric(df_display["User Qty"], errors='coerce').fillna(0) * df_display["Adjusted Price"]
-        )
         
         edited_df = st.data_editor(
             df_display,
@@ -620,7 +614,12 @@ def add_mrn_dialog():
                 "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True),
                 "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0, required=True),
                 "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
-                "Line Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %.2f"),
+                # Hidden here on purpose — st.data_editor caches its display
+                # under `editor_key` after the first render, so a computed
+                # column like this never refreshes live inside the editor
+                # itself. The real, always-correct total is shown just below
+                # via a plain st.dataframe (which has no such caching issue).
+                "Line Total": None,
             }
         )
         
@@ -633,6 +632,21 @@ def add_mrn_dialog():
             grand_basic_total += tot
             
         all_po_dfs[po] = edited_df
+
+        # ---> Live, always-accurate recap: User Qty x Price = Total <---
+        recap_df = edited_df[["Item Code", "Item Description", "User Qty", "Adjusted Price", "Line Total"]].copy()
+        st.dataframe(
+            recap_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Item Code": st.column_config.TextColumn("ITEM CODE"),
+                "Item Description": st.column_config.TextColumn("DESCRIPTION", width="large"),
+                "User Qty": st.column_config.NumberColumn("USER QTY"),
+                "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", format="₹ %.2f"),
+                "Line Total": st.column_config.NumberColumn("TOTAL (QTY × PRICE)", format="₹ %.2f"),
+            }
+        )
 
     st.markdown('<div class="modal-section-title">💳 BILLING SUMMARY</div>', unsafe_allow_html=True)
     
