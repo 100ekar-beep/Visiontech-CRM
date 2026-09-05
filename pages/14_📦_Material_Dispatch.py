@@ -122,14 +122,20 @@ DISPLAY_RENAME = {
 # SUPABASE CLIENT
 # ----------------------------------------------------------------------
 @st.cache_resource
-def get_supabase_client() -> Client:
-    url = st.secrets["supabase"]["url"]
-    url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
+def get_supabase_client():
+    try:
+        url: str = st.secrets["supabase"]["url"]
+        url = url.strip().replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"].strip()
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 
 supabase = get_supabase_client()
+if supabase is None:
+    st.stop()
 
 
 # ----------------------------------------------------------------------
