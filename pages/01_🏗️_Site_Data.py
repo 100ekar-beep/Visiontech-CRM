@@ -1818,15 +1818,18 @@ if "🎯 Select" not in df.columns:
 else:
     df["🎯 Select"] = False
 
-# --- EXPORT LOGIC TRIGGER AFTER DF LOAD ---
-if st.session_state.get('action') == "export":
-    export_dialog(df)
-    st.session_state.action = "" 
-
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
-col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
+# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + TEAM FILTER + VIEW MODE TOGGLE ---
+col_table_title, col_team_filter, col_search, col_viewtoggle = st.columns([2.5, 2.2, 3, 2])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
+with col_team_filter:
+    _team_dd = get_all_dropdowns()
+    team_filter_opts = ["All Teams"] + sorted({
+        row["option_value"] for row in _team_dd if row["category"] == "Team Name" and row.get("option_value")
+    })
+    selected_team_filter = st.selectbox(
+        "Filter by Team", team_filter_opts, key="team_filter_select", label_visibility="collapsed"
+    )
 with col_search:
     search_query = st_keyup("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
 with col_viewtoggle:
@@ -1835,9 +1838,20 @@ with col_viewtoggle:
         st.session_state.site_view_mode = "cards" if st.session_state.site_view_mode == "table" else "table"
         st.rerun()
 
+# --- APPLY TEAM FILTER ---
+if selected_team_filter and selected_team_filter != "All Teams":
+    df = df[df["Team Name"].astype(str).str.strip() == selected_team_filter]
+
+# --- APPLY SEARCH FILTER ---
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
+
+# --- EXPORT LOGIC TRIGGER: AFTER team filter + search, so export matches exactly
+#     what's currently shown in the table (whether that's 1 row or 100,000) ---
+if st.session_state.get('action') == "export":
+    export_dialog(df)
+    st.session_state.action = ""
 
 # --- 6. PAGINATION LOGIC (10 lines per page) ---
 if 'current_page' not in st.session_state:
