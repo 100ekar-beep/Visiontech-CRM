@@ -1,0 +1,383 @@
+"""
+Material Dispatch Tracking App
+-------------------------------
+Run with:  streamlit run material_dispatch_app.py
+
+Pehli baar chalane se pehle sidebar se "Master Data Setup" me
+Site Master aur Item Master Excel upload karo (template download bhi
+sidebar me milega).
+
+Site Master columns   : Company, Project ID, Site Name, Site ID, Cluster
+Item Master columns   : Item Code, Item Description
+
+Dispatch data ek local SQLite file (dispatch_data.db) me save hota hai,
+isliye app restart hone par bhi purana data safe rehta hai.
+"""
+
+import streamlit as st
+import pandas as pd
+import sqlite3
+import os
+import io
+from datetime import date
+
+# ----------------------------------------------------------------------
+# CONFIG
+# ----------------------------------------------------------------------
+st.set_page_config(page_title="Material Dispatch", layout="wide")
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_DIR, "dispatch_data.db")
+DATA_DIR = os.path.join(APP_DIR, "master_data")
+os.makedirs(DATA_DIR, exist_ok=True)
+SITE_MASTER_PATH = os.path.join(DATA_DIR, "site_master.csv")
+ITEM_MASTER_PATH = os.path.join(DATA_DIR, "item_master.csv")
+
+COMPANIES = ["VISPL", "Bhagyashree", "Sai Tele"]
+STATUS_OPTIONS = ["Dispatch Pending", "Dispatched"]
+
+DISPATCH_COLUMNS = [
+    "id", "company", "project_id", "site_name", "site_id", "cluster",
+    "boq", "material", "qty", "status", "dispatch_date", "vis_remark", "created_at"
+]
+
+DISPLAY_RENAME = {
+    "id": "ID",
+    "company": "Company",
+    "project_id": "Project ID",
+    "site_name": "Site Name",
+    "site_id": "Site ID",
+    "cluster": "Cluster",
+    "boq": "BOQ",
+    "material": "Material",
+    "qty": "Qty",
+    "status": "Status",
+    "dispatch_date": "Dispatch Date",
+    "vis_remark": "VIS Remark",
+    "created_at": "Created At",
+}
+
+# ----------------------------------------------------------------------
+# DB HELPERS
+# ----------------------------------------------------------------------
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dispatch (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company TEXT,
+            project_id TEXT,
+            site_name TEXT,
+            site_id TEXT,
+            cluster TEXT,
+            boq TEXT,
+            material TEXT,
+            qty REAL,
+            status TEXT,
+            dispatch_date TEXT,
+            vis_remark TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_conn():
+    return sqlite3.connect(DB_PATH)
+
+
+def load_dispatch(company: str) -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql_query(
+        "SELECT * FROM dispatch WHERE company = ? ORDER BY id DESC",
+        conn, params=(company,)
+    )
+    conn.close()
+    return df
+
+
+def insert_rows(rows):
+    conn = get_conn()
+    conn.executemany("""
+        INSERT INTO dispatch
+        (company, project_id, site_name, site_id, cluster, boq, material,
+         qty, status, dispatch_date, vis_remark, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    """, rows)
+    conn.commit()
+    conn.close()
+
+
+def delete_row(row_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM dispatch WHERE id = ?", (row_id,))
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+# ----------------------------------------------------------------------
+# MASTER DATA HELPERS
+# ----------------------------------------------------------------------
+def load_master():
+    site_df = (
+        pd.read_csv(SITE_MASTER_PATH)
+        if os.path.exists(SITE_MASTER_PATH)
+        else pd.DataFrame(columns=["Company", "Project ID", "Site Name", "Site ID", "Cluster"])
+    )
+    item_df = (
+        pd.read_csv(ITEM_MASTER_PATH)
+        if os.path.exists(ITEM_MASTER_PATH)
+        else pd.DataFrame(columns=["Item Code", "Item Description"])
+    )
+    return site_df, item_df
+
+
+def save_site_master(df: pd.DataFrame):
+    df.to_csv(SITE_MASTER_PATH, index=False)
+
+
+def save_item_master(df: pd.DataFrame):
+    df.to_csv(ITEM_MASTER_PATH, index=False)
+
+
+def df_to_excel_bytes(df: pd.DataFrame, sheet_name="Sheet1") -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
+
+
+# ----------------------------------------------------------------------
+# SIDEBAR - MASTER DATA SETUP
+# ----------------------------------------------------------------------
+with st.sidebar:
+    st.header("⚙️ Master Data Setup")
+
+    site_df_current, item_df_current = load_master()
+
+    st.caption("Site Master: Company, Project ID, Site Name, Site ID, Cluster")
+    site_template = pd.DataFrame(columns=["Company", "Project ID", "Site Name", "Site ID", "Cluster"])
+    st.download_button(
+        "⬇️ Site Master Template",
+        data=df_to_excel_bytes(site_template, "Site Master"),
+        file_name="site_master_template.xlsx",
+        key="site_template_dl",
+    )
+    site_upload = st.file_uploader("Upload Site Master Excel", type=["xlsx", "xls", "csv"], key="site_upload")
+    if site_upload is not None:
+        try:
+            new_site_df = (
+                pd.read_csv(site_upload) if site_upload.name.endswith(".csv")
+                else pd.read_excel(site_upload)
+            )
+            save_site_master(new_site_df)
+            st.success(f"Site Master updated ({len(new_site_df)} rows).")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+
+    st.divider()
+
+    st.caption("Item Master: Item Code, Item Description")
+    item_template = pd.DataFrame(columns=["Item Code", "Item Description"])
+    st.download_button(
+        "⬇️ Item Master Template",
+        data=df_to_excel_bytes(item_template, "Item Master"),
+        file_name="item_master_template.xlsx",
+        key="item_template_dl",
+    )
+    item_upload = st.file_uploader("Upload Item Master Excel", type=["xlsx", "xls", "csv"], key="item_upload")
+    if item_upload is not None:
+        try:
+            new_item_df = (
+                pd.read_csv(item_upload) if item_upload.name.endswith(".csv")
+                else pd.read_excel(item_upload)
+            )
+            save_item_master(new_item_df)
+            st.success(f"Item Master updated ({len(new_item_df)} rows).")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+
+    st.divider()
+    st.caption(f"Site Master rows loaded: {len(site_df_current)}")
+    st.caption(f"Item Master rows loaded: {len(item_df_current)}")
+
+
+# ----------------------------------------------------------------------
+# ADD NEW ENTRY FORM (per company)
+# ----------------------------------------------------------------------
+def render_add_entry_form(company: str, site_df: pd.DataFrame, item_df: pd.DataFrame):
+    boq_key = f"boq_rows_{company}"
+    if boq_key not in st.session_state:
+        st.session_state[boq_key] = [{"boq": "", "material": "", "qty": 0.0}]
+
+    company_sites = site_df[site_df["Company"] == company] if "Company" in site_df.columns else pd.DataFrame()
+
+    with st.container(border=True):
+        st.subheader(f"➕ New Dispatch Entry — {company}")
+
+        if company_sites.empty:
+            st.warning("Is company ke liye Site Master me koi Project ID nahi mila. Pehle sidebar se Site Master upload karo.")
+            if st.button("Close", key=f"close_empty_{company}"):
+                st.session_state[f"show_form_{company}"] = False
+                st.rerun()
+            return
+
+        project_ids = company_sites["Project ID"].dropna().unique().tolist()
+        project_id = st.selectbox("Project ID", options=project_ids, key=f"project_id_{company}")
+
+        site_row = company_sites[company_sites["Project ID"] == project_id].iloc[0]
+        site_name = site_row.get("Site Name", "")
+        site_id = site_row.get("Site ID", "")
+        cluster = site_row.get("Cluster", "")
+
+        c1, c2, c3 = st.columns(3)
+        c1.text_input("Site Name", value=site_name, disabled=True, key=f"site_name_disp_{company}")
+        c2.text_input("Site ID", value=str(site_id), disabled=True, key=f"site_id_disp_{company}")
+        c3.text_input("Cluster", value=str(cluster), disabled=True, key=f"cluster_disp_{company}")
+
+        st.markdown("**BOQ / Material / Qty lines**")
+        item_options = item_df["Item Description"].dropna().unique().tolist() if "Item Description" in item_df.columns else []
+
+        rows_to_remove = None
+        for idx, row in enumerate(st.session_state[boq_key]):
+            rc1, rc2, rc3, rc4 = st.columns([2, 3, 2, 1])
+            row["boq"] = rc1.text_input("BOQ", value=row["boq"], key=f"{boq_key}_boq_{idx}")
+            if item_options:
+                default_index = item_options.index(row["material"]) if row["material"] in item_options else 0
+                row["material"] = rc2.selectbox(
+                    "Material", options=item_options, index=default_index, key=f"{boq_key}_mat_{idx}"
+                )
+            else:
+                row["material"] = rc2.text_input(
+                    "Material (Item Master empty)", value=row["material"], key=f"{boq_key}_mat_txt_{idx}"
+                )
+            row["qty"] = rc3.number_input(
+                "Qty", min_value=0.0, value=float(row["qty"]), step=1.0, key=f"{boq_key}_qty_{idx}"
+            )
+            if len(st.session_state[boq_key]) > 1:
+                if rc4.button("🗑️", key=f"{boq_key}_del_{idx}"):
+                    rows_to_remove = idx
+
+        if rows_to_remove is not None:
+            st.session_state[boq_key].pop(rows_to_remove)
+            st.rerun()
+
+        if st.button("+ Add New BOQ", key=f"add_boq_{company}"):
+            st.session_state[boq_key].append({"boq": "", "material": "", "qty": 0.0})
+            st.rerun()
+
+        st.markdown("---")
+        status = st.selectbox("Status", options=STATUS_OPTIONS, key=f"status_{company}")
+
+        dispatch_date_val = None
+        if status == "Dispatched":
+            dispatch_date_val = st.date_input(
+                "Dispatch Date (compulsory)", value=date.today(), key=f"dispatch_date_{company}"
+            )
+
+        vis_remark = st.text_input("VIS Remark", value=status, key=f"vis_remark_{company}")
+
+        save_col, cancel_col = st.columns(2)
+        if save_col.button("💾 Save Entry", type="primary", key=f"save_{company}"):
+            valid_rows = [r for r in st.session_state[boq_key] if r["boq"].strip() and r["material"] and r["qty"] > 0]
+            if not valid_rows:
+                st.error("Kam se kam ek BOQ line complete bharo (BOQ, Material, Qty).")
+            elif status == "Dispatched" and not dispatch_date_val:
+                st.error("Status 'Dispatched' hai to Dispatch Date compulsory hai.")
+            else:
+                created_at = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+                dispatch_date_str = dispatch_date_val.strftime("%Y-%m-%d") if dispatch_date_val else ""
+                rows = [
+                    (
+                        company, project_id, site_name, str(site_id), str(cluster),
+                        r["boq"], r["material"], r["qty"], status, dispatch_date_str,
+                        vis_remark, created_at
+                    )
+                    for r in valid_rows
+                ]
+                insert_rows(rows)
+                st.session_state[boq_key] = [{"boq": "", "material": "", "qty": 0.0}]
+                st.session_state[f"show_form_{company}"] = False
+                st.success(f"{len(rows)} entry saved!")
+                st.rerun()
+
+        if cancel_col.button("Cancel", key=f"cancel_{company}"):
+            st.session_state[boq_key] = [{"boq": "", "material": "", "qty": 0.0}]
+            st.session_state[f"show_form_{company}"] = False
+            st.rerun()
+
+
+# ----------------------------------------------------------------------
+# COMPANY TAB RENDERING
+# ----------------------------------------------------------------------
+def render_company_tab(company: str, site_df: pd.DataFrame, item_df: pd.DataFrame):
+    show_key = f"show_form_{company}"
+    if show_key not in st.session_state:
+        st.session_state[show_key] = False
+
+    top1, top2, top3 = st.columns([1.2, 3, 1])
+    if top1.button("+ Add New Entry", key=f"add_btn_{company}"):
+        st.session_state[show_key] = True
+        st.rerun()
+
+    search_term = top2.text_input("🔍 Search", key=f"search_{company}", placeholder="Search in table...")
+
+    df = load_dispatch(company)
+
+    if search_term:
+        mask = df.astype(str).apply(lambda col: col.str.contains(search_term, case=False, na=False))
+        df_filtered = df[mask.any(axis=1)]
+    else:
+        df_filtered = df
+
+    display_df = df_filtered.rename(columns=DISPLAY_RENAME)
+    top3.download_button(
+        "⬇️ Download",
+        data=df_to_excel_bytes(display_df, company[:31]),
+        file_name=f"{company}_dispatch.xlsx",
+        key=f"download_{company}",
+    )
+
+    if st.session_state[show_key]:
+        render_add_entry_form(company, site_df, item_df)
+
+    st.markdown("### 📋 Dispatch Records")
+    pending_tab, dispatched_tab = st.tabs(["🟡 Dispatch Pending", "🟢 Dispatched"])
+
+    with pending_tab:
+        pending_df = df_filtered[df_filtered["status"] == "Dispatch Pending"]
+        st.caption(f"Total: {len(pending_df)}")
+        st.dataframe(pending_df.rename(columns=DISPLAY_RENAME), use_container_width=True, hide_index=True)
+
+    with dispatched_tab:
+        dispatched_df = df_filtered[df_filtered["status"] == "Dispatched"]
+        st.caption(f"Total: {len(dispatched_df)}")
+        st.dataframe(dispatched_df.rename(columns=DISPLAY_RENAME), use_container_width=True, hide_index=True)
+
+    with st.expander("🗑️ Delete an entry (by ID)"):
+        if not df.empty:
+            del_id = st.selectbox("Select ID to delete", options=df["id"].tolist(), key=f"del_select_{company}")
+            if st.button("Delete", key=f"del_btn_{company}"):
+                delete_row(int(del_id))
+                st.success(f"Entry {del_id} deleted.")
+                st.rerun()
+        else:
+            st.caption("No entries yet.")
+
+
+# ----------------------------------------------------------------------
+# MAIN
+# ----------------------------------------------------------------------
+st.title("📦 Material Dispatch Tracker")
+
+site_df, item_df = load_master()
+
+tabs = st.tabs(COMPANIES)
+for tab, company in zip(tabs, COMPANIES):
+    with tab:
+        render_company_tab(company, site_df, item_df)
