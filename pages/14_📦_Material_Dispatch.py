@@ -261,10 +261,12 @@ def load_site_master():
 @st.cache_data(ttl=60, show_spinner=False)
 def load_item_master():
     try:
-        res = supabase.table("item_master").select("item_code, item_description").execute()
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=["item_code", "item_description"])
-    except Exception:
-        return pd.DataFrame(columns=["item_code", "item_description"])
+        res = supabase.table("item_master").select("*").execute()
+        df = pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=["item_code", "item_description"])
+    except Exception as e:
+        st.session_state["_item_master_error"] = str(e)
+        df = pd.DataFrame(columns=["item_code", "item_description"])
+    return df
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -298,6 +300,13 @@ def df_to_excel_bytes(df, sheet_name="Sheet1"):
 site_df = load_site_master()
 item_df = load_item_master()
 
+if item_df.empty or "item_description" not in item_df.columns:
+    err = st.session_state.get("_item_master_error")
+    if err:
+        st.warning(f"item_master se data nahi mil paya: {err}")
+    else:
+        st.warning("item_master table khali dikh raha hai ya 'item_description' column nahi mila — table name/RLS policy check karo.")
+
 # ----------------------------------------------------------------------
 # 5. ADD / EDIT ENTRY DIALOG
 # ----------------------------------------------------------------------
@@ -315,7 +324,16 @@ def add_entry_dialog(company):
         return
 
     project_ids = company_sites["project_id"].dropna().unique().tolist()
-    project_id = st.selectbox("Project ID *", options=project_ids, key="dsp_new_project_id")
+    project_id = st.selectbox(
+        "Project ID *",
+        options=["-- Select Project ID --"] + project_ids,
+        index=0,
+        key="dsp_new_project_id",
+    )
+
+    if project_id == "-- Select Project ID --":
+        st.info("Project ID select karo form aage badhane ke liye.")
+        return
 
     site_row = company_sites[company_sites["project_id"] == project_id].iloc[0]
     site_name = site_row.get("site_name", "")
@@ -323,9 +341,9 @@ def add_entry_dialog(company):
     cluster = site_row.get("cluster", "")
 
     c1, c2, c3 = st.columns(3)
-    c1.text_input("Site Name", value=site_name, disabled=True)
-    c2.text_input("Site ID", value=str(site_id), disabled=True)
-    c3.text_input("Cluster", value=str(cluster), disabled=True)
+    c1.markdown(f"**SITE NAME**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{site_name or '-'}</span>", unsafe_allow_html=True)
+    c2.markdown(f"**SITE ID**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{site_id or '-'}</span>", unsafe_allow_html=True)
+    c3.markdown(f"**CLUSTER**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{cluster or '-'}</span>", unsafe_allow_html=True)
 
     st.markdown("**BOQ / Material / Qty lines**")
     item_options = item_df["item_description"].dropna().unique().tolist() if "item_description" in item_df.columns else []
@@ -339,7 +357,10 @@ def add_entry_dialog(company):
             row["material"] = rc2.selectbox("Material", options=item_options, index=default_index, key=f"{boq_key}_mat_{idx}")
         else:
             row["material"] = rc2.text_input("Material (item_master empty)", value=row["material"], key=f"{boq_key}_mat_txt_{idx}")
-        row["qty"] = rc3.number_input("Qty", min_value=0.0, value=float(row["qty"]), step=1.0, key=f"{boq_key}_qty_{idx}")
+        qty_input = rc3.number_input(
+            "Qty", min_value=0.0, value=None, step=1.0, placeholder="0", key=f"{boq_key}_qty_{idx}"
+        )
+        row["qty"] = qty_input if qty_input is not None else 0.0
         if len(st.session_state[boq_key]) > 1:
             if rc4.button("🗑️", key=f"{boq_key}_del_{idx}"):
                 rows_to_remove = idx
@@ -394,9 +415,9 @@ def edit_entry_dialog(row_data, company):
     company_sites = site_df[site_df["company"] == workspace_value] if "company" in site_df.columns else pd.DataFrame()
 
     c1, c2, c3 = st.columns(3)
-    c1.text_input("Project ID", value=row_data.get("project_id", ""), disabled=True)
-    c2.text_input("Site Name", value=row_data.get("site_name", ""), disabled=True)
-    c3.text_input("Cluster", value=row_data.get("cluster", ""), disabled=True)
+    c1.markdown(f"**PROJECT ID**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{row_data.get('project_id', '') or '-'}</span>", unsafe_allow_html=True)
+    c2.markdown(f"**SITE NAME**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{row_data.get('site_name', '') or '-'}</span>", unsafe_allow_html=True)
+    c3.markdown(f"**CLUSTER**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{row_data.get('cluster', '') or '-'}</span>", unsafe_allow_html=True)
 
     item_options = item_df["item_description"].dropna().unique().tolist() if "item_description" in item_df.columns else []
 
