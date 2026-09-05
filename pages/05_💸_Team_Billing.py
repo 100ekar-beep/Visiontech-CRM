@@ -7,6 +7,7 @@ import math
 import requests
 from supabase import create_client, Client
 from st_keyup import st_keyup
+import zipfile
 
 # --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
 try:
@@ -1221,7 +1222,7 @@ if st.session_state.billing_active_page == "invoice":
         _teams = sorted(set(str(r.get("team_name", "")).strip() for r in inv_data_raw if str(r.get("team_name", "")).strip()))
         inv_team_opts += _teams
 
-    col_search, col_teamfilter, col_addbtn, col_dl = st.columns([3.2, 2.0, 1.8, 1.6])
+    col_search, col_teamfilter, col_addbtn, col_dl, col_zip = st.columns([2.6, 1.8, 1.6, 1.4, 1.8])
 
     with col_search:
         search_inv = st_keyup("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
@@ -1252,7 +1253,41 @@ if st.session_state.billing_active_page == "invoice":
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_inv.to_excel(writer, index=False, sheet_name='Invoices')
-                st.download_button(label="📥 Download Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary", key="dl_inv_btn")
+                st.download_button(label="📥 Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary", key="dl_inv_btn")
+
+            with col_zip:
+                if team_filter_inv and team_filter_inv != "All Teams" and not df_inv.empty:
+                    try:
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                            used_names = set()
+                            for _, zrow in df_inv.iterrows():
+                                zrow_dict = zrow.to_dict()
+                                try:
+                                    zpdf_bytes = generate_invoice_pdf(zrow_dict)
+                                except Exception:
+                                    continue
+                                base_name = str(zrow_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+                                fname = f"Invoice_{base_name}.pdf"
+                                n = 1
+                                while fname in used_names:
+                                    fname = f"Invoice_{base_name}_{n}.pdf"
+                                    n += 1
+                                used_names.add(fname)
+                                zf.writestr(fname, zpdf_bytes)
+                        zip_file_label = team_filter_inv.replace(" ", "_")
+                        st.download_button(
+                            label="📦 All PDFs (ZIP)",
+                            data=zip_buffer.getvalue(),
+                            file_name=f"{zip_file_label}_Invoices.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            key="dl_inv_zip_btn"
+                        )
+                    except Exception as e:
+                        st.button("📦 All PDFs (ZIP)", disabled=True, use_container_width=True, key="dl_inv_zip_btn_err", help=f"Error: {e}")
+                else:
+                    st.button("📦 All PDFs (ZIP)", disabled=True, use_container_width=True, key="dl_inv_zip_btn_disabled", help="Select a specific team above to enable bulk PDF download")
 
             if not df_inv.empty:
                 if "date" in df_inv.columns:
