@@ -12,3 +12,4 @@ streamlit-autorefresh
 cloudinary
 uharfbuzz>=0.49.0
 bcrypt
+streamlit
