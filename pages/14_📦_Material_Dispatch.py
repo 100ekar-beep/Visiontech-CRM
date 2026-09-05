@@ -17,7 +17,7 @@ Requires in .streamlit/secrets.toml (same nested format as other pages):
 Tables used:
   - site_data          (ALREADY EXISTS - read only)
         columns used: workspace, "Project ID", "Site ID", "Site Name", "Cluster"
-  - item_master         (ALREADY EXISTS - read only)
+  - "Item Code"        (ALREADY EXISTS - read only)
         columns used: item_code, item_description
   - material_dispatch   (NEW TABLE - this page reads/writes it)
         columns: company, project_id, site_name, site_id, cluster, boq,
@@ -261,8 +261,9 @@ def load_site_master():
 @st.cache_data(ttl=60, show_spinner=False)
 def load_item_master():
     try:
-        res = supabase.table("item_master").select("*").execute()
+        res = supabase.table("Item Code").select("item_code, item_description").execute()
         df = pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=["item_code", "item_description"])
+        df = df[df["item_description"].notna() & (df["item_description"].astype(str).str.strip() != "")]
     except Exception as e:
         st.session_state["_item_master_error"] = str(e)
         df = pd.DataFrame(columns=["item_code", "item_description"])
@@ -331,14 +332,15 @@ def add_entry_dialog(company):
         key="dsp_new_project_id",
     )
 
-    if project_id == "-- Select Project ID --":
-        st.info("Project ID select karo form aage badhane ke liye.")
-        return
+    project_selected = project_id != "-- Select Project ID --"
 
-    site_row = company_sites[company_sites["project_id"] == project_id].iloc[0]
-    site_name = site_row.get("site_name", "")
-    site_id = site_row.get("site_id", "")
-    cluster = site_row.get("cluster", "")
+    if project_selected:
+        site_row = company_sites[company_sites["project_id"] == project_id].iloc[0]
+        site_name = site_row.get("site_name", "")
+        site_id = site_row.get("site_id", "")
+        cluster = site_row.get("cluster", "")
+    else:
+        site_name, site_id, cluster = "", "", ""
 
     c1, c2, c3 = st.columns(3)
     c1.markdown(f"**SITE NAME**<br><span style='color:#0f172a; font-weight:800; font-size:1rem;'>{site_name or '-'}</span>", unsafe_allow_html=True)
@@ -384,7 +386,9 @@ def add_entry_dialog(company):
 
     if st.button("💾 Save Entry", type="primary", use_container_width=True):
         valid_rows = [r for r in st.session_state[boq_key] if r["boq"].strip() and r["material"] and r["qty"] > 0]
-        if not valid_rows:
+        if not project_selected:
+            st.error("Project ID select karo.")
+        elif not valid_rows:
             st.error("Kam se kam ek BOQ line complete bharo (BOQ, Material, Qty).")
         elif status == "Dispatched" and not dispatch_date_val:
             st.error("Status 'Dispatched' hai to Dispatch Date compulsory hai.")
