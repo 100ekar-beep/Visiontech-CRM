@@ -1545,12 +1545,17 @@ elif st.session_state.billing_active_page == "ledger":
                 df_inv_rep = pd.DataFrame(inv_rows)
                 tot_inv = df_inv_rep["amount"].sum()
                 
-                req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "gst_amount", "amount"]
+                req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "amount"]
                 for c in req_cols:
                     if c not in df_inv_rep.columns:
                         df_inv_rep[c] = ""
                 df_inv_rep = df_inv_rep[req_cols]
-                
+
+                df_inv_rep["amount"] = pd.to_numeric(df_inv_rep["amount"], errors="coerce").fillna(0.0)
+                df_inv_rep["tds_amount"] = df_inv_rep["amount"] * 0.01
+                df_inv_rep["net_payable"] = df_inv_rep["amount"] - df_inv_rep["tds_amount"]
+                df_inv_rep = df_inv_rep.drop(columns=["amount"])
+
                 df_inv_rep.rename(columns={
                     "invoice_no": "Invoice No.",
                     "date": "Invoice Date",
@@ -1558,8 +1563,8 @@ elif st.session_state.billing_active_page == "ledger":
                     "site_id": "Site ID",
                     "site_name": "Site Name",
                     "basic_amount": "Basic Amt",
-                    "gst_amount": "GST",
-                    "amount": "Total"
+                    "tds_amount": "TDS (1%)",
+                    "net_payable": "Net Payable"
                 }, inplace=True)
                 
                 if "Invoice Date" in df_inv_rep.columns:
@@ -1666,46 +1671,79 @@ elif st.session_state.billing_active_page == "ledger":
                         
                         pdf.set_fill_color(*header_color)
                         pdf.set_text_color(255, 255, 255)
-                        pdf.set_font("Arial", 'B', 8)
+                        pdf.set_font("Arial", 'B', 7)
                         
                         cols = df.columns.tolist()
                         
                         if len(cols) == 8:
-                            col_widths = [20, 20, 25, 28, 27, 22, 20, 28]
+                            col_widths = [18, 18, 22, 24, 36, 24, 20, 28]
                         else:
                             col_widths = [190 / len(cols)] * len(cols)
+
+                        # Columns whose text should word-wrap inside its own box instead of
+                        # overflowing into the next column (e.g. long Site Names).
+                        wrap_cols = {"site name", "remark", "description"}
                             
                         for i, col in enumerate(cols):
                             pdf.cell(col_widths[i], 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
                         pdf.ln()
                         
                         pdf.set_text_color(0, 0, 0)
-                        pdf.set_font("Arial", '', 7.5)
                         
                         fill = False
+                        line_h = 4
                         for _, row in df.iterrows():
                             if fill:
                                 pdf.set_fill_color(241, 245, 249)
                             else:
                                 pdf.set_fill_color(255, 255, 255)
-                                
+
+                            # First pass: compute the row's shared height from any wrapped column
+                            row_vals = []
+                            row_height = line_h
                             for i, col in enumerate(cols):
                                 val = row[col]
                                 col_lower = str(col).lower()
-                                
-                                if 'amt' in col_lower or 'total' in col_lower or 'gst' in col_lower or 'basic' in col_lower or 'amount' in col_lower:
+
+                                if 'tds' in col_lower or 'payable' in col_lower or 'amt' in col_lower or 'total' in col_lower or 'gst' in col_lower or 'basic' in col_lower or 'amount' in col_lower:
                                     try:
                                         if pd.notna(val) and str(val).strip() != "":
                                             val_str = f"Rs. {float(val):,.0f}"
                                         else:
-                                            val_str = ""
+                                            val_str = "-"
                                     except:
                                         val_str = str(val)[:30]
+                                    is_wrap = False
                                 else:
-                                    val_str = str(val)[:30] if pd.notna(val) else ""
-                                    
-                                pdf.cell(col_widths[i], 7, val_str, border=1, align='C', fill=fill)
-                            pdf.ln()
+                                    val_str = str(val) if pd.notna(val) and str(val).strip() != "" else "-"
+                                    is_wrap = col_lower in wrap_cols
+
+                                row_vals.append((val_str, is_wrap, col_widths[i]))
+
+                                if is_wrap:
+                                    pdf.set_font("Arial", '', 7.5)
+                                    n_lines = max(1, len(_wrap_text_for_pdf(pdf, val_str, col_widths[i])))
+                                    row_height = max(row_height, n_lines * line_h)
+
+                            # Second pass: draw all cells at the shared row height
+                            x0 = pdf.get_x()
+                            y0 = pdf.get_y()
+                            x_cursor = x0
+                            for val_str, is_wrap, w in row_vals:
+                                if is_wrap:
+                                    pdf.set_font("Arial", '', 7.5)
+                                    pdf.set_xy(x_cursor, y0)
+                                    y_before = pdf.get_y()
+                                    pdf.multi_cell(w, line_h, val_str, border=1, align='L', fill=fill)
+                                    used_h = pdf.get_y() - y_before
+                                    if used_h < row_height:
+                                        pdf.rect(x_cursor, pdf.get_y(), w, row_height - used_h, 'DF' if fill else 'D')
+                                else:
+                                    pdf.set_xy(x_cursor, y0)
+                                    pdf.set_font("Arial", '', 7.5)
+                                    pdf.cell(w, row_height, val_str, border=1, align='C', fill=fill)
+                                x_cursor += w
+                            pdf.set_xy(x0, y0 + row_height)
                             fill = not fill
                         pdf.ln(5)
                 
