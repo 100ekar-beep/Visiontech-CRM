@@ -4,6 +4,7 @@ import math
 import io
 import datetime
 import random
+import hashlib
 from supabase import create_client, Client
 
 # --- 1. PAGE CONFIGURATION ---
@@ -676,7 +677,45 @@ def add_mrn_dialog():
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
-        editor_key = f"editor_mrn_{po}"
+        # ---> 🔴 ROOT-CAUSE FIX: df_po (and therefore every column copied
+        # into df_display above, since pandas preserves the source Series'
+        # index on assignment) keeps whatever ORIGINAL row-index labels it
+        # had inside the big po_working table (e.g. 4, 7, 9, 15...), not a
+        # clean 0,1,2... range. But Streamlit's data_editor reports edits in
+        # `edited_rows` using the row's on-screen POSITION (0,1,2...), not
+        # its index label. So our "pull forward the User Qty just typed"
+        # check below (`row_idx in df_display.index`) was silently failing
+        # every time — position 0 rarely matches index label 4 — which is
+        # exactly why Total always computed against Qty=0. Resetting the
+        # index here makes positions and labels line up. <---
+        df_display = df_display.reset_index(drop=True)
+        
+        # ---> Track which editor "key" is currently active for this PO. <---
+        # st.data_editor never redraws a DISABLED/computed column (like Line
+        # Total) once a given key has been rendered — it only reflects the
+        # user's own edits, not new default values we pass in on later
+        # reruns. So instead of one fixed key, we build the key FROM the
+        # current User Qty values themselves: same quantities => same key
+        # (no remount, no flicker), but the moment a quantity changes, the
+        # key changes too, forcing Streamlit to redraw the table fresh —
+        # with the correct pre-filled Qty AND a correctly computed Total,
+        # right in the same table next to Price.
+        editor_state_key = f"mrn_editor_curkey_{po}"
+        current_key = st.session_state.get(editor_state_key, f"editor_mrn_{po}_init")
+        
+        if current_key in st.session_state and st.session_state[current_key].get("edited_rows"):
+            for row_idx, changes in st.session_state[current_key]["edited_rows"].items():
+                row_idx = int(row_idx)
+                if "User Qty" in changes and row_idx in df_display.index:
+                    df_display.at[row_idx, "User Qty"] = changes["User Qty"]
+        
+        df_display["Line Total"] = (
+            pd.to_numeric(df_display["User Qty"], errors='coerce').fillna(0) * df_display["Adjusted Price"]
+        )
+        
+        qty_sig = hashlib.md5(str(df_display["User Qty"].tolist()).encode()).hexdigest()[:10]
+        editor_key = f"editor_mrn_{po}_{qty_sig}"
+        st.session_state[editor_state_key] = editor_key
         
         edited_df = st.data_editor(
             df_display,
