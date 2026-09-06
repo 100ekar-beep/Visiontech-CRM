@@ -307,6 +307,38 @@ def df_to_excel_bytes(df, sheet_name="Sheet1"):
 EMAIL_SENDER = "vispltower@gmail.com"
 EMAIL_RECIPIENT = "100ekar@gmail.com"
 
+# Distinct wording + display identity per company so the three don't read
+# like the same message being resent — even though they share one mailbox.
+COMPANY_EMAIL_CONFIG = {
+    "VISPL": {
+        "display_name": "VISPL Dispatch Team",
+        "subject_label": "VISPL",
+        "greeting": "Dear Sir,",
+        "intro": "Please find below our Material Dispatch Plan for today. Details of the pending materials awaiting dispatch are listed in the table below.",
+        "urgency": "We kindly request you to prioritize and arrange dispatch of the above-mentioned materials at the earliest, as timely delivery is critical to avoid any delay in our ongoing site execution.",
+        "closing": "Your prompt action and support in this regard will be highly appreciated.",
+        "signature": "Visiontech Infra Solution Pvt. Ltd. (VISPL)",
+    },
+    "Bhagyashree": {
+        "display_name": "Bhagyashree Dispatch Desk",
+        "subject_label": "Bhagyashree",
+        "greeting": "Hello Team,",
+        "intro": "Sharing our pending Material Dispatch list for today. Please refer to the table below for the items awaiting dispatch.",
+        "urgency": "Request you to expedite dispatch of these materials at your earliest, as any delay on this end is directly impacting our site progress.",
+        "closing": "We look forward to your quick support on this.",
+        "signature": "Bhagyashree",
+    },
+    "Sai Tele": {
+        "display_name": "Sai Tele Services - Dispatch",
+        "subject_label": "Sai Tele Services",
+        "greeting": "Dear Team,",
+        "intro": "Please find our pending Material Dispatch requirement for today, listed in the table below.",
+        "urgency": "Kindly arrange to dispatch the below materials on priority to avoid any hold-up at the site.",
+        "closing": "Awaiting your confirmation and support on this.",
+        "signature": "Sai Tele Services",
+    },
+}
+
 
 def build_dispatch_email_df(company):
     raw = fetch_dispatch_cached(company)
@@ -323,8 +355,10 @@ def build_dispatch_email_df(company):
     return email_df
 
 
-def send_dispatch_plan_email(email_df, subject):
-    app_password = st.secrets["email"]["app_password"]
+def build_email_subject_and_body(company, email_df):
+    cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
+    today_str = date.today().strftime("%d-%b-%Y")
+    subject = f"Material Dispatch Plan_{cfg['subject_label']}_{today_str}"
 
     table_html = email_df.to_html(index=False, border=1, justify="left")
     table_html = table_html.replace(
@@ -338,16 +372,26 @@ def send_dispatch_plan_email(email_df, subject):
 
     body_html = f"""
     <div style="font-family:Arial, sans-serif; font-size:14px; color:#0f172a;">
-        <p>Dear Sir,</p>
-        <p>Please find our today Dispatch Plan. Kindly help us to get dispatch below all material.</p>
+        <p>{cfg['greeting']}</p>
+        <p>{cfg['intro']}</p>
+        <p>{cfg['urgency']}</p>
         {table_html}
-        <p style="margin-top:16px;">Thanks &amp; Regards,<br>Visiontech Infra Solutions</p>
+        <p style="margin-top:12px;">{cfg['closing']}</p>
+        <p style="margin-top:16px;">Thanks &amp; Regards,<br>{cfg['signature']}</p>
     </div>
     """
+    return cfg, subject, body_html
+
+
+def send_dispatch_plan_email(company, email_df):
+    from email.utils import formataddr
+
+    app_password = st.secrets["email"]["app_password"]
+    cfg, subject, body_html = build_email_subject_and_body(company, email_df)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = EMAIL_SENDER
+    msg["From"] = formataddr((cfg["display_name"], EMAIL_SENDER))
     msg["To"] = EMAIL_RECIPIENT
     msg.attach(MIMEText(body_html, "html"))
 
@@ -359,25 +403,28 @@ def send_dispatch_plan_email(email_df, subject):
 @st.dialog("📧 Preview Dispatch Plan Email", width="large")
 def send_email_dialog(company):
     email_df = build_dispatch_email_df(company)
-    today_str = date.today().strftime("%d-%b-%Y")
-    subject = f"Material Dispatch Plan_Visiontech Infra Solutions_{today_str}"
 
     if email_df.empty:
         st.info("Dispatch Pending me koi entry nahi hai bhejne ke liye.")
         return
 
+    cfg, subject, _ = build_email_subject_and_body(company, email_df)
+
     st.markdown(f"**To:** {EMAIL_RECIPIENT}")
-    st.markdown(f"**From:** {EMAIL_SENDER}")
+    st.markdown(f"**From:** {cfg['display_name']} <{EMAIL_SENDER}>")
     st.markdown(f"**Subject:** {subject}")
     st.markdown("---")
-    st.markdown("Dear Sir, Please find our today Dispatch Plan. Kindly help us to get dispatch below all material.")
+    st.markdown(cfg["greeting"])
+    st.markdown(cfg["intro"])
+    st.markdown(cfg["urgency"])
     st.dataframe(email_df, hide_index=True, use_container_width=True)
-    st.markdown("Thanks & Regards, Visiontech Infra Solutions")
+    st.markdown(cfg["closing"])
+    st.markdown(f"Thanks & Regards, {cfg['signature']}")
     st.markdown("---")
 
     if st.button("✅ Confirm & Send", type="primary", use_container_width=True):
         try:
-            send_dispatch_plan_email(email_df, subject)
+            send_dispatch_plan_email(company, email_df)
             st.success("Email sent successfully!")
             st.rerun()
         except Exception as e:
