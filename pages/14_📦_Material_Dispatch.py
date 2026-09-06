@@ -359,7 +359,7 @@ def send_dispatch_plan_email(email_df, subject):
 @st.dialog("📧 Preview Dispatch Plan Email", width="large")
 def send_email_dialog(company):
     email_df = build_dispatch_email_df(company)
-    today_str = date.today().strftime("%d-%m-%Y")
+    today_str = date.today().strftime("%d-%b-%Y")
     subject = f"Material Dispatch Plan_Visiontech Infra Solutions_{today_str}"
 
     if email_df.empty:
