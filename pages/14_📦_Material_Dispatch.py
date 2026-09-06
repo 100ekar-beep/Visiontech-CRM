@@ -27,6 +27,9 @@ Tables used:
 import streamlit as st
 import pandas as pd
 import io
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import date
 from supabase import create_client, Client
 from st_keyup import st_keyup
@@ -53,7 +56,7 @@ COMPANY_WORKSPACE_MAP = {
     "Bhagyashree": "BHAGYASHREE",
     "Sai Tele": "SAI TELE SERVICES",
 }
-STATUS_OPTIONS = ["Dispatch Pending", "Dispatched"]
+STATUS_OPTIONS = ["Dispatch Pending", "Dispatched", "Error"]
 
 # ----------------------------------------------------------------------
 # 2. PREMIUM CSS (matches Team & Vendor Billing page)
@@ -298,6 +301,89 @@ def df_to_excel_bytes(df, sheet_name="Sheet1"):
     return output.getvalue()
 
 
+# ----------------------------------------------------------------------
+# 4B. DISPATCH PLAN EMAIL (Dispatch Pending rows only)
+# ----------------------------------------------------------------------
+EMAIL_SENDER = "vispltower@gmail.com"
+EMAIL_RECIPIENT = "100ekar@gmail.com"
+
+
+def build_dispatch_email_df(company):
+    raw = fetch_dispatch_cached(company)
+    df = pd.DataFrame(raw) if raw else pd.DataFrame(columns=["boq", "site_id", "project_id", "status"])
+    pending_df = df[df["status"] == "Dispatch Pending"] if not df.empty else df
+    pending_df = pending_df.reset_index(drop=True)
+    email_df = pd.DataFrame({
+        "BOQ Number": pending_df["boq"] if "boq" in pending_df.columns else "",
+        "Site ID": pending_df["site_id"] if "site_id" in pending_df.columns else "",
+        "Project ID": pending_df["project_id"] if "project_id" in pending_df.columns else "",
+        "Item Description": ["As Per BOQ"] * len(pending_df),
+        "Transporter": ["Visiontech"] * len(pending_df),
+    })
+    return email_df
+
+
+def send_dispatch_plan_email(email_df, subject):
+    app_password = st.secrets["email"]["app_password"]
+
+    table_html = email_df.to_html(index=False, border=1, justify="left")
+    table_html = table_html.replace(
+        '<table border="1" class="dataframe">',
+        '<table border="1" style="border-collapse:collapse; font-family:Arial, sans-serif; font-size:14px; width:100%;">'
+    )
+    table_html = table_html.replace(
+        "<th>", "<th style='background:#4f46e5; color:#ffffff; padding:8px 12px; text-align:left;'>"
+    )
+    table_html = table_html.replace("<td>", "<td style='padding:6px 12px; border:1px solid #e2e8f0;'>")
+
+    body_html = f"""
+    <div style="font-family:Arial, sans-serif; font-size:14px; color:#0f172a;">
+        <p>Dear Sir,</p>
+        <p>Please find our today Dispatch Plan. Kindly help us to get dispatch below all material.</p>
+        {table_html}
+        <p style="margin-top:16px;">Thanks &amp; Regards,<br>Visiontech Infra Solutions</p>
+    </div>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = EMAIL_RECIPIENT
+    msg.attach(MIMEText(body_html, "html"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(EMAIL_SENDER, app_password)
+        server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
+
+
+@st.dialog("📧 Preview Dispatch Plan Email", width="large")
+def send_email_dialog(company):
+    email_df = build_dispatch_email_df(company)
+    today_str = date.today().strftime("%d-%m-%Y")
+    subject = f"Material Dispatch Plan_Visiontech Infra Solutions_{today_str}"
+
+    if email_df.empty:
+        st.info("Dispatch Pending me koi entry nahi hai bhejne ke liye.")
+        return
+
+    st.markdown(f"**To:** {EMAIL_RECIPIENT}")
+    st.markdown(f"**From:** {EMAIL_SENDER}")
+    st.markdown(f"**Subject:** {subject}")
+    st.markdown("---")
+    st.markdown("Dear Sir, Please find our today Dispatch Plan. Kindly help us to get dispatch below all material.")
+    st.dataframe(email_df, hide_index=True, use_container_width=True)
+    st.markdown("Thanks & Regards, Visiontech Infra Solutions")
+    st.markdown("---")
+
+    if st.button("✅ Confirm & Send", type="primary", use_container_width=True):
+        try:
+            send_dispatch_plan_email(email_df, subject)
+            st.success("Email sent successfully!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Email send failed: {e}")
+
+
 site_df = load_site_master()
 item_df = load_item_master()
 
@@ -355,10 +441,14 @@ def add_entry_dialog(company):
         rc1, rc2, rc3, rc4 = st.columns([2, 3, 2, 1])
         row["boq"] = rc1.text_input("BOQ", value=row["boq"], key=f"{boq_key}_boq_{idx}")
         if item_options:
-            default_index = item_options.index(row["material"]) if row["material"] in item_options else 0
-            row["material"] = rc2.selectbox("Material", options=item_options, index=default_index, key=f"{boq_key}_mat_{idx}")
+            select_options = ["-- Select Material --"] + item_options
+            current_val = row["material"] if row["material"] in item_options else "-- Select Material --"
+            selected_material = rc2.selectbox(
+                "Material", options=select_options, index=select_options.index(current_val), key=f"{boq_key}_mat_{idx}"
+            )
+            row["material"] = "" if selected_material == "-- Select Material --" else selected_material
         else:
-            row["material"] = rc2.text_input("Material (item_master empty)", value=row["material"], key=f"{boq_key}_mat_txt_{idx}")
+            row["material"] = rc2.text_input("Material (item list empty)", value=row["material"], key=f"{boq_key}_mat_txt_{idx}")
         qty_input = rc3.number_input(
             "Qty", min_value=0.0, value=None, step=1.0, placeholder="0", key=f"{boq_key}_qty_{idx}"
         )
@@ -505,7 +595,8 @@ st.markdown("<br>", unsafe_allow_html=True)
 active_company = st.session_state.dispatch_active_company
 
 # --- Dispatch Pending / Dispatched sub-tabs ---
-STATUS_TABS = [("pending", "🟡 Dispatch Pending"), ("dispatched", "🟢 Dispatched")]
+STATUS_TABS = [("pending", "🟡 Dispatch Pending"), ("dispatched", "🟢 Dispatched"), ("error", "🔴 Error")]
+STATUS_TAB_MAP = {"pending": "Dispatch Pending", "dispatched": "Dispatched", "error": "Error"}
 with st.container(key="dispatch_status_bar"):
     sub_cols = st.columns(len(STATUS_TABS))
     for sub_col, (tab_id, tab_label) in zip(sub_cols, STATUS_TABS):
@@ -517,15 +608,24 @@ with st.container(key="dispatch_status_bar"):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-active_status = "Dispatch Pending" if st.session_state.dispatch_status_tab == "pending" else "Dispatched"
+active_status = STATUS_TAB_MAP[st.session_state.dispatch_status_tab]
 
-# --- Search / Add / Download row ---
-col_search, col_addbtn, col_dl = st.columns([3.5, 2, 1.5])
+# --- Search / Add / Download / Send Email row ---
+if active_status == "Dispatch Pending":
+    col_search, col_addbtn, col_email, col_dl = st.columns([3, 1.8, 1.8, 1.4])
+else:
+    col_search, col_addbtn, col_dl = st.columns([3.5, 2, 1.5])
+    col_email = None
+
 with col_search:
     search_term = st_keyup("Search", placeholder="🔍 Search dispatch records...", label_visibility="collapsed", key=f"dispatch_search_{active_company}")
 with col_addbtn:
     if st.button("➕ Add New Entry", type="primary", use_container_width=True):
         add_entry_dialog(active_company)
+if col_email is not None:
+    with col_email:
+        if st.button("📧 Send Email", use_container_width=True):
+            send_email_dialog(active_company)
 with col_dl:
     pass  # download button placed after data is loaded (needs df)
 
@@ -596,8 +696,25 @@ else:
                             st.error(f"Error: {e}")
     else:
         # -------------------- DESKTOP TABLE VIEW --------------------
-        COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.1, 0.9, 0.9, 1.3, 0.7, 1.0, 1.1, 1.3]
-        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT ID", "SITE NAME", "SITE ID", "CLUSTER", "MATERIAL", "QTY", "BOQ", "DISPATCH DATE", "VIS REMARK"]
+        def _on_status_change(rid, sel_key):
+            new_status = st.session_state[sel_key]
+            payload = {"status": new_status}
+            if new_status == "Dispatched":
+                try:
+                    existing = supabase.table("material_dispatch").select("dispatch_date").eq("id", rid).execute()
+                    cur_date = existing.data[0].get("dispatch_date") if existing.data else None
+                except Exception:
+                    cur_date = None
+                if not cur_date:
+                    payload["dispatch_date"] = date.today().strftime("%Y-%m-%d")
+            try:
+                update_dispatch_row(rid, payload)
+                fetch_dispatch_cached.clear()
+            except Exception as e:
+                st.error(f"Status update failed: {e}")
+
+        COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.1, 0.9, 0.9, 1.3, 0.7, 1.0, 1.3, 1.1, 1.3]
+        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT ID", "SITE NAME", "SITE ID", "CLUSTER", "MATERIAL", "QTY", "BOQ", "STATUS", "DISPATCH DATE", "VIS REMARK"]
 
         with st.container(key="dsp_table_header"):
             h_cols = st.columns(COL_RATIOS)
@@ -632,5 +749,16 @@ else:
                 rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('material'))}</div>", unsafe_allow_html=True)
                 rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('qty'))}</div>", unsafe_allow_html=True)
                 rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('boq'))}</div>", unsafe_allow_html=True)
-                rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('dispatch_date'))}</div>", unsafe_allow_html=True)
-                rcols[11].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vis_remark'))}</div>", unsafe_allow_html=True)
+
+                with rcols[10]:
+                    status_key = f"dsp_status_sel_{rid}"
+                    current_status = row_dict.get("status") if row_dict.get("status") in STATUS_OPTIONS else STATUS_OPTIONS[0]
+                    st.selectbox(
+                        "Status", options=STATUS_OPTIONS,
+                        index=STATUS_OPTIONS.index(current_status),
+                        key=status_key, label_visibility="collapsed",
+                        on_change=_on_status_change, args=(rid, status_key),
+                    )
+
+                rcols[11].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('dispatch_date'))}</div>", unsafe_allow_html=True)
+                rcols[12].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vis_remark'))}</div>", unsafe_allow_html=True)
