@@ -321,6 +321,10 @@ COMPANY_EMAIL_CONFIG = {
         "urgency": "We kindly request you to prioritize and arrange dispatch of the above-mentioned materials at the earliest, as timely delivery is critical to avoid any delay in our ongoing site execution.",
         "closing": "Your prompt action and support in this regard will be highly appreciated.",
         "signature": "Visiontech Infra Solutions",
+        "transporter": "Visiontech",
+        "header_bg": "#4f46e5",
+        "header_text_color": "#ffffff",
+        "vehicle_lr_as_columns": False,
     },
     "Bhagyashree": {
         "sender_email": "bhagyashreeentpune@gmail.com",
@@ -329,9 +333,13 @@ COMPANY_EMAIL_CONFIG = {
         "subject_label": "Bhagyashree",
         "greeting": "Hello Team,",
         "intro": "Sharing our pending Material Dispatch list for today. Please refer to the table below for the items awaiting dispatch.",
-        "urgency": "Request you to expedite dispatch of these materials at your earliest, as any delay on this end is directly impacting our site progress.",
+        "urgency": "",
         "closing": "We look forward to your quick support on this.",
         "signature": "Bhagyashree Enterprises",
+        "transporter": "Bhagyashree Enterprises",
+        "header_bg": "#FFEB3B",
+        "header_text_color": "#000000",
+        "vehicle_lr_as_columns": True,
     },
     "Sai Tele": {
         "sender_email": "vispltower@gmail.com",
@@ -343,11 +351,16 @@ COMPANY_EMAIL_CONFIG = {
         "urgency": "Kindly arrange to dispatch the below materials on priority to avoid any hold-up at the site.",
         "closing": "Awaiting your confirmation and support on this.",
         "signature": "Sai Tele Services",
+        "transporter": "Visiontech",
+        "header_bg": "#4f46e5",
+        "header_text_color": "#ffffff",
+        "vehicle_lr_as_columns": False,
     },
 }
 
 
 def build_dispatch_email_df(company):
+    cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
     raw = fetch_dispatch_cached(company)
     df = pd.DataFrame(raw) if raw else pd.DataFrame(columns=["boq", "site_id", "project_id", "status"])
     pending_df = df[df["status"] == "Dispatch Pending"] if not df.empty else df
@@ -357,38 +370,53 @@ def build_dispatch_email_df(company):
         "Site ID": pending_df["site_id"] if "site_id" in pending_df.columns else "",
         "Project ID": pending_df["project_id"] if "project_id" in pending_df.columns else "",
         "Item Description": ["As Per BOQ"] * len(pending_df),
-        "Transporter": ["Visiontech"] * len(pending_df),
+        "Transporter": [cfg["transporter"]] * len(pending_df),
     })
     return email_df
 
 
-def build_email_subject_and_body(company, email_df, vehicle_number="", lr_number=""):
+def prepare_final_email_df(company, email_df, vehicle_number, lr_number):
+    cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
+    if cfg.get("vehicle_lr_as_columns"):
+        final_df = email_df.copy()
+        final_df["Vehicle Number"] = vehicle_number or "-"
+        final_df["LR Number"] = lr_number or "-"
+        return final_df
+    return email_df
+
+
+def build_email_subject_and_body(company, final_email_df, vehicle_number="", lr_number=""):
     cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
     today_str = date.today().strftime("%d-%b-%Y")
     subject = f"Material Dispatch Plan_{cfg['subject_label']}_{today_str}"
 
-    table_html = email_df.to_html(index=False, border=1, justify="left")
+    table_html = final_email_df.to_html(index=False, border=1, justify="left")
     table_html = table_html.replace(
         '<table border="1" class="dataframe">',
         '<table border="1" style="border-collapse:collapse; font-family:Arial, sans-serif; font-size:14px; width:100%;">'
     )
     table_html = table_html.replace(
-        "<th>", "<th style='background:#4f46e5; color:#ffffff; padding:8px 12px; text-align:left;'>"
+        "<th>", f"<th style='background:{cfg['header_bg']}; color:{cfg['header_text_color']}; padding:8px 12px; text-align:left;'>"
     )
     table_html = table_html.replace("<td>", "<td style='padding:6px 12px; border:1px solid #e2e8f0;'>")
 
-    vehicle_lr_html = f"""
-        <p style="margin-top:12px; margin-bottom:12px;">
-            Vehicle Number :- {vehicle_number or '-'}<br>
-            LR Number :- {lr_number or '-'}
-        </p>
-    """
+    urgency_html = f"<p>{cfg['urgency']}</p>" if cfg.get("urgency") else ""
+
+    if cfg.get("vehicle_lr_as_columns"):
+        vehicle_lr_html = ""
+    else:
+        vehicle_lr_html = f"""
+            <p style="margin-top:12px; margin-bottom:12px;">
+                Vehicle Number :- {vehicle_number or '-'}<br>
+                LR Number :- {lr_number or '-'}
+            </p>
+        """
 
     body_html = f"""
     <div style="font-family:Arial, sans-serif; font-size:14px; color:#0f172a;">
         <p>{cfg['greeting']}</p>
         <p>{cfg['intro']}</p>
-        <p>{cfg['urgency']}</p>
+        {urgency_html}
         {vehicle_lr_html}
         {table_html}
         <p style="margin-top:12px;">{cfg['closing']}</p>
@@ -424,7 +452,8 @@ def send_email_dialog(company):
         st.info("Dispatch Pending me koi entry nahi hai bhejne ke liye.")
         return
 
-    cfg, subject, _ = build_email_subject_and_body(company, email_df)
+    cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
+    _, subject, _ = build_email_subject_and_body(company, email_df)
 
     to_field = st.text_input(
         "To (comma se separate karke multiple address daal sakte ho)",
@@ -438,13 +467,17 @@ def send_email_dialog(company):
     vehicle_number = v1.text_input("Vehicle Number *", key=f"bulk_email_vehicle_{company}")
     lr_number = v2.text_input("LR Number *", key=f"bulk_email_lr_{company}")
 
+    final_email_df = prepare_final_email_df(company, email_df, vehicle_number, lr_number)
+
     st.markdown("---")
     st.markdown(cfg["greeting"])
     st.markdown(cfg["intro"])
-    st.markdown(cfg["urgency"])
-    st.markdown(f"**Vehicle Number :-** {vehicle_number or '-'}")
-    st.markdown(f"**LR Number :-** {lr_number or '-'}")
-    st.dataframe(email_df, hide_index=True, use_container_width=True)
+    if cfg.get("urgency"):
+        st.markdown(cfg["urgency"])
+    if not cfg.get("vehicle_lr_as_columns"):
+        st.markdown(f"**Vehicle Number :-** {vehicle_number or '-'}")
+        st.markdown(f"**LR Number :-** {lr_number or '-'}")
+    st.dataframe(final_email_df, hide_index=True, use_container_width=True)
     st.markdown(cfg["closing"])
     st.markdown(f"Thanks & Regards, {cfg['signature']}")
     st.markdown("---")
@@ -456,9 +489,9 @@ def send_email_dialog(company):
         elif not vehicle_number.strip() or not lr_number.strip():
             st.error("Vehicle Number aur LR Number dono zaroori hain.")
         else:
-            _, _, final_body_html = build_email_subject_and_body(company, email_df, vehicle_number.strip(), lr_number.strip())
+            _, _, final_body_html = build_email_subject_and_body(company, final_email_df, vehicle_number.strip(), lr_number.strip())
             try:
-                send_dispatch_plan_email(company, email_df, recipients, subject, final_body_html)
+                send_dispatch_plan_email(company, final_email_df, recipients, subject, final_body_html)
                 st.success("Email sent successfully!")
                 st.rerun()
             except Exception as e:
