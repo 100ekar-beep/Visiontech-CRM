@@ -362,7 +362,7 @@ def build_dispatch_email_df(company):
     return email_df
 
 
-def build_email_subject_and_body(company, email_df):
+def build_email_subject_and_body(company, email_df, vehicle_number="", lr_number=""):
     cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
     today_str = date.today().strftime("%d-%b-%Y")
     subject = f"Material Dispatch Plan_{cfg['subject_label']}_{today_str}"
@@ -377,11 +377,19 @@ def build_email_subject_and_body(company, email_df):
     )
     table_html = table_html.replace("<td>", "<td style='padding:6px 12px; border:1px solid #e2e8f0;'>")
 
+    vehicle_lr_html = f"""
+        <p style="margin-top:12px; margin-bottom:12px;">
+            Vehicle Number :- {vehicle_number or '-'}<br>
+            LR Number :- {lr_number or '-'}
+        </p>
+    """
+
     body_html = f"""
     <div style="font-family:Arial, sans-serif; font-size:14px; color:#0f172a;">
         <p>{cfg['greeting']}</p>
         <p>{cfg['intro']}</p>
         <p>{cfg['urgency']}</p>
+        {vehicle_lr_html}
         {table_html}
         <p style="margin-top:12px;">{cfg['closing']}</p>
         <p style="margin-top:16px;">Thanks &amp; Regards,<br>{cfg['signature']}</p>
@@ -416,7 +424,7 @@ def send_email_dialog(company):
         st.info("Dispatch Pending me koi entry nahi hai bhejne ke liye.")
         return
 
-    cfg, subject, body_html = build_email_subject_and_body(company, email_df)
+    cfg, subject, _ = build_email_subject_and_body(company, email_df)
 
     to_field = st.text_input(
         "To (comma se separate karke multiple address daal sakte ho)",
@@ -425,10 +433,17 @@ def send_email_dialog(company):
     )
     st.markdown(f"**From:** {cfg['display_name']} <{cfg['sender_email']}>")
     subject = st.text_input("Subject", value=subject, key=f"bulk_email_subject_{company}")
+
+    v1, v2 = st.columns(2)
+    vehicle_number = v1.text_input("Vehicle Number *", key=f"bulk_email_vehicle_{company}")
+    lr_number = v2.text_input("LR Number *", key=f"bulk_email_lr_{company}")
+
     st.markdown("---")
     st.markdown(cfg["greeting"])
     st.markdown(cfg["intro"])
     st.markdown(cfg["urgency"])
+    st.markdown(f"**Vehicle Number :-** {vehicle_number or '-'}")
+    st.markdown(f"**LR Number :-** {lr_number or '-'}")
     st.dataframe(email_df, hide_index=True, use_container_width=True)
     st.markdown(cfg["closing"])
     st.markdown(f"Thanks & Regards, {cfg['signature']}")
@@ -438,9 +453,12 @@ def send_email_dialog(company):
         recipients = [addr.strip() for addr in to_field.split(",") if addr.strip()]
         if not recipients:
             st.error("Kam se kam ek valid To address dalo.")
+        elif not vehicle_number.strip() or not lr_number.strip():
+            st.error("Vehicle Number aur LR Number dono zaroori hain.")
         else:
+            _, _, final_body_html = build_email_subject_and_body(company, email_df, vehicle_number.strip(), lr_number.strip())
             try:
-                send_dispatch_plan_email(company, email_df, recipients, subject, body_html)
+                send_dispatch_plan_email(company, email_df, recipients, subject, final_body_html)
                 st.success("Email sent successfully!")
                 st.rerun()
             except Exception as e:
