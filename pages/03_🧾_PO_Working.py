@@ -20,6 +20,23 @@ st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 if 'po_view_mode' not in st.session_state:
     st.session_state.po_view_mode = "table"
 
+# --- MULTI-COMPANY TAB SETUP (single login — switch company inside this page) ---
+PO_COMPANIES = [
+    ("VISPL", "VISPL"),
+    ("Bhagyashree", "Bhagyashree"),
+    ("Sai Tele", "Sai Tele"),
+]
+PO_COMPANY_WORKSPACE_MAP = {
+    "VISPL": "VISPL",
+    "Bhagyashree": "BHAGYASHREE",
+    "Sai Tele": "SAI TELE SERVICES",
+}
+if 'po_active_company' not in st.session_state:
+    st.session_state.po_active_company = "VISPL"
+# Derive the actual workspace used by every query in this file from the active tab,
+# so switching tabs is the only thing needed — no separate per-company login required.
+st.session_state['active_workspace'] = PO_COMPANY_WORKSPACE_MAP.get(st.session_state.po_active_company, "VISPL")
+
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
@@ -310,18 +327,64 @@ st.markdown("""
     .po-card-row:last-child { border-bottom: none; }
     .po-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
     .po-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+
+    /* =========================================================
+       MULTI-COMPANY NAV BAR (VISPL / Bhagyashree / Sai Tele)
+       ========================================================= */
+    .st-key-po_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
+    .st-key-po_company_nav_bar button {
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 14px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
+        white-space: nowrap !important;
+    }
+    .st-key-po_company_nav_bar button[kind="secondary"] {
+        background: rgba(255,255,255,0.04) !important; color: #cbd5e1 !important;
+        border: 1.5px solid rgba(255,255,255,0.12) !important; box-shadow: none !important;
+    }
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover {
+        background: rgba(255,255,255,0.1) !important; color: #ffffff !important;
+        border-color: rgba(255,255,255,0.25) !important; transform: translateY(-2px) !important;
+    }
+    .st-key-po_company_nav_bar button[kind="secondary"] p,
+    .st-key-po_company_nav_bar button[kind="secondary"] span,
+    .st-key-po_company_nav_bar button[kind="secondary"] div { color: #cbd5e1 !important; font-weight: 800 !important; }
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover p,
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover span,
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover div { color: #ffffff !important; }
+    .st-key-po_company_nav_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    }
+    .st-key-po_company_nav_bar button[kind="primary"] p,
+    .st-key-po_company_nav_bar button[kind="primary"] span,
+    .st-key-po_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
-if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
-    st.error("🚫 **Access Restricted!**")
-    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
-    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
-    st.stop()
+# --- MULTI-COMPANY NAV BAR (single login, switch company right here) ---
+with st.container(key="po_company_nav_bar"):
+    nav_cols = st.columns(len(PO_COMPANIES))
+    for nav_col, (company_id, company_label) in zip(nav_cols, PO_COMPANIES):
+        is_active = st.session_state.po_active_company == company_id
+        with nav_col:
+            if st.button(
+                company_label, key=f"po_nav_{company_id}",
+                use_container_width=True, type=("primary" if is_active else "secondary")
+            ):
+                st.session_state.po_active_company = company_id
+                st.session_state.active_workspace = PO_COMPANY_WORKSPACE_MAP[company_id]
+                # Force a fresh fetch for the newly selected company instead of
+                # reusing whatever was already loaded for the previous one.
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
+                st.session_state.po_current_page = 1
+                st.session_state.po_last_search = ""
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # --- TOP SINGLE WORKSPACE BANNER ---
-active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+active_ws_display = st.session_state.get('po_active_company', 'VISPL')
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
         <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
@@ -420,7 +483,7 @@ def fetch_po_detail_site_info_cached(site_id, workspace):
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
 # NOTE: iska already accha pattern hai — poori po_working table sirf EK BAAR
 # session_state me load hoti hai (jab tak explicitly delete na ho, jaise
-# upload/edit/delete ke baad), baar baar Supabase se re-fetch nahi hoti.
+# upload/edit/delete/company-switch ke baad), baar baar Supabase se re-fetch nahi hoti.
 if 'po_working_df' not in st.session_state:
     try:
         active_ws = st.session_state.get('active_workspace', 'VISPL')
