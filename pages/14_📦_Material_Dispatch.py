@@ -304,31 +304,38 @@ def df_to_excel_bytes(df, sheet_name="Sheet1"):
 # ----------------------------------------------------------------------
 # 4B. DISPATCH PLAN EMAIL (Dispatch Pending rows only)
 # ----------------------------------------------------------------------
-EMAIL_SENDER = "vispltower@gmail.com"
-EMAIL_RECIPIENT = "100ekar@gmail.com"
+DEFAULT_EMAIL_RECIPIENT = "100ekar@gmail.com"
 
-# Distinct wording + display identity per company so the three don't read
-# like the same message being resent — even though they share one mailbox.
+# Distinct wording, sender identity and signature per company so the three
+# don't read like the same message being resent from one shared mailbox.
+# NOTE: each company's sender_email needs its OWN Gmail App Password saved
+# in secrets under [email] using the matching secret_key below.
 COMPANY_EMAIL_CONFIG = {
     "VISPL": {
+        "sender_email": "vispltower@gmail.com",
+        "secret_key": "vispl_app_password",
         "display_name": "VISPL Dispatch Team",
         "subject_label": "VISPL",
         "greeting": "Dear Sir,",
         "intro": "Please find below our Material Dispatch Plan for today. Details of the pending materials awaiting dispatch are listed in the table below.",
         "urgency": "We kindly request you to prioritize and arrange dispatch of the above-mentioned materials at the earliest, as timely delivery is critical to avoid any delay in our ongoing site execution.",
         "closing": "Your prompt action and support in this regard will be highly appreciated.",
-        "signature": "Visiontech Infra Solution Pvt. Ltd. (VISPL)",
+        "signature": "Visiontech Infra Solutions",
     },
     "Bhagyashree": {
+        "sender_email": "bhagyashreeentpune@gmail.com",
+        "secret_key": "bhagyashree_app_password",
         "display_name": "Bhagyashree Dispatch Desk",
         "subject_label": "Bhagyashree",
         "greeting": "Hello Team,",
         "intro": "Sharing our pending Material Dispatch list for today. Please refer to the table below for the items awaiting dispatch.",
         "urgency": "Request you to expedite dispatch of these materials at your earliest, as any delay on this end is directly impacting our site progress.",
         "closing": "We look forward to your quick support on this.",
-        "signature": "Bhagyashree",
+        "signature": "Bhagyashree Enterprises",
     },
     "Sai Tele": {
+        "sender_email": "vispltower@gmail.com",
+        "secret_key": "vispl_app_password",
         "display_name": "Sai Tele Services - Dispatch",
         "subject_label": "Sai Tele Services",
         "greeting": "Dear Team,",
@@ -383,21 +390,22 @@ def build_email_subject_and_body(company, email_df):
     return cfg, subject, body_html
 
 
-def send_dispatch_plan_email(company, email_df):
+def send_dispatch_plan_email(company, email_df, recipients, subject, body_html):
     from email.utils import formataddr
 
-    app_password = st.secrets["email"]["app_password"]
-    cfg, subject, body_html = build_email_subject_and_body(company, email_df)
+    cfg = COMPANY_EMAIL_CONFIG.get(company, COMPANY_EMAIL_CONFIG["VISPL"])
+    sender_email = cfg["sender_email"]
+    app_password = st.secrets["email"][cfg["secret_key"]]
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = formataddr((cfg["display_name"], EMAIL_SENDER))
-    msg["To"] = EMAIL_RECIPIENT
+    msg["From"] = formataddr((cfg["display_name"], sender_email))
+    msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(body_html, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(EMAIL_SENDER, app_password)
-        server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
+        server.login(sender_email, app_password)
+        server.sendmail(sender_email, recipients, msg.as_string())
 
 
 @st.dialog("📧 Preview Dispatch Plan Email", width="large")
@@ -408,11 +416,15 @@ def send_email_dialog(company):
         st.info("Dispatch Pending me koi entry nahi hai bhejne ke liye.")
         return
 
-    cfg, subject, _ = build_email_subject_and_body(company, email_df)
+    cfg, subject, body_html = build_email_subject_and_body(company, email_df)
 
-    st.markdown(f"**To:** {EMAIL_RECIPIENT}")
-    st.markdown(f"**From:** {cfg['display_name']} <{EMAIL_SENDER}>")
-    st.markdown(f"**Subject:** {subject}")
+    to_field = st.text_input(
+        "To (comma se separate karke multiple address daal sakte ho)",
+        value=DEFAULT_EMAIL_RECIPIENT,
+        key=f"bulk_email_to_{company}",
+    )
+    st.markdown(f"**From:** {cfg['display_name']} <{cfg['sender_email']}>")
+    subject = st.text_input("Subject", value=subject, key=f"bulk_email_subject_{company}")
     st.markdown("---")
     st.markdown(cfg["greeting"])
     st.markdown(cfg["intro"])
@@ -423,12 +435,16 @@ def send_email_dialog(company):
     st.markdown("---")
 
     if st.button("✅ Confirm & Send", type="primary", use_container_width=True):
-        try:
-            send_dispatch_plan_email(company, email_df)
-            st.success("Email sent successfully!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Email send failed: {e}")
+        recipients = [addr.strip() for addr in to_field.split(",") if addr.strip()]
+        if not recipients:
+            st.error("Kam se kam ek valid To address dalo.")
+        else:
+            try:
+                send_dispatch_plan_email(company, email_df, recipients, subject, body_html)
+                st.success("Email sent successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Email send failed: {e}")
 
 
 site_df = load_site_master()
