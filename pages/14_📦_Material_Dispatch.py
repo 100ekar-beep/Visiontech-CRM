@@ -615,7 +615,137 @@ def edit_entry_dialog(row_data, company):
 
 
 # ----------------------------------------------------------------------
-# 6. MAIN PAGE NAVIGATION (custom buttons, matches Team & Vendor Billing)
+# 5B. BULK ADD DIALOG (Excel upload -> multiple entries at once)
+# ----------------------------------------------------------------------
+BULK_TEMPLATE_COLUMNS = ["Project ID", "BOQ", "Material", "Qty", "Status", "Dispatch Date", "VIS Remark"]
+
+
+def _validate_bulk_row(row, company_sites):
+    """Returns (is_valid, error_message, cleaned_dict)."""
+    project_id = str(row.get("Project ID", "")).strip()
+    boq = str(row.get("BOQ", "")).strip()
+    material = str(row.get("Material", "")).strip()
+    qty_raw = row.get("Qty", None)
+    status_raw = str(row.get("Status", "")).strip()
+    remark_raw = str(row.get("VIS Remark", "")).strip()
+    date_raw = row.get("Dispatch Date", None)
+
+    if not project_id or project_id.lower() == "nan":
+        return False, "Project ID missing", None
+    if project_id not in company_sites["project_id"].values:
+        return False, "Project ID not found for this company", None
+    if not boq or boq.lower() == "nan":
+        return False, "BOQ missing", None
+    if not material or material.lower() == "nan":
+        return False, "Material missing", None
+    try:
+        qty = float(qty_raw)
+        if qty <= 0:
+            return False, "Qty must be > 0", None
+    except Exception:
+        return False, "Qty invalid", None
+
+    status = status_raw if status_raw in STATUS_OPTIONS else "Dispatch Pending"
+
+    dispatch_date_str = None
+    if status == "Dispatched":
+        if pd.isna(date_raw) or str(date_raw).strip() == "" or str(date_raw).lower() == "nan":
+            return False, "Dispatch Date required when Status = Dispatched", None
+        try:
+            dispatch_date_str = pd.to_datetime(date_raw).strftime("%Y-%m-%d")
+        except Exception:
+            return False, "Dispatch Date invalid format", None
+
+    site_row = company_sites[company_sites["project_id"] == project_id].iloc[0]
+    remark = remark_raw if remark_raw and remark_raw.lower() != "nan" else status
+
+    cleaned = {
+        "project_id": project_id,
+        "site_name": site_row.get("site_name", ""),
+        "site_id": str(site_row.get("site_id", "")),
+        "cluster": str(site_row.get("cluster", "")),
+        "boq": boq,
+        "material": material,
+        "qty": qty,
+        "status": status,
+        "dispatch_date": dispatch_date_str,
+        "vis_remark": remark,
+    }
+    return True, "", cleaned
+
+
+@st.dialog("📤 Bulk Add Dispatch Entries", width="large")
+def bulk_add_dialog(company):
+    workspace_value = COMPANY_WORKSPACE_MAP.get(company, company)
+    company_sites = site_df[site_df["company"] == workspace_value] if "company" in site_df.columns else pd.DataFrame()
+
+    st.markdown(f"Excel/CSV se ek saath multiple **{company}** dispatch entries add karo.")
+
+    template_df = pd.DataFrame(columns=BULK_TEMPLATE_COLUMNS)
+    st.download_button(
+        "⬇️ Download Template",
+        data=df_to_excel_bytes(template_df, "Bulk Template"),
+        file_name=f"bulk_dispatch_template_{company}.xlsx",
+        key=f"bulk_template_dl_{company}",
+    )
+    st.caption("Status column: 'Dispatch Pending' ya 'Dispatched' (khali chhodne par Dispatch Pending maana jayega). Dispatched ke liye Dispatch Date (DD-MM-YYYY) compulsory hai.")
+
+    uploaded = st.file_uploader("Upload filled Excel/CSV", type=["xlsx", "xls", "csv"], key=f"bulk_upload_{company}")
+
+    if uploaded is not None:
+        try:
+            bulk_df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
+        except Exception as e:
+            st.error(f"File read error: {e}")
+            return
+
+        missing_cols = [c for c in ["Project ID", "BOQ", "Material", "Qty"] if c not in bulk_df.columns]
+        if missing_cols:
+            st.error(f"Ye columns file me missing hain: {', '.join(missing_cols)}")
+            return
+
+        results = []
+        for _, row in bulk_df.iterrows():
+            is_valid, err, cleaned = _validate_bulk_row(row, company_sites)
+            results.append({
+                "Project ID": row.get("Project ID", ""),
+                "BOQ": row.get("BOQ", ""),
+                "Material": row.get("Material", ""),
+                "Qty": row.get("Qty", ""),
+                "Status": row.get("Status", ""),
+                "Row Status": "✅ Valid" if is_valid else f"❌ {err}",
+                "_valid": is_valid,
+                "_cleaned": cleaned,
+            })
+
+        preview_df = pd.DataFrame(results)
+        valid_count = preview_df["_valid"].sum()
+        invalid_count = len(preview_df) - valid_count
+
+        st.markdown(f"**Total rows:** {len(preview_df)} &nbsp;|&nbsp; ✅ **Valid:** {valid_count} &nbsp;|&nbsp; ❌ **Invalid:** {invalid_count}")
+        st.dataframe(
+            preview_df.drop(columns=["_valid", "_cleaned"]),
+            hide_index=True, use_container_width=True,
+        )
+
+        if valid_count == 0:
+            st.warning("Koi bhi row valid nahi hai — file check karke dobara upload karo.")
+        else:
+            if st.button(f"✅ Insert {valid_count} Valid Rows", type="primary", use_container_width=True):
+                rows_to_insert = [
+                    {"company": company, **r["_cleaned"]}
+                    for r in results if r["_valid"]
+                ]
+                try:
+                    insert_dispatch_rows(rows_to_insert)
+                    fetch_dispatch_cached.clear()
+                    st.success(f"{len(rows_to_insert)} entries added successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Bulk insert failed: {e}")
+
+
+
 # ----------------------------------------------------------------------
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>📦 Material Dispatch</h1>", unsafe_allow_html=True)
 
@@ -657,11 +787,11 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 active_status = STATUS_TAB_MAP[st.session_state.dispatch_status_tab]
 
-# --- Search / Add / Download / Send Email row ---
+# --- Search / Add / Bulk Add / Download / Send Email row ---
 if active_status == "Dispatch Pending":
-    col_search, col_addbtn, col_email, col_dl = st.columns([3, 1.8, 1.8, 1.4])
+    col_search, col_addbtn, col_bulk, col_email, col_dl = st.columns([2.4, 1.6, 1.6, 1.6, 1.3])
 else:
-    col_search, col_addbtn, col_dl = st.columns([3.5, 2, 1.5])
+    col_search, col_addbtn, col_bulk, col_dl = st.columns([2.8, 1.8, 1.8, 1.3])
     col_email = None
 
 with col_search:
@@ -669,6 +799,9 @@ with col_search:
 with col_addbtn:
     if st.button("➕ Add New Entry", type="primary", use_container_width=True):
         add_entry_dialog(active_company)
+with col_bulk:
+    if st.button("📤 Bulk Add", use_container_width=True):
+        bulk_add_dialog(active_company)
 if col_email is not None:
     with col_email:
         if st.button("📧 Send Email", use_container_width=True):
