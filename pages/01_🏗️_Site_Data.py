@@ -50,8 +50,8 @@ st.session_state['active_workspace'] = SITE_COMPANY_WORKSPACE_MAP.get(st.session
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Dark Premium Theme */
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    /* Light Premium Theme */
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
     
     /* Top Action Buttons */
     div.stButton > button {
@@ -62,15 +62,15 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
     }
 
     /* Pagination Text & Button Font Color Fix */
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
+    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #334155; margin-top: 10px; }
     
     div.stButton > button p, 
     div.stButton > button span, 
@@ -81,43 +81,44 @@ st.markdown("""
     
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
     
     /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
     div[data-testid="stDialog"] h1, 
     div[data-testid="stDialog"] h2, 
     div[data-testid="stDialog"] h3 {
-        color: #ffffff !important;
+        color: #0f172a !important;
         font-weight: 800 !important;
         letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
     div[data-testid="stDialog"] p {
-        color: #e2e8f0 !important; 
+        color: #1e293b !important; 
     }
     div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #ffffff !important; 
+        fill: #0f172a !important; 
     }
 
     .modal-section-title {
-        color: #94a3b8;
+        color: #475569;
         font-size: 0.85rem;
         font-weight: 700;
         letter-spacing: 1px;
         margin-top: 15px;
         margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
         padding-bottom: 5px;
     }
     
-    /* FIX FOR FIELD LABELS COLOR (Make them bright white) */
+    /* FIX FOR FIELD LABELS COLOR (dark black, bold) */
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
+        color: #0f172a !important;
+        font-weight: 700 !important;
         letter-spacing: 0.5px;
     }
 
@@ -129,7 +130,8 @@ st.markdown("""
     }
 
     /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS
+       PREMIUM SIDEBAR NAVIGATION BUTTONS (kept dark for contrast
+       against the now-light main content, matching other pages)
        ========================================================= */
     
     /* Sidebar Background */
@@ -179,22 +181,23 @@ st.markdown("""
        FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
        ========================================================= */
     .st-key-site_table_wrap {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.12);
+        background: #ffffff;
+        border: 1px solid rgba(0,0,0,0.10);
         border-radius: 10px;
         overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
         padding: 0px 0 !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
     }
     /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
         min-width: 4600px !important;
         align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        border-bottom: 1px solid rgba(0,0,0,0.07) !important;
         padding: 6px 0 !important;
         flex-wrap: nowrap !important;
     }
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(255,255,255,0.04);
+        background: #f1f5f9;
     }
     /* Cell padding and border */
     .st-key-site_table_wrap div[data-testid="column"] {
@@ -202,7 +205,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
+        border-right: 1px solid rgba(0,0,0,0.05);
     }
     .st-key-site_table_wrap div[data-testid="column"]:last-child {
         border-right: none;
@@ -213,13 +216,13 @@ st.markdown("""
         font-size: 0.75rem;
         font-weight: 800;
         letter-spacing: 0.8px;
-        color: #94a3b8;
+        color: #475569;
         text-transform: uppercase;
         white-space: nowrap !important;
     }
     /* Strict nowrap with ellipsis to prevent column bleeding */
     .st-key-site_table_wrap .tbl-cell {
-        color: #e2e8f0;
+        color: #0f172a;
         font-size: 0.86rem;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -242,8 +245,8 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        background: #f1f5f9 !important;
+        border: 1px solid rgba(0,0,0,0.10) !important;
         box-shadow: none !important;
         pointer-events: auto !important; /* Force clickability */
         cursor: pointer !important;
@@ -262,7 +265,7 @@ st.markdown("""
     }
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
-        color: #94a3b8; 
+        color: #475569; 
     }
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
         padding: 4px 4px !important;
@@ -270,7 +273,7 @@ st.markdown("""
     }
     .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) {
         padding: 4px 15px 4px 4px !important;
-        border-right: 1px solid rgba(255,255,255,0.06) !important;
+        border-right: 1px solid rgba(0,0,0,0.05) !important;
     }
 
     /* Round, color-coded, compact action icon buttons */
@@ -298,28 +301,29 @@ st.markdown("""
         white-space: nowrap !important;
         text-align: center;
     }
-    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
-    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
-    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
-    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
-    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .status-green  { background: rgba(34,197,94,0.15);  color: #15803d; }
+    .status-blue   { background: rgba(59,130,246,0.15); color: #1d4ed8; }
+    .status-yellow { background: rgba(234,179,8,0.15);  color: #a16207; }
+    .status-red    { background: rgba(239,68,68,0.15);  color: #b91c1c; }
+    .status-grey   { background: rgba(148,163,184,0.18); color: #334155; }
 
     /* =========================================================
        MOBILE-FRIENDLY CARD VIEW
        ========================================================= */
     .site-card {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.12);
+        background: #ffffff;
+        border: 1px solid rgba(0,0,0,0.10);
         border-radius: 12px;
         padding: 14px 16px;
         margin-bottom: 12px;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
     }
-    .site-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
-    .site-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
-    .site-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; }
+    .site-card-title { font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
+    .site-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .site-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(0,0,0,0.08); font-size: 0.85rem; }
     .site-card-row:last-child { border-bottom: none; }
-    .site-card-label { color: #94a3b8; font-weight: 600; }
-    .site-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+    .site-card-label { color: #64748b; font-weight: 600; }
+    .site-card-value { color: #0f172a; font-weight: 600; text-align: right; }
 
     /* =========================================================
        MULTI-COMPANY NAV BAR (VISPL / Bhagyashree / Sai Tele)
@@ -331,19 +335,19 @@ st.markdown("""
         white-space: nowrap !important;
     }
     .st-key-site_company_nav_bar button[kind="secondary"] {
-        background: rgba(255,255,255,0.04) !important; color: #cbd5e1 !important;
-        border: 1.5px solid rgba(255,255,255,0.12) !important; box-shadow: none !important;
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
     .st-key-site_company_nav_bar button[kind="secondary"]:hover {
-        background: rgba(255,255,255,0.1) !important; color: #ffffff !important;
-        border-color: rgba(255,255,255,0.25) !important; transform: translateY(-2px) !important;
+        background: #f1f5f9 !important; color: #0f172a !important;
+        border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
     }
     .st-key-site_company_nav_bar button[kind="secondary"] p,
     .st-key-site_company_nav_bar button[kind="secondary"] span,
-    .st-key-site_company_nav_bar button[kind="secondary"] div { color: #cbd5e1 !important; font-weight: 800 !important; }
+    .st-key-site_company_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
     .st-key-site_company_nav_bar button[kind="secondary"]:hover p,
     .st-key-site_company_nav_bar button[kind="secondary"]:hover span,
-    .st-key-site_company_nav_bar button[kind="secondary"]:hover div { color: #ffffff !important; }
+    .st-key-site_company_nav_bar button[kind="secondary"]:hover div { color: #0f172a !important; }
     .st-key-site_company_nav_bar button[kind="primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
         border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
@@ -353,6 +357,7 @@ st.markdown("""
     .st-key-site_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
     </style>
 """, unsafe_allow_html=True)
+
 
 # --- MULTI-COMPANY NAV BAR (single login, switch company right here) ---
 with st.container(key="site_company_nav_bar"):
@@ -576,16 +581,16 @@ def add_record_dialog():
             site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
 
         st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
+            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.08);">
                 <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #3b82f6;">{area_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #3b82f6; white-space: pre;">{lat_val}  {long_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #2563eb;">{area_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #2563eb;">{km_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #2563eb; white-space: pre;">{lat_val}  {long_val}</span></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 12px;">
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 12px;">
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #2563eb;">{tech_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #2563eb;">{fse_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #2563eb;">{aom_val}</span></div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -624,7 +629,7 @@ def add_record_dialog():
         
         for i in range(st.session_state.po_count):
             if i > 0:
-                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
             
             c17, c18, c19, c20, c21 = st.columns(5)
             with c17:
@@ -670,7 +675,7 @@ def add_record_dialog():
         
         for i in range(st.session_state.add_mat_count):
             if i > 0:
-                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
             
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             with mc1:
@@ -925,16 +930,16 @@ def edit_record_dialog(row_data):
             site_status = st.selectbox("SITE STATUS", ss_opts, index=get_idx(row_data.get('Site Status'), ss_opts), key="ed_ss")
 
         st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);">
+            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.08);">
                 <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #3b82f6;">{area_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #3b82f6;">{km_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #3b82f6; white-space: pre;">{lat_val}  {long_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #2563eb;">{area_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #2563eb;">{km_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #2563eb; white-space: pre;">{lat_val}  {long_val}</span></div>
                 </div>
-                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 12px;">
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #3b82f6;">{tech_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #3b82f6;">{fse_val}</span></div>
-                    <div style="color: #ffffff; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #3b82f6;">{aom_val}</span></div>
+                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 12px;">
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #2563eb;">{tech_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #2563eb;">{fse_val}</span></div>
+                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #2563eb;">{aom_val}</span></div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -994,7 +999,7 @@ def edit_record_dialog(row_data):
         
         for i in range(st.session_state.edit_po_count):
             if i > 0:
-                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
             
             c17, c18, c19, c20, c21 = st.columns(5)
             with c17:
@@ -1169,7 +1174,7 @@ def edit_record_dialog(row_data):
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("""
             <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
-                <div style="color:#f87171; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
+                <div style="color:#dc2626; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
             </div>
         """, unsafe_allow_html=True)
         confirm_del = st.checkbox(
@@ -1229,7 +1234,7 @@ def material_movement_dialog(row_data):
         
         for i in range(st.session_state.mat_count):
             if i > 0:
-                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
             
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             with mc1:
@@ -1379,7 +1384,7 @@ def material_movement_dialog(row_data):
 # --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
 @st.dialog("📧 Commissioning Email Notification", width="large")
 def commissioning_email_dialog():
-    st.markdown("<p style='color:#cbd5e1; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#334155; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
     
     data = st.session_state.get("comm_site_data", {})
     db_id = data.get("db_id")
@@ -1553,13 +1558,13 @@ def bulk_upload_dialog():
         result = st.session_state["bulk_upload_result"]
         st.markdown("---")
         st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px;">
-                <div style="font-weight:800; color:#ffffff; font-size:1.05rem; margin-bottom:10px;">📊 Upload Summary</div>
-                <div style="color:#e2e8f0; margin-bottom:4px;">📄 Total Rows in File: <b>{result['total']}</b></div>
-                <div style="color:#4ade80; margin-bottom:4px;">✅ Successfully Added: <b>{result['added']}</b></div>
-                <div style="color:#facc15; margin-bottom:4px;">🟡 Skipped (Duplicate Project ID in '{result['workspace']}'): <b>{result['dup']}</b></div>
-                <div style="color:#94a3b8; margin-bottom:4px;">⚪ Skipped (Missing/Blank Project ID): <b>{result['missing_pid']}</b></div>
-                <div style="color:#f87171;">❌ Failed (Error): <b>{result['failed']}</b></div>
+            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 15px;">
+                <div style="font-weight:800; color:#0f172a; font-size:1.05rem; margin-bottom:10px;">📊 Upload Summary</div>
+                <div style="color:#1e293b; margin-bottom:4px;">📄 Total Rows in File: <b>{result['total']}</b></div>
+                <div style="color:#15803d; margin-bottom:4px;">✅ Successfully Added: <b>{result['added']}</b></div>
+                <div style="color:#a16207; margin-bottom:4px;">🟡 Skipped (Duplicate Project ID in '{result['workspace']}'): <b>{result['dup']}</b></div>
+                <div style="color:#64748b; margin-bottom:4px;">⚪ Skipped (Missing/Blank Project ID): <b>{result['missing_pid']}</b></div>
+                <div style="color:#b91c1c;">❌ Failed (Error): <b>{result['failed']}</b></div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1693,7 +1698,7 @@ def bulk_upload_dialog():
 @st.dialog("📝 Update PO Status", width="large")
 def update_po_status_dialog():
     st.caption("Upload Excel (Col 1: 'PO No.', Col 2: 'PO Status') to bulk update existing records.")
-    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px;'>UPDATE FILE <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#334155; margin-bottom:5px;'>UPDATE FILE <span style='color:#dc2626;'>*</span></p>", unsafe_allow_html=True)
     status_file = st.file_uploader("UPLOAD FILE", label_visibility="collapsed", type=["xlsx", "xls"], key="po_status_file")
     
     st.markdown("<br>", unsafe_allow_html=True)
