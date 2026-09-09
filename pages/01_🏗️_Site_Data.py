@@ -6,6 +6,8 @@ import uuid
 import subprocess
 import tempfile
 import os
+import zipfile
+import requests
 import boto3
 from botocore.client import Config
 from PIL import Image, ImageOps
@@ -462,16 +464,28 @@ st.markdown("""
         color: #ffffff !important; font-weight: 800 !important;
     }
 
-    /* Available / Not Available status line under each upload button */
+    /* Available / Not Available status pill under each upload zone */
     .attach-status {
+        display: block;
         text-align: center;
         font-size: 0.8rem;
         font-weight: 800;
         letter-spacing: 0.4px;
-        padding: 6px 0 2px 0;
+        margin: 8px auto 6px auto;
+        padding: 6px 14px;
+        border-radius: 20px;
+        width: fit-content;
     }
-    .attach-status-available { color: #059669; }
-    .attach-status-missing { color: #94a3b8; }
+    .attach-status-available {
+        background: rgba(21, 128, 61, 0.14);
+        color: #15803d;
+        border: 1px solid rgba(21, 128, 61, 0.35);
+    }
+    .attach-status-missing {
+        background: rgba(148, 163, 184, 0.18);
+        color: #64748b;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -538,22 +552,6 @@ def init_r2_connection():
 r2_client = init_r2_connection()
 R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
 R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
-
-# --- TEMPORARY DEBUG: check what R2 secrets are actually loading ---
-# (Doesn't reveal the actual access key / secret key — only their length.
-#  bucket_name and public_url are shown in full since they aren't sensitive.
-#  REMOVE this block once the R2 upload issue is confirmed fixed.)
-with st.expander("🔧 R2 Secrets Debug (temporary)"):
-    try:
-        r2_cfg_debug = st.secrets["r2"]
-        st.write("Keys found under [r2] in secrets:", list(r2_cfg_debug.keys()))
-        st.write("account_id:", repr(r2_cfg_debug.get("account_id", "")))
-        st.write("access_key_id length:", len(r2_cfg_debug.get("access_key_id", "")), "(should be 32)")
-        st.write("secret_access_key length:", len(r2_cfg_debug.get("secret_access_key", "")), "(should be 64)")
-        st.write("bucket_name:", repr(r2_cfg_debug.get("bucket_name", "")))
-        st.write("public_url:", repr(r2_cfg_debug.get("public_url", "")))
-    except Exception as e:
-        st.error(f"❌ Could not read st.secrets['r2'] at all: {e}")
 
 
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
@@ -668,6 +666,33 @@ def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
         ExtraArgs={"ContentType": content_type},
     )
     return f"{R2_PUBLIC_URL}/{object_key}"
+
+
+def build_zip_from_urls(urls):
+    """Fetches each file from its public R2 URL and bundles them into one
+    in-memory ZIP, so the user can download everything with a single click
+    instead of one click per file."""
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        used_names = set()
+        for url in urls:
+            try:
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                name = url.split("/")[-1] or f"file_{uuid.uuid4().hex[:6]}"
+                # avoid collisions inside the zip if two URLs somehow share a filename
+                final_name = name
+                dup_counter = 1
+                while final_name in used_names:
+                    base, dot, extn = name.rpartition(".")
+                    final_name = f"{base}_{dup_counter}.{extn}" if dot else f"{name}_{dup_counter}"
+                    dup_counter += 1
+                used_names.add(final_name)
+                zf.writestr(final_name, resp.content)
+            except Exception:
+                continue  # skip a file that failed to fetch rather than failing the whole zip
+    zip_buf.seek(0)
+    return zip_buf.getvalue()
 
 # -------------------------------------------------------------
 # --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
@@ -1356,11 +1381,10 @@ def edit_record_dialog(row_data):
         st.markdown('<div class="modal-section-title">📎 ATTACHMENTS</div>', unsafe_allow_html=True)
 
         def _parse_file_list(raw):
-            return [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
-
-        def _short_file_label(url):
-            name = url.split("/")[-1]
-            return (name[:20] + "…") if len(name) > 22 else name
+            items = [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
+            # Drop junk values (e.g. a literal "nan" that ended up saved from an
+            # older bug) and anything that isn't actually a URL.
+            return [u for u in items if u.lower() not in ("nan", "none", "null") and u.startswith("http")]
 
         MAX_PHOTOS = 15
         rid = row_data['id']
@@ -1443,16 +1467,39 @@ def edit_record_dialog(row_data):
                 else:
                     st.markdown("<div class='attach-status attach-status-missing'>⭕ Not Available</div>", unsafe_allow_html=True)
 
-                # Direct one-click download — no reveal step. A single file gets one
-                # button labelled with the field name; multiple files each get their
-                # own button labelled with their filename so they're distinguishable.
+                # One-click download for everything in this field. A single file
+                # downloads directly; multiple files get zipped together first so
+                # one click/one save-dialog gets the user all of them at once.
                 if is_available:
                     with st.container(key=f"attach_lav_download_{key_prefix}"):
                         if len(files_here) == 1:
                             st.link_button(f"⬇️  Download {field_label}", files_here[0], use_container_width=True)
                         else:
-                            for f_url in files_here:
-                                st.link_button(f"⬇️ {_short_file_label(f_url)}", f_url, use_container_width=True)
+                            zip_ready_key = f"attach_zip_ready_{key_prefix}_{rid}"
+                            zip_source_key = f"attach_zip_source_{key_prefix}_{rid}"
+                            current_files_tuple = tuple(files_here)
+
+                            # Only re-zip if the file list actually changed since last time
+                            if st.session_state.get(zip_source_key) != current_files_tuple:
+                                st.session_state.pop(zip_ready_key, None)
+
+                            if zip_ready_key not in st.session_state:
+                                if st.button(f"⬇️  Download All {field_label} ({len(files_here)})", key=f"btn_zipprep_{key_prefix}_{rid}", use_container_width=True):
+                                    with st.spinner(f"{field_label} files zip me tayyar ho rahi hain..."):
+                                        st.session_state[zip_ready_key] = build_zip_from_urls(files_here)
+                                        st.session_state[zip_source_key] = current_files_tuple
+                                    st.rerun()
+                            else:
+                                safe_proj_dl = "".join(c for c in str(proj_id_for_files) if c.isalnum() or c in ("-", "_")) or "proj"
+                                safe_site_dl = "".join(c for c in str(site_id_for_files) if c.isalnum() or c in ("-", "_")) or "site"
+                                st.download_button(
+                                    f"💾 Save {field_label} ({len(files_here)} files, .zip)",
+                                    data=st.session_state[zip_ready_key],
+                                    file_name=f"{safe_proj_dl}_{safe_site_dl}_{FILE_NAME_TAGS[key_prefix]}.zip",
+                                    mime="application/zip",
+                                    key=f"btn_zipdl_{key_prefix}_{rid}",
+                                    use_container_width=True,
+                                )
             
         st.markdown("<br>", unsafe_allow_html=True)
 
