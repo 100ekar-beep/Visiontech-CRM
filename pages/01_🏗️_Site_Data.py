@@ -182,22 +182,38 @@ st.markdown("""
        ========================================================= */
     .st-key-site_table_wrap {
         background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.10);
+        border: 1px solid rgba(0,0,0,0.12);
         border-radius: 10px;
         overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
         padding: 0px 0 !important;
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     }
     /* Force inner rows to be extremely wide so they NEVER squish or overlap */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
         min-width: 4600px !important;
         align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.07) !important;
-        padding: 6px 0 !important;
+        border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+        padding: 8px 0 !important;
         flex-wrap: nowrap !important;
     }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: #f1f5f9;
+    /* Header row (first row inside the table) — coloured, bold, sticky on scroll */
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:first-of-type {
+        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
+        border-bottom: none !important;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 2 !important;
+        padding: 10px 0 !important;
+    }
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:first-of-type .tbl-head {
+        color: #ffffff !important;
+    }
+    /* Zebra-striped data rows for readability */
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-of-type):nth-child(even) {
+        background: #f8fafc;
+    }
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-of-type):hover {
+        background: #eef2ff !important;
     }
     /* Cell padding and border */
     .st-key-site_table_wrap div[data-testid="column"] {
@@ -205,7 +221,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.05);
+        border-right: 1px solid rgba(0,0,0,0.06);
     }
     .st-key-site_table_wrap div[data-testid="column"]:last-child {
         border-right: none;
@@ -608,6 +624,16 @@ def add_record_dialog():
             wh_material = st.selectbox("WH MATERIAL", get_opts("WH Material", all_dd))
         with c12:
             team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
+
+        c12a, c12b, c12c, c12d = st.columns(4)
+        with c12a:
+            photos_status = st.selectbox("PHOTOS", ["Select", "Available", "Pending"])
+        with c12b:
+            audit_status = st.selectbox("AUDIT", ["Select", "Done", "Pending", "Not Required"])
+        with c12c:
+            jms_status = st.selectbox("JMS", ["Select", "Available", "Pending", "Not Required"])
+        with c12d:
+            comm_report_status = st.selectbox("COMMISSIONING REPORT", ["Select", "Available", "Pending", "Not Required"])
             
         c13, c14, c15 = st.columns(3)
         with c13:
@@ -807,6 +833,10 @@ def add_record_dialog():
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
                     "Team Name": team_name if team_name != "Select" else "",
+                    "Photos": photos_status if photos_status != "Select" else "",
+                    "Audit": audit_status if audit_status != "Select" else "",
+                    "JMS": jms_status if jms_status != "Select" else "",
+                    "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
                     "Team Billing Status": team_billing if team_billing != "Select" else "",
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
@@ -961,6 +991,20 @@ def edit_record_dialog(row_data):
         with c12:
             team_opts = get_opts("Team Name", all_dd)
             team_name = st.selectbox("TEAM NAME", team_opts, index=get_idx(row_data.get('Team Name'), team_opts), key="ed_team")
+
+        c12a, c12b, c12c, c12d = st.columns(4)
+        photos_opts = ["Select", "Available", "Pending"]
+        audit_opts_fixed = ["Select", "Done", "Pending", "Not Required"]
+        jms_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
+        comm_report_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
+        with c12a:
+            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(row_data.get('Photos'), photos_opts), key="ed_photos")
+        with c12b:
+            audit_status = st.selectbox("AUDIT", audit_opts_fixed, index=get_idx(row_data.get('Audit'), audit_opts_fixed), key="ed_audit")
+        with c12c:
+            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key="ed_jms")
+        with c12d:
+            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key="ed_comm_report")
             
         c13, c14, c15 = st.columns(3)
         with c13:
@@ -1114,6 +1158,10 @@ def edit_record_dialog(row_data):
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
                     "Team Name": team_name if team_name != "Select" else "",
+                    "Photos": photos_status if photos_status != "Select" else "",
+                    "Audit": audit_status if audit_status != "Select" else "",
+                    "JMS": jms_status if jms_status != "Select" else "",
+                    "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
                     "Team Billing Status": team_billing if team_billing != "Select" else "",
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
@@ -1834,7 +1882,7 @@ st.markdown(f"""
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_ref, col_add, col_upload, col_update, col_export = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5])
 with col_title:
-    st.markdown("<h2 style='margin:0; color:white;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         clear_site_data_cache()
@@ -1865,7 +1913,8 @@ columns_list = [
     "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
     "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
     "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
-    "Team Name", "Team Billing Status", "Vision Billing Status", "Extra Approval", 
+    "Team Name", "Photos", "Audit", "JMS", "Commissioning Report",
+    "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Commissioning Email Sent"
 ]
 
@@ -1963,7 +2012,9 @@ def status_badge(val):
     if not v or v.lower() in ("nan", "none", "-"):
         return "<span class='tbl-cell'>-</span>"
     vl = v.lower()
-    if "not" in vl and ("received" in vl or "available" in vl):
+    if vl == "not required":
+        cls = "status-grey"
+    elif "not" in vl and ("received" in vl or "available" in vl):
         cls = "status-red"
     elif any(k in vl for k in ["completed", "approved", "done", "available"]):
         cls = "status-green"
@@ -1998,6 +2049,10 @@ elif st.session_state.site_view_mode == "cards":
                 <div class="site-card-row"><span class="site-card-label">Operator</span><span class="site-card-value">{row_dict.get('Operator','') or '-'}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Project Name</span><span class="site-card-value">{row_dict.get('Project Name','') or '-'}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Team Name</span><span class="site-card-value">{row_dict.get('Team Name','') or '-'}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Photos</span><span class="site-card-value">{status_badge(row_dict.get('Photos',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Audit</span><span class="site-card-value">{status_badge(row_dict.get('Audit',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">JMS</span><span class="site-card-value">{status_badge(row_dict.get('JMS',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">Commissioning Report</span><span class="site-card-value">{status_badge(row_dict.get('Commissioning Report',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">PO Status</span><span class="site-card-value">{status_badge(row_dict.get('PO Status',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Team Billing</span><span class="site-card-value">{status_badge(row_dict.get('Team Billing Status',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Vision Billing</span><span class="site-card-value">{status_badge(row_dict.get('Vision Billing Status',''))}</span></div>
@@ -2026,8 +2081,10 @@ else:
         1.2, 1.0, 1.5, 1.2, 1.2,     # 3-7 (Dept, Op, Proj Name, Proj ID, Site ID)
         1.5, 1.0, 1.2, 1.2, 1.0,     # 8-12 (Site Name, Cluster, Status, PO No, PO Date)
         1.0, 1.3, 1.0, 1.2, 2.0,     # 13-17 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
-        1.0, 1.2, 1.2, 1.2, 1.0,     # 18-22 (WH Mat, Team Name, Team Bill, Vis Bill, Extra App)
-        1.2, 1.0                     # 23-24 (WCC Number, WCC Status)
+        1.0, 1.2,                    # 18-19 (WH Mat, Team Name)
+        1.0, 1.0, 1.0, 1.3,          # 20-23 (Photos, Audit, JMS, Commissioning Report)
+        1.2, 1.2, 1.0,               # 24-26 (Team Bill, Vis Bill, Extra App)
+        1.2, 1.0                     # 27-28 (WCC Number, WCC Status)
     ]
 
     COL_LABELS = [
@@ -2035,7 +2092,8 @@ else:
         "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
         "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
         "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
-        "WH MATERIAL", "TEAM NAME", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
+        "WH MATERIAL", "TEAM NAME", "PHOTOS", "AUDIT", "JMS", "COMMISSIONING REPORT",
+        "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
         "WCC NUMBER", "WCC STATUS"
     ]
 
@@ -2100,11 +2158,15 @@ else:
             rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
             rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
             rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[20].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-            rcols[21].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-            rcols[22].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[23].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[24].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+            rcols[20].markdown(status_badge(row_dict.get('Photos', '')), unsafe_allow_html=True)
+            rcols[21].markdown(status_badge(row_dict.get('Audit', '')), unsafe_allow_html=True)
+            rcols[22].markdown(status_badge(row_dict.get('JMS', '')), unsafe_allow_html=True)
+            rcols[23].markdown(status_badge(row_dict.get('Commissioning Report', '')), unsafe_allow_html=True)
+            rcols[24].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+            rcols[25].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+            rcols[26].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[27].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[28].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
