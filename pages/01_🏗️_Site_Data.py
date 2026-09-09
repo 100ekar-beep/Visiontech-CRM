@@ -374,6 +374,72 @@ st.markdown("""
     .st-key-site_company_nav_bar button[kind="primary"] p,
     .st-key-site_company_nav_bar button[kind="primary"] span,
     .st-key-site_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
+
+    /* =========================================================
+       LAVISH ATTACHMENT ACTION BUTTONS (Upload Photo / JMS / Comm. Report)
+       ========================================================= */
+    .st-key-attach_lav_photo button,
+    .st-key-attach_lav_jms button,
+    .st-key-attach_lav_report button,
+    .st-key-attach_lav_download button {
+        height: auto !important;
+        padding: 14px 12px !important;
+        border-radius: 14px !important;
+        font-size: 0.95rem !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.3px !important;
+        border: none !important;
+        transition: all 0.25s cubic-bezier(.4,0,.2,1) !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+    .st-key-attach_lav_photo button {
+        background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%) !important;
+        box-shadow: 0 6px 16px rgba(59, 130, 246, 0.45) !important;
+    }
+    .st-key-attach_lav_jms button {
+        background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%) !important;
+        box-shadow: 0 6px 16px rgba(239, 68, 68, 0.40) !important;
+    }
+    .st-key-attach_lav_report button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        box-shadow: 0 6px 16px rgba(16, 185, 129, 0.40) !important;
+    }
+    .st-key-attach_lav_photo button:hover,
+    .st-key-attach_lav_jms button:hover,
+    .st-key-attach_lav_report button:hover {
+        transform: translateY(-3px) scale(1.02) !important;
+        filter: brightness(1.08);
+    }
+    .st-key-attach_lav_photo button p, .st-key-attach_lav_photo button span, .st-key-attach_lav_photo button div,
+    .st-key-attach_lav_jms button p, .st-key-attach_lav_jms button span, .st-key-attach_lav_jms button div,
+    .st-key-attach_lav_report button p, .st-key-attach_lav_report button span, .st-key-attach_lav_report button div {
+        color: #ffffff !important; font-weight: 800 !important;
+    }
+
+    /* Download button — distinct indigo "call to action" style */
+    .st-key-attach_lav_download button {
+        background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%) !important;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.40) !important;
+        margin-top: 6px;
+    }
+    .st-key-attach_lav_download button:hover {
+        transform: translateY(-2px) !important;
+        filter: brightness(1.1);
+    }
+    .st-key-attach_lav_download button p, .st-key-attach_lav_download button span, .st-key-attach_lav_download button div {
+        color: #ffffff !important; font-weight: 800 !important;
+    }
+
+    /* Available / Not Available status line under each upload button */
+    .attach-status {
+        text-align: center;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        padding: 6px 0 2px 0;
+    }
+    .attach-status-available { color: #059669; }
+    .attach-status-missing { color: #94a3b8; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -1143,83 +1209,6 @@ def edit_record_dialog(row_data):
         with c12d:
             comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key="ed_comm_report")
 
-        # -------------------------------------------------------------
-        # 📎 ATTACHMENTS — upload & download Photos / JMS / Commissioning Report
-        # Files go to Cloudflare R2; their public URLs are stored as a
-        # comma-separated list in the matching "<Field> Files" column.
-        # -------------------------------------------------------------
-        st.markdown('<div class="modal-section-title">📎 ATTACHMENTS — PHOTOS / JMS / COMMISSIONING REPORT</div>', unsafe_allow_html=True)
-
-        def _parse_file_list(raw):
-            return [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
-
-        def _short_file_label(url):
-            name = url.split("/")[-1]
-            return (name[:20] + "…") if len(name) > 22 else name
-
-        MAX_PHOTOS = 15
-
-        attach_field_configs = [
-            ("Photos Files", "photos", "PHOTOS", ["jpg", "jpeg", "png"]),
-            ("JMS Files", "jms", "JMS", ["jpg", "jpeg", "png", "pdf"]),
-            ("Commissioning Report Files", "comm_report", "COMMISSIONING REPORT", ["jpg", "jpeg", "png", "pdf"]),
-        ]
-
-        for col_name, key_prefix, field_label, allowed_ext in attach_field_configs:
-            state_key = f"attach_{key_prefix}_{row_data['id']}"
-            if state_key not in st.session_state:
-                st.session_state[state_key] = _parse_file_list(row_data.get(col_name, ""))
-
-            is_photos_field = (key_prefix == "photos")
-            label_suffix = f" ({len(st.session_state[state_key])}/{MAX_PHOTOS})" if is_photos_field else ""
-            st.markdown(f"<p style='color:#334155; font-size:0.85rem; font-weight:700; margin-top:10px; margin-bottom:4px;'>{field_label}{label_suffix}</p>", unsafe_allow_html=True)
-            up_col, btn_col = st.columns([4, 1])
-            with up_col:
-                new_uploads = st.file_uploader(
-                    f"Upload {field_label}", type=allowed_ext, accept_multiple_files=True,
-                    key=f"uploader_{key_prefix}_{row_data['id']}", label_visibility="collapsed"
-                )
-            with btn_col:
-                do_upload = st.button("⬆️ Upload", key=f"btn_upload_{key_prefix}_{row_data['id']}", use_container_width=True)
-
-            if do_upload:
-                if not new_uploads:
-                    st.warning(f"⚠️ Pehle {field_label} ke liye file(s) select karo.")
-                else:
-                    files_to_upload = new_uploads
-                    if is_photos_field:
-                        remaining_slots = MAX_PHOTOS - len(st.session_state[state_key])
-                        if remaining_slots <= 0:
-                            st.error(f"❌ PHOTOS already {MAX_PHOTOS}/{MAX_PHOTOS} pe hai. Naya upload karne se pehle purani kuch photos hatao.")
-                            files_to_upload = []
-                        elif len(new_uploads) > remaining_slots:
-                            st.warning(f"⚠️ Sirf {remaining_slots} naye photo hi add ho payenge (max {MAX_PHOTOS} limit) — baaki {len(new_uploads) - remaining_slots} skip kiye gaye.")
-                            files_to_upload = new_uploads[:remaining_slots]
-
-                    if files_to_upload:
-                        try:
-                            newly_uploaded_urls = []
-                            for uf in files_to_upload:
-                                file_url = upload_file_to_r2(uf, key_prefix, row_data.get('Site ID', 'site'))
-                                newly_uploaded_urls.append(file_url)
-                            st.session_state[state_key].extend(newly_uploaded_urls)
-                            supabase.table("site_data").update(
-                                {col_name: ", ".join(st.session_state[state_key])}
-                            ).eq("id", row_data['id']).execute()
-                            clear_site_data_cache()
-                            st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded (compressed) for {field_label}!")
-                        except Exception as e:
-                            st.error(f"❌ Upload failed: {e}")
-
-            existing_file_urls = st.session_state[state_key]
-            if existing_file_urls:
-                file_display_cols = st.columns(min(len(existing_file_urls), 4) or 1)
-                for f_idx, f_url in enumerate(existing_file_urls):
-                    with file_display_cols[f_idx % len(file_display_cols)]:
-                        st.link_button(f"⬇️ {_short_file_label(f_url)}", f_url, use_container_width=True)
-            else:
-                st.caption("Koi file abhi tak upload nahi hui.")
-            
         c13, c14, c15 = st.columns(3)
         with c13:
             ex_opts = get_opts("Extra Approval", all_dd)
@@ -1301,6 +1290,104 @@ def edit_record_dialog(row_data):
             if st.session_state.edit_po_count > 1:
                 if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
                     st.session_state.edit_po_count -= 1
+
+        # -------------------------------------------------------------
+        # 📎 ATTACHMENTS — lavish Upload / Download buttons for Photos, JMS,
+        # and Commissioning Report. Files go to Cloudflare R2 (compressed on
+        # the way up); only their public URLs are stored in Supabase, in the
+        # matching "<Field> Files" comma-separated text column.
+        # -------------------------------------------------------------
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="modal-section-title">📎 ATTACHMENTS</div>', unsafe_allow_html=True)
+
+        def _parse_file_list(raw):
+            return [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
+
+        def _short_file_label(url):
+            name = url.split("/")[-1]
+            return (name[:20] + "…") if len(name) > 22 else name
+
+        MAX_PHOTOS = 15
+        rid = row_data['id']
+
+        attach_field_configs = [
+            ("Photos Files", "photos", "Photo", "📷", ["jpg", "jpeg", "png"], "attach_lav_photo"),
+            ("JMS Files", "jms", "JMS", "📋", ["jpg", "jpeg", "png", "pdf"], "attach_lav_jms"),
+            ("Commissioning Report Files", "comm_report", "Comm. Report", "📄", ["jpg", "jpeg", "png", "pdf"], "attach_lav_report"),
+        ]
+
+        attach_cols = st.columns(3)
+
+        for (col_name, key_prefix, field_label, icon, allowed_ext, css_key), att_col in zip(attach_field_configs, attach_cols):
+            state_key = f"attach_{key_prefix}_{rid}"
+            uploader_open_key = f"show_uploader_{key_prefix}_{rid}"
+            downloads_open_key = f"show_downloads_{key_prefix}_{rid}"
+
+            if state_key not in st.session_state:
+                st.session_state[state_key] = _parse_file_list(row_data.get(col_name, ""))
+            if uploader_open_key not in st.session_state:
+                st.session_state[uploader_open_key] = False
+            if downloads_open_key not in st.session_state:
+                st.session_state[downloads_open_key] = False
+
+            is_photos_field = (key_prefix == "photos")
+            files_here = st.session_state[state_key]
+            is_available = len(files_here) > 0
+
+            with att_col:
+                count_suffix = f" ({len(files_here)}/{MAX_PHOTOS})" if is_photos_field else (f" ({len(files_here)})" if files_here else "")
+                with st.container(key=css_key):
+                    if st.button(f"{icon}  Upload {field_label}{count_suffix}", key=f"btn_{key_prefix}_{rid}", use_container_width=True):
+                        st.session_state[uploader_open_key] = not st.session_state[uploader_open_key]
+
+                if is_available:
+                    st.markdown("<div class='attach-status attach-status-available'>✅ Available</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='attach-status attach-status-missing'>⭕ Not Available</div>", unsafe_allow_html=True)
+
+                if is_available:
+                    with st.container(key="attach_lav_download"):
+                        if st.button(f"⬇️  Download {field_label}", key=f"btn_dl_{key_prefix}_{rid}", use_container_width=True):
+                            st.session_state[downloads_open_key] = not st.session_state[downloads_open_key]
+
+                if st.session_state[uploader_open_key]:
+                    new_uploads = st.file_uploader(
+                        f"Select {field_label} file(s)", type=allowed_ext, accept_multiple_files=True,
+                        key=f"uploader_{key_prefix}_{rid}", label_visibility="collapsed"
+                    )
+                    if st.button(f"✅ Confirm Upload", key=f"confirm_upload_{key_prefix}_{rid}", use_container_width=True):
+                        if not new_uploads:
+                            st.warning(f"⚠️ Pehle file(s) select karo.")
+                        else:
+                            files_to_upload = new_uploads
+                            if is_photos_field:
+                                remaining_slots = MAX_PHOTOS - len(files_here)
+                                if remaining_slots <= 0:
+                                    st.error(f"❌ Photos already {MAX_PHOTOS}/{MAX_PHOTOS} pe hai. Purani kuch hatao pehle.")
+                                    files_to_upload = []
+                                elif len(new_uploads) > remaining_slots:
+                                    st.warning(f"⚠️ Sirf {remaining_slots} naye add ho payenge (max {MAX_PHOTOS}) — baaki {len(new_uploads) - remaining_slots} skip kiye gaye.")
+                                    files_to_upload = new_uploads[:remaining_slots]
+
+                            if files_to_upload:
+                                try:
+                                    newly_uploaded_urls = []
+                                    for uf in files_to_upload:
+                                        file_url = upload_file_to_r2(uf, key_prefix, row_data.get('Site ID', 'site'))
+                                        newly_uploaded_urls.append(file_url)
+                                    st.session_state[state_key].extend(newly_uploaded_urls)
+                                    supabase.table("site_data").update(
+                                        {col_name: ", ".join(st.session_state[state_key])}
+                                    ).eq("id", rid).execute()
+                                    clear_site_data_cache()
+                                    st.session_state[uploader_open_key] = False
+                                    st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded!")
+                                except Exception as e:
+                                    st.error(f"❌ Upload failed: {e}")
+
+                if st.session_state[downloads_open_key] and files_here:
+                    for f_url in files_here:
+                        st.link_button(f"⬇️ {_short_file_label(f_url)}", f_url, use_container_width=True)
             
         st.markdown("<br>", unsafe_allow_html=True)
 
