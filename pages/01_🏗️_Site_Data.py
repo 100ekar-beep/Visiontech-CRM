@@ -2,6 +2,14 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import uuid
+import subprocess
+import tempfile
+import os
+import boto3
+from botocore.client import Config
+from PIL import Image, ImageOps
+from pypdf import PdfReader, PdfWriter
 import smtplib  # <--- NEW: For Email Sending
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -405,6 +413,140 @@ def init_connection():
         return None
 
 supabase: Client = init_connection()
+
+# -------------------------------------------------------------
+# --- CLOUDFLARE R2 CONNECTION (for Photos / JMS / Commissioning Report uploads) ---
+# R2 is S3-API-compatible, so the standard boto3 's3' client works — we just
+# point it at Cloudflare's endpoint instead of AWS. Files are uploaded here
+# and their public download URL is saved as a comma-separated list in the
+# corresponding site_data column ("Photos Files", "JMS Files", etc.).
+# -------------------------------------------------------------
+@st.cache_resource
+def init_r2_connection():
+    try:
+        r2_cfg = st.secrets["r2"]
+        return boto3.client(
+            "s3",
+            endpoint_url=f"https://{r2_cfg['account_id']}.r2.cloudflarestorage.com",
+            aws_access_key_id=r2_cfg["access_key_id"],
+            aws_secret_access_key=r2_cfg["secret_access_key"],
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+    except Exception as e:
+        st.error(f"🚨 R2 connection error: {e}")
+        return None
+
+r2_client = init_r2_connection()
+R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
+R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
+
+
+def _compress_image(uploaded_file, max_dimension=1600, quality=50):
+    """Resize + re-compress a photo before upload. A typical 4-5MB phone photo
+    usually comes down to 200-400KB this way, with barely any visible quality loss."""
+    try:
+        img = Image.open(uploaded_file)
+        img = ImageOps.exif_transpose(img)  # fix phone photo rotation
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        buf.seek(0)
+        return buf, "image/jpeg", "jpg"
+    except Exception:
+        # If compression fails for any reason, upload the original rather than blocking the user
+        uploaded_file.seek(0)
+        orig_ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "jpg"
+        return uploaded_file, (uploaded_file.type or "image/jpeg"), orig_ext
+
+
+def _compress_pdf_bytes(raw_bytes):
+    """Best-effort PDF compression, in order of how much it saves:
+    1) Ghostscript (if installed on the server via packages.txt) — big savings,
+       especially for scanned/image-heavy PDFs.
+    2) pypdf content-stream compression — modest but always safe fallback.
+    3) If both fail or don't shrink the file, the original bytes are kept.
+    """
+    # --- Try Ghostscript first ---
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
+            tmp_in.write(raw_bytes)
+            tmp_in_path = tmp_in.name
+        tmp_out_path = tmp_in_path.replace(".pdf", "_out.pdf")
+        subprocess.run(
+            [
+                "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
+                "-dPDFSETTINGS=/ebook", "-dNOPAUSE", "-dBATCH", "-dQUIET",
+                f"-sOutputFile={tmp_out_path}", tmp_in_path,
+            ],
+            check=True, timeout=60,
+        )
+        with open(tmp_out_path, "rb") as f:
+            gs_compressed = f.read()
+        os.unlink(tmp_in_path)
+        os.unlink(tmp_out_path)
+        if gs_compressed and len(gs_compressed) < len(raw_bytes):
+            return gs_compressed
+    except Exception:
+        pass  # Ghostscript not installed or failed — fall through to pypdf
+
+    # --- Fallback: pypdf content-stream compression (modest, but safe) ---
+    try:
+        reader = PdfReader(io.BytesIO(raw_bytes))
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        # compress_content_streams() only works once the page belongs to a PdfWriter,
+        # so this must run AFTER add_page(), not before.
+        for page in writer.pages:
+            try:
+                page.compress_content_streams()
+            except Exception:
+                pass
+        out_buf = io.BytesIO()
+        writer.write(out_buf)
+        pypdf_compressed = out_buf.getvalue()
+        if pypdf_compressed and len(pypdf_compressed) < len(raw_bytes):
+            return pypdf_compressed
+    except Exception:
+        pass
+
+    return raw_bytes  # nothing worked better — upload as-is rather than fail
+
+
+def upload_file_to_r2(uploaded_file, folder, site_id):
+    """Compresses (if image/PDF) then uploads one Streamlit UploadedFile to R2,
+    returning its public download URL."""
+    if r2_client is None:
+        raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
+
+    orig_name = uploaded_file.name
+    ext = orig_name.split(".")[-1].lower() if "." in orig_name else "bin"
+
+    if ext in ("jpg", "jpeg", "png"):
+        file_obj, content_type, ext = _compress_image(uploaded_file)
+    elif ext == "pdf":
+        uploaded_file.seek(0)
+        raw_bytes = uploaded_file.read()
+        compressed_bytes = _compress_pdf_bytes(raw_bytes)
+        file_obj = io.BytesIO(compressed_bytes)
+        content_type = "application/pdf"
+    else:
+        uploaded_file.seek(0)
+        file_obj = uploaded_file
+        content_type = uploaded_file.type or "application/octet-stream"
+
+    safe_site = "".join(c for c in str(site_id) if c.isalnum() or c in ("-", "_")) or "site"
+    object_key = f"{folder}/{safe_site}_{uuid.uuid4().hex[:8]}.{ext}"
+    r2_client.upload_fileobj(
+        file_obj,
+        R2_BUCKET,
+        object_key,
+        ExtraArgs={"ContentType": content_type},
+    )
+    return f"{R2_PUBLIC_URL}/{object_key}"
 
 # -------------------------------------------------------------
 # --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
@@ -1000,6 +1142,83 @@ def edit_record_dialog(row_data):
             jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key="ed_jms")
         with c12d:
             comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key="ed_comm_report")
+
+        # -------------------------------------------------------------
+        # 📎 ATTACHMENTS — upload & download Photos / JMS / Commissioning Report
+        # Files go to Cloudflare R2; their public URLs are stored as a
+        # comma-separated list in the matching "<Field> Files" column.
+        # -------------------------------------------------------------
+        st.markdown('<div class="modal-section-title">📎 ATTACHMENTS — PHOTOS / JMS / COMMISSIONING REPORT</div>', unsafe_allow_html=True)
+
+        def _parse_file_list(raw):
+            return [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
+
+        def _short_file_label(url):
+            name = url.split("/")[-1]
+            return (name[:20] + "…") if len(name) > 22 else name
+
+        MAX_PHOTOS = 15
+
+        attach_field_configs = [
+            ("Photos Files", "photos", "PHOTOS", ["jpg", "jpeg", "png"]),
+            ("JMS Files", "jms", "JMS", ["jpg", "jpeg", "png", "pdf"]),
+            ("Commissioning Report Files", "comm_report", "COMMISSIONING REPORT", ["jpg", "jpeg", "png", "pdf"]),
+        ]
+
+        for col_name, key_prefix, field_label, allowed_ext in attach_field_configs:
+            state_key = f"attach_{key_prefix}_{row_data['id']}"
+            if state_key not in st.session_state:
+                st.session_state[state_key] = _parse_file_list(row_data.get(col_name, ""))
+
+            is_photos_field = (key_prefix == "photos")
+            label_suffix = f" ({len(st.session_state[state_key])}/{MAX_PHOTOS})" if is_photos_field else ""
+            st.markdown(f"<p style='color:#334155; font-size:0.85rem; font-weight:700; margin-top:10px; margin-bottom:4px;'>{field_label}{label_suffix}</p>", unsafe_allow_html=True)
+            up_col, btn_col = st.columns([4, 1])
+            with up_col:
+                new_uploads = st.file_uploader(
+                    f"Upload {field_label}", type=allowed_ext, accept_multiple_files=True,
+                    key=f"uploader_{key_prefix}_{row_data['id']}", label_visibility="collapsed"
+                )
+            with btn_col:
+                do_upload = st.button("⬆️ Upload", key=f"btn_upload_{key_prefix}_{row_data['id']}", use_container_width=True)
+
+            if do_upload:
+                if not new_uploads:
+                    st.warning(f"⚠️ Pehle {field_label} ke liye file(s) select karo.")
+                else:
+                    files_to_upload = new_uploads
+                    if is_photos_field:
+                        remaining_slots = MAX_PHOTOS - len(st.session_state[state_key])
+                        if remaining_slots <= 0:
+                            st.error(f"❌ PHOTOS already {MAX_PHOTOS}/{MAX_PHOTOS} pe hai. Naya upload karne se pehle purani kuch photos hatao.")
+                            files_to_upload = []
+                        elif len(new_uploads) > remaining_slots:
+                            st.warning(f"⚠️ Sirf {remaining_slots} naye photo hi add ho payenge (max {MAX_PHOTOS} limit) — baaki {len(new_uploads) - remaining_slots} skip kiye gaye.")
+                            files_to_upload = new_uploads[:remaining_slots]
+
+                    if files_to_upload:
+                        try:
+                            newly_uploaded_urls = []
+                            for uf in files_to_upload:
+                                file_url = upload_file_to_r2(uf, key_prefix, row_data.get('Site ID', 'site'))
+                                newly_uploaded_urls.append(file_url)
+                            st.session_state[state_key].extend(newly_uploaded_urls)
+                            supabase.table("site_data").update(
+                                {col_name: ", ".join(st.session_state[state_key])}
+                            ).eq("id", row_data['id']).execute()
+                            clear_site_data_cache()
+                            st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded (compressed) for {field_label}!")
+                        except Exception as e:
+                            st.error(f"❌ Upload failed: {e}")
+
+            existing_file_urls = st.session_state[state_key]
+            if existing_file_urls:
+                file_display_cols = st.columns(min(len(existing_file_urls), 4) or 1)
+                for f_idx, f_url in enumerate(existing_file_urls):
+                    with file_display_cols[f_idx % len(file_display_cols)]:
+                        st.link_button(f"⬇️ {_short_file_label(f_url)}", f_url, use_container_width=True)
+            else:
+                st.caption("Koi file abhi tak upload nahi hui.")
             
         c13, c14, c15 = st.columns(3)
         with c13:
@@ -1909,6 +2128,7 @@ columns_list = [
     "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
     "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
     "Team Name", "Photos", "Audit", "JMS", "Commissioning Report",
+    "Photos Files", "JMS Files", "Commissioning Report Files",
     "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Commissioning Email Sent"
 ]
