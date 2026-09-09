@@ -539,6 +539,22 @@ r2_client = init_r2_connection()
 R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
 R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
 
+# --- TEMPORARY DEBUG: check what R2 secrets are actually loading ---
+# (Doesn't reveal the actual access key / secret key — only their length.
+#  bucket_name and public_url are shown in full since they aren't sensitive.
+#  REMOVE this block once the R2 upload issue is confirmed fixed.)
+with st.expander("🔧 R2 Secrets Debug (temporary)"):
+    try:
+        r2_cfg_debug = st.secrets["r2"]
+        st.write("Keys found under [r2] in secrets:", list(r2_cfg_debug.keys()))
+        st.write("account_id:", repr(r2_cfg_debug.get("account_id", "")))
+        st.write("access_key_id length:", len(r2_cfg_debug.get("access_key_id", "")), "(should be 32)")
+        st.write("secret_access_key length:", len(r2_cfg_debug.get("secret_access_key", "")), "(should be 64)")
+        st.write("bucket_name:", repr(r2_cfg_debug.get("bucket_name", "")))
+        st.write("public_url:", repr(r2_cfg_debug.get("public_url", "")))
+    except Exception as e:
+        st.error(f"❌ Could not read st.secrets['r2'] at all: {e}")
+
 
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
     """Resize + re-compress a photo before upload. A typical 4-5MB phone photo
