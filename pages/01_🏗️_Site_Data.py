@@ -182,46 +182,41 @@ st.markdown("""
        ========================================================= */
     .st-key-site_table_wrap {
         background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.12);
+        border: 1px solid rgba(0,0,0,0.15);
         border-radius: 10px;
         overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
         padding: 0px 0 !important;
         box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     }
-    /* Force inner rows to be extremely wide so they NEVER squish or overlap */
+    /* Every row: plain white background, clear bottom border (simple clean grid, no colour fill) */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
         min-width: 4600px !important;
         align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+        border-bottom: 1px solid rgba(0,0,0,0.12) !important;
         padding: 8px 0 !important;
         flex-wrap: nowrap !important;
+        background: #ffffff !important;
     }
-    /* Header row (first row inside the table) — coloured, bold, sticky on scroll */
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:first-of-type {
-        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
-        border-bottom: none !important;
+    /* Header row = the one row that contains .tbl-head cells — targeted directly
+       instead of :first-of-type (which unreliably matched every row in Streamlit's
+       nested DOM and painted the whole table purple). */
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {
+        background: #eef2ff !important;
+        border-bottom: 2px solid rgba(79,70,229,0.35) !important;
         position: sticky !important;
         top: 0 !important;
         z-index: 2 !important;
-        padding: 10px 0 !important;
     }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:first-of-type .tbl-head {
-        color: #ffffff !important;
+    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {
+        background: #f8fafc !important;
     }
-    /* Zebra-striped data rows for readability */
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-of-type):nth-child(even) {
-        background: #f8fafc;
-    }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:first-of-type):hover {
-        background: #eef2ff !important;
-    }
-    /* Cell padding and border */
+    /* Cell padding and border — visible grid lines between columns, like a real table */
     .st-key-site_table_wrap div[data-testid="column"] {
         padding: 0 15px !important; /* Increased padding for proper spacing */
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.06);
+        border-right: 1px solid rgba(0,0,0,0.08);
     }
     .st-key-site_table_wrap div[data-testid="column"]:last-child {
         border-right: none;
@@ -232,7 +227,7 @@ st.markdown("""
         font-size: 0.75rem;
         font-weight: 800;
         letter-spacing: 0.8px;
-        color: #475569;
+        color: #312e81;
         text-transform: uppercase;
         white-space: nowrap !important;
     }
