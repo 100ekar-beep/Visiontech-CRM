@@ -13,3 +13,4 @@ cloudinary
 uharfbuzz>=0.49.0
 bcrypt
 streamlit
+boto3
