@@ -1991,10 +1991,11 @@ if st.session_state.current_page > total_pages:
 elif st.session_state.current_page < 1:
     st.session_state.current_page = 1
 
-# Keep the "go to page" input box in sync if current_page got clamped
-# (e.g. after a search filters the results down to fewer pages)
-if st.session_state.get('page_jump_input', 1) > total_pages or st.session_state.get('page_jump_input', 1) < 1:
-    st.session_state['page_jump_input'] = st.session_state.current_page
+# Keep the "go to page" input box in sync with current_page on every run.
+# IMPORTANT: this must happen here (before the number_input widget below is
+# created) — setting session_state for a widget's key AFTER that widget has
+# already been instantiated in the same run raises StreamlitWidgetAlreadyInstantiatedError.
+st.session_state['page_jump_input'] = st.session_state.current_page
 
 start_idx = (st.session_state.current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
@@ -2166,15 +2167,11 @@ else:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # --- 8. NEXT / PREVIOUS PAGINATION CONTROLS (with Go-To-Page box) ---
-if 'page_jump_input' not in st.session_state:
-    st.session_state['page_jump_input'] = st.session_state.current_page
-
 col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
 
 with col_p1:
     if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1)):
         st.session_state.current_page -= 1
-        st.session_state['page_jump_input'] = st.session_state.current_page
         st.rerun()
 
 with col_p2:
@@ -2196,5 +2193,4 @@ with col_p2:
 with col_p3:
     if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages)):
         st.session_state.current_page += 1
-        st.session_state['page_jump_input'] = st.session_state.current_page
         st.rerun()
