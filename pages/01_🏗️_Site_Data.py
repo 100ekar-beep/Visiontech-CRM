@@ -1488,8 +1488,11 @@ def edit_record_dialog(row_data):
                                     with st.spinner(f"{field_label} files zip me tayyar ho rahi hain..."):
                                         st.session_state[zip_ready_key] = build_zip_from_urls(files_here)
                                         st.session_state[zip_source_key] = current_files_tuple
-                                    st.rerun()
-                            else:
+                                    # NOTE: no st.rerun() here on purpose — calling it closes the
+                                    # open dialog. Falling through lets the download button below
+                                    # render immediately in this same pass instead.
+
+                            if zip_ready_key in st.session_state:
                                 safe_proj_dl = "".join(c for c in str(proj_id_for_files) if c.isalnum() or c in ("-", "_")) or "proj"
                                 safe_site_dl = "".join(c for c in str(site_id_for_files) if c.isalnum() or c in ("-", "_")) or "site"
                                 st.download_button(
