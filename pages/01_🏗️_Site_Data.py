@@ -1395,6 +1395,7 @@ def edit_record_dialog(row_data):
             ("Commissioning Report Files", "comm_report", "Comm. Report", "📄", ["jpg", "jpeg", "png", "pdf"], "attach_lav_report"),
         ]
         FILE_NAME_TAGS = {"photos": "Photo", "jms": "JMS", "comm_report": "Comm_Report"}
+        STATUS_COL_MAP = {"photos": "Photos", "jms": "JMS", "comm_report": "Commissioning Report"}
 
         attach_cols = st.columns(3)
         proj_id_for_files = row_data.get('Project ID', 'proj')
@@ -1452,11 +1453,15 @@ def edit_record_dialog(row_data):
                                     newly_uploaded_urls.append(file_url)
                                     st.session_state[processed_key].add((uf.name, uf.size))
                                 st.session_state[state_key].extend(newly_uploaded_urls)
+                                status_col = STATUS_COL_MAP[key_prefix]
                                 supabase.table("site_data").update(
-                                    {col_name: ", ".join(st.session_state[state_key])}
+                                    {col_name: ", ".join(st.session_state[state_key]), status_col: "Available"}
                                 ).eq("id", rid).execute()
                                 clear_site_data_cache()
-                                st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded!")
+                                st.success(
+                                    f"✅ {len(newly_uploaded_urls)} file(s) uploaded! "
+                                    f"'{status_col}' status auto-set to Available (dialog dobara kholne par upar dikhega)."
+                                )
                                 files_here = st.session_state[state_key]
                                 is_available = len(files_here) > 0
                             except Exception as e:
