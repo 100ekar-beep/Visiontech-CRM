@@ -1194,6 +1194,10 @@ def add_record_dialog():
 def edit_record_dialog(row_data):
     st.caption("Update comprehensive site metrics and procurement status")
     all_dd = get_all_dropdowns() 
+    # Every widget key below includes this record's id so that switching between
+    # different records' Manage dialogs never shows/saves a stale value left over
+    # from whichever record was edited previously in this browser session.
+    rid = row_data['id']
     
     def get_idx(val, opt_list):
         return opt_list.index(val) if val in opt_list else 0
@@ -1204,20 +1208,20 @@ def edit_record_dialog(row_data):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             dept_opts = get_opts("Department", all_dd)
-            dept = st.selectbox("DEPARTMENT", dept_opts, index=get_idx(row_data.get('Department'), dept_opts), key="ed_dept")
+            dept = st.selectbox("DEPARTMENT", dept_opts, index=get_idx(row_data.get('Department'), dept_opts), key=f"ed_dept_{rid}")
         with c2:
             op_opts = get_opts("Operator", all_dd)
-            operator = st.selectbox("OPERATOR", op_opts, index=get_idx(row_data.get('Operator'), op_opts), key="ed_op")
+            operator = st.selectbox("OPERATOR", op_opts, index=get_idx(row_data.get('Operator'), op_opts), key=f"ed_op_{rid}")
         with c3:
             pn_opts = get_opts("Project Name", all_dd)
-            proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key="ed_pn")
+            proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key=f"ed_pn_{rid}")
         with c4:
             # --- FIX: Project ID field ab EDITABLE hai (pehle disabled=True tha) ---
-            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), key="ed_pid")
+            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), key=f"ed_pid_{rid}")
             
         c5, c6, c7, c8 = st.columns(4)
         with c5:
-            site_id = st.text_input("Site ID * (REQUIRED)", value=row_data.get('Site ID', ''), key="ed_sid")
+            site_id = st.text_input("Site ID * (REQUIRED)", value=row_data.get('Site ID', ''), key=f"ed_sid_{rid}")
             
         area_val, km_val, lat_val, long_val, tech_val, fse_val, aom_val = "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
         if site_id:
@@ -1235,12 +1239,12 @@ def edit_record_dialog(row_data):
                 pass
 
         with c6:
-            site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''), key="ed_sname")
+            site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''), key=f"ed_sname_{rid}")
         with c7:
-            cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''), key="ed_clu")
+            cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''), key=f"ed_clu_{rid}")
         with c8:
             ss_opts = get_opts("Site Status", all_dd)
-            site_status = st.selectbox("SITE STATUS", ss_opts, index=get_idx(row_data.get('Site Status'), ss_opts), key="ed_ss")
+            site_status = st.selectbox("SITE STATUS", ss_opts, index=get_idx(row_data.get('Site Status'), ss_opts), key=f"ed_ss_{rid}")
 
         st.markdown(f"""
             <div style="background: #f8fafc; padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.08);">
@@ -1259,21 +1263,21 @@ def edit_record_dialog(row_data):
             
         st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
         
-        work_desc = st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), key="ed_wd")
+        work_desc = st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), key=f"ed_wd_{rid}")
         
         c9, c10, c11, c12 = st.columns(4)
         with c9:
             prod_opts = get_opts("Product", all_dd)
-            product = st.selectbox("PRODUCT", prod_opts, index=get_idx(row_data.get('Product'), prod_opts), key="ed_prod")
+            product = st.selectbox("PRODUCT", prod_opts, index=get_idx(row_data.get('Product'), prod_opts), key=f"ed_prod_{rid}")
         with c10:
             rfai_opts = get_opts("RFAI Status", all_dd)
-            rfai_status = st.selectbox("RFAI STATUS", rfai_opts, index=get_idx(row_data.get('RFAI Status'), rfai_opts), key="ed_rfai")
+            rfai_status = st.selectbox("RFAI STATUS", rfai_opts, index=get_idx(row_data.get('RFAI Status'), rfai_opts), key=f"ed_rfai_{rid}")
         with c11:
             wh_opts = get_opts("WH Material", all_dd)
-            wh_material = st.selectbox("WH MATERIAL", wh_opts, index=get_idx(row_data.get('WH Material'), wh_opts), key="ed_wh")
+            wh_material = st.selectbox("WH MATERIAL", wh_opts, index=get_idx(row_data.get('WH Material'), wh_opts), key=f"ed_wh_{rid}")
         with c12:
             team_opts = get_opts("Team Name", all_dd)
-            team_name = st.selectbox("TEAM NAME", team_opts, index=get_idx(row_data.get('Team Name'), team_opts), key="ed_team")
+            team_name = st.selectbox("TEAM NAME", team_opts, index=get_idx(row_data.get('Team Name'), team_opts), key=f"ed_team_{rid}")
 
         c12a, c12b, c12c, c12d = st.columns(4)
         photos_opts = ["Select", "Available", "Pending"]
@@ -1281,24 +1285,24 @@ def edit_record_dialog(row_data):
         jms_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
         comm_report_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
         with c12a:
-            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(row_data.get('Photos'), photos_opts), key="ed_photos")
+            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(row_data.get('Photos'), photos_opts), key=f"ed_photos_{rid}")
         with c12b:
-            audit_status = st.selectbox("AUDIT", audit_opts_fixed, index=get_idx(row_data.get('Audit'), audit_opts_fixed), key="ed_audit")
+            audit_status = st.selectbox("AUDIT", audit_opts_fixed, index=get_idx(row_data.get('Audit'), audit_opts_fixed), key=f"ed_audit_{rid}")
         with c12c:
-            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key="ed_jms")
+            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key=f"ed_jms_{rid}")
         with c12d:
-            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key="ed_comm_report")
+            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key=f"ed_comm_report_{rid}")
 
         c13, c14, c15 = st.columns(3)
         with c13:
             ex_opts = get_opts("Extra Approval", all_dd)
-            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=get_idx(row_data.get('Extra Approval'), ex_opts), key="ed_ex")
+            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=get_idx(row_data.get('Extra Approval'), ex_opts), key=f"ed_ex_{rid}")
         with c14:
             tb_opts = get_opts("Team Billing Status", all_dd)
-            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=get_idx(row_data.get('Team Billing Status'), tb_opts), key="ed_tb")
+            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=get_idx(row_data.get('Team Billing Status'), tb_opts), key=f"ed_tb_{rid}")
         with c15:
             vb_opts = get_opts("Vision Billing Status", all_dd)
-            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=get_idx(row_data.get('Vision Billing Status'), vb_opts), key="ed_vb")
+            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=get_idx(row_data.get('Vision Billing Status'), vb_opts), key=f"ed_vb_{rid}")
 
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
@@ -1331,7 +1335,7 @@ def edit_record_dialog(row_data):
             c17, c18, c19, c20, c21 = st.columns(5)
             with c17:
                 val = po_no_list[i] if i < len(po_no_list) else ""
-                p_n = st.text_input("PO NO.", value=val, key=f"e_po_no_{i}")
+                p_n = st.text_input("PO NO.", value=val, key=f"e_po_no_{i}_{rid}")
                 po_nos.append(p_n)
             with c18:
                 val = po_date_list[i] if i < len(po_date_list) else ""
@@ -1341,22 +1345,22 @@ def edit_record_dialog(row_data):
                         parsed_date = datetime.strptime(val.strip(), "%d/%m/%Y").date()
                     except Exception:
                         pass
-                raw_p_d = st.date_input("PO DATE", value=parsed_date, key=f"e_po_date_{i}")
+                raw_p_d = st.date_input("PO DATE", value=parsed_date, key=f"e_po_date_{i}_{rid}")
                 p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
             with c19:
                 val = po_status_list[i] if i < len(po_status_list) else "Select"
                 ps_opts = get_opts("PO Status", all_dd)
-                p_s = st.selectbox("PO STATUS", ps_opts, index=get_idx(val, ps_opts), key=f"e_po_status_{i}")
+                p_s = st.selectbox("PO STATUS", ps_opts, index=get_idx(val, ps_opts), key=f"e_po_status_{i}_{rid}")
                 po_statuses.append(p_s)
             with c20:
                 val = wcc_num_list[i] if i < len(wcc_num_list) else ""
-                w_n = st.text_input("WCC NUMBER", value=val, key=f"e_wcc_num_{i}")
+                w_n = st.text_input("WCC NUMBER", value=val, key=f"e_wcc_num_{i}_{rid}")
                 wcc_nums.append(w_n)
             with c21:
                 val = wcc_status_list[i] if i < len(wcc_status_list) else "Select"
                 ws_opts = get_opts("WCC Status", all_dd)
-                w_s = st.selectbox("WCC STATUS", ws_opts, index=get_idx(val, ws_opts), key=f"e_wcc_status_{i}")
+                w_s = st.selectbox("WCC STATUS", ws_opts, index=get_idx(val, ws_opts), key=f"e_wcc_status_{i}_{rid}")
                 wcc_statuses.append(w_s)
                 
         st.markdown("<br>", unsafe_allow_html=True)
