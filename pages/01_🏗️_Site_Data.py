@@ -434,6 +434,68 @@ st.markdown("""
         background: rgba(255,255,255,0.4) !important;
     }
 
+    /* Row 2 attachments: MRN / SRC / DC / EWAY — same lavish drop-zone pattern */
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"],
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"],
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"],
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] {
+        border: none !important;
+        border-radius: 14px !important;
+        transition: all 0.25s cubic-bezier(.4,0,.2,1) !important;
+        padding: 10px !important;
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%) !important;
+        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.45) !important;
+    }
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%) !important;
+        box-shadow: 0 6px 16px rgba(20, 184, 166, 0.40) !important;
+    }
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #f97316 0%, #eab308 100%) !important;
+        box-shadow: 0 6px 16px rgba(249, 115, 22, 0.40) !important;
+    }
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #ec4899 0%, #be123c 100%) !important;
+        box-shadow: 0 6px 16px rgba(236, 72, 153, 0.40) !important;
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"]:hover,
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"]:hover,
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"]:hover,
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"]:hover {
+        transform: translateY(-2px) !important;
+        filter: brightness(1.08);
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] *,
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] *,
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] *,
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] * {
+        color: #ffffff !important;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] svg,
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] svg,
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] svg,
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] svg {
+        fill: #ffffff !important;
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] button,
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] button,
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] button,
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] button {
+        background: rgba(255,255,255,0.25) !important;
+        border: 1.5px solid rgba(255,255,255,0.65) !important;
+        border-radius: 8px !important;
+        font-weight: 800 !important;
+    }
+    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] button:hover,
+    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] button:hover,
+    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] button:hover,
+    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] button:hover {
+        background: rgba(255,255,255,0.4) !important;
+    }
+
     /* Download button — distinct indigo "call to action" style.
        st.link_button renders as an <a> tag, not <button>, so both are targeted. */
     div[class*="st-key-attach_lav_download_"] button,
@@ -1393,19 +1455,31 @@ def edit_record_dialog(row_data):
         MAX_PHOTOS = 15
         rid = row_data['id']
 
-        attach_field_configs = [
+        # Row 1: fields that also have a manual status dropdown above (Photos/JMS/Commissioning Report)
+        attach_field_configs_row1 = [
             ("Photos Files", "photos", "Photo", "📷", ["jpg", "jpeg", "png"], "attach_lav_photo"),
             ("JMS Files", "jms", "JMS", "📋", ["jpg", "jpeg", "png", "pdf"], "attach_lav_jms"),
             ("Commissioning Report Files", "comm_report", "Comm. Report", "📄", ["jpg", "jpeg", "png", "pdf"], "attach_lav_report"),
         ]
-        FILE_NAME_TAGS = {"photos": "Photo", "jms": "JMS", "comm_report": "Comm_Report"}
+        # Row 2: pure upload/download attachments — no status dropdown for these
+        attach_field_configs_row2 = [
+            ("MRN Files", "mrn", "MRN", "🧾", ["jpg", "jpeg", "png", "pdf"], "attach_lav_mrn"),
+            ("SRC Files", "src", "SRC", "📑", ["jpg", "jpeg", "png", "pdf"], "attach_lav_src"),
+            ("DC Files", "dc", "DC", "📦", ["jpg", "jpeg", "png", "pdf"], "attach_lav_dc"),
+            ("EWAY Files", "eway", "EWAY", "🚚", ["jpg", "jpeg", "png", "pdf"], "attach_lav_eway"),
+        ]
+        FILE_NAME_TAGS = {
+            "photos": "Photo", "jms": "JMS", "comm_report": "Comm_Report",
+            "mrn": "MRN", "src": "SRC", "dc": "DC", "eway": "EWAY",
+        }
+        # Only fields with a matching status dropdown get auto-set to "Available" on upload
         STATUS_COL_MAP = {"photos": "Photos", "jms": "JMS", "comm_report": "Commissioning Report"}
 
-        attach_cols = st.columns(3)
         proj_id_for_files = row_data.get('Project ID', 'proj')
         site_id_for_files = row_data.get('Site ID', 'site')
 
-        for (col_name, key_prefix, field_label, icon, allowed_ext, css_key), att_col in zip(attach_field_configs, attach_cols):
+        def _render_attachment_field(config, att_col):
+            col_name, key_prefix, field_label, icon, allowed_ext, css_key = config
             state_key = f"attach_{key_prefix}_{rid}"
             processed_key = f"attach_processed_{key_prefix}_{rid}"
 
@@ -1457,15 +1531,14 @@ def edit_record_dialog(row_data):
                                     newly_uploaded_urls.append(file_url)
                                     st.session_state[processed_key].add((uf.name, uf.size))
                                 st.session_state[state_key].extend(newly_uploaded_urls)
-                                status_col = STATUS_COL_MAP[key_prefix]
-                                supabase.table("site_data").update(
-                                    {col_name: ", ".join(st.session_state[state_key]), status_col: "Available"}
-                                ).eq("id", rid).execute()
+                                update_payload = {col_name: ", ".join(st.session_state[state_key])}
+                                status_col = STATUS_COL_MAP.get(key_prefix)
+                                if status_col:
+                                    update_payload[status_col] = "Available"
+                                supabase.table("site_data").update(update_payload).eq("id", rid).execute()
                                 clear_site_data_cache()
-                                st.success(
-                                    f"✅ {len(newly_uploaded_urls)} file(s) uploaded! "
-                                    f"'{status_col}' status auto-set to Available (dialog dobara kholne par upar dikhega)."
-                                )
+                                status_note = f" '{status_col}' status auto-set to Available (dialog dobara kholne par upar dikhega)." if status_col else ""
+                                st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded!{status_note}")
                                 files_here = st.session_state[state_key]
                                 is_available = len(files_here) > 0
                             except Exception as e:
@@ -1507,6 +1580,16 @@ def edit_record_dialog(row_data):
                                 key=f"btn_zipdl_{key_prefix}_{rid}",
                                 use_container_width=True,
                                 )
+
+        attach_cols_row1 = st.columns(3)
+        for config, att_col in zip(attach_field_configs_row1, attach_cols_row1):
+            _render_attachment_field(config, att_col)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        attach_cols_row2 = st.columns(4)
+        for config, att_col in zip(attach_field_configs_row2, attach_cols_row2):
+            _render_attachment_field(config, att_col)
             
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -2335,6 +2418,7 @@ columns_list = [
     "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
     "Team Name", "Photos", "Audit", "JMS", "Commissioning Report",
     "Photos Files", "JMS Files", "Commissioning Report Files",
+    "MRN Files", "SRC Files", "DC Files", "EWAY Files",
     "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Commissioning Email Sent"
 ]
