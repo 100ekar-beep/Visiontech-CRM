@@ -1262,7 +1262,13 @@ def edit_record_dialog(row_data):
     rid = row_data['id']
     
     def get_idx(val, opt_list):
-        return opt_list.index(val) if val in opt_list else 0
+        if val in opt_list:
+            return opt_list.index(val)
+        val_norm = str(val or "").strip().lower()
+        for idx, option in enumerate(opt_list):
+            if str(option).strip().lower() == val_norm:
+                return idx
+        return 0
 
     with st.container():
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
@@ -1372,7 +1378,8 @@ def edit_record_dialog(row_data):
             """Split a comma-joined DB field into a list, dropping empty and
             'nan'/'none'/'null' junk values so they never pre-fill a text box."""
             items = []
-            for x in str(raw_value if raw_value is not None else "").split(","):
+            normalized = str(raw_value if raw_value is not None else "").replace("|", ",")
+            for x in normalized.split(","):
                 x = x.strip()
                 if x and x.lower() not in ("nan", "none", "null"):
                     items.append(x)
@@ -1403,10 +1410,12 @@ def edit_record_dialog(row_data):
                 val = po_date_list[i] if i < len(po_date_list) else ""
                 parsed_date = None
                 if val:
-                    try:
-                        parsed_date = datetime.strptime(val.strip(), "%d/%m/%Y").date()
-                    except Exception:
-                        pass
+                    for fmt in ("%d/%m/%Y", "%d-%b-%Y", "%Y-%m-%d"):
+                        try:
+                            parsed_date = datetime.strptime(val.strip(), fmt).date()
+                            break
+                        except Exception:
+                            continue
                 raw_p_d = st.date_input("PO DATE", value=parsed_date, key=f"e_po_date_{i}_{rid}")
                 p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
                 po_dates.append(p_d)
