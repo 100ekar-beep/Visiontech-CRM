@@ -220,6 +220,21 @@ st.markdown("""
         text-overflow: ellipsis !important;
         width: 100%;
     }
+    /* Wrapping variant — used for columns like Project ID whose full value
+       should be visible, wrapping onto multiple lines within the same box
+       instead of being cut off with an ellipsis. */
+    .st-key-inv_table_wrap .tbl-cell-wrap,
+    .st-key-pay_table_wrap .tbl-cell-wrap,
+    .st-key-mrn_table_wrap .tbl-cell-wrap {
+        color: #1e293b !important;
+        font-size: 0.85rem !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word !important;
+        line-height: 1.25 !important;
+        width: 100%;
+    }
     .st-key-inv_table_wrap .tbl-serial,
     .st-key-pay_table_wrap .tbl-serial,
     .st-key-mrn_table_wrap .tbl-serial {
@@ -1358,7 +1373,7 @@ if st.session_state.billing_active_page == "invoice":
                     # ---------------------------------------------------------------
                     # DESKTOP WIDE TABLE VIEW
                     # ---------------------------------------------------------------
-                    INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
+                    INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
                     INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
 
                     with st.container(key="inv_table_header"):
@@ -1404,7 +1419,7 @@ if st.session_state.billing_active_page == "invoice":
                             rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
                             rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
                             rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                            rcols[7].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
                             rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
                             rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
                             rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
@@ -1871,7 +1886,7 @@ elif st.session_state.billing_active_page == "mrn":
                     # ---------------------------------------------------------------
                     # DESKTOP WIDE TABLE VIEW
                     # ---------------------------------------------------------------
-                    MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 0.9, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
+                    MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
                     MRN_COL_LABELS = ["#", "✅", "❌", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
 
                     with st.container(key="mrn_table_header"):
@@ -1913,7 +1928,7 @@ elif st.session_state.billing_active_page == "mrn":
                             rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
                             rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
                             rcols[5].markdown(f"<div class='tbl-cell'>{cell(display_dates.iloc[pos])}</div>", unsafe_allow_html=True)
-                            rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                            rcols[6].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
                             rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
                             rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
                             rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
