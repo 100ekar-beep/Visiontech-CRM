@@ -700,14 +700,33 @@ def add_mrn_dialog():
         # key changes too, forcing Streamlit to redraw the table fresh —
         # with the correct pre-filled Qty AND a correctly computed Total,
         # right in the same table next to Price.
+        #
+        # 🔴 SECOND FIX: `edited_rows` under a given key only contains the
+        # diff RELATIVE TO THAT KEY'S OWN starting values — it does NOT
+        # remember edits made under a key used earlier (before we remounted
+        # with a new key). So if we only ever read "the current key's
+        # edited_rows", entering a qty in Row A, then Row B, would show
+        # Row B's edit but silently drop Row A's (since Row A's value was
+        # already "baked in" as Key-2's own baseline, not a live diff of
+        # Key-2). Fix: keep a PERSISTENT qty store per PO in session_state
+        # that we only ever ADD to, never overwrite wholesale, so every
+        # row's qty survives every future remount.
         editor_state_key = f"mrn_editor_curkey_{po}"
-        current_key = st.session_state.get(editor_state_key, f"editor_mrn_{po}_init")
+        qty_store_key = f"mrn_qty_store_{po}"
+        if qty_store_key not in st.session_state:
+            st.session_state[qty_store_key] = {}
         
+        current_key = st.session_state.get(editor_state_key, f"editor_mrn_{po}_init")
         if current_key in st.session_state and st.session_state[current_key].get("edited_rows"):
             for row_idx, changes in st.session_state[current_key]["edited_rows"].items():
-                row_idx = int(row_idx)
-                if "User Qty" in changes and row_idx in df_display.index:
-                    df_display.at[row_idx, "User Qty"] = changes["User Qty"]
+                if "User Qty" in changes:
+                    st.session_state[qty_store_key][int(row_idx)] = changes["User Qty"]
+        
+        # Apply the FULL accumulated qty history (every row ever typed into,
+        # across every past remount) onto this run's df_display.
+        for row_idx, qty_val in st.session_state[qty_store_key].items():
+            if row_idx in df_display.index:
+                df_display.at[row_idx, "User Qty"] = qty_val
         
         df_display["Line Total"] = (
             pd.to_numeric(df_display["User Qty"], errors='coerce').fillna(0) * df_display["Adjusted Price"]
@@ -868,6 +887,11 @@ def add_mrn_dialog():
                     )
                 st.session_state.mrn_current_page = 1
                 fetch_mrn_data.clear()
+                # Clean up the qty-tracking state we kept for these POs so a
+                # future MRN on the same PO starts with a clean slate.
+                for _po in selected_pos:
+                    st.session_state.pop(f"mrn_qty_store_{_po}", None)
+                    st.session_state.pop(f"mrn_editor_curkey_{_po}", None)
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Generating MRN: {e}")
