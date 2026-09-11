@@ -282,13 +282,24 @@ def _clean_number(val):
 # for 30s cuts it down to one round-trip per PO per ~30s instead of one
 # per interaction. <---
 @st.cache_data(ttl=30, show_spinner=False)
-def fetch_mrn_used_qty_map(po_no):
+def fetch_mrn_used_qty_map(po_no, workspace, project_id):
     used_map = {}
     try:
         # NOTE: PostgREST requires column names containing spaces to be wrapped
         # in double-quotes inside the select() string, otherwise it silently
         # strips the space and looks for a column like "ItemCode" (which fails).
-        res_used = supabase.table("mrn_items").select('"Item Code","User Qty"').eq("PO Number", po_no).execute()
+        # 🔴 FIX (v2): "already used" must be scoped by Project ID + PO Number +
+        # Item Code — NOT just PO Number+workspace. The same PO can supply
+        # multiple projects/sites, so billing done for one project must not
+        # reduce Available Qty for a different project sharing that PO.
+        res_used = (
+            supabase.table("mrn_items")
+            .select('"Item Code","User Qty"')
+            .eq("PO Number", po_no)
+            .eq("workspace", workspace)
+            .eq("Project ID", project_id)
+            .execute()
+        )
         if res_used.data:
             for r in res_used.data:
                 ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
@@ -360,7 +371,7 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             final_df = df_filtered.copy()
 
         # --- Available Qty Logic ---
-        used_map = fetch_mrn_used_qty_map(po_no)
+        used_map = fetch_mrn_used_qty_map(po_no, ws, proj_id)
 
         if item_col:
             final_df["Used Qty"] = final_df[item_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.lower().map(used_map).fillna(0)
@@ -848,6 +859,7 @@ def add_mrn_dialog():
                                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
                                 "MRN Number": new_mrn_no,
                                 "PO Number": po,
+                                "Project ID": selected_proj,
                                 "Item Code": str(row["Item Code"]),
                                 "Description": str(row["Item Description"]),
                                 "User Qty": int(u_qty),
@@ -936,6 +948,7 @@ with col_ref:
         get_unlimited_po_working.clear()
         fetch_mrn_data.clear()
         fetch_project_ids.clear()
+        fetch_mrn_used_qty_map.clear()
         st.rerun() 
 with col_add:
     if st.button("➕ Add New MRN", type="primary", use_container_width=True):
