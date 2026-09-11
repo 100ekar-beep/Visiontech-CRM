@@ -6,6 +6,10 @@ import datetime
 import random
 import hashlib
 from supabase import create_client, Client
+# ---> Enables the MRN search box to filter results on every keystroke,
+# instead of Streamlit's default behavior of waiting for Enter or for the
+# box to lose focus. Requires: pip install streamlit-keyup <---
+from st_keyup import st_keyup
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="MRN / GRN Desk", page_icon="📦", layout="wide")
@@ -987,7 +991,13 @@ col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
     st.markdown("##### 🗄️ Generated MRN Records")
 with col_search:
-    search_query = st.text_input("Search", placeholder="🔍 Search MRN records...", label_visibility="collapsed")
+    search_query = st_keyup(
+        "Search",
+        placeholder="🔍 Search MRN records...",
+        label_visibility="collapsed",
+        debounce=300,  # ms — small delay so it doesn't fire on every single keystroke while still typing fast
+        key="mrn_search_keyup",
+    )
 
 if search_query and not df_mrn.empty:
     mask = df_mrn.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
