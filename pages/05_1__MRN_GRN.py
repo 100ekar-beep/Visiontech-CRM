@@ -19,6 +19,8 @@ if 'mrn_current_page' not in st.session_state:
     st.session_state.mrn_current_page = 1
 if 'mrn_action' not in st.session_state:
     st.session_state.mrn_action = ""
+if 'mrn_items_error_banner' not in st.session_state:
+    st.session_state.mrn_items_error_banner = None
 
 # --- 2. LAVISH CUSTOM CSS (Imported from your ecosystem) ---
 st.markdown("""
@@ -149,10 +151,6 @@ if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.stop()
 
 # --- 3. SUPABASE CONNECTION ---
-# FIX: Pehle yahan agar secrets nahi milti thi to ek PURANI hardcoded
-# URL/key par silently fallback ho jaata tha — ye security risk tha aur
-# galti se purane/wrong project se connect karwa sakta tha. Ab sirf
-# st.secrets se hi connect karta hai, jaise baaki sabhi pages mein.
 @st.cache_resource
 def init_connection():
     try:
@@ -260,8 +258,6 @@ def _find_col(df, target_name):
 
 
 # ---> HELPER: normalize any numeric-looking value into a clean digit string <---
-# Handles "19030484279", "19030484279.0", "1.9030484279e+10", " 19030484279 ",
-# "19,030,484,279" etc. so PO Number matching never fails on formatting.
 def _clean_number(val):
     s = str(val).strip()
     if s == "" or s.lower() in ("nan", "none"):
@@ -273,29 +269,14 @@ def _clean_number(val):
             return str(int(f))
         return s_no_comma
     except (ValueError, TypeError):
-        # fallback: strip everything except digits
         digits = "".join(ch for ch in s if ch.isdigit())
         return digits if digits else s.strip().lower()
 
 
-# ---> 🟢 PERF FIX: this "how much of this PO's items has already been used
-# in an MRN" lookup used to hit Supabase fresh on EVERY dialog rerun
-# (every keystroke/edit inside the Add MRN dialog triggers a full script
-# rerun). That made the dialog feel slow, especially once the WCC preview
-# started calling fetch_po_line_items earlier in the flow too. Caching this
-# for 30s cuts it down to one round-trip per PO per ~30s instead of one
-# per interaction. <---
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_mrn_used_qty_map(po_no, workspace, project_id):
     used_map = {}
     try:
-        # NOTE: PostgREST requires column names containing spaces to be wrapped
-        # in double-quotes inside the select() string, otherwise it silently
-        # strips the space and looks for a column like "ItemCode" (which fails).
-        # 🔴 FIX (v2): "already used" must be scoped by Project ID + PO Number +
-        # Item Code — NOT just PO Number+workspace. The same PO can supply
-        # multiple projects/sites, so billing done for one project must not
-        # reduce Available Qty for a different project sharing that PO.
         res_used = (
             supabase.table("mrn_items")
             .select('"Item Code","User Qty"')
@@ -318,7 +299,6 @@ def fetch_po_line_items(po_no, site_id, proj_id):
     try:
         ws = st.session_state.get('active_workspace', 'VISPL')
         
-        # Fast Unlimited Fetcher
         all_data = get_unlimited_po_working(ws)
         if not all_data:
             st.warning("⚠️ 'po_working' table is empty for this workspace (or fetch failed).")
@@ -326,7 +306,6 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         
         df = pd.DataFrame(all_data)
 
-        # --- Locate columns case/space-insensitively (don't rely on exact spelling) ---
         po_col = _find_col(df, "PO Number")
         site_col = _find_col(df, "Site ID")
         proj_col = _find_col(df, "Project Name")
@@ -369,12 +348,10 @@ def fetch_po_line_items(po_no, site_id, proj_id):
         if filter_applied:
             final_df = df_filtered[mask].copy()
             if final_df.empty:
-                # ULTIMATE FALLBACK: agar site/project match na ho toh saare PO items dikhao
                 final_df = df_filtered.copy()
         else:
             final_df = df_filtered.copy()
 
-        # --- Available Qty Logic ---
         used_map = fetch_mrn_used_qty_map(po_no, ws, proj_id)
 
         if item_col:
@@ -388,11 +365,6 @@ def fetch_po_line_items(po_no, site_id, proj_id):
     return pd.DataFrame()
 
 
-# ---> 🟢 NEW: pull a representative WCC Number / WCC Status for a set of
-# already-fetched PO line-item dataframes (po_working now carries
-# "wcc_qty" / "wcc_status" / "wcc_number" per line, pushed there by the
-# WCC Upload automation). This is DISPLAY-ONLY — it is never written back
-# to Supabase from the MRN screen. <---
 def _derive_wcc_defaults(po_dfs_dict):
     wcc_number_default, wcc_status_default = "", ""
     for _po, df_po in po_dfs_dict.items():
@@ -423,11 +395,8 @@ def delete_mrn_dialog(rid, mrn_no):
     with wc2:
         if st.button("✅ Confirm", type="primary", use_container_width=True):
             try:
-                # Delete Header
                 supabase.table("mrn_data").delete().eq("id", rid).execute()
-                # Delete Items
                 supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).execute()
-                # Delete Auto-Bill from Pending Team Billing (and Main just in case)
                 supabase.table("pending_billing_invoices").delete().eq("invoice_no", mrn_no).execute()
                 supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
                 
@@ -485,11 +454,9 @@ def edit_mrn_dialog(row_data):
     with col_save2:
         if st.button("💾 Update MRN", type="primary", use_container_width=True):
             new_date_str = new_date.strftime("%d-%m-%Y")
-            new_bill_date_str = str(new_date) # YYYY-MM-DD for billing table
+            new_bill_date_str = str(new_date)
             try:
-                # Update Date in MRN
                 supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).execute()
-                # Update Date in Auto-Bill (Both Tables just in case)
                 supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
                 supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
                 
@@ -508,11 +475,8 @@ def add_mrn_dialog():
     proj_opts = fetch_project_ids()
     selected_proj = st.selectbox("SEARCH & SELECT PROJECT ID *", proj_opts)
     
-    # Show Existing MRNs Box
     if selected_proj != "Select Project ID":
         try:
-            # NOTE: same PostgREST quoting rule applies here - space-containing
-            # column names must be double-quoted inside the select() string.
             ex_res = supabase.table("mrn_data").select('"MRN Number","Team Name"').eq("Project ID", selected_proj).execute()
             if ex_res.data:
                 ex_text = " | ".join([f"{r['MRN Number']} ({r['Team Name']})" for r in ex_res.data])
@@ -538,12 +502,10 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        # 1. POs from site_data table EXACT NAME
         po_str = str(proj_data.get("PO No.", ""))
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        # 2. Add POs dynamically from po_working EXACT NAMES (Unlimited Fast Fetch)
         ws_act = st.session_state.get('active_workspace', 'VISPL')
         try:
             all_po_data = get_unlimited_po_working(ws_act)
@@ -553,12 +515,10 @@ def add_mrn_dialog():
             for row in all_po_data:
                 match = False
                 
-                # Check EXACT column "Project Name"
                 pn_val = str(row.get("Project Name", "")).strip().lower()
                 if pn_val.endswith(".0"): pn_val = pn_val[:-2]
                 if pn_val == p_target: match = True
                 
-                # Check EXACT column "Site ID"
                 sid_val = str(row.get("Site ID", "")).strip().lower()
                 if sid_val.endswith(".0"): sid_val = sid_val[:-2]
                 if s_target and sid_val == s_target: match = True
@@ -583,12 +543,6 @@ def add_mrn_dialog():
     with c5: st.text_input("SITE STATUS", value=site_status, disabled=True)
     with c6: st.text_input("TEAM NAME *", value=team_name, disabled=True)
 
-    # ---> 🟢 NEW: PO SELECTION widget is declared with a stable key so we
-    # can peek at "the PO(s) selected last run" via session_state BEFORE
-    # this widget is physically rendered further down. That lets us show
-    # WCC Number / WCC Status (derived from those POs' po_working rows)
-    # right after the Team Rate row, exactly where it was asked to appear,
-    # without changing the on-screen order of the dialog. <---
     PO_MULTISELECT_KEY = "mrn_po_multiselect"
     preview_selected_pos = [p for p in st.session_state.get(PO_MULTISELECT_KEY, []) if p in po_list]
 
@@ -600,10 +554,6 @@ def add_mrn_dialog():
 
     default_wcc_number, default_wcc_status = _derive_wcc_defaults(preview_po_dfs)
 
-    # ---> TEAM RATE % (auto-fetched from Team Master, editable per MRN) <---
-    # Example: Team Master has 10% cut for "Pramodkumar Jaju" => box shows 90%.
-    # User can change it here (e.g. to 85%) just for this MRN — Adjusted Price
-    # below will then use that PO-price % instead of the auto-fetched one.
     fetched_team_percent = team_percent
     c_rate, c_desc = st.columns([1, 2])
     with c_rate:
@@ -626,11 +576,6 @@ def add_mrn_dialog():
             height=68
         )
 
-    # ---> 🟢 NEW: WCC NUMBER & WCC STATUS — display/reference only.
-    # Auto-filled from the selected PO's po_working rows (pushed there by
-    # the WCC Upload automation) but editable here for convenience. NOT
-    # included in the MRN save payload — nothing from these two fields is
-    # written to Supabase. <---
     c_wcc1, c_wcc2 = st.columns(2)
     with c_wcc1:
         wcc_number_display = st.text_input(
@@ -659,8 +604,6 @@ def add_mrn_dialog():
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
-        # Reuse the already-fetched dataframe from the preview pass above
-        # when available, to avoid hitting Supabase twice for the same PO.
         df_po = preview_po_dfs.get(po)
         if df_po is None:
             df_po = fetch_po_line_items(po, site_id, selected_proj)
@@ -669,7 +612,6 @@ def add_mrn_dialog():
             st.info(f"No line items found in PO Working for PO: {po}")
             continue
             
-        # Using exact column names!
         df_display = pd.DataFrame()
         df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
         df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
@@ -680,8 +622,6 @@ def add_mrn_dialog():
         
         df_display["PO Qty"] = raw_po_qty
 
-        # ---> 🟢 NEW: WCC Qty, shown right after PO Qty (display only,
-        # sourced from po_working.wcc_qty for this same line). <---
         raw_wcc_qty = pd.to_numeric(df_po.get("wcc_qty", [0]*len(df_po)), errors='coerce').fillna(0)
         df_display["WCC Qty"] = raw_wcc_qty
 
@@ -692,40 +632,8 @@ def add_mrn_dialog():
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
         df_display["Line Total"] = 0.0
         
-        # ---> 🔴 ROOT-CAUSE FIX: df_po (and therefore every column copied
-        # into df_display above, since pandas preserves the source Series'
-        # index on assignment) keeps whatever ORIGINAL row-index labels it
-        # had inside the big po_working table (e.g. 4, 7, 9, 15...), not a
-        # clean 0,1,2... range. But Streamlit's data_editor reports edits in
-        # `edited_rows` using the row's on-screen POSITION (0,1,2...), not
-        # its index label. So our "pull forward the User Qty just typed"
-        # check below (`row_idx in df_display.index`) was silently failing
-        # every time — position 0 rarely matches index label 4 — which is
-        # exactly why Total always computed against Qty=0. Resetting the
-        # index here makes positions and labels line up. <---
         df_display = df_display.reset_index(drop=True)
         
-        # ---> Track which editor "key" is currently active for this PO. <---
-        # st.data_editor never redraws a DISABLED/computed column (like Line
-        # Total) once a given key has been rendered — it only reflects the
-        # user's own edits, not new default values we pass in on later
-        # reruns. So instead of one fixed key, we build the key FROM the
-        # current User Qty values themselves: same quantities => same key
-        # (no remount, no flicker), but the moment a quantity changes, the
-        # key changes too, forcing Streamlit to redraw the table fresh —
-        # with the correct pre-filled Qty AND a correctly computed Total,
-        # right in the same table next to Price.
-        #
-        # 🔴 SECOND FIX: `edited_rows` under a given key only contains the
-        # diff RELATIVE TO THAT KEY'S OWN starting values — it does NOT
-        # remember edits made under a key used earlier (before we remounted
-        # with a new key). So if we only ever read "the current key's
-        # edited_rows", entering a qty in Row A, then Row B, would show
-        # Row B's edit but silently drop Row A's (since Row A's value was
-        # already "baked in" as Key-2's own baseline, not a live diff of
-        # Key-2). Fix: keep a PERSISTENT qty store per PO in session_state
-        # that we only ever ADD to, never overwrite wholesale, so every
-        # row's qty survives every future remount.
         editor_state_key = f"mrn_editor_curkey_{po}"
         qty_store_key = f"mrn_qty_store_{po}"
         if qty_store_key not in st.session_state:
@@ -737,8 +645,6 @@ def add_mrn_dialog():
                 if "User Qty" in changes:
                     st.session_state[qty_store_key][int(row_idx)] = changes["User Qty"]
         
-        # Apply the FULL accumulated qty history (every row ever typed into,
-        # across every past remount) onto this run's df_display.
         for row_idx, qty_val in st.session_state[qty_store_key].items():
             if row_idx in df_display.index:
                 df_display.at[row_idx, "User Qty"] = qty_val
@@ -760,11 +666,6 @@ def add_mrn_dialog():
                 "PO Line No": st.column_config.TextColumn("LINE NO", disabled=True),
                 "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
                 "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
-                # 🔴 FIX: PO Qty / WCC Qty / Available Qty are genuinely
-                # fractional for many items (cubic meter, kg — e.g. 31.77,
-                # 0.37). Without an explicit decimal format, whole numbers
-                # like these were displaying (and in User Qty's case, being
-                # SAVED) as truncated integers (31.77 → 31, 0.37 → 0).
                 "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True, format="%.2f"),
                 "WCC Qty": st.column_config.NumberColumn("WCC QTY", disabled=True, format="%.2f"),
                 "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True, format="%.2f"),
@@ -814,14 +715,13 @@ def add_mrn_dialog():
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
                 return
             
-            # Strict QTY Validation
             for po, edf in all_po_dfs.items():
                 for idx, r in edf.iterrows():
                     u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
                     a_qty = pd.to_numeric(r["Available Qty"], errors='coerce')
                     u_qty = 0.0 if pd.isna(u_qty) else round(float(u_qty), 3)
                     a_qty = 0.0 if pd.isna(a_qty) else round(float(a_qty), 3)
-                    if u_qty > a_qty + 1e-6:  # tiny epsilon to avoid float-rounding false positives
+                    if u_qty > a_qty + 1e-6:
                         st.error(f"❌ Error in PO {po}: User Qty ({u_qty:g}) cannot be greater than Available Qty ({a_qty:g}) for Item '{r['Item Code']}'.")
                         return
 
@@ -834,11 +734,6 @@ def add_mrn_dialog():
                 except Exception:
                     break 
             
-            # 🟢 NOTE: wcc_number_display / wcc_status_display are
-            # intentionally NOT included below — WCC Number/Status are
-            # display-only on this screen and are never written to Supabase
-            # from the MRN flow (they already live on po_working, pushed
-            # there by the WCC Upload automation).
             header_data = {
                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
                 "MRN Number": new_mrn_no,
@@ -858,7 +753,7 @@ def add_mrn_dialog():
                 # Save Header
                 supabase.table("mrn_data").insert(header_data).execute()
                 
-                # Save Items
+                # ---> Build the line items payload <---
                 items_to_insert = []
                 for po, d_df in all_po_dfs.items():
                     for _, row in d_df.iterrows():
@@ -875,12 +770,43 @@ def add_mrn_dialog():
                                 "Adjusted Price": float(row["Adjusted Price"]),
                                 "Total": float(row["Line Total"])
                             })
+
+                # ---> 🔴 CRITICAL FIX: the items-insert failure warning used to
+                # flash for a split second and then get wiped out by the
+                # unconditional st.rerun() at the end of this handler — the
+                # user (and dev) never actually got to read WHY items failed
+                # to save (e.g. an RLS policy block, a column mismatch, a
+                # NOT NULL violation). That's exactly why MRNs like
+                # MRN-133939 ended up with a header + billing amount but zero
+                # rows in mrn_items: the insert was silently failing every
+                # time. We now persist any failure into session_state and
+                # render it as a banner at the TOP of the page (see below,
+                # near the workspace banner) so it survives the rerun and
+                # can actually be seen and diagnosed. <---
+                items_saved_count = 0
                 if items_to_insert:
                     try:
                         supabase.table("mrn_items").insert(items_to_insert).execute()
+                        items_saved_count = len(items_to_insert)
+                        st.session_state.mrn_items_error_banner = None
                     except Exception as e:
-                        st.warning(f"⚠️ MRN header saved, but line items failed to save: {e}")
-                
+                        st.session_state.mrn_items_error_banner = {
+                            "mrn_no": new_mrn_no,
+                            "error": str(e),
+                            "attempted_count": len(items_to_insert),
+                        }
+                else:
+                    # Nothing to insert at all — every row's User Qty came
+                    # through as 0/blank even though a Basic Amount was
+                    # computed. Surface this too, since it points to the
+                    # same class of bug (qty typed but not carried through
+                    # to the save step).
+                    st.session_state.mrn_items_error_banner = {
+                        "mrn_no": new_mrn_no,
+                        "error": "No line items had a User Qty > 0 at save time, even though Basic Amount was non-zero. The typed quantities did not carry through to the save step.",
+                        "attempted_count": 0,
+                    }
+
                 # SEND TO PENDING_BILLING_INVOICES FOR APPROVAL
                 billing_payload = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
@@ -900,7 +826,10 @@ def add_mrn_dialog():
                 }
                 try:
                     supabase.table("pending_billing_invoices").insert(billing_payload).execute()
-                    st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} (Sent for Approval in Team Billing)")
+                    if items_saved_count == len(items_to_insert) and items_to_insert:
+                        st.success(f"✅ MRN Generated Successfully! ID: {new_mrn_no} ({items_saved_count} line item(s) saved, sent for Approval in Team Billing)")
+                    else:
+                        st.warning(f"⚠️ MRN '{new_mrn_no}' was generated and sent for approval, but its line items did NOT save correctly — see the banner at the top of the page for details.")
                 except Exception as e:
                     st.warning(
                         f"⚠️ MRN '{new_mrn_no}' saved, but sending it to Pending Team Billing FAILED: {e}\n\n"
@@ -908,8 +837,6 @@ def add_mrn_dialog():
                     )
                 st.session_state.mrn_current_page = 1
                 fetch_mrn_data.clear()
-                # Clean up the qty-tracking state we kept for these POs so a
-                # future MRN on the same PO starts with a clean slate.
                 for _po in selected_pos:
                     st.session_state.pop(f"mrn_qty_store_{_po}", None)
                     st.session_state.pop(f"mrn_editor_curkey_{_po}", None)
@@ -947,6 +874,23 @@ st.markdown(f"""
         </h1>
     </div>
 """, unsafe_allow_html=True)
+
+# ---> 🔴 NEW: persistent MRN line-items save-failure banner. This survives
+# the st.rerun() that follows MRN generation, so the actual Supabase error
+# (RLS policy block, column mismatch, NOT NULL violation, etc.) is visible
+# instead of flashing and disappearing. Stays until manually dismissed. <---
+if st.session_state.get('mrn_items_error_banner'):
+    _err = st.session_state.mrn_items_error_banner
+    st.error(
+        f"❌ **MRN '{_err['mrn_no']}' line items failed to save to `mrn_items`!**\n\n"
+        f"Attempted to save **{_err['attempted_count']}** item(s).\n\n"
+        f"**Reason:** {_err['error']}\n\n"
+        f"The MRN header and its Team Billing entry were still created, but this MRN's item breakdown "
+        f"(and its invoice PDF) will be incomplete until this is fixed."
+    )
+    if st.button("✖️ Dismiss this warning", key="dismiss_mrn_items_err"):
+        st.session_state.mrn_items_error_banner = None
+        st.rerun()
 
 # --- 6. TOP ACTION BAR ---
 col_title, col_ref, col_add, col_export = st.columns([4, 1, 2, 2])
@@ -1000,7 +944,7 @@ with col_search:
         "Search",
         placeholder="🔍 Search MRN records...",
         label_visibility="collapsed",
-        debounce=300,  # ms — small delay so it doesn't fire on every single keystroke while still typing fast
+        debounce=300,
         key="mrn_search_keyup",
     )
 
@@ -1024,7 +968,6 @@ end_idx = start_idx + rows_per_page
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
 # --- 10. MRN DATA TABLE ---
-# 14 Columns total mapping
 COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 0.8, 1.8, 1.0]
 COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "RATE %", "DESCRIPTION", "DATE"]
 
@@ -1032,12 +975,10 @@ with st.container(key="site_table_wrap", height=560):
     if df_page.empty:
         st.info("No MRN records found. Click '+ Add New MRN' to create one.")
     else:
-        # HEADER ROW
         h_cols = st.columns(COL_RATIOS)
         for h_col, label in zip(h_cols, COL_LABELS):
             h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
 
-        # DATA ROWS
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             serial_no = start_idx + page_pos + 1
@@ -1048,12 +989,10 @@ with st.container(key="site_table_wrap", height=560):
             
             rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
             
-            # EDIT BUTTON
             with rcols[1]:
                 if st.button("✏️", key=f"edit_{rid}", help="Edit MRN Date & View Details", use_container_width=True):
                     edit_mrn_dialog(row_dict)
                     
-            # DELETE BUTTON
             with rcols[2]:
                 if st.button("🗑️", key=f"del_{rid}", help="Delete MRN & Auto-Bill", use_container_width=True):
                     delete_mrn_dialog(rid, mrn_no)
@@ -1065,7 +1004,6 @@ with st.container(key="site_table_wrap", height=560):
             rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
             rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
             
-            # Formatting financial data
             basic = pd.to_numeric(row_dict.get('Basic Amount', 0), errors='coerce')
             tot = pd.to_numeric(row_dict.get('Total Amount', 0), errors='coerce')
             
