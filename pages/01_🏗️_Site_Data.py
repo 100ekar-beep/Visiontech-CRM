@@ -825,14 +825,33 @@ def _fetch_all_rows_paginated(table_name, workspace):
     return all_rows
 
 
+def _split_list_field(raw):
+    """Split a comma-joined site_data field into a clean list, same rules
+    used by the Add/Edit Site Data dialogs (drops empty / 'nan' junk)."""
+    items = []
+    normalized = str(raw if raw is not None else "").replace("|", ",")
+    for x in normalized.split(","):
+        x = x.strip()
+        if x and x.lower() not in ("nan", "none", "null"):
+            items.append(x)
+    return items
+
+
 def run_bulk_sync_po_wcc(workspace):
     """
-    Returns a summary dict: {po_filled, wcc_filled, already_ok, no_site_row, errors}.
-    Only backfills "PO No." and "WCC Number"/"WCC Status" — "PO Date" and
-    "PO Status" aren't persisted anywhere on po_working, so those can only
-    be restored by re-running "Upload PO" against Oracle again.
+    Returns a summary dict: {po_filled, wcc_filled, date_status_filled,
+    already_ok, no_site_row, errors}.
+
+    "PO No." and "WCC Number"/"WCC Status" are backfilled from po_working.
+    "PO Date" and "PO Status" aren't stored on po_working at all — but they
+    ARE already sitting in Supabase, just on a DIFFERENT site_data row: the
+    project that existed in Site Data at the moment the PO was originally
+    uploaded got its Date/Status written directly. So here we also scan
+    every OTHER site_data row for a matching PO Number and copy its Date/
+    Status across to any row that's missing them for that same PO.
     """
-    summary = {"po_filled": 0, "wcc_filled": 0, "already_ok": 0, "no_site_row": 0, "errors": 0}
+    summary = {"po_filled": 0, "wcc_filled": 0, "date_status_filled": 0,
+               "already_ok": 0, "no_site_row": 0, "errors": 0}
     try:
         po_rows = _fetch_all_rows_paginated("po_working", workspace)
 
@@ -857,6 +876,21 @@ def run_bulk_sync_po_wcc(workspace):
 
         site_rows = _fetch_all_rows_paginated("site_data", workspace)
 
+        # 🟢 Build PO Number -> (date, status) from whichever site_data row(s)
+        # already have it recorded. A project can list multiple PO Numbers,
+        # each with its own date/status at the same list position.
+        po_date_status_map = {}
+        for srow in site_rows:
+            po_list = _split_list_field(srow.get("PO No.", ""))
+            date_list = _split_list_field(srow.get("PO Date", ""))
+            status_list = _split_list_field(srow.get("PO Status", ""))
+            for idx, pono in enumerate(po_list):
+                entry = po_date_status_map.setdefault(pono, {"date": "", "status": ""})
+                if not entry["date"] and idx < len(date_list):
+                    entry["date"] = date_list[idx]
+                if not entry["status"] and idx < len(status_list):
+                    entry["status"] = status_list[idx]
+
         for srow in site_rows:
             proj_id = str(srow.get("Project ID", "")).strip()
             if not proj_id or proj_id.lower() == "nan":
@@ -876,6 +910,20 @@ def run_bulk_sync_po_wcc(workspace):
                 if info["wcc_status"]:
                     update_payload["WCC Status"] = info["wcc_status"]
 
+            # 🟢 Backfill PO Date / PO Status by matching each PO Number this
+            # row will end up having (existing + whatever we just filled in
+            # above) against po_date_status_map.
+            effective_po_list = _split_list_field(update_payload.get("PO No.", cur_po_no))
+            cur_date = str(srow.get("PO Date", "") or "").strip()
+            cur_status = str(srow.get("PO Status", "") or "").strip()
+            if effective_po_list and (not cur_date or not cur_status):
+                found_dates = [po_date_status_map.get(p, {}).get("date", "") for p in effective_po_list]
+                found_statuses = [po_date_status_map.get(p, {}).get("status", "") for p in effective_po_list]
+                if not cur_date and any(found_dates):
+                    update_payload["PO Date"] = ", ".join([d for d in found_dates if d])
+                if not cur_status and any(found_statuses):
+                    update_payload["PO Status"] = ", ".join([s for s in found_statuses if s])
+
             if not update_payload:
                 summary["already_ok"] += 1
                 continue
@@ -890,6 +938,8 @@ def run_bulk_sync_po_wcc(workspace):
                     summary["po_filled"] += 1
                 if "WCC Number" in update_payload:
                     summary["wcc_filled"] += 1
+                if "PO Date" in update_payload or "PO Status" in update_payload:
+                    summary["date_status_filled"] += 1
             except Exception:
                 summary["errors"] += 1
 
@@ -906,9 +956,10 @@ def run_bulk_sync_po_wcc(workspace):
 def bulk_sync_dialog():
     active_ws = st.session_state.get('active_workspace', 'VISPL')
     st.caption(
-        f"Scans '{active_ws}' workspace's PO/WCC uploads and fills in 'PO No.' and 'WCC Number'/'WCC Status' "
-        f"for any Project ID that's currently BLANK — for example, sites that were added to Site Data "
-        f"*after* their PO/WCC was already uploaded. Fields that already have a value are never touched."
+        f"Scans '{active_ws}' workspace's PO/WCC uploads and fills in 'PO No.', 'PO Date'/'PO Status', and "
+        f"'WCC Number'/'WCC Status' for any Project ID that's currently BLANK — for example, sites that were "
+        f"added to Site Data *after* their PO/WCC was already uploaded. PO Date/Status are recovered by copying "
+        f"from another site that already has the same PO Number recorded. Fields that already have a value are never touched."
     )
 
     if st.session_state.get("bulk_sync_result"):
@@ -921,6 +972,7 @@ def bulk_sync_dialog():
                 <div style="background: #f8fafc; padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 15px;">
                     <div style="font-weight:800; color:#0f172a; font-size:1.05rem; margin-bottom:10px;">📊 Bulk Sync Summary</div>
                     <div style="color:#15803d; margin-bottom:4px;">✅ PO No. bhari gayi: <b>{result['po_filled']}</b> project(s)</div>
+                    <div style="color:#15803d; margin-bottom:4px;">✅ PO Date/Status bhari gayi (kisi doosri project ke record se copy karke): <b>{result['date_status_filled']}</b> project(s)</div>
                     <div style="color:#15803d; margin-bottom:4px;">✅ WCC Number/Status bhari gayi: <b>{result['wcc_filled']}</b> project(s)</div>
                     <div style="color:#64748b; margin-bottom:4px;">ℹ️ Pehle se sahi thi (kuch nahi kiya): <b>{result['already_ok']}</b> project(s)</div>
                     <div style="color:#a16207; margin-bottom:4px;">⚠️ PO/WCC data hai par Site Data me site hi nahi hai: <b>{result['no_site_row']}</b> project(s)</div>
