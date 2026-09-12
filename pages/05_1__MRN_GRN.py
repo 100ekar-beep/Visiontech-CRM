@@ -4,7 +4,6 @@ import math
 import io
 import datetime
 import random
-import hashlib
 from supabase import create_client, Client
 # ---> Enables the MRN search box to filter results on every keystroke,
 # instead of Streamlit's default behavior of waiting for Enter or for the
@@ -661,7 +660,11 @@ def add_mrn_dialog():
         if qty_store_key not in st.session_state:
             st.session_state[qty_store_key] = {}
         
-        current_key = st.session_state.get(editor_state_key, f"editor_mrn_{po}_init")
+        # Keep one permanent widget key for this PO.  Earlier this key contained
+        # a hash of User Qty, so every edit created a brand-new data_editor and
+        # Streamlit moved the cursor/focus out of the quantity cell.
+        editor_key = f"editor_mrn_{po}"
+        current_key = st.session_state.get(editor_state_key, editor_key)
         if current_key in st.session_state and st.session_state[current_key].get("edited_rows"):
             for row_idx, changes in st.session_state[current_key]["edited_rows"].items():
                 if "User Qty" in changes:
@@ -675,8 +678,6 @@ def add_mrn_dialog():
             pd.to_numeric(df_display["User Qty"], errors='coerce').fillna(0) * df_display["Adjusted Price"]
         )
         
-        qty_sig = hashlib.md5(str(df_display["User Qty"].tolist()).encode()).hexdigest()[:10]
-        editor_key = f"editor_mrn_{po}_{qty_sig}"
         st.session_state[editor_state_key] = editor_key
         
         edited_df = st.data_editor(
@@ -881,6 +882,7 @@ def add_mrn_dialog():
                 for _po in selected_pos:
                     st.session_state.pop(f"mrn_qty_store_{_po}", None)
                     st.session_state.pop(f"mrn_editor_curkey_{_po}", None)
+                    st.session_state.pop(f"editor_mrn_{_po}", None)
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Generating MRN: {e}")
