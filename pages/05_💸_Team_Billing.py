@@ -476,6 +476,40 @@ def get_pan_number(category, name):
         pass
     return ""
 
+def fetch_mrn_items(invoice_no, workspace):
+    """Fetch mrn_items rows for a given MRN/Invoice Number, with fallbacks in case
+    of workspace mismatches or extra whitespace/case differences in the MRN Number
+    (some MRNs were failing to match on an exact + workspace-scoped query)."""
+    inv_clean = str(invoice_no or "").strip()
+    if not inv_clean:
+        return []
+
+    # 1) Exact match, scoped to the current workspace
+    try:
+        res = supabase.table("mrn_items").select("*").eq("MRN Number", inv_clean).eq("workspace", workspace).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+
+    # 2) Exact match, without the workspace filter (in case workspace was recorded differently)
+    try:
+        res = supabase.table("mrn_items").select("*").eq("MRN Number", inv_clean).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+
+    # 3) Case-insensitive / whitespace-tolerant match as a last resort
+    try:
+        res = supabase.table("mrn_items").select("*").ilike("MRN Number", inv_clean).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+
+    return []
+
 def send_interakt_whatsapp(mobile, template_name, params):
     if not mobile or not INTERAKT_API_KEY:
         return
@@ -638,19 +672,8 @@ def generate_invoice_pdf(row_dict):
         total_amt = basic_amt
 
     # --- Fetch MRN line items (PO Number, Item Code, Description, Qty, Price, Total) ---
-    mrn_items_rows = []
-    try:
-        ws_val = row_dict.get("workspace") or st.session_state.get('active_workspace', 'VISPL')
-        res_items = (
-            supabase.table("mrn_items")
-            .select("*")
-            .eq("MRN Number", invoice_no)
-            .eq("workspace", ws_val)
-            .execute()
-        )
-        mrn_items_rows = res_items.data or []
-    except Exception:
-        mrn_items_rows = []
+    ws_val = row_dict.get("workspace") or st.session_state.get('active_workspace', 'VISPL')
+    mrn_items_rows = fetch_mrn_items(invoice_no, ws_val)
 
     try:
         entity_mobile = get_mobile_number(
@@ -900,12 +923,8 @@ def team_invoice_dialog(row_data=None):
 
     mrn_items_dialog_rows = []
     if inv_no:
-        try:
-            ws_items = st.session_state.get('active_workspace', 'VISPL')
-            mrn_items_res = supabase.table("mrn_items").select("*").eq("MRN Number", inv_no).eq("workspace", ws_items).execute()
-            mrn_items_dialog_rows = mrn_items_res.data or []
-        except Exception:
-            mrn_items_dialog_rows = []
+        ws_items = st.session_state.get('active_workspace', 'VISPL')
+        mrn_items_dialog_rows = fetch_mrn_items(inv_no, ws_items)
 
     if mrn_items_dialog_rows:
         df_mrn_items = pd.DataFrame(mrn_items_dialog_rows)
