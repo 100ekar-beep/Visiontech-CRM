@@ -273,6 +273,28 @@ def _clean_number(val):
         return digits if digits else s.strip().lower()
 
 
+# ---> 🔴 FIX for "invalid input syntax for type integer: 10.0": some Item
+# Codes in po_working are purely numeric (e.g. 10, 12) and pandas stores
+# them as float64 once the column has any NaN mixed in, so they arrive
+# here as 10.0 / "10.0". The mrn_items."Item Code" column is an integer
+# type in the DB, and Postgres refuses to cast a string with a decimal
+# point to integer — even "10.0" — causing the WHOLE items insert to fail
+# silently (all rows rejected together, since it's a single batch insert).
+# This only strips a trailing ".0" off purely-numeric values; alphanumeric
+# codes like "21-800000-0-00-ZZ-ZZ-057" are returned completely unchanged,
+# since float() raises on them and we fall straight through to `return s`. <---
+def _clean_code_for_db(val):
+    s = str(val).strip()
+    if s.endswith(".0"):
+        try:
+            f = float(s)
+            if f.is_integer():
+                return str(int(f))
+        except ValueError:
+            pass
+    return s
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_mrn_used_qty_map(po_no, workspace, project_id):
     used_map = {}
@@ -762,9 +784,9 @@ def add_mrn_dialog():
                             items_to_insert.append({
                                 "workspace": st.session_state.get('active_workspace', 'VISPL'),
                                 "MRN Number": new_mrn_no,
-                                "PO Number": po,
+                                "PO Number": _clean_code_for_db(po),
                                 "Project ID": selected_proj,
-                                "Item Code": str(row["Item Code"]),
+                                "Item Code": _clean_code_for_db(row["Item Code"]),
                                 "Description": str(row["Item Description"]),
                                 "User Qty": round(float(u_qty), 3),
                                 "Adjusted Price": float(row["Adjusted Price"]),
@@ -789,12 +811,31 @@ def add_mrn_dialog():
                         supabase.table("mrn_items").insert(items_to_insert).execute()
                         items_saved_count = len(items_to_insert)
                         st.session_state.mrn_items_error_banner = None
-                    except Exception as e:
-                        st.session_state.mrn_items_error_banner = {
-                            "mrn_no": new_mrn_no,
-                            "error": str(e),
-                            "attempted_count": len(items_to_insert),
-                        }
+                    except Exception as batch_err:
+                        # ---> Batch insert failed (e.g. one bad row's data made
+                        # Postgres reject the WHOLE batch). Retry one row at a
+                        # time instead of losing everything, so 12 good rows
+                        # aren't sacrificed for 1 bad one. <---
+                        row_failures = []
+                        for item in items_to_insert:
+                            try:
+                                supabase.table("mrn_items").insert(item).execute()
+                                items_saved_count += 1
+                            except Exception as row_err:
+                                row_failures.append({
+                                    "item_code": item.get("Item Code", "?"),
+                                    "error": str(row_err),
+                                })
+                        if row_failures:
+                            st.session_state.mrn_items_error_banner = {
+                                "mrn_no": new_mrn_no,
+                                "error": f"Batch insert failed ({batch_err}). Row-by-row retry: "
+                                         f"{items_saved_count} saved, {len(row_failures)} failed — "
+                                         + "; ".join(f"Item Code '{f['item_code']}': {f['error']}" for f in row_failures),
+                                "attempted_count": len(items_to_insert),
+                            }
+                        else:
+                            st.session_state.mrn_items_error_banner = None
                 else:
                     # Nothing to insert at all — every row's User Qty came
                     # through as 0/blank even though a Basic Amount was
