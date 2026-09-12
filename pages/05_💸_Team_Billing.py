@@ -615,11 +615,38 @@ def _wrap_text_for_pdf(pdf, text, width_mm):
     return lines or [""]
 
 
+def _draw_items_table_header(pdf, widths, continued=False):
+    """Draw the item-table heading on the first page and every continuation page."""
+    if continued:
+        pdf.set_text_color(30, 58, 138)
+        pdf.set_font("Arial", 'B', 11)
+        pdf.cell(0, 7, "INVOICE - CONTINUED", align='C', ln=True)
+        pdf.ln(2)
+
+    pdf.set_font("Arial", 'B', 8)
+    pdf.set_fill_color(37, 60, 122)
+    pdf.set_text_color(255, 255, 255)
+    headers = ["SR", "ITEM CODE", "ITEM DESCRIPTION", "QTY", "PRICE (Rs.)", "TOTAL (Rs.)"]
+    for heading, width in zip(headers, widths):
+        pdf.cell(width, 8, heading, border=1, align='C', fill=True)
+    pdf.ln(8)
+    pdf.set_text_color(0, 0, 0)
+
+
 def _draw_item_row(pdf, sr, item_code, desc, qty, price, total, widths, line_h=4):
     """Draw one item-table row with word-wrapped description; all columns share the row's total height."""
     pdf.set_font("Arial", '', 8)
     desc_lines = _wrap_text_for_pdf(pdf, desc, widths[2])
     row_height = max(1, len(desc_lines)) * line_h
+
+    # Never allow multi_cell() to start a row that cannot fit on the current
+    # page. Otherwise FPDF moves only the description to a new page and the
+    # remaining cells are drawn using the old page coordinates.
+    page_bottom = pdf.h - pdf.b_margin
+    if pdf.get_y() + row_height > page_bottom:
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        _draw_items_table_header(pdf, widths, continued=True)
 
     x0 = pdf.get_x()
     y0 = pdf.get_y()
@@ -653,7 +680,22 @@ def generate_invoice_pdf(row_dict):
     invoice_no = str(row_dict.get("invoice_no", "") or "-")
     date_raw = row_dict.get("date", "")
     try:
-        date_fmt = pd.to_datetime(date_raw).strftime("%d-%b-%Y") if date_raw else "-"
+        if not date_raw:
+            date_fmt = "-"
+        elif isinstance(date_raw, (datetime.date, datetime.datetime, pd.Timestamp)):
+            date_fmt = pd.Timestamp(date_raw).strftime("%d-%b-%Y")
+        else:
+            date_text = str(date_raw).strip()
+            parsed_date = None
+            for date_pattern in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+                try:
+                    parsed_date = datetime.datetime.strptime(date_text[:10], date_pattern)
+                    break
+                except ValueError:
+                    continue
+            if parsed_date is None:
+                parsed_date = pd.to_datetime(date_text, dayfirst=True, errors="raise")
+            date_fmt = parsed_date.strftime("%d-%b-%Y")
     except Exception:
         date_fmt = str(date_raw) or "-"
     project_id = str(row_dict.get("project_id", "") or "-")
@@ -764,16 +806,8 @@ def generate_invoice_pdf(row_dict):
     pdf.ln(4)
 
     # --- Items table: real MRN line items when available, else a single fallback row ---
-    pdf.set_font("Arial", 'B', 8)
-    pdf.set_fill_color(37, 60, 122)
-    pdf.set_text_color(255, 255, 255)
-    headers = ["SR", "ITEM CODE", "ITEM DESCRIPTION", "QTY", "PRICE (Rs.)", "TOTAL (Rs.)"]
     widths = [10, 40, 53, 15, 32, 40]
-    for h, w in zip(headers, widths):
-        pdf.cell(w, 8, h, border=1, align='C', fill=True)
-    pdf.ln()
-
-    pdf.set_text_color(0, 0, 0)
+    _draw_items_table_header(pdf, widths)
 
     if mrn_items_rows:
         gross_value = 0.0
@@ -798,6 +832,16 @@ def generate_invoice_pdf(row_dict):
     else:
         gross_value = basic_amt
         _draw_item_row(pdf, 1, "-", "Tower Work", 1, basic_amt, basic_amt, widths)
+
+    # Keep totals, amount-in-words and signature together instead of leaving
+    # a totals fragment at the bottom of an items page.
+    if pdf.get_y() + 76 > pdf.h - pdf.b_margin:
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_text_color(30, 58, 138)
+        pdf.set_font("Arial", 'B', 11)
+        pdf.cell(0, 8, "INVOICE SUMMARY", align='C', ln=True)
+        pdf.ln(3)
 
     pdf.set_font("Arial", 'B', 9)
     pdf.cell(150, 8, "Gross Invoice Value", border=1, align='R')
