@@ -307,7 +307,7 @@ def fetch_mrn_used_qty_map(po_no, workspace, project_id):
         if res_used.data:
             for r in res_used.data:
                 ic = str(r.get("Item Code", "")).replace(".0", "").strip().lower()
-                uq = int(r.get("User Qty", 0))
+                uq = float(r.get("User Qty", 0) or 0)
                 used_map[ic] = used_map.get(ic, 0) + uq
     except Exception:
         pass
@@ -686,7 +686,7 @@ def add_mrn_dialog():
         df_display["WCC Qty"] = raw_wcc_qty
 
         df_display["Available Qty"] = raw_po_qty - raw_used_qty
-        df_display["User Qty"] = 0
+        df_display["User Qty"] = 0.0
         
         original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
@@ -760,10 +760,15 @@ def add_mrn_dialog():
                 "PO Line No": st.column_config.TextColumn("LINE NO", disabled=True),
                 "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
                 "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
-                "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True),
-                "WCC Qty": st.column_config.NumberColumn("WCC QTY", disabled=True),
-                "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True),
-                "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0, required=True),
+                # 🔴 FIX: PO Qty / WCC Qty / Available Qty are genuinely
+                # fractional for many items (cubic meter, kg — e.g. 31.77,
+                # 0.37). Without an explicit decimal format, whole numbers
+                # like these were displaying (and in User Qty's case, being
+                # SAVED) as truncated integers (31.77 → 31, 0.37 → 0).
+                "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True, format="%.2f"),
+                "WCC Qty": st.column_config.NumberColumn("WCC QTY", disabled=True, format="%.2f"),
+                "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True, format="%.2f"),
+                "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0.0, step=0.01, format="%.2f", required=True),
                 "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
                 "Line Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %.2f"),
             }
@@ -771,7 +776,7 @@ def add_mrn_dialog():
         
         for idx, r in edited_df.iterrows():
             u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
-            u_qty = 0 if pd.isna(u_qty) else int(u_qty)
+            u_qty = 0.0 if pd.isna(u_qty) else float(u_qty)
             rate = float(r["Adjusted Price"])
             tot = u_qty * rate
             edited_df.at[idx, "Line Total"] = tot
@@ -814,10 +819,10 @@ def add_mrn_dialog():
                 for idx, r in edf.iterrows():
                     u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
                     a_qty = pd.to_numeric(r["Available Qty"], errors='coerce')
-                    u_qty = 0 if pd.isna(u_qty) else int(u_qty)
-                    a_qty = 0 if pd.isna(a_qty) else int(a_qty)
-                    if u_qty > a_qty:
-                        st.error(f"❌ Error in PO {po}: User Qty ({u_qty}) cannot be greater than Available Qty ({a_qty}) for Item '{r['Item Code']}'.")
+                    u_qty = 0.0 if pd.isna(u_qty) else round(float(u_qty), 3)
+                    a_qty = 0.0 if pd.isna(a_qty) else round(float(a_qty), 3)
+                    if u_qty > a_qty + 1e-6:  # tiny epsilon to avoid float-rounding false positives
+                        st.error(f"❌ Error in PO {po}: User Qty ({u_qty:g}) cannot be greater than Available Qty ({a_qty:g}) for Item '{r['Item Code']}'.")
                         return
 
             while True:
@@ -866,7 +871,7 @@ def add_mrn_dialog():
                                 "Project ID": selected_proj,
                                 "Item Code": str(row["Item Code"]),
                                 "Description": str(row["Item Description"]),
-                                "User Qty": int(u_qty),
+                                "User Qty": round(float(u_qty), 3),
                                 "Adjusted Price": float(row["Adjusted Price"]),
                                 "Total": float(row["Line Total"])
                             })
