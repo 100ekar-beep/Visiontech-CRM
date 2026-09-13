@@ -502,6 +502,27 @@ def restore_to_pending(transaction_id: int):
     ).execute()
 
 
+def bulk_move_transactions(transaction_ids, destination: str):
+    if destination == "Suspense":
+        destination_type = "Suspense"
+        expense_category = None
+    elif destination.startswith("Other Expense — "):
+        destination_type = "Other Expense"
+        expense_category = destination.split(" — ", 1)[1].strip()
+    else:
+        raise ValueError("Valid destination select करें")
+
+    return supabase.rpc(
+        "bulk_move_bank_transactions",
+        {
+            "p_transaction_ids": [int(value) for value in transaction_ids],
+            "p_destination": destination_type,
+            "p_expense_category": expense_category,
+            "p_updated_by": current_user(),
+        },
+    ).execute()
+
+
 def find_possible_duplicates(row: dict, assignment: str):
     mode, pay_to = parse_assignment(assignment)
     if mode == "Suspense":
@@ -577,6 +598,108 @@ def render_statement_preview(preview_df: pd.DataFrame):
         "</table></div>"
     )
     st.markdown(table_html, unsafe_allow_html=True)
+
+
+def render_bulk_search_and_move(records, account_key):
+    with st.expander("🔎 Bulk Search & Move", expanded=True):
+        st.caption("Narration या Ref.No. में text खोजें, entries select करें और एक साथ move करें।")
+        search_text = st.text_input(
+            "Search Transaction Type",
+            placeholder="Example: UPI-LITE, RENT, GST",
+            key=f"bulk_search_{account_key}",
+        ).strip()
+
+        if not search_text:
+            st.info("ऊपर search text लिखें। Matching Pending entries यहाँ दिखाई देंगी।")
+            return
+
+        search_lower = search_text.lower()
+        matches = [
+            row
+            for row in records
+            if search_lower in str(row.get("narration", "")).lower()
+            or search_lower in str(row.get("reference_no", "")).lower()
+        ]
+
+        if not matches:
+            st.warning("इस search की कोई Pending entry नहीं मिली।")
+            return
+
+        total_amount = sum(float(row.get("withdrawal_amount") or 0) for row in matches)
+        st.success(f"{len(matches)} matching entries मिलीं | Total {format_amount(total_amount)}")
+
+        select_all = st.checkbox(
+            "Select All",
+            key=f"bulk_select_all_{account_key}_{hashlib.sha1(search_lower.encode()).hexdigest()[:10]}",
+        )
+
+        selection_df = pd.DataFrame(
+            [
+                {
+                    "Select": select_all,
+                    "ID": int(row["id"]),
+                    "Date": format_date(row.get("transaction_date")),
+                    "Narration": str(row.get("narration", "")),
+                    "Chq./Ref.No.": str(row.get("reference_no", "")),
+                    "Amount": format_amount(row.get("withdrawal_amount")),
+                }
+                for row in matches
+            ]
+        )
+
+        editor_key = hashlib.sha1(
+            f"{account_key}|{search_lower}|{select_all}".encode("utf-8")
+        ).hexdigest()[:12]
+        edited_df = st.data_editor(
+            selection_df,
+            key=f"bulk_editor_{editor_key}",
+            use_container_width=True,
+            hide_index=True,
+            disabled=["ID", "Date", "Narration", "Chq./Ref.No.", "Amount"],
+            column_config={
+                "Select": st.column_config.CheckboxColumn("Select", width="small"),
+                "ID": None,
+                "Date": st.column_config.TextColumn(width="small"),
+                "Narration": st.column_config.TextColumn(width="large"),
+                "Chq./Ref.No.": st.column_config.TextColumn(width="medium"),
+                "Amount": st.column_config.TextColumn(width="small"),
+            },
+            height=min(520, 42 + (len(selection_df) * 36)),
+        )
+
+        selected_ids = edited_df.loc[edited_df["Select"] == True, "ID"].astype(int).tolist()
+        expense_categories = load_expense_categories()
+        destination_options = ["— Select Destination —", "Suspense"] + [
+            f"Other Expense — {category}" for category in expense_categories
+        ]
+
+        destination_column, action_column = st.columns([3, 1.4])
+        with destination_column:
+            destination = st.selectbox(
+                "Move To",
+                options=destination_options,
+                key=f"bulk_destination_{account_key}",
+            )
+        with action_column:
+            st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
+            move_clicked = st.button(
+                f"Move Selected ({len(selected_ids)})",
+                key=f"bulk_move_{account_key}",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if move_clicked:
+            try:
+                if not selected_ids:
+                    raise ValueError("कम से कम एक entry select करें")
+                if destination == "— Select Destination —":
+                    raise ValueError("Move To destination select करें")
+                bulk_move_transactions(selected_ids, destination)
+                st.success(f"{len(selected_ids)} selected entries successfully move हो गईं।")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Bulk move failed: {exc}")
 
 
 def render_header(show_assignment=True):
@@ -971,7 +1094,9 @@ for account_label, account in [(active_account_label, active_account_data)]:
 
         if st.session_state.banking_active_view == "Assign & Approve":
             try:
-                render_pending(fetch_transactions(account["key"], "Pending"), account["key"], "Pending")
+                pending_records = fetch_transactions(account["key"], "Pending")
+                render_bulk_search_and_move(pending_records, account["key"])
+                render_pending(pending_records, account["key"], "Pending")
             except Exception as exc:
                 st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
         elif st.session_state.banking_active_view == "Approved Payments":
