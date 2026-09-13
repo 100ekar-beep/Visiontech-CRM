@@ -137,6 +137,22 @@ st.markdown(
     .preview-table .p-narration { width: auto; white-space: normal; overflow-wrap: anywhere; }
     .preview-table .p-ref { width: 205px; overflow-wrap: anywhere; }
     .preview-table .p-amount { width: 125px; white-space: nowrap; text-align: right; font-weight: 800; }
+    .bulk-panel-title {
+        background: linear-gradient(90deg, #2563eb 0%, #7c3aed 55%, #db2777 100%);
+        color: #ffffff; border-radius: 13px; padding: 16px 20px;
+        font-size: 1.15rem; font-weight: 900; letter-spacing: 0.3px;
+        box-shadow: 0 7px 18px rgba(79,70,229,0.28); margin-bottom: 14px;
+    }
+    .st-key-bulk_move_panel [data-testid="stVerticalBlockBorderWrapper"] {
+        background: rgba(255,255,255,0.94) !important;
+        border: 1px solid rgba(99,102,241,0.20) !important;
+        border-radius: 16px !important; padding: 8px !important;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.09) !important;
+    }
+    .st-key-bulk_move_panel input {
+        min-height: 52px !important; border-radius: 11px !important;
+        font-size: 1rem !important; font-weight: 650 !important;
+    }
     div[data-baseweb="select"] * { font-weight: 700 !important; }
     </style>
     """,
@@ -601,16 +617,19 @@ def render_statement_preview(preview_df: pd.DataFrame):
 
 
 def render_bulk_search_and_move(records, account_key):
-    with st.expander("🔎 Bulk Search & Move", expanded=True):
-        st.caption("Narration या Ref.No. में text खोजें, entries select करें और एक साथ move करें।")
+    with st.container(key="bulk_move_panel", border=True):
+        st.markdown(
+            "<div class='bulk-panel-title'>🔎 Bulk Transaction Move</div>",
+            unsafe_allow_html=True,
+        )
         search_text = st.text_input(
             "Search Transaction Type",
-            placeholder="Example: UPI-LITE, RENT, GST",
+            placeholder="Search...  UPI-LITE / RENT / GST",
             key=f"bulk_search_{account_key}",
+            label_visibility="collapsed",
         ).strip()
 
         if not search_text:
-            st.info("ऊपर search text लिखें। Matching Pending entries यहाँ दिखाई देंगी।")
             return
 
         search_lower = search_text.lower()
