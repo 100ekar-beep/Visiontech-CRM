@@ -352,13 +352,14 @@ def format_date(value) -> str:
 
 def format_amount(value) -> str:
     try:
-        return f"₹{float(value):,.2f}"
+        formatted = f"{float(value):,.2f}".rstrip("0").rstrip(".")
+        return f"₹{formatted}"
     except (TypeError, ValueError):
-        return "₹0.00"
+        return "₹0"
 
 
 def render_header(show_assignment=True):
-    widths = [1.0, 4.2, 1.8, 1.4, 2.4, 1.1] if show_assignment else [1.1, 4.8, 2.0, 1.5, 2.4]
+    widths = [0.9, 5.1, 1.5, 1.1, 2.3, 1.0] if show_assignment else [0.9, 5.4, 1.5, 1.1, 2.3]
     labels = ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Team/Vendor", "Action"] if show_assignment else ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Booked To"]
     columns = st.columns(widths)
     for column, label in zip(columns, labels):
@@ -392,7 +393,7 @@ def render_pending(records, account_key):
 
     for row in visible:
         row_id = int(row["id"])
-        cols = st.columns([1.0, 4.2, 1.8, 1.4, 2.4, 1.1])
+        cols = st.columns([0.9, 5.1, 1.5, 1.1, 2.3, 1.0])
         cols[0].markdown(f"<div class='txn-row'><b>{format_date(row.get('transaction_date'))}</b></div>", unsafe_allow_html=True)
         safe_narration = html.escape(str(row.get("narration", "")))
         safe_reference = html.escape(str(row.get("reference_no", "")))
@@ -434,7 +435,7 @@ def render_approved(records, account_key):
     st.caption(f"Approved: {len(records)} | Page {int(page)} of {page_count}")
     render_header(show_assignment=False)
     for row in visible:
-        cols = st.columns([1.1, 4.8, 2.0, 1.5, 2.4])
+        cols = st.columns([0.9, 5.4, 1.5, 1.1, 2.3])
         cols[0].markdown(f"<div class='txn-row'><b>{format_date(row.get('transaction_date'))}</b></div>", unsafe_allow_html=True)
         safe_narration = html.escape(str(row.get("narration", "")))
         safe_reference = html.escape(str(row.get("reference_no", "")))
@@ -488,13 +489,16 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 ].sort_values("transaction_date", ascending=False)
                 preview_df.columns = ["Date", "Narration", "Chq./Ref.No.", "Withdrawal Amt."]
                 preview_df["Date"] = pd.to_datetime(preview_df["Date"]).dt.strftime("%d-%b-%Y")
+                preview_df["Withdrawal Amt."] = preview_df["Withdrawal Amt."].apply(format_amount)
                 st.dataframe(
                     preview_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "Date": st.column_config.TextColumn(width="small"),
                         "Narration": st.column_config.TextColumn(width="large"),
-                        "Withdrawal Amt.": st.column_config.NumberColumn(format="₹ %.2f"),
+                        "Chq./Ref.No.": st.column_config.TextColumn(width="small"),
+                        "Withdrawal Amt.": st.column_config.TextColumn(width="small"),
                     },
                 )
 
