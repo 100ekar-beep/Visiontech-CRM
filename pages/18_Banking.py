@@ -198,10 +198,12 @@ def load_people(category: str):
 def assignment_options():
     teams = load_people("Team Name")
     vendors = load_people("Vendor Name")
-    return ["— Select Team/Vendor —"] + [f"Team — {name}" for name in teams] + [f"Vendor — {name}" for name in vendors]
+    return ["— Select Team/Vendor —", "Suspense"] + [f"Team — {name}" for name in teams] + [f"Vendor — {name}" for name in vendors]
 
 
 def parse_assignment(value: str):
+    if value == "Suspense":
+        return "Suspense", "Suspense"
     if " — " not in value:
         raise ValueError("Please select a Team or Vendor")
     mode, name = value.split(" — ", 1)
@@ -362,6 +364,48 @@ def approve_transaction(transaction_id: int, assignment: str):
     ).execute()
 
 
+def move_to_suspense(transaction_id: int):
+    return supabase.rpc(
+        "mark_bank_transaction_suspense",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_updated_by": current_user(),
+        },
+    ).execute()
+
+
+def find_possible_duplicates(row: dict, assignment: str):
+    mode, pay_to = parse_assignment(assignment)
+    if mode == "Suspense":
+        return []
+    response = (
+        supabase.table("billing_payments")
+        .select("id,date,amount,mode,pay_to,pay_from,pay_type,remark,workspace")
+        .eq("workspace", ALLOWED_WORKSPACE)
+        .eq("date", str(row.get("transaction_date")))
+        .eq("amount", row.get("withdrawal_amount"))
+        .eq("mode", mode)
+        .eq("pay_to", pay_to)
+        .order("id", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def link_as_duplicate(transaction_id: int, existing_payment_id: int, assignment: str):
+    mode, pay_to = parse_assignment(assignment)
+    return supabase.rpc(
+        "link_bank_transaction_duplicate",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_existing_payment_id": int(existing_payment_id),
+            "p_mode": mode,
+            "p_pay_to": pay_to,
+            "p_approved_by": current_user(),
+        },
+    ).execute()
+
+
 def format_date(value) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
     return parsed.strftime("%d-%b-%Y") if not pd.isna(parsed) else ""
@@ -415,9 +459,10 @@ def render_header(show_assignment=True):
         column.markdown(f"<div class='table-head'>{label}</div>", unsafe_allow_html=True)
 
 
-def render_pending(records, account_key):
+def render_pending(records, account_key, view_status="Pending"):
     if not records:
-        st.success("सभी imported transactions approve हो चुके हैं।")
+        empty_message = "Suspense में कोई transaction नहीं है।" if view_status == "Suspense" else "सभी imported transactions process हो चुके हैं।"
+        st.success(empty_message)
         return
 
     options = assignment_options()
@@ -432,12 +477,12 @@ def render_pending(records, account_key):
         max_value=page_count,
         value=1,
         step=1,
-        key=f"pending_page_{account_key}",
+        key=f"pending_page_{view_status}_{account_key}",
     )
     start = (int(page) - 1) * PAGE_SIZE
     visible = records[start : start + PAGE_SIZE]
 
-    st.caption(f"Pending: {len(records)} | Page {int(page)} of {page_count}")
+    st.caption(f"{view_status}: {len(records)} | Page {int(page)} of {page_count}")
     render_header(show_assignment=True)
 
     for row in visible:
@@ -452,11 +497,27 @@ def render_pending(records, account_key):
         assignment = cols[4].selectbox(
             "Team/Vendor",
             options=options,
-            key=f"assignment_{account_key}_{row_id}",
+            key=f"assignment_{view_status}_{account_key}_{row_id}",
             label_visibility="collapsed",
         )
-        if cols[5].button("Approve", key=f"approve_{account_key}_{row_id}", type="primary", use_container_width=True):
+        if cols[5].button("Approve", key=f"approve_{view_status}_{account_key}_{row_id}", type="primary", use_container_width=True):
             try:
+                mode, _ = parse_assignment(assignment)
+                if mode == "Suspense":
+                    move_to_suspense(row_id)
+                    st.success("Transaction Suspense में रख दिया गया।")
+                    st.rerun()
+
+                matches = find_possible_duplicates(row, assignment)
+                if matches:
+                    st.session_state["banking_duplicate_review"] = {
+                        "transaction": row,
+                        "assignment": assignment,
+                        "matches": matches,
+                    }
+                    duplicate_payment_dialog()
+                    return
+
                 approve_transaction(row_id, assignment)
                 st.success("Payment approved and booked successfully.")
                 st.rerun()
@@ -493,6 +554,70 @@ def render_approved(records, account_key):
         cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
         booked_to = html.escape(f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}")
         cols[4].markdown(f"<div class='txn-row approved'>{booked_to}</div>", unsafe_allow_html=True)
+
+
+@st.dialog("Possible Duplicate Payment", width="large")
+def duplicate_payment_dialog():
+    review = st.session_state.get("banking_duplicate_review")
+    if not review:
+        return
+
+    transaction = review["transaction"]
+    assignment = review["assignment"]
+    matches = review["matches"]
+
+    st.warning("Same Date + Same Amount + Same Team/Vendor की payment पहले से मौजूद है।")
+    st.markdown(
+        f"**Current bank transaction:** {format_date(transaction.get('transaction_date'))} | "
+        f"{format_amount(transaction.get('withdrawal_amount'))} | {html.escape(assignment)}"
+    )
+
+    match_df = pd.DataFrame(matches)
+    show_columns = ["id", "date", "amount", "mode", "pay_to", "pay_from", "pay_type", "remark"]
+    match_df = match_df[[column for column in show_columns if column in match_df.columns]].copy()
+    if "date" in match_df.columns:
+        match_df["date"] = match_df["date"].apply(format_date)
+    if "amount" in match_df.columns:
+        match_df["amount"] = match_df["amount"].apply(format_amount)
+    st.dataframe(match_df, use_container_width=True, hide_index=True)
+
+    payment_ids = [int(item["id"]) for item in matches]
+    selected_payment_id = st.selectbox(
+        "Existing Payment",
+        options=payment_ids,
+        format_func=lambda payment_id: next(
+            (
+                f"ID {payment_id} | {format_date(item.get('date'))} | "
+                f"{format_amount(item.get('amount'))} | {item.get('mode')}: {item.get('pay_to')}"
+                for item in matches
+                if int(item["id"]) == payment_id
+            ),
+            str(payment_id),
+        ),
+    )
+
+    left, right = st.columns(2)
+    if left.button("Duplicate Entry", type="secondary", use_container_width=True):
+        try:
+            link_as_duplicate(
+                int(transaction["id"]),
+                int(selected_payment_id),
+                assignment,
+            )
+            st.session_state.pop("banking_duplicate_review", None)
+            st.success("Existing payment से link किया। नई payment entry नहीं बनी।")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Duplicate link failed: {exc}")
+
+    if right.button("Proceed", type="primary", use_container_width=True):
+        try:
+            approve_transaction(int(transaction["id"]), assignment)
+            st.session_state.pop("banking_duplicate_review", None)
+            st.success("नई payment entry save हो गई।")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Payment approval failed: {exc}")
 
 
 st.markdown(
@@ -543,22 +668,30 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 render_statement_preview(preview_df)
 
                 if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
-                    before = len(fetch_transactions(account["key"], "Pending")) + len(fetch_transactions(account["key"], "Approved"))
+                    before = sum(
+                        len(fetch_transactions(account["key"], status))
+                        for status in ("Pending", "Approved", "Suspense")
+                    )
                     supabase.table("bank_transactions").upsert(
                         preview_records,
                         on_conflict="workspace,account_key,transaction_hash",
                         ignore_duplicates=True,
                     ).execute()
-                    after = len(fetch_transactions(account["key"], "Pending")) + len(fetch_transactions(account["key"], "Approved"))
+                    after = sum(
+                        len(fetch_transactions(account["key"], status))
+                        for status in ("Pending", "Approved", "Suspense")
+                    )
                     st.success(f"Import completed. New entries: {max(0, after - before)} | Duplicate skipped: {max(0, len(preview_records) - max(0, after - before))}")
                     st.rerun()
             except Exception as exc:
                 st.error(f"Statement save नहीं हुआ: {exc}")
 
-        pending_tab, approved_tab = st.tabs(["Step 2: Assign & Approve", "Step 3: Approved Payments"])
+        pending_tab, approved_tab, suspense_tab = st.tabs(
+            ["Assign & Approve", "Approved Payments", "Suspense"]
+        )
         with pending_tab:
             try:
-                render_pending(fetch_transactions(account["key"], "Pending"), account["key"])
+                render_pending(fetch_transactions(account["key"], "Pending"), account["key"], "Pending")
             except Exception as exc:
                 st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
         with approved_tab:
@@ -566,3 +699,8 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 render_approved(fetch_transactions(account["key"], "Approved"), account["key"])
             except Exception as exc:
                 st.warning(f"Approved payments load नहीं हुए: {exc}")
+        with suspense_tab:
+            try:
+                render_pending(fetch_transactions(account["key"], "Suspense"), account["key"], "Suspense")
+            except Exception as exc:
+                st.warning(f"Suspense transactions load नहीं हुए: {exc}")
