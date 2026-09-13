@@ -53,6 +53,14 @@ st.markdown(
         transform: translateY(-2px);
         box-shadow: 0 10px 20px rgba(79, 70, 229, 0.32);
     }
+    div.stButton > button:disabled {
+        background: #cbd5e1 !important; color: #64748b !important;
+        box-shadow: none !important; transform: none !important;
+        cursor: not-allowed !important; opacity: 0.75 !important;
+    }
+    div.stButton > button:disabled p,
+    div.stButton > button:disabled span,
+    div.stButton > button:disabled div { color: #64748b !important; }
     div.stButton > button p,
     div.stButton > button span,
     div.stButton > button div { color: #ffffff !important; font-weight: 800 !important; }
@@ -579,6 +587,51 @@ def render_header(show_assignment=True):
         column.markdown(f"<div class='table-head'>{label}</div>", unsafe_allow_html=True)
 
 
+def get_paginated_records(records, state_key):
+    total_pages = max(1, math.ceil(len(records) / PAGE_SIZE))
+    if state_key not in st.session_state:
+        st.session_state[state_key] = 1
+    st.session_state[state_key] = max(
+        1,
+        min(int(st.session_state[state_key]), total_pages),
+    )
+    current_page = int(st.session_state[state_key])
+    start = (current_page - 1) * PAGE_SIZE
+    return records[start : start + PAGE_SIZE], current_page, total_pages
+
+
+def render_pagination_buttons(state_key, current_page, total_pages):
+    st.markdown("<br>", unsafe_allow_html=True)
+    previous_column, count_column, next_column = st.columns([1.5, 2, 1.5])
+
+    with previous_column:
+        if st.button(
+            "⬅️ Previous Page",
+            key=f"previous_{state_key}",
+            use_container_width=True,
+            disabled=current_page <= 1,
+        ):
+            st.session_state[state_key] = current_page - 1
+            st.rerun()
+
+    with count_column:
+        st.markdown(
+            f"<div style='text-align:center;font-size:1.1rem;font-weight:800;"
+            f"color:#334155;padding:13px 8px;'>Page {current_page} of {total_pages}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with next_column:
+        if st.button(
+            "Next Page ➡️",
+            key=f"next_{state_key}",
+            use_container_width=True,
+            disabled=current_page >= total_pages,
+        ):
+            st.session_state[state_key] = current_page + 1
+            st.rerun()
+
+
 def render_pending(records, account_key, view_status="Pending"):
     if not records:
         empty_message = "Suspense में कोई transaction नहीं है।" if view_status == "Suspense" else "सभी imported transactions process हो चुके हैं।"
@@ -590,19 +643,10 @@ def render_pending(records, account_key, view_status="Pending"):
         st.error("Active Team/Vendor master खाली है।")
         return
 
-    page_count = max(1, math.ceil(len(records) / PAGE_SIZE))
-    page = st.number_input(
-        "Page",
-        min_value=1,
-        max_value=page_count,
-        value=1,
-        step=1,
-        key=f"pending_page_{view_status}_{account_key}",
-    )
-    start = (int(page) - 1) * PAGE_SIZE
-    visible = records[start : start + PAGE_SIZE]
+    page_state_key = f"pending_page_{view_status}_{account_key}"
+    visible, current_page, page_count = get_paginated_records(records, page_state_key)
 
-    st.caption(f"{view_status}: {len(records)} | Page {int(page)} of {page_count}")
+    st.caption(f"{view_status}: {len(records)} transactions")
     render_header(show_assignment=True)
 
     for row in visible:
@@ -663,25 +707,18 @@ def render_pending(records, account_key, view_status="Pending"):
             except Exception as exc:
                 st.error(f"Approval failed: {exc}")
 
+    render_pagination_buttons(page_state_key, current_page, page_count)
+
 
 def render_approved(records, account_key):
     if not records:
         st.info("अभी कोई approved transaction नहीं है।")
         return
 
-    page_count = max(1, math.ceil(len(records) / PAGE_SIZE))
-    page = st.number_input(
-        "Approved Page",
-        min_value=1,
-        max_value=page_count,
-        value=1,
-        step=1,
-        key=f"approved_page_{account_key}",
-    )
-    start = (int(page) - 1) * PAGE_SIZE
-    visible = records[start : start + PAGE_SIZE]
+    page_state_key = f"approved_page_{account_key}"
+    visible, current_page, page_count = get_paginated_records(records, page_state_key)
 
-    st.caption(f"Approved: {len(records)} | Page {int(page)} of {page_count}")
+    st.caption(f"Approved: {len(records)} transactions")
     render_header(show_assignment=False)
     for row in visible:
         cols = st.columns([0.9, 5.4, 1.5, 1.1, 2.3])
@@ -694,13 +731,17 @@ def render_approved(records, account_key):
         booked_to = html.escape(f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}")
         cols[4].markdown(f"<div class='txn-row approved'>{booked_to}</div>", unsafe_allow_html=True)
 
+    render_pagination_buttons(page_state_key, current_page, page_count)
+
 
 def render_other_expenses(records, account_key):
     if not records:
         st.info("अभी कोई Other Expense transaction नहीं है।")
         return
 
-    st.caption(f"Other Expenses: {len(records)}")
+    page_state_key = f"other_expense_page_{account_key}"
+    visible, current_page, page_count = get_paginated_records(records, page_state_key)
+    st.caption(f"Other Expenses: {len(records)} transactions")
     columns = st.columns([0.9, 5.0, 1.5, 1.1, 2.0, 1.2])
     for column, label in zip(
         columns,
@@ -708,7 +749,7 @@ def render_other_expenses(records, account_key):
     ):
         column.markdown(f"<div class='table-head'>{label}</div>", unsafe_allow_html=True)
 
-    for row in records:
+    for row in visible:
         row_id = int(row["id"])
         cols = st.columns([0.9, 5.0, 1.5, 1.1, 2.0, 1.2])
         safe_narration = html.escape(str(row.get("narration", "")))
@@ -726,6 +767,8 @@ def render_other_expenses(records, account_key):
                 st.rerun()
             except Exception as exc:
                 st.error(f"Restore failed: {exc}")
+
+    render_pagination_buttons(page_state_key, current_page, page_count)
 
 
 @st.dialog("Possible Duplicate Payment", width="large")
