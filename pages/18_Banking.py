@@ -5,6 +5,7 @@ import hmac
 import io
 import math
 import re
+from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
@@ -114,9 +115,38 @@ with st.sidebar:
 
 @st.cache_resource
 def init_connection() -> Client:
-    url = str(st.secrets["supabase"]["url"])
-    url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-    key = str(st.secrets["supabase"]["key"])
+    supabase_section = st.secrets.get("supabase", {})
+
+    raw_url = (
+        supabase_section.get("url")
+        or supabase_section.get("SUPABASE_URL")
+        or st.secrets.get("SUPABASE_URL")
+        or st.secrets.get("supabase_url")
+    )
+    raw_key = (
+        supabase_section.get("key")
+        or supabase_section.get("SUPABASE_KEY")
+        or st.secrets.get("SUPABASE_KEY")
+        or st.secrets.get("supabase_key")
+    )
+
+    if not raw_url or not raw_key:
+        raise ValueError("Supabase URL/Key is missing in Streamlit Secrets")
+
+    url = str(raw_url).strip().strip('"').strip("'").strip()
+    key = str(raw_key).strip().strip('"').strip("'").strip()
+
+    # create_client needs the project base URL, not the REST endpoint URL.
+    if "/rest/v1" in url:
+        url = url.split("/rest/v1", 1)[0]
+    url = url.rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    parsed_url = urlparse(url)
+    if not parsed_url.scheme or not parsed_url.netloc:
+        raise ValueError("Invalid Supabase project URL in Streamlit Secrets")
+
     return create_client(url, key)
 
 
