@@ -195,15 +195,62 @@ def load_people(category: str):
     ]
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_expense_categories():
+    response = (
+        supabase.table("bank_expense_categories")
+        .select("category_name")
+        .eq("is_active", True)
+        .order("category_name")
+        .execute()
+    )
+    return [
+        str(row.get("category_name", "")).strip()
+        for row in (response.data or [])
+        if str(row.get("category_name", "")).strip()
+    ]
+
+
+def add_expense_category(category_name: str):
+    clean_name = " ".join(str(category_name or "").strip().split())
+    if not clean_name:
+        raise ValueError("Expense category name required")
+    existing = (
+        supabase.table("bank_expense_categories")
+        .select("id,is_active")
+        .ilike("category_name", clean_name)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        if not existing.data[0].get("is_active", True):
+            supabase.table("bank_expense_categories").update(
+                {"is_active": True}
+            ).eq("id", existing.data[0]["id"]).execute()
+            load_expense_categories.clear()
+            return
+        raise ValueError("यह expense category पहले से मौजूद है")
+    supabase.table("bank_expense_categories").insert(
+        {
+            "category_name": clean_name,
+            "created_by": current_user(),
+            "is_active": True,
+        }
+    ).execute()
+    load_expense_categories.clear()
+
+
 def assignment_options():
     teams = load_people("Team Name")
     vendors = load_people("Vendor Name")
-    return ["— Select Team/Vendor —", "Suspense"] + [f"Team — {name}" for name in teams] + [f"Vendor — {name}" for name in vendors]
+    return ["— Select Team/Vendor —", "Suspense", "Other Expense"] + [f"Team — {name}" for name in teams] + [f"Vendor — {name}" for name in vendors]
 
 
 def parse_assignment(value: str):
     if value == "Suspense":
         return "Suspense", "Suspense"
+    if value == "Other Expense":
+        return "Other Expense", "Other Expense"
     if " — " not in value:
         raise ValueError("Please select a Team or Vendor")
     mode, name = value.split(" — ", 1)
@@ -374,6 +421,27 @@ def move_to_suspense(transaction_id: int):
     ).execute()
 
 
+def mark_other_expense(transaction_id: int, expense_category: str):
+    return supabase.rpc(
+        "mark_bank_transaction_other_expense",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_expense_category": expense_category,
+            "p_updated_by": current_user(),
+        },
+    ).execute()
+
+
+def restore_to_pending(transaction_id: int):
+    return supabase.rpc(
+        "restore_bank_transaction_pending",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_updated_by": current_user(),
+        },
+    ).execute()
+
+
 def find_possible_duplicates(row: dict, assignment: str):
     mode, pay_to = parse_assignment(assignment)
     if mode == "Suspense":
@@ -500,12 +568,31 @@ def render_pending(records, account_key, view_status="Pending"):
             key=f"assignment_{view_status}_{account_key}_{row_id}",
             label_visibility="collapsed",
         )
+        expense_category = None
+        if assignment == "Other Expense":
+            expense_categories = load_expense_categories()
+            if expense_categories:
+                expense_category = cols[4].selectbox(
+                    "Expense Category",
+                    options=expense_categories,
+                    key=f"expense_category_{view_status}_{account_key}_{row_id}",
+                    label_visibility="collapsed",
+                )
+            else:
+                cols[4].error("पहले Expense Category Master में category add करें।")
         if cols[5].button("Approve", key=f"approve_{view_status}_{account_key}_{row_id}", type="primary", use_container_width=True):
             try:
                 mode, _ = parse_assignment(assignment)
                 if mode == "Suspense":
                     move_to_suspense(row_id)
                     st.success("Transaction Suspense में रख दिया गया।")
+                    st.rerun()
+
+                if mode == "Other Expense":
+                    if not expense_category:
+                        raise ValueError("Expense category select करें")
+                    mark_other_expense(row_id, expense_category)
+                    st.success("Transaction Other Expenses में save हुआ। Team/Vendor payment नहीं बनी।")
                     st.rerun()
 
                 matches = find_possible_duplicates(row, assignment)
@@ -554,6 +641,39 @@ def render_approved(records, account_key):
         cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
         booked_to = html.escape(f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}")
         cols[4].markdown(f"<div class='txn-row approved'>{booked_to}</div>", unsafe_allow_html=True)
+
+
+def render_other_expenses(records, account_key):
+    if not records:
+        st.info("अभी कोई Other Expense transaction नहीं है।")
+        return
+
+    st.caption(f"Other Expenses: {len(records)}")
+    columns = st.columns([0.9, 5.0, 1.5, 1.1, 2.0, 1.2])
+    for column, label in zip(
+        columns,
+        ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Expense Category", "Action"],
+    ):
+        column.markdown(f"<div class='table-head'>{label}</div>", unsafe_allow_html=True)
+
+    for row in records:
+        row_id = int(row["id"])
+        cols = st.columns([0.9, 5.0, 1.5, 1.1, 2.0, 1.2])
+        safe_narration = html.escape(str(row.get("narration", "")))
+        safe_reference = html.escape(str(row.get("reference_no", "")))
+        safe_category = html.escape(str(row.get("expense_category", "")))
+        cols[0].markdown(f"<div class='txn-row'><b>{format_date(row.get('transaction_date'))}</b></div>", unsafe_allow_html=True)
+        cols[1].markdown(f"<div class='txn-row narration'>{safe_narration}</div>", unsafe_allow_html=True)
+        cols[2].markdown(f"<div class='txn-row narration'>{safe_reference}</div>", unsafe_allow_html=True)
+        cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
+        cols[4].markdown(f"<div class='txn-row approved'>{safe_category}</div>", unsafe_allow_html=True)
+        if cols[5].button("Restore", key=f"restore_expense_{account_key}_{row_id}", use_container_width=True):
+            try:
+                restore_to_pending(row_id)
+                st.success("Transaction वापस Assign & Approve में आ गया।")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Restore failed: {exc}")
 
 
 @st.dialog("Possible Duplicate Payment", width="large")
@@ -630,6 +750,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+with st.expander("Expense Category Master — नया खर्च जोड़ें"):
+    st.caption("यहाँ जो category add करेंगे, वही Other Expense dropdown में दिखेगी।")
+    with st.form("add_expense_category_form", clear_on_submit=True):
+        new_expense_category = st.text_input(
+            "New Expense Category",
+            placeholder="Example: Office Rent, EMI, GST Paid",
+        )
+        add_category_clicked = st.form_submit_button(
+            "Add Category",
+            type="primary",
+        )
+    if add_category_clicked:
+        try:
+            add_expense_category(new_expense_category)
+            st.success("Expense category add हो गई।")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
+    try:
+        active_expenses = load_expense_categories()
+        if active_expenses:
+            st.write("Active Categories: " + ", ".join(active_expenses))
+    except Exception as exc:
+        st.warning(f"Expense categories load नहीं हुईं: {exc}")
+
 tabs = st.tabs(list(ACCOUNTS.keys()))
 
 for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
@@ -670,7 +816,7 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
                     before = sum(
                         len(fetch_transactions(account["key"], status))
-                        for status in ("Pending", "Approved", "Suspense")
+                        for status in ("Pending", "Approved", "Suspense", "Other Expense")
                     )
                     supabase.table("bank_transactions").upsert(
                         preview_records,
@@ -679,15 +825,15 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                     ).execute()
                     after = sum(
                         len(fetch_transactions(account["key"], status))
-                        for status in ("Pending", "Approved", "Suspense")
+                        for status in ("Pending", "Approved", "Suspense", "Other Expense")
                     )
                     st.success(f"Import completed. New entries: {max(0, after - before)} | Duplicate skipped: {max(0, len(preview_records) - max(0, after - before))}")
                     st.rerun()
             except Exception as exc:
                 st.error(f"Statement save नहीं हुआ: {exc}")
 
-        pending_tab, approved_tab, suspense_tab = st.tabs(
-            ["Assign & Approve", "Approved Payments", "Suspense"]
+        pending_tab, approved_tab, suspense_tab, other_expense_tab = st.tabs(
+            ["Assign & Approve", "Approved Payments", "Suspense", "Other Expenses"]
         )
         with pending_tab:
             try:
@@ -704,3 +850,11 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 render_pending(fetch_transactions(account["key"], "Suspense"), account["key"], "Suspense")
             except Exception as exc:
                 st.warning(f"Suspense transactions load नहीं हुए: {exc}")
+        with other_expense_tab:
+            try:
+                render_other_expenses(
+                    fetch_transactions(account["key"], "Other Expense"),
+                    account["key"],
+                )
+            except Exception as exc:
+                st.warning(f"Other Expenses load नहीं हुए: {exc}")
