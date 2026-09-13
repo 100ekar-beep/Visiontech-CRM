@@ -99,6 +99,20 @@ st.markdown(
     div.stButton > button p,
     div.stButton > button span,
     div.stButton > button div { color: #ffffff !important; font-weight: 800 !important; }
+    div.stDownloadButton > button {
+        background: linear-gradient(90deg, #059669 0%, #0d9488 100%) !important;
+        color: #ffffff !important; border: none !important; border-radius: 10px !important;
+        font-weight: 800 !important; min-height: 48px !important;
+        box-shadow: 0 5px 12px rgba(5,150,105,0.24) !important;
+        transition: all 0.25s ease !important;
+    }
+    div.stDownloadButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 20px rgba(5,150,105,0.30) !important;
+    }
+    div.stDownloadButton > button p,
+    div.stDownloadButton > button span,
+    div.stDownloadButton > button div { color: #ffffff !important; font-weight: 800 !important; }
 
     .st-key-banking_account_nav div[data-testid="stHorizontalBlock"],
     .st-key-banking_view_nav div[data-testid="stHorizontalBlock"] {
@@ -635,6 +649,89 @@ def format_amount(value) -> str:
         return "₹0"
 
 
+def filter_transaction_records(records, search_text):
+    terms = [term.lower() for term in str(search_text).split() if term.strip()]
+    if not terms:
+        return records
+    search_fields = (
+        "transaction_date", "narration", "reference_no", "withdrawal_amount",
+        "status", "assignment_mode", "pay_to", "expense_category", "pay_from", "pay_type",
+    )
+    filtered = []
+    for row in records:
+        searchable_text = " ".join(str(row.get(field, "")) for field in search_fields).lower()
+        if all(term in searchable_text for term in terms):
+            filtered.append(row)
+    return filtered
+
+
+def transaction_excel(records, sheet_name):
+    export_rows = []
+    for row in records:
+        parsed_date = pd.to_datetime(row.get("transaction_date"), errors="coerce")
+        export_rows.append(
+            {
+                "Date": None if pd.isna(parsed_date) else parsed_date.date(),
+                "Narration": str(row.get("narration", "")),
+                "Chq./Ref.No.": str(row.get("reference_no", "")),
+                "Withdrawal Amount": float(row.get("withdrawal_amount") or 0),
+                "Status": str(row.get("status", "")),
+                "Type": str(row.get("assignment_mode", "")),
+                "Team/Vendor": str(row.get("pay_to", "")),
+                "Expense Category": str(row.get("expense_category", "")),
+                "Payment From": str(row.get("pay_from", "")),
+                "Payment Type": str(row.get("pay_type", "")),
+            }
+        )
+
+    export_df = pd.DataFrame(export_rows)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+        worksheet = writer.sheets[sheet_name[:31]]
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        header_fill = PatternFill("solid", fgColor="4F46E5")
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = Font(color="FFFFFF", bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+        for column_index, width in enumerate([15, 70, 25, 20, 18, 16, 28, 28, 25, 18], start=1):
+            worksheet.column_dimensions[worksheet.cell(1, column_index).column_letter].width = width
+        for row_index in range(2, worksheet.max_row + 1):
+            worksheet.cell(row_index, 1).number_format = "DD-MMM-YYYY"
+            worksheet.cell(row_index, 2).alignment = Alignment(wrap_text=True, vertical="top")
+            worksheet.cell(row_index, 4).number_format = "#,##0.##"
+    return output.getvalue()
+
+
+def render_table_toolbar(records, account_key, view_name):
+    safe_view = re.sub(r"[^a-z0-9]+", "_", view_name.lower()).strip("_")
+    safe_account = re.sub(r"[^a-z0-9]+", "_", account_key.lower()).strip("_")
+    search_column, download_column = st.columns([4.5, 1.5])
+    with search_column:
+        search_text = st.text_input(
+            f"Search {view_name}",
+            placeholder="🔍 Search date, narration, reference, amount, team/vendor...",
+            key=f"table_search_{safe_view}_{safe_account}",
+            label_visibility="collapsed",
+        )
+    filtered_records = filter_transaction_records(records, search_text)
+    with download_column:
+        st.download_button(
+            "📥 Download Excel",
+            data=transaction_excel(filtered_records, view_name),
+            file_name=f"{safe_account}_{safe_view}_{datetime.date.today():%Y%m%d}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"table_download_{safe_view}_{safe_account}",
+            use_container_width=True,
+        )
+    st.caption(f"Showing {len(filtered_records)} of {len(records)} transactions")
+    return filtered_records
+
+
 def render_statement_preview(preview_df: pd.DataFrame):
     rows_html = []
     for _, row in preview_df.iterrows():
@@ -862,6 +959,11 @@ def render_pending(records, account_key, view_status="Pending"):
         st.success(empty_message)
         return
 
+    records = render_table_toolbar(records, account_key, view_status)
+    if not records:
+        st.warning("Search से कोई matching transaction नहीं मिला।")
+        return
+
     options = assignment_options()
     if not options:
         st.error("Active Team/Vendor master खाली है।")
@@ -870,7 +972,6 @@ def render_pending(records, account_key, view_status="Pending"):
     page_state_key = f"pending_page_{view_status}_{account_key}"
     visible, current_page, page_count = get_paginated_records(records, page_state_key)
 
-    st.caption(f"{view_status}: {len(records)} transactions")
     render_header(show_assignment=True)
 
     for row in visible:
@@ -939,10 +1040,14 @@ def render_approved(records, account_key):
         st.info("अभी कोई approved transaction नहीं है।")
         return
 
+    records = render_table_toolbar(records, account_key, "Approved Payments")
+    if not records:
+        st.warning("Search से कोई matching transaction नहीं मिला।")
+        return
+
     page_state_key = f"approved_page_{account_key}"
     visible, current_page, page_count = get_paginated_records(records, page_state_key)
 
-    st.caption(f"Approved: {len(records)} transactions")
     render_header(show_assignment=False)
     for row in visible:
         cols = st.columns([0.9, 5.4, 1.5, 1.1, 2.3])
@@ -963,9 +1068,13 @@ def render_other_expenses(records, account_key):
         st.info("अभी कोई Other Expense transaction नहीं है।")
         return
 
+    records = render_table_toolbar(records, account_key, "Other Expenses")
+    if not records:
+        st.warning("Search से कोई matching transaction नहीं मिला।")
+        return
+
     page_state_key = f"other_expense_page_{account_key}"
     visible, current_page, page_count = get_paginated_records(records, page_state_key)
-    st.caption(f"Other Expenses: {len(records)} transactions")
     columns = st.columns([0.9, 5.0, 1.5, 1.1, 2.0, 1.2])
     for column, label in zip(
         columns,
