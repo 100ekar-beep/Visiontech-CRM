@@ -42,12 +42,64 @@ st.markdown(
     """
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%); }
-    .bank-title {
-        color: white; padding: 18px 22px; border-radius: 14px;
-        background: linear-gradient(90deg, #1e3a8a, #4f46e5, #7c3aed);
-        box-shadow: 0 8px 22px rgba(49,46,129,.22); margin-bottom: 16px;
+    div.stButton > button {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+        color: white !important; border: none; border-radius: 10px;
+        font-weight: 800 !important; padding: 0.65rem 1rem;
+        min-height: 48px; transition: all 0.25s ease;
+        box-shadow: 0 5px 12px rgba(59, 130, 246, 0.25);
     }
-    .bank-title h1 { color: white !important; margin: 0; font-size: 2rem; }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(79, 70, 229, 0.32);
+    }
+    div.stButton > button p,
+    div.stButton > button span,
+    div.stButton > button div { color: #ffffff !important; font-weight: 800 !important; }
+
+    .st-key-banking_account_nav div[data-testid="stHorizontalBlock"],
+    .st-key-banking_view_nav div[data-testid="stHorizontalBlock"] {
+        gap: 14px !important; flex-wrap: wrap !important;
+    }
+    .st-key-banking_account_nav button,
+    .st-key-banking_view_nav button {
+        font-size: 1.05rem !important; font-weight: 800 !important;
+        min-height: 58px !important; padding: 14px 12px !important;
+        border-radius: 13px !important; white-space: nowrap !important;
+        transition: all 0.25s ease !important;
+    }
+    .st-key-banking_account_nav button[kind="secondary"],
+    .st-key-banking_view_nav button[kind="secondary"] {
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(15,23,42,0.12) !important;
+        box-shadow: 0 3px 8px rgba(15,23,42,0.08) !important;
+    }
+    .st-key-banking_account_nav button[kind="secondary"] p,
+    .st-key-banking_account_nav button[kind="secondary"] span,
+    .st-key-banking_account_nav button[kind="secondary"] div,
+    .st-key-banking_view_nav button[kind="secondary"] p,
+    .st-key-banking_view_nav button[kind="secondary"] span,
+    .st-key-banking_view_nav button[kind="secondary"] div {
+        color: #475569 !important; font-weight: 800 !important;
+    }
+    .st-key-banking_account_nav button[kind="secondary"]:hover,
+    .st-key-banking_view_nav button[kind="secondary"]:hover {
+        background: #f8fafc !important; transform: translateY(-2px) !important;
+        border-color: rgba(79,70,229,0.35) !important;
+    }
+    .st-key-banking_account_nav button[kind="primary"],
+    .st-key-banking_view_nav button[kind="primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important; border: none !important;
+        box-shadow: 0 7px 18px rgba(79,70,229,0.38) !important;
+    }
+    .bank-title {
+        color: white; padding: 28px 24px; border-radius: 14px;
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 52%, #ec4899 100%);
+        box-shadow: 0 9px 24px rgba(79,70,229,.30); margin: 14px 0 22px;
+        text-align: center;
+    }
+    .bank-title h1 { color: white !important; margin: 0; font-size: 2.35rem; letter-spacing: 1px; }
     .bank-title p { color: #e0e7ff !important; margin: 5px 0 0; font-weight: 600; }
     .table-head {
         background: #312e81; color: white; border-radius: 9px;
@@ -740,10 +792,30 @@ def duplicate_payment_dialog():
             st.error(f"Payment approval failed: {exc}")
 
 
+if "banking_active_account" not in st.session_state:
+    st.session_state.banking_active_account = "HDFC VISPL"
+if "banking_active_view" not in st.session_state:
+    st.session_state.banking_active_view = "Assign & Approve"
+
+with st.container(key="banking_account_nav"):
+    account_nav_columns = st.columns(len(ACCOUNTS))
+    for nav_column, account_name in zip(account_nav_columns, ACCOUNTS.keys()):
+        with nav_column:
+            account_active = st.session_state.banking_active_account == account_name
+            if st.button(
+                account_name,
+                key=f"bank_account_nav_{ACCOUNTS[account_name]['key']}",
+                type="primary" if account_active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.banking_active_account = account_name
+                st.rerun()
+
+active_account_heading = html.escape(st.session_state.banking_active_account)
 st.markdown(
-    """
+    f"""
     <div class="bank-title">
-        <h1>Banking</h1>
+        <h1>🏦 {active_account_heading}</h1>
         <p>Statement upload, Team/Vendor allocation and payment approval</p>
     </div>
     """,
@@ -776,11 +848,33 @@ with st.expander("Expense Category Master — नया खर्च जोड�
     except Exception as exc:
         st.warning(f"Expense categories load नहीं हुईं: {exc}")
 
-tabs = st.tabs(list(ACCOUNTS.keys()))
+active_account_label = st.session_state.banking_active_account
+active_account_data = ACCOUNTS[active_account_label]
 
-for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
-    with tab:
+for account_label, account in [(active_account_label, active_account_data)]:
+    with st.container():
         st.subheader(account_label)
+        workflow_views = [
+            ("Assign & Approve", "✅ Assign & Approve"),
+            ("Approved Payments", "💳 Approved Payments"),
+            ("Suspense", "⏳ Suspense"),
+            ("Other Expenses", "🧾 Other Expenses"),
+        ]
+        with st.container(key="banking_view_nav"):
+            view_columns = st.columns(len(workflow_views))
+            for view_column, (view_key, view_label) in zip(view_columns, workflow_views):
+                with view_column:
+                    view_active = st.session_state.banking_active_view == view_key
+                    if st.button(
+                        view_label,
+                        key=f"bank_view_nav_{view_key}",
+                        type="primary" if view_active else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state.banking_active_view = view_key
+                        st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### Step 1: Statement Upload")
         uploaded = st.file_uploader(
             "Upload bank statement (.xls or .xlsx)",
@@ -832,25 +926,22 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
             except Exception as exc:
                 st.error(f"Statement save नहीं हुआ: {exc}")
 
-        pending_tab, approved_tab, suspense_tab, other_expense_tab = st.tabs(
-            ["Assign & Approve", "Approved Payments", "Suspense", "Other Expenses"]
-        )
-        with pending_tab:
+        if st.session_state.banking_active_view == "Assign & Approve":
             try:
                 render_pending(fetch_transactions(account["key"], "Pending"), account["key"], "Pending")
             except Exception as exc:
                 st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
-        with approved_tab:
+        elif st.session_state.banking_active_view == "Approved Payments":
             try:
                 render_approved(fetch_transactions(account["key"], "Approved"), account["key"])
             except Exception as exc:
                 st.warning(f"Approved payments load नहीं हुए: {exc}")
-        with suspense_tab:
+        elif st.session_state.banking_active_view == "Suspense":
             try:
                 render_pending(fetch_transactions(account["key"], "Suspense"), account["key"], "Suspense")
             except Exception as exc:
                 st.warning(f"Suspense transactions load नहीं हुए: {exc}")
-        with other_expense_tab:
+        elif st.session_state.banking_active_view == "Other Expenses":
             try:
                 render_other_expenses(
                     fetch_transactions(account["key"], "Other Expense"),
