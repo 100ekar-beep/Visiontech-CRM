@@ -539,6 +539,22 @@ def bulk_move_transactions(transaction_ids, destination: str):
     ).execute()
 
 
+def bulk_approve_transactions(transaction_ids, assignment: str, duplicate_action="proceed"):
+    mode, pay_to = parse_assignment(assignment)
+    if mode not in {"Team", "Vendor"}:
+        raise ValueError("Team या Vendor select करें")
+    return supabase.rpc(
+        "bulk_approve_bank_transactions",
+        {
+            "p_transaction_ids": [int(value) for value in transaction_ids],
+            "p_mode": mode,
+            "p_pay_to": pay_to,
+            "p_duplicate_action": duplicate_action,
+            "p_approved_by": current_user(),
+        },
+    ).execute()
+
+
 def find_possible_duplicates(row: dict, assignment: str):
     mode, pay_to = parse_assignment(assignment)
     if mode == "Suspense":
@@ -688,9 +704,12 @@ def render_bulk_search_and_move(records, account_key):
 
         selected_ids = edited_df.loc[edited_df["Select"] == True, "ID"].astype(int).tolist()
         expense_categories = load_expense_categories()
-        destination_options = ["— Select Destination —", "Suspense"] + [
-            f"Other Expense — {category}" for category in expense_categories
-        ]
+        destination_options = (
+            ["— Select Destination —", "Suspense"]
+            + [f"Other Expense — {category}" for category in expense_categories]
+            + [f"Team — {name}" for name in load_people("Team Name")]
+            + [f"Vendor — {name}" for name in load_people("Vendor Name")]
+        )
 
         destination_column, action_column = st.columns([3, 1.4])
         with destination_column:
@@ -714,8 +733,36 @@ def render_bulk_search_and_move(records, account_key):
                     raise ValueError("कम से कम एक entry select करें")
                 if destination == "— Select Destination —":
                     raise ValueError("Move To destination select करें")
-                bulk_move_transactions(selected_ids, destination)
-                st.success(f"{len(selected_ids)} selected entries successfully move हो गईं।")
+                if destination.startswith(("Team — ", "Vendor — ")):
+                    selected_id_set = set(selected_ids)
+                    selected_rows = [
+                        row for row in matches if int(row["id"]) in selected_id_set
+                    ]
+                    duplicate_rows = []
+                    for selected_row in selected_rows:
+                        existing_matches = find_possible_duplicates(selected_row, destination)
+                        if existing_matches:
+                            duplicate_rows.append(
+                                {
+                                    "transaction": selected_row,
+                                    "existing": existing_matches,
+                                }
+                            )
+
+                    if duplicate_rows:
+                        st.session_state["banking_bulk_duplicate_review"] = {
+                            "transaction_ids": selected_ids,
+                            "assignment": destination,
+                            "duplicate_rows": duplicate_rows,
+                        }
+                        bulk_duplicate_payment_dialog()
+                        return
+
+                    bulk_approve_transactions(selected_ids, destination, "proceed")
+                    st.success(f"{len(selected_ids)} payments approve हो गईं।")
+                else:
+                    bulk_move_transactions(selected_ids, destination)
+                    st.success(f"{len(selected_ids)} selected entries successfully move हो गईं।")
                 st.rerun()
             except Exception as exc:
                 st.error(f"Bulk move failed: {exc}")
@@ -975,6 +1022,64 @@ def duplicate_payment_dialog():
             st.rerun()
         except Exception as exc:
             st.error(f"Payment approval failed: {exc}")
+
+
+@st.dialog("Bulk Possible Duplicate Payments", width="large")
+def bulk_duplicate_payment_dialog():
+    review = st.session_state.get("banking_bulk_duplicate_review")
+    if not review:
+        return
+
+    assignment = review["assignment"]
+    duplicate_rows = review["duplicate_rows"]
+    st.warning(
+        f"{len(duplicate_rows)} selected transaction(s) में Same Date + Amount + "
+        f"{html.escape(assignment)} payment पहले से मौजूद है।"
+    )
+
+    display_rows = []
+    for item in duplicate_rows:
+        transaction = item["transaction"]
+        for existing in item["existing"]:
+            display_rows.append(
+                {
+                    "Bank Date": format_date(transaction.get("transaction_date")),
+                    "Bank Amount": format_amount(transaction.get("withdrawal_amount")),
+                    "Selected For": assignment,
+                    "Existing Payment ID": existing.get("id"),
+                    "Existing Date": format_date(existing.get("date")),
+                    "Existing Amount": format_amount(existing.get("amount")),
+                    "Existing Name": f"{existing.get('mode')}: {existing.get('pay_to')}",
+                }
+            )
+    st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+
+    left, right = st.columns(2)
+    if left.button("Duplicate Entry", key="bulk_duplicate_link", use_container_width=True):
+        try:
+            bulk_approve_transactions(
+                review["transaction_ids"],
+                assignment,
+                "link",
+            )
+            st.session_state.pop("banking_bulk_duplicate_review", None)
+            st.success("Existing matching payments link हुईं; duplicate payments नहीं बनीं।")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Bulk duplicate link failed: {exc}")
+
+    if right.button("Proceed", key="bulk_duplicate_proceed", type="primary", use_container_width=True):
+        try:
+            bulk_approve_transactions(
+                review["transaction_ids"],
+                assignment,
+                "proceed",
+            )
+            st.session_state.pop("banking_bulk_duplicate_review", None)
+            st.success("सभी selected transactions की नई payments save हो गईं।")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Bulk approval failed: {exc}")
 
 
 if "banking_active_account" not in st.session_state:
