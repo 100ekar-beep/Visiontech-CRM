@@ -66,11 +66,12 @@ st.markdown(
 )
 
 
-if not st.session_state.get("logged_in", False):
-    st.error("Please login from the Home page first.")
-    st.stop()
+# Always keep a visible way back, including on password/error screens.
+if st.button("← Back to Home", key="banking_back_home", use_container_width=False):
+    st.switch_page("app.py")
 
-active_workspace = st.session_state.get("active_workspace", "")
+
+active_workspace = st.session_state.get("active_workspace", "VISPL")
 if active_workspace != ALLOWED_WORKSPACE:
     st.error("Access Restricted")
     st.warning("Banking module केवल VISPL login के लिए उपलब्ध है।")
