@@ -60,6 +60,23 @@ st.markdown(
     .narration { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
     .amount { color: #dc2626; font-weight: 900; font-size: 1.02rem; }
     .approved { color: #047857; font-weight: 800; }
+    .preview-wrap {
+        max-height: 480px; overflow: auto; background: white;
+        border: 1px solid #dbe3ef; border-radius: 12px;
+    }
+    .preview-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .preview-table th {
+        position: sticky; top: 0; z-index: 1; background: #312e81; color: white;
+        padding: 11px 9px; text-align: left; font-weight: 800;
+    }
+    .preview-table td {
+        padding: 9px; border-bottom: 1px solid #e5e7eb; vertical-align: top;
+        color: #1f2937;
+    }
+    .preview-table .p-date { width: 125px; white-space: nowrap; }
+    .preview-table .p-narration { width: auto; white-space: normal; overflow-wrap: anywhere; }
+    .preview-table .p-ref { width: 205px; overflow-wrap: anywhere; }
+    .preview-table .p-amount { width: 125px; white-space: nowrap; text-align: right; font-weight: 800; }
     div[data-baseweb="select"] * { font-weight: 700 !important; }
     </style>
     """,
@@ -358,6 +375,38 @@ def format_amount(value) -> str:
         return "₹0"
 
 
+def render_statement_preview(preview_df: pd.DataFrame):
+    rows_html = []
+    for _, row in preview_df.iterrows():
+        rows_html.append(
+            "<tr>"
+            f"<td class='p-date'>{html.escape(str(row['Date']))}</td>"
+            f"<td class='p-narration'>{html.escape(str(row['Narration']))}</td>"
+            f"<td class='p-ref'>{html.escape(str(row['Chq./Ref.No.']))}</td>"
+            f"<td class='p-amount'>{html.escape(str(row['Withdrawal Amt.']))}</td>"
+            "</tr>"
+        )
+
+    table_html = (
+        "<div class='preview-wrap'><table class='preview-table'>"
+        "<colgroup>"
+        "<col style='width:125px'>"
+        "<col>"
+        "<col style='width:205px'>"
+        "<col style='width:125px'>"
+        "</colgroup>"
+        "<thead><tr>"
+        "<th class='p-date'>Date</th>"
+        "<th class='p-narration'>Narration</th>"
+        "<th class='p-ref'>Chq./Ref.No.</th>"
+        "<th class='p-amount'>Withdrawal</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table></div>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
 def render_header(show_assignment=True):
     widths = [0.9, 5.1, 1.5, 1.1, 2.3, 1.0] if show_assignment else [0.9, 5.4, 1.5, 1.1, 2.3]
     labels = ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Team/Vendor", "Action"] if show_assignment else ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Booked To"]
@@ -461,6 +510,7 @@ tabs = st.tabs(list(ACCOUNTS.keys()))
 for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
     with tab:
         st.subheader(account_label)
+        st.markdown("#### Step 1: Statement Upload")
         uploaded = st.file_uploader(
             "Upload bank statement (.xls or .xlsx)",
             type=["xls", "xlsx"],
@@ -482,7 +532,7 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                     account_label,
                     uploaded.name,
                 )
-                st.info(f"{len(preview_records)} withdrawal transactions मिले। Deposit और Closing Balance ignore किए गए हैं।")
+                st.info(f"Preview: {len(preview_records)} withdrawal transactions मिले। Deposit और Closing Balance शामिल नहीं हैं।")
 
                 preview_df = pd.DataFrame(preview_records)[
                     ["transaction_date", "narration", "reference_no", "withdrawal_amount"]
@@ -490,19 +540,9 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                 preview_df.columns = ["Date", "Narration", "Chq./Ref.No.", "Withdrawal Amt."]
                 preview_df["Date"] = pd.to_datetime(preview_df["Date"]).dt.strftime("%d-%b-%Y")
                 preview_df["Withdrawal Amt."] = preview_df["Withdrawal Amt."].apply(format_amount)
-                st.dataframe(
-                    preview_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Date": st.column_config.TextColumn(width="small"),
-                        "Narration": st.column_config.TextColumn(width="large"),
-                        "Chq./Ref.No.": st.column_config.TextColumn(width="small"),
-                        "Withdrawal Amt.": st.column_config.TextColumn(width="small"),
-                    },
-                )
+                render_statement_preview(preview_df)
 
-                if st.button("Import Statement", key=f"import_{account['key']}", type="primary"):
+                if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
                     before = len(fetch_transactions(account["key"], "Pending")) + len(fetch_transactions(account["key"], "Approved"))
                     supabase.table("bank_transactions").upsert(
                         preview_records,
@@ -513,16 +553,16 @@ for tab, (account_label, account) in zip(tabs, ACCOUNTS.items()):
                     st.success(f"Import completed. New entries: {max(0, after - before)} | Duplicate skipped: {max(0, len(preview_records) - max(0, after - before))}")
                     st.rerun()
             except Exception as exc:
-                st.error(f"Statement read/import error: {exc}")
+                st.error(f"Statement save नहीं हुआ: {exc}")
 
-        pending_tab, approved_tab = st.tabs(["Pending Approval", "Approved"])
+        pending_tab, approved_tab = st.tabs(["Step 2: Assign & Approve", "Step 3: Approved Payments"])
         with pending_tab:
             try:
                 render_pending(fetch_transactions(account["key"], "Pending"), account["key"])
             except Exception as exc:
-                st.error(f"Pending transactions load error: {exc}")
+                st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
         with approved_tab:
             try:
                 render_approved(fetch_transactions(account["key"], "Approved"), account["key"])
             except Exception as exc:
-                st.error(f"Approved transactions load error: {exc}")
+                st.warning(f"Approved payments load नहीं हुए: {exc}")
