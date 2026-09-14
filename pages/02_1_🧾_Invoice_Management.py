@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import io
 import json
+import re
 from supabase import create_client, Client
 from st_keyup import st_keyup
 from datetime import datetime, date
@@ -257,17 +258,18 @@ st.markdown("""
         padding: 0px 0 !important;
     }
     div[class*="_table_wrap"] div[data-testid="stHorizontalBlock"] {
-        min-width: 3400px;
+        min-width: 1200px;
         align-items: center !important;
         border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        padding: 6px 0 !important;
+        padding: 2px 0 !important;
+        gap: 2px !important;
         flex-wrap: nowrap !important;
     }
     div[class*="_table_wrap"] div[data-testid="stHorizontalBlock"]:hover {
         background: rgba(255,255,255,0.04);
     }
     div[class*="_table_wrap"] div[data-testid="column"] {
-        padding: 0 12px !important;
+        padding: 0 5px !important;
         display: flex;
         align-items: center;
         justify-content: flex-start;
@@ -279,7 +281,7 @@ st.markdown("""
 
     div[class*="_table_wrap"] .tbl-head {
         background: transparent;
-        font-size: 0.75rem;
+        font-size: 0.68rem;
         font-weight: 800;
         letter-spacing: 0.8px;
         color: #94a3b8;
@@ -288,7 +290,7 @@ st.markdown("""
     }
     div[class*="_table_wrap"] .tbl-cell {
         color: #e2e8f0;
-        font-size: 0.86rem;
+        font-size: 0.78rem;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
@@ -301,7 +303,7 @@ st.markdown("""
     }
 
     div[class*="_table_wrap"] button {
-        height: 32px !important;
+        height: 28px !important;
         width: 100% !important;
         padding: 0 !important;
         min-height: 0 !important;
@@ -321,14 +323,8 @@ st.markdown("""
     }
 
     .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(1) { padding: 0 10px 0 15px !important; }
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(3),
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(4) {
+    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(2) {
         padding: 4px 4px !important;
-        border-right: none !important;
-    }
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(5) {
-        padding: 4px 15px 4px 4px !important;
         border-right: 1px solid rgba(255,255,255,0.06) !important;
     }
     </style>
@@ -915,14 +911,14 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
 
     data_cols = [c for c in df.columns if c != 'id']
     if pdf_button:
-        col_ratios = [0.3, 0.35, 0.35, 0.35, 0.35] + [1.0] * len(data_cols)
-        col_labels = ["#", "👁️", "✏️", "🗑️", "📄"] + [c.replace("_", " ").title() for c in data_cols]
+        col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
+        col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
     else:
-        col_ratios = [0.3, 0.35, 0.35, 0.35] + [1.0] * len(data_cols)
-        col_labels = ["#", "👁️", "✏️", "🗑️"] + [c.replace("_", " ").title() for c in data_cols]
+        col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
+        col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
 
     wrap_key = f"{prefix}_table_wrap"
-    min_width = max(1200, 260 + len(data_cols) * 170)
+    min_width = max(1000, 125 + len(data_cols) * 125)
     st.markdown(
         f"<style>.st-key-{wrap_key} div[data-testid='stHorizontalBlock'] {{ min-width: {min_width}px !important; }}</style>",
         unsafe_allow_html=True
@@ -944,46 +940,33 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
 
                 rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
                 with rcols[1]:
-                    if st.button("👁️", key=f"{prefix}_view_{rid}", use_container_width=True):
-                        generic_view_dialog(row_dict, df.columns.tolist(), prefix)
-                with rcols[2]:
-                    if st.button("✏️", key=f"{prefix}_editbtn_{rid}", use_container_width=True):
-                        generic_edit_dialog(table_name, row_dict, df.columns.tolist(), prefix)
-                with rcols[3]:
                     label_val = str(row_dict.get(data_cols[0], rid)) if data_cols else str(rid)
-                    if st.button("🗑️", key=f"{prefix}_delbtn_{rid}", use_container_width=True):
-                        generic_delete_dialog(table_name, rid, label_val, prefix)
-
-                data_start_idx = 4
-                if pdf_button:
-                    with rcols[4]:
-                        # TRUE 1-CLICK DOWNLOAD: PDF bytes are computed right here,
-                        # inline, every render (cheap — pure in-memory PDF build,
-                        # no Supabase/network calls, never saved anywhere) so the
-                        # button IS the download button — a single click downloads
-                        # immediately, no separate "generate" step needed anymore.
-                        guess_inv = _ers_find_field(row_dict, [
-                            "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
-                            "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
-                            "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
-                            "invoice", "ers number", "ers no", "ers_number"
-                        ])
-                        guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
-                        guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
-                        try:
-                            pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date)
-                            st.download_button(
-                                "📥",
-                                data=pdf_bytes,
-                                file_name=_ers_pdf_filename(guess_inv),
-                                mime="application/pdf",
-                                key=f"{prefix}_pdfdl_{rid}",
-                                help="Download checklist PDF (not saved anywhere)",
-                                use_container_width=True
-                            )
-                        except Exception as e:
-                            st.button("⚠️", key=f"{prefix}_pdferr_{rid}", help=f"PDF error: {e}", use_container_width=True, disabled=True)
-                    data_start_idx = 5
+                    with st.popover("⚙️", use_container_width=True):
+                        if st.button("👁️ Open", key=f"{prefix}_view_{rid}", use_container_width=True):
+                            generic_view_dialog(row_dict, df.columns.tolist(), prefix)
+                        if st.button("✏️ Edit", key=f"{prefix}_editbtn_{rid}", use_container_width=True):
+                            generic_edit_dialog(table_name, row_dict, df.columns.tolist(), prefix)
+                        if st.button("🗑️ Delete", key=f"{prefix}_delbtn_{rid}", use_container_width=True):
+                            generic_delete_dialog(table_name, rid, label_val, prefix)
+                        if pdf_button:
+                            guess_inv = _ers_find_field(row_dict, [
+                                "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
+                                "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
+                                "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
+                                "invoice", "ers number", "ers no", "ers_number"
+                            ])
+                            guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
+                            guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
+                            try:
+                                pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date)
+                                st.download_button(
+                                    "📥 Download PDF", data=pdf_bytes,
+                                    file_name=_ers_pdf_filename(guess_inv), mime="application/pdf",
+                                    key=f"{prefix}_pdfdl_{rid}", use_container_width=True
+                                )
+                            except Exception as e:
+                                st.button("⚠️ PDF Error", key=f"{prefix}_pdferr_{rid}", help=str(e), use_container_width=True, disabled=True)
+                data_start_idx = 2
 
                 for idx, k in enumerate(data_cols, start=data_start_idx):
                     val = row_dict.get(k, '')
@@ -1045,23 +1028,43 @@ WORKSPACE_DISCOUNT_PCT = {
 # in the "Bill From" dropdown on the Add Invoice dialog; the PDF header uses
 # these details for the seller box (dynamically, per selected company).
 BILL_FROM_DETAILS = {
-    "VISPL": {
-        "full_name": "Visiontech Infra Solution Pvt. Ltd.",
-        "address": "Near Vikas Mitra Madal Chowk, Survey No 8/9/7, House No 81 Santkrupa Building, Canal Road, Lane Number 2, Karve Nagar, Pune, Pune, Maharashtra, 411052",
-        "gstin": "27AAICV3205F1ZI",
-        "pan": "AAICV3205F",
+    "Pramodkumar Jaju": {
+        "letterhead_name": "Pramodkumar Jaju",
+        "full_name": "Pramodkumar B. Jaju",
+        "address": "Near Vikas Mitra Madal Chowk, Survey No 8/9/7, House No 81, Santkrupa Building, Canal Road, Lane Number 2, Karve Nagar, Pune, Pune, Maharashtra, 411052",
+        "pan": "AJBPJ0233E",
+        "contact_person": "Pramodkumar Jaju",
+        "mobile": "9552273181",
+        "state": "Maharashtra, Code : 27",
+        "invoice_prefix": "PRAMO",
+    },
+    "Radhika Jaju": {
+        "letterhead_name": "Radhika Jaju",
+        "full_name": "Radhika P. Jaju",
+        "address": "Near Vikas Mitra Madal Chowk, Survey No 8/9/7, House No 81, Santkrupa Building, Canal Road, Lane Number 2, Karve Nagar, Pune, Pune, Maharashtra, 411052",
+        "pan": "CCOPR9903F",
         "contact_person": "Radhika Jaju",
         "mobile": "9742514121",
-        "email": "vispltower@gmail.com",
         "state": "Maharashtra, Code : 27",
-    },
-    "Whizkey": {
-        "full_name": "Whizkey",
-        "address": "Address line 1, City, State - PIN",
-        "gstin": "GSTIN NOT SET",
-        "state": "",
+        "invoice_prefix": "RADH",
     },
 }
+
+
+def bhagya_next_invoice_number(bill_from):
+    """Return the next seller-wise invoice number, e.g. PRAMO-001/RADH-001."""
+    prefix = BILL_FROM_DETAILS.get(bill_from, {}).get("invoice_prefix", "INV")
+    highest = 0
+    try:
+        result = supabase.table(BHAGYA_TABLE).select("invoice_no").execute()
+        pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$", re.IGNORECASE)
+        for record in (result.data or []):
+            match = pattern.match(str(record.get("invoice_no", "")).strip())
+            if match:
+                highest = max(highest, int(match.group(1)))
+    except Exception:
+        pass
+    return f"{prefix}-{highest + 1:03d}"
 
 # "Bill To" / "Ship To" details, keyed by workspace — Bhagyashree invoices
 # always bill (and ship) to Bhagyashree Enterprises itself.
@@ -1217,7 +1220,7 @@ def bhagya_generate_pdf(row_data):
     # ---------------- LETTERHEAD ----------------
     pdf.set_font("Arial", "B", 16)
     pdf.set_text_color(15, 40, 110)
-    pdf.cell(PAGE_W, 8, "VISIONTECH INFRA SOLUTION PVT. LTD.", align="C", ln=1)
+    pdf.cell(PAGE_W, 8, str(bf_details.get("letterhead_name", bill_from)), align="C", ln=1)
     pdf.set_draw_color(15, 40, 110)
     pdf.set_line_width(0.6)
     pdf.line(8, pdf.get_y() + 1, 8 + PAGE_W, pdf.get_y() + 1)
@@ -1254,12 +1257,14 @@ def bhagya_generate_pdf(row_data):
         right_lines.append(("", ln))
     if bf_details.get("state"):
         right_lines.append(("", f"State Name : {bf_details.get('state', '')}"))
-    right_lines.append(("", f"GSTIN/UIN : {bf_details.get('gstin', '')}"))
+    if bf_details.get("gstin"):
+        right_lines.append(("", f"GSTIN/UIN : {bf_details.get('gstin', '')}"))
     if bf_details.get("pan"):
         right_lines.append(("", f"PAN : {bf_details.get('pan', '')}"))
     if bf_details.get("contact_person"):
         right_lines.append(("", f"Contact : {bf_details.get('contact_person', '')}  Mobile : {bf_details.get('mobile', '')}"))
-    right_lines.append(("", f"E-Mail : {bf_details.get('email', '')}"))
+    if bf_details.get("email"):
+        right_lines.append(("", f"E-Mail : {bf_details.get('email', '')}"))
 
     max_lines = max(len(left_lines), len(right_lines))
     box_x = pdf.get_x()
@@ -1432,7 +1437,8 @@ def bhagya_add_invoice_dialog():
     with bf1:
         bill_from = st.selectbox("Bill From *", options=list(BILL_FROM_DETAILS.keys()), key="bhagya_bill_from")
     with bf2:
-        invoice_no = st.text_input("Invoice No *", key="bhagya_inv_no")
+        invoice_no = bhagya_next_invoice_number(bill_from)
+        st.text_input("Invoice No (Auto Generated)", value=invoice_no, disabled=True, key=f"bhagya_inv_no_{bill_from}")
 
     site_map = bhagya_get_site_options()
     project_options = ["Select"] + sorted(site_map.keys())
@@ -1532,11 +1538,11 @@ def bhagya_add_invoice_dialog():
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Invoice", type="primary", use_container_width=True, key="bhagya_save_btn"):
-        if not invoice_no.strip():
-            st.error("⚠️ Invoice No is required!")
-        elif subtotal <= 0:
+        if subtotal <= 0:
             st.error("⚠️ Kam se kam ek line me Claim Qty > 0 dalein!")
         else:
+            # Save ke bilkul pehle number dobara nikalein, taaki latest series use ho.
+            invoice_no = bhagya_next_invoice_number(bill_from)
             payload = {
                 "workspace": BHAGYA_WORKSPACE,
                 "invoice_no": invoice_no.strip(),
@@ -1931,8 +1937,8 @@ def render_bhagyashree_tab():
     end_idx = start_idx + rows_per_page
     page_df = view_df.iloc[start_idx:end_idx]
 
-    b_cols = ["#", "🧾", "✏️", "🗑️", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
-    b_ratios = [0.3, 0.35, 0.35, 0.35, 1.1, 1.0, 1.0, 1.0, 1.1, 1.4, 1.0, 1.0, 1.1]
+    b_cols = ["#", "Setting", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
+    b_ratios = [0.3, 0.65, 1.1, 0.9, 1.0, 1.0, 1.0, 1.3, 0.8, 0.8, 0.9]
 
     with st.container(key="bhagya_table_wrap", height=520):
         h_cols = st.columns(b_ratios)
@@ -1945,28 +1951,27 @@ def render_bhagyashree_tab():
             r_cols = st.columns(b_ratios)
             r_cols[0].markdown(f"<div class='tbl-cell tbl-serial'>{start_idx + pos + 1}</div>", unsafe_allow_html=True)
             with r_cols[1]:
-                if st.button("🧾", key=f"bhagya_view_{rid}", use_container_width=True):
-                    bhagya_view_invoice_dialog(row_dict)
-            with r_cols[2]:
-                if st.button("✏️", key=f"bhagya_editbtn_{rid}", use_container_width=True):
-                    bhagya_edit_invoice_dialog(row_dict)
-            with r_cols[3]:
-                if st.button("🗑️", key=f"bhagya_delbtn_{rid}", use_container_width=True):
-                    bhagya_delete_dialog(rid, row_dict.get('invoice_no', ''))
-            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
-            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
-            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
-            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
+                with st.popover("⚙️", use_container_width=True):
+                    if st.button("👁️ Open", key=f"bhagya_view_{rid}", use_container_width=True):
+                        bhagya_view_invoice_dialog(row_dict)
+                    if st.button("✏️ Edit", key=f"bhagya_editbtn_{rid}", use_container_width=True):
+                        bhagya_edit_invoice_dialog(row_dict)
+                    if st.button("🗑️ Delete", key=f"bhagya_delbtn_{rid}", use_container_width=True):
+                        bhagya_delete_dialog(rid, row_dict.get('invoice_no', ''))
+            r_cols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
+            r_cols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
+            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
+            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
+            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
             # "Basic" = taxable amount AFTER the workspace discount has been
             # cut (matches the "Basic Amount" total that will show on the PDF).
             subtotal_v = row_dict.get('subtotal', 0) or 0
             basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
-            r_cols[10].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[8].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
             gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
-            r_cols[11].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
-            r_cols[12].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
+            r_cols[9].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
+            r_cols[10].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
@@ -2404,9 +2409,9 @@ if st.session_state.active_page == "vis":
         'balance', 'remark'
     ]
 
-    COL_RATIOS = [0.3, 0.35, 0.35, 0.35] + [1.0] * len(keys_seq)
+    COL_RATIOS = [0.3, 0.65] + [1.0] * len(keys_seq)
     COL_LABELS = [
-        "#", "👁️", "✏️", "🗑️",
+        "#", "Setting",
         "Circle", "Invoice No", "Invoice Date", "Basic Amount", "CGST", "SGST", "IGST", "Total",
         "Project ID", "Site ID", "Site Name", "PO Number", "WCC Number", "Receipt No", "% Amount",
         "Sub Status",
@@ -2429,16 +2434,15 @@ if st.session_state.active_page == "vis":
 
                 rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
                 with rcols[1]:
-                    if st.button("👁️", key=f"view_inv_{rid}", use_container_width=True):
-                        view_invoice_dialog(row_dict)
-                with rcols[2]:
-                    if st.button("✏️", key=f"edit_inv_{rid}", use_container_width=True):
-                        edit_invoice_dialog(row_dict)
-                with rcols[3]:
-                    if st.button("🗑️", key=f"del_inv_{rid}", use_container_width=True):
-                        delete_invoice_dialog(rid, row_dict.get('invoice_number', ''))
+                    with st.popover("⚙️", use_container_width=True):
+                        if st.button("👁️ Open", key=f"view_inv_{rid}", use_container_width=True):
+                            view_invoice_dialog(row_dict)
+                        if st.button("✏️ Edit", key=f"edit_inv_{rid}", use_container_width=True):
+                            edit_invoice_dialog(row_dict)
+                        if st.button("🗑️ Delete", key=f"del_inv_{rid}", use_container_width=True):
+                            delete_invoice_dialog(rid, row_dict.get('invoice_number', ''))
 
-                for idx, k in enumerate(keys_seq, start=4):
+                for idx, k in enumerate(keys_seq, start=2):
                     val = row_dict.get(k, '')
 
                     if k == 'Total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
