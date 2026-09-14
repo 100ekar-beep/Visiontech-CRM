@@ -958,8 +958,6 @@ def view_po_details_dialog(row_data):
             ):
                 if selected_master_row is None:
                     st.error("पहले Item Code select करें।")
-                elif int(new_po_qty) <= 0:
-                    st.error("PO Qty 0 से ज्यादा डालें।")
                 else:
                     new_item_code = str(selected_master_row.get("Item Code", "")).strip()
                     duplicate_mask = df_temp["Item Num"].astype(str).str.strip() == new_item_code
