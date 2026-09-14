@@ -16,3 +16,4 @@ streamlit
 boto3
 pypdf
 xlrd>=2.0.1
+reportlab
