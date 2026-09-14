@@ -1244,6 +1244,7 @@ def _fetch_po_lines_for_site(row_data):
                 "item_code": item_code,
                 "item_description": description,
                 "qty": qty,
+                "qty_manual": False,
                 "remarks": "",
             })
     return lines
@@ -1268,7 +1269,8 @@ def _merge_saved_lines_with_po(saved_lines, po_lines):
                 row["item_code"] = source.get("item_code", "")
             if not desc:
                 row["item_description"] = source.get("item_description", "")
-            if _number_value(row.get("qty")) == 0 and _number_value(source.get("qty")) != 0:
+            if (not row.get("qty_manual") and _number_value(row.get("qty")) == 0
+                    and _number_value(source.get("qty")) != 0):
                 row["qty"] = source.get("qty", 0)
             used_codes.add(_clean_text(source.get("item_code")).lower())
         if not _clean_text(row.get("item_code")) and _clean_text(row.get("item_description")):
@@ -1405,7 +1407,8 @@ def _build_jms_pdf(row_data, circle, lines):
             line = chunk[row_pos] if row_pos < len(chunk) else {}
             global_no = (page_no - 1)*30 + row_pos + 1 if row_pos < len(chunk) else ""
             qty = _number_value(line.get("qty")) if line else 0
-            qty_text = (str(int(qty)) if float(qty).is_integer() else f"{qty:g}") if line else ""
+            # Zero means intentionally blank in JMS; never print 0 in the PDF.
+            qty_text = (str(int(qty)) if float(qty).is_integer() else f"{qty:g}") if line and qty != 0 else ""
             values = [global_no, _clean_text(line.get("item_code")), first_60_words(line.get("item_description")), qty_text, _clean_text(line.get("remarks"))]
             x = tx
             for col_no, (value, width) in enumerate(zip(values, widths)):
@@ -1466,16 +1469,37 @@ def jms_dialog(row_data):
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
             if col not in editor_df.columns:
                 editor_df[col] = default
+        # Use a text-backed Qty editor so numeric zero can be shown as a truly blank cell.
+        # The user can type any numeric Qty; blank/0 are both stored as blank for JMS display.
+        editor_df["qty"] = editor_df["qty"].apply(
+            lambda value: "" if _number_value(value) == 0 else (
+                str(int(_number_value(value))) if _number_value(value).is_integer()
+                else f"{_number_value(value):g}"
+            )
+        )
         edited = st.data_editor(
             editor_df[["item_code", "item_description", "qty", "remarks"]],
             hide_index=True, use_container_width=True, num_rows="dynamic",
             column_config={
                 "item_code": st.column_config.TextColumn("Item Code"),
                 "item_description": st.column_config.TextColumn("Item Description", width="large"),
-                "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
+                "qty": st.column_config.TextColumn("Qty", help="Qty editable hai; 0 ya blank dono blank rahenge."),
                 "remarks": st.column_config.TextColumn("Remarks", width="medium"),
             }, key=f"jms_editor_{active_key}")
-        st.session_state.jms_lines = edited.to_dict("records")
+        edited_records = edited.to_dict("records")
+        for item in edited_records:
+            raw_qty = _clean_text(item.get("qty"))
+            if raw_qty:
+                try:
+                    parsed_qty = float(raw_qty.replace(",", ""))
+                    item["qty"] = None if parsed_qty == 0 else parsed_qty
+                except ValueError:
+                    item["qty"] = None
+            else:
+                item["qty"] = None
+            # Once saved from the editor, even blank Qty is an intentional user choice.
+            item["qty_manual"] = True
+        st.session_state.jms_lines = edited_records
     else:
         st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
 
@@ -1489,9 +1513,10 @@ def jms_dialog(row_data):
     add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jms_add_desc_{active_key}_{gen}")
     if master and add_code:
         st.caption(add_desc)
-    add_qty = st.number_input("Qty", min_value=0.0, step=1.0, value=0.0, key=f"jms_add_qty_{active_key}_{gen}")
+    add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jms_add_qty_{active_key}_{gen}")
     if st.button("➕ Add New Item", use_container_width=True, key=f"jms_add_btn_{active_key}", disabled=not _clean_text(add_code)):
-        st.session_state.jms_lines.append({"item_code": add_code, "item_description": add_desc, "qty": add_qty, "remarks": ""})
+        add_qty = _number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None
+        st.session_state.jms_lines.append({"item_code": add_code, "item_description": add_desc, "qty": None if add_qty == 0 else add_qty, "qty_manual": True, "remarks": ""})
         st.session_state.jms_add_gen += 1
         st.rerun()
 
