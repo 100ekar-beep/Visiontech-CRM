@@ -2,155 +2,126 @@ import streamlit as st
 import pandas as pd
 import math
 import io
-import uuid
-import subprocess
-import tempfile
-import os
-import zipfile
 import requests
-import boto3
-from botocore.client import Config
-from PIL import Image, ImageOps
-from pypdf import PdfReader, PdfWriter
-import smtplib  # <--- NEW: For Email Sending
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import urllib.parse
 from supabase import create_client, Client
-from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
-from datetime import datetime, timedelta # <--- Added for parsing existing date strings
+
+# Attempt to load st_keyup for real-time auto-search
+try:
+    from st_keyup import st_keyup
+    HAS_KEYUP = True
+except ImportError:
+    HAS_KEYUP = False
 
 # --- 1. PAGE CONFIGURATION ---
-st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 
-# --- INITIALIZE SESSION STATES ---
-if 'po_count' not in st.session_state:
-    st.session_state.po_count = 1
-
-if 'mat_count' not in st.session_state:
-    st.session_state.mat_count = 1
-
-if 'add_mat_count' not in st.session_state:
-    st.session_state.add_mat_count = 1
-
-if 'pending_comm_email' not in st.session_state:
-    st.session_state.pending_comm_email = False
-if 'comm_site_data' not in st.session_state:
-    st.session_state.comm_site_data = {}
-
-if 'site_view_mode' not in st.session_state:
-    st.session_state.site_view_mode = "table"
+# --- NEW: MOBILE VIEW TOGGLE STATE ---
+if 'po_view_mode' not in st.session_state:
+    st.session_state.po_view_mode = "table"
 
 # --- MULTI-COMPANY TAB SETUP (single login — switch company inside this page) ---
-SITE_COMPANIES = [
+PO_COMPANIES = [
     ("VISPL", "VISPL"),
     ("Bhagyashree", "Bhagyashree"),
     ("Sai Tele", "Sai Tele"),
 ]
-SITE_COMPANY_WORKSPACE_MAP = {
+PO_COMPANY_WORKSPACE_MAP = {
     "VISPL": "VISPL",
     "Bhagyashree": "BHAGYASHREE",
     "Sai Tele": "SAI TELE SERVICES",
 }
-if 'site_active_company' not in st.session_state:
-    st.session_state.site_active_company = "VISPL"
+if 'po_active_company' not in st.session_state:
+    st.session_state.po_active_company = "VISPL"
 # Derive the actual workspace used by every query in this file from the active tab,
 # so switching tabs is the only thing needed — no separate per-company login required.
-st.session_state['active_workspace'] = SITE_COMPANY_WORKSPACE_MAP.get(st.session_state.site_active_company, "VISPL")
+st.session_state['active_workspace'] = PO_COMPANY_WORKSPACE_MAP.get(st.session_state.po_active_company, "VISPL")
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Light Premium Theme */
-    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+    /* Dark Premium Theme */
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
     
-    /* Top Action Buttons */
-    div.stButton > button {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+    /* Primary Action Buttons */
+    button[data-testid="baseButton-primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: white !important;
-        border: none;
-        border-radius: 8px;
+        border: none !important;
+        border-radius: 8px !important;
         font-weight: 800 !important;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+        padding: 0.5rem 1rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2) !important;
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
+    
+    /* Secondary Action Buttons (Like Cancel) */
+    button[data-testid="baseButton-secondary"] {
+        background: rgba(255, 255, 255, 0.05) !important;
+        color: #e2e8f0 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 8px !important;
+        font-weight: 800 !important;
+        padding: 0.5rem 1rem !important;
+        transition: all 0.3s ease !important;
+    }
+
+    button[data-testid="baseButton-primary"]:hover, 
+    button[data-testid="baseButton-secondary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
 
     /* Pagination Text & Button Font Color Fix */
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #334155; margin-top: 10px; }
-    
-    div.stButton > button p, 
-    div.stButton > button span, 
-    div.stButton > button div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-    }
+    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
     
     /* Modal/Dialog Glassmorphism */
     div[data-testid="stDialog"] > div {
-        background: rgba(255, 255, 255, 0.98);
+        background: rgba(15, 23, 42, 0.95);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(0, 0, 0, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
     
     /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
     div[data-testid="stDialog"] h1, 
     div[data-testid="stDialog"] h2, 
     div[data-testid="stDialog"] h3 {
-        color: #0f172a !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
         letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
     div[data-testid="stDialog"] p {
-        color: #1e293b !important; 
+        color: #e2e8f0 !important; 
     }
     div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #0f172a !important; 
+        fill: #ffffff !important; 
     }
 
     .modal-section-title {
-        color: #475569;
+        color: #94a3b8;
         font-size: 0.85rem;
         font-weight: 700;
         letter-spacing: 1px;
         margin-top: 15px;
         margin-bottom: 10px;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         padding-bottom: 5px;
     }
     
-    /* FIX FOR FIELD LABELS COLOR (dark black, bold) */
+    /* FIX FOR FIELD LABELS COLOR */
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #0f172a !important;
-        font-weight: 700 !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
         letter-spacing: 0.5px;
     }
 
-    /* Make disabled/read-only input text inside Warehouse Site Info strictly BLACK and BOLD */
-    div[data-testid="stTextInput"] input:disabled {
-        color: #000000 !important;
-        font-weight: 700 !important;
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS (kept dark for contrast
-       against the now-light main content, matching other pages)
-       ========================================================= */
-    
-    /* Sidebar Background */
+    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
-    
-    /* Individual Sidebar Links / Buttons */
     [data-testid="stSidebarNav"] a {
         padding: 0.85rem 1.2rem !important;
         margin: 0.5rem 1rem !important;
@@ -165,99 +136,104 @@ st.markdown("""
         align-items: center !important;
         gap: 12px !important;
     }
-
-    /* Hover Effect for Sidebar Links */
     [data-testid="stSidebarNav"] a:hover {
         background: rgba(255, 255, 255, 0.1) !important;
         transform: translateX(4px) !important;
         border-color: rgba(255, 255, 255, 0.2) !important;
         color: #ffffff !important;
     }
-
-    /* Active/Selected Page Button */
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: #ffffff !important;
         border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-    
-    /* Clean up the default Streamlit styling overrides */
     [data-testid="stSidebarNav"] a span {
         color: inherit !important;
     }
 
+    /* KPI PILLS FOR POPUP HEADER */
+    .kpi-pill-container {
+        display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
+    }
+    .kpi-pill {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #cbd5e1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .kpi-pill span {
+        color: #60a5fa;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+    }
+
     /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
-       ========================================================= */
-    .st-key-site_table_wrap {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.15);
+        FIXED: HORIZONTAL SCROLLING DATA TABLE WITH REDUCED SPACING (40% LESS)
+        ========================================================= */
+    .st-key-po_table_wrap {
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.12);
         border-radius: 10px;
         overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
         padding: 0px 0 !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     }
-    /* Every row: plain white background, clear bottom border (simple clean grid, no colour fill) */
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 4600px !important;
+    /* Adjusted width to exactly 40% less (1800px -> 1080px) */
+    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 1260px !important; 
         align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.12) !important;
-        padding: 8px 0 !important;
+        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+        padding: 6px 0 !important;
         flex-wrap: nowrap !important;
-        background: #ffffff !important;
     }
-    /* Header row = the one row that contains .tbl-head cells — targeted directly
-       instead of :first-of-type (which unreliably matched every row in Streamlit's
-       nested DOM and painted the whole table purple). */
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {
-        background: #eef2ff !important;
-        border-bottom: 2px solid rgba(79,70,229,0.35) !important;
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 2 !important;
+    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"]:hover {
+        background: rgba(255,255,255,0.04);
     }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {
-        background: #f8fafc !important;
-    }
-    /* Cell padding and border — visible grid lines between columns, like a real table */
-    .st-key-site_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; /* Increased padding for proper spacing */
+    /* Cell padding and border */
+    .st-key-po_table_wrap div[data-testid="column"] {
+        padding: 0 15px !important; 
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.08);
+        border-right: 1px solid rgba(255,255,255,0.06);
     }
-    .st-key-site_table_wrap div[data-testid="column"]:last-child {
+    .st-key-po_table_wrap div[data-testid="column"]:last-child {
         border-right: none;
     }
     
-    .st-key-site_table_wrap .tbl-head {
+    .st-key-po_table_wrap .tbl-head {
         background: transparent;
         font-size: 0.75rem;
         font-weight: 800;
         letter-spacing: 0.8px;
-        color: #312e81;
+        color: #94a3b8;
         text-transform: uppercase;
         white-space: nowrap !important;
     }
     /* Strict nowrap with ellipsis to prevent column bleeding */
-    .st-key-site_table_wrap .tbl-cell {
-        color: #0f172a;
+    .st-key-po_table_wrap .tbl-cell {
+        color: #e2e8f0;
         font-size: 0.86rem;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        line-height: 1.4;
         width: 100%;
     }
-    .st-key-site_table_wrap .tbl-serial {
+    .st-key-po_table_wrap .tbl-serial {
         color: #64748b;
         font-size: 0.85rem;
         font-weight: 800;
     }
 
     /* Fixed native Action Buttons strictly constrained to their columns */
-    .st-key-site_table_wrap button {
+    .st-key-po_table_wrap button {
         height: 32px !important;
         width: 100% !important;
         padding: 0 !important;
@@ -266,40 +242,38 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        background: #f1f5f9 !important;
-        border: 1px solid rgba(0,0,0,0.10) !important;
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
         box-shadow: none !important;
-        pointer-events: auto !important; /* Force clickability */
+        pointer-events: auto !important; 
         cursor: pointer !important;
     }
-    .st-key-site_table_wrap button:hover {
+    .st-key-po_table_wrap button:hover {
         background: #3b82f6 !important;
         border-color: #60a5fa !important;
         transform: translateY(-2px) !important;
     }
 
-    /* -------------------------------------------------------------
-       FORCE LEFT BUTTON CSS: Action Columns (2 = Manage, 3 = Material)
-       ------------------------------------------------------------- */
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(1) {
+    /* ACTION COLUMNS MERGING & ALIGNMENT */
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(1) {
         padding: 0 10px 0 15px !important;
     }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
-        color: #475569; 
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
+        color: #94a3b8; 
     }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2) {
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) {
         padding: 4px 4px !important;
         border-right: none !important;
     }
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) {
+    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) {
         padding: 4px 15px 4px 4px !important;
-        border-right: 1px solid rgba(0,0,0,0.05) !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
     }
 
     /* Round, color-coded, compact action icon buttons */
-    .st-key-site_table_wrap div[class*="st-key-mgrbtn_"] button,
-    .st-key-site_table_wrap div[class*="st-key-mbtn_"] button {
+    .st-key-po_table_wrap div[class*="st-key-ebtn_"] button,
+    .st-key-po_table_wrap div[class*="st-key-dbtn_"] button {
         width: 100% !important; 
         max-width: 34px !important;
         height: 32px !important;
@@ -308,277 +282,125 @@ st.markdown("""
         font-size: 0.95rem !important;
         margin: 0 auto !important;
     }
-    div[class*="st-key-mgrbtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
-    div[class*="st-key-mbtn_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; }
+    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
     
-    /* Status badge pill */
-    .status-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
+    /* STATUS BADGES FOR SITE AVAILABILITY */
+    .status-badge-green {
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        color: #34d399;
+        padding: 4px 10px;
+        border-radius: 6px;
         font-size: 0.75rem;
         font-weight: 800;
-        letter-spacing: 0.4px;
-        white-space: nowrap !important;
+        display: inline-block;
         text-align: center;
+        letter-spacing: 0.5px;
     }
-    .status-green  { background: rgba(34,197,94,0.15);  color: #15803d; }
-    .status-blue   { background: rgba(59,130,246,0.15); color: #1d4ed8; }
-    .status-yellow { background: rgba(234,179,8,0.15);  color: #a16207; }
-    .status-red    { background: rgba(239,68,68,0.15);  color: #b91c1c; }
-    .status-grey   { background: rgba(148,163,184,0.18); color: #334155; }
+    .status-badge-orange {
+        background: rgba(245, 158, 11, 0.15);
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        color: #fbbf24;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        display: inline-block;
+        text-align: center;
+        letter-spacing: 0.5px;
+    }
 
     /* =========================================================
-       MOBILE-FRIENDLY CARD VIEW
+       NEW: MOBILE-FRIENDLY CARD VIEW
        ========================================================= */
-    .site-card {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.10);
+    .po-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
         border-radius: 12px;
         padding: 14px 16px;
         margin-bottom: 12px;
-        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
     }
-    .site-card-title { font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
-    .site-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
-    .site-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(0,0,0,0.08); font-size: 0.85rem; }
-    .site-card-row:last-child { border-bottom: none; }
-    .site-card-label { color: #64748b; font-weight: 600; }
-    .site-card-value { color: #0f172a; font-weight: 600; text-align: right; }
+    .po-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
+    .po-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
+    .po-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    .po-card-row:last-child { border-bottom: none; }
+    .po-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
+    .po-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
 
     /* =========================================================
        MULTI-COMPANY NAV BAR (VISPL / Bhagyashree / Sai Tele)
        ========================================================= */
-    .st-key-site_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
-    .st-key-site_company_nav_bar button {
+    .st-key-po_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
+    .st-key-po_company_nav_bar button {
         font-size: 1.05rem !important; font-weight: 800 !important; padding: 14px 10px !important;
         height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
         white-space: nowrap !important;
     }
-    .st-key-site_company_nav_bar button[kind="secondary"] {
-        background: #ffffff !important; color: #475569 !important;
-        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
+    .st-key-po_company_nav_bar button[kind="secondary"] {
+        background: rgba(255,255,255,0.04) !important; color: #cbd5e1 !important;
+        border: 1.5px solid rgba(255,255,255,0.12) !important; box-shadow: none !important;
     }
-    .st-key-site_company_nav_bar button[kind="secondary"]:hover {
-        background: #f1f5f9 !important; color: #0f172a !important;
-        border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover {
+        background: rgba(255,255,255,0.1) !important; color: #ffffff !important;
+        border-color: rgba(255,255,255,0.25) !important; transform: translateY(-2px) !important;
     }
-    .st-key-site_company_nav_bar button[kind="secondary"] p,
-    .st-key-site_company_nav_bar button[kind="secondary"] span,
-    .st-key-site_company_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
-    .st-key-site_company_nav_bar button[kind="secondary"]:hover p,
-    .st-key-site_company_nav_bar button[kind="secondary"]:hover span,
-    .st-key-site_company_nav_bar button[kind="secondary"]:hover div { color: #0f172a !important; }
-    .st-key-site_company_nav_bar button[kind="primary"] {
+    .st-key-po_company_nav_bar button[kind="secondary"] p,
+    .st-key-po_company_nav_bar button[kind="secondary"] span,
+    .st-key-po_company_nav_bar button[kind="secondary"] div { color: #cbd5e1 !important; font-weight: 800 !important; }
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover p,
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover span,
+    .st-key-po_company_nav_bar button[kind="secondary"]:hover div { color: #ffffff !important; }
+    .st-key-po_company_nav_bar button[kind="primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
         border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
     }
-    .st-key-site_company_nav_bar button[kind="primary"] p,
-    .st-key-site_company_nav_bar button[kind="primary"] span,
-    .st-key-site_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
-
-    /* =========================================================
-       LAVISH ATTACHMENT UPLOAD ZONES (Photo / JMS / Comm. Report)
-       The whole colourful drop-zone IS the upload control now — click
-       "Browse files" inside it and the OS file picker opens directly,
-       no extra reveal/confirm click needed.
-       ========================================================= */
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"],
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"],
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] {
-        border: none !important;
-        border-radius: 14px !important;
-        transition: all 0.25s cubic-bezier(.4,0,.2,1) !important;
-        padding: 10px !important;
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%) !important;
-        box-shadow: 0 6px 16px rgba(59, 130, 246, 0.45) !important;
-    }
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%) !important;
-        box-shadow: 0 6px 16px rgba(239, 68, 68, 0.40) !important;
-    }
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
-        box-shadow: 0 6px 16px rgba(16, 185, 129, 0.40) !important;
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"]:hover,
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"]:hover,
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"]:hover {
-        transform: translateY(-2px) !important;
-        filter: brightness(1.08);
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"] *,
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"] *,
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] * {
-        color: #ffffff !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"] svg,
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"] svg,
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] svg {
-        fill: #ffffff !important;
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"] button,
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"] button,
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] button {
-        background: rgba(255,255,255,0.25) !important;
-        border: 1.5px solid rgba(255,255,255,0.65) !important;
-        border-radius: 8px !important;
-        font-weight: 800 !important;
-    }
-    .st-key-attach_lav_photo [data-testid="stFileUploaderDropzone"] button:hover,
-    .st-key-attach_lav_jms [data-testid="stFileUploaderDropzone"] button:hover,
-    .st-key-attach_lav_report [data-testid="stFileUploaderDropzone"] button:hover {
-        background: rgba(255,255,255,0.4) !important;
-    }
-
-    /* Row 2 attachments: MRN / SRC / DC / EWAY — same lavish drop-zone pattern */
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"],
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"],
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"],
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] {
-        border: none !important;
-        border-radius: 14px !important;
-        transition: all 0.25s cubic-bezier(.4,0,.2,1) !important;
-        padding: 10px !important;
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%) !important;
-        box-shadow: 0 6px 16px rgba(139, 92, 246, 0.45) !important;
-    }
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%) !important;
-        box-shadow: 0 6px 16px rgba(20, 184, 166, 0.40) !important;
-    }
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #f97316 0%, #eab308 100%) !important;
-        box-shadow: 0 6px 16px rgba(249, 115, 22, 0.40) !important;
-    }
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] {
-        background: linear-gradient(135deg, #ec4899 0%, #be123c 100%) !important;
-        box-shadow: 0 6px 16px rgba(236, 72, 153, 0.40) !important;
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"]:hover,
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"]:hover,
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"]:hover,
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"]:hover {
-        transform: translateY(-2px) !important;
-        filter: brightness(1.08);
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] *,
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] *,
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] *,
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] * {
-        color: #ffffff !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] svg,
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] svg,
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] svg,
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] svg {
-        fill: #ffffff !important;
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] button,
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] button,
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] button,
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] button {
-        background: rgba(255,255,255,0.25) !important;
-        border: 1.5px solid rgba(255,255,255,0.65) !important;
-        border-radius: 8px !important;
-        font-weight: 800 !important;
-    }
-    .st-key-attach_lav_mrn [data-testid="stFileUploaderDropzone"] button:hover,
-    .st-key-attach_lav_src [data-testid="stFileUploaderDropzone"] button:hover,
-    .st-key-attach_lav_dc [data-testid="stFileUploaderDropzone"] button:hover,
-    .st-key-attach_lav_eway [data-testid="stFileUploaderDropzone"] button:hover {
-        background: rgba(255,255,255,0.4) !important;
-    }
-
-    /* Download button — distinct indigo "call to action" style.
-       st.link_button renders as an <a> tag, not <button>, so both are targeted. */
-    div[class*="st-key-attach_lav_download_"] button,
-    div[class*="st-key-attach_lav_download_"] a {
-        background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%) !important;
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.40) !important;
-        margin-top: 6px;
-        margin-bottom: 6px;
-        border-radius: 14px !important;
-        border: none !important;
-        font-weight: 800 !important;
-        display: flex !important;
-        justify-content: center !important;
-        text-decoration: none !important;
-    }
-    div[class*="st-key-attach_lav_download_"] button:hover,
-    div[class*="st-key-attach_lav_download_"] a:hover {
-        transform: translateY(-2px) !important;
-        filter: brightness(1.1);
-    }
-    div[class*="st-key-attach_lav_download_"] button p,
-    div[class*="st-key-attach_lav_download_"] button span,
-    div[class*="st-key-attach_lav_download_"] button div,
-    div[class*="st-key-attach_lav_download_"] a,
-    div[class*="st-key-attach_lav_download_"] a p,
-    div[class*="st-key-attach_lav_download_"] a span,
-    div[class*="st-key-attach_lav_download_"] a div {
-        color: #ffffff !important; font-weight: 800 !important;
-    }
-
-    /* Available / Not Available status pill under each upload zone */
-    .attach-status {
-        display: block;
-        text-align: center;
-        font-size: 0.8rem;
-        font-weight: 800;
-        letter-spacing: 0.4px;
-        margin: 8px auto 6px auto;
-        padding: 6px 14px;
-        border-radius: 20px;
-        width: fit-content;
-    }
-    .attach-status-available {
-        background: rgba(21, 128, 61, 0.14);
-        color: #15803d;
-        border: 1px solid rgba(21, 128, 61, 0.35);
-    }
-    .attach-status-missing {
-        background: rgba(148, 163, 184, 0.18);
-        color: #64748b;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-    }
+    .st-key-po_company_nav_bar button[kind="primary"] p,
+    .st-key-po_company_nav_bar button[kind="primary"] span,
+    .st-key-po_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-
 # --- MULTI-COMPANY NAV BAR (single login, switch company right here) ---
-with st.container(key="site_company_nav_bar"):
-    nav_cols = st.columns(len(SITE_COMPANIES))
-    for nav_col, (company_id, company_label) in zip(nav_cols, SITE_COMPANIES):
-        is_active = st.session_state.site_active_company == company_id
+with st.container(key="po_company_nav_bar"):
+    nav_cols = st.columns(len(PO_COMPANIES))
+    for nav_col, (company_id, company_label) in zip(nav_cols, PO_COMPANIES):
+        is_active = st.session_state.po_active_company == company_id
         with nav_col:
             if st.button(
-                company_label, key=f"site_nav_{company_id}",
+                company_label, key=f"po_nav_{company_id}",
                 use_container_width=True, type=("primary" if is_active else "secondary")
             ):
-                st.session_state.site_active_company = company_id
-                st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[company_id]
-                st.session_state.current_page = 1  # reset pagination when switching company
+                st.session_state.po_active_company = company_id
+                st.session_state.active_workspace = PO_COMPANY_WORKSPACE_MAP[company_id]
+                # Force a fresh fetch for the newly selected company instead of
+                # reusing whatever was already loaded for the previous one.
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
+                st.session_state.po_current_page = 1
+                st.session_state.po_last_search = ""
                 st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 3. SUPABASE CONNECTION ---
+# --- TOP SINGLE WORKSPACE BANNER ---
+active_ws_display = st.session_state.get('po_active_company', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🏢 ACTIVE WORKSPACE : {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- 2.5 SUPABASE CONNECTION ---
 # FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
 # ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
-# Supabase project se automatically connect ho jaate hain, har page ki
-# code alag se badalne ki zaroorat nahi padti.
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
     try:
         url: str = st.secrets["supabase"]["url"]
-        # Agar secrets me galti se '/rest/v1' ya trailing slash aa gaya ho, use clean kar dete hain
         url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
         key: str = st.secrets["supabase"]["key"]
         return create_client(url, key)
@@ -588,1945 +410,325 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# -------------------------------------------------------------
-# --- CLOUDFLARE R2 CONNECTION (for Photos / JMS / Commissioning Report uploads) ---
-# R2 is S3-API-compatible, so the standard boto3 's3' client works — we just
-# point it at Cloudflare's endpoint instead of AWS. Files are uploaded here
-# and their public download URL is saved as a comma-separated list in the
-# corresponding site_data column ("Photos Files", "JMS Files", etc.).
-# -------------------------------------------------------------
-@st.cache_resource
-def init_r2_connection():
-    try:
-        r2_cfg = st.secrets["r2"]
-        return boto3.client(
-            "s3",
-            endpoint_url=f"https://{r2_cfg['account_id']}.r2.cloudflarestorage.com",
-            aws_access_key_id=r2_cfg["access_key_id"],
-            aws_secret_access_key=r2_cfg["secret_access_key"],
-            config=Config(signature_version="s3v4"),
-            region_name="auto",
-        )
-    except Exception as e:
-        st.error(f"🚨 R2 connection error: {e}")
-        return None
-
-r2_client = init_r2_connection()
-R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
-R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
-
-
-def _compress_image(uploaded_file, max_dimension=1600, quality=50):
-    """Resize + re-compress a photo before upload. A typical 4-5MB phone photo
-    usually comes down to 200-400KB this way, with barely any visible quality loss."""
-    try:
-        img = Image.open(uploaded_file)
-        img = ImageOps.exif_transpose(img)  # fix phone photo rotation
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
-        img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality, optimize=True)
-        buf.seek(0)
-        return buf, "image/jpeg", "jpg"
-    except Exception:
-        # If compression fails for any reason, upload the original rather than blocking the user
-        uploaded_file.seek(0)
-        orig_ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "jpg"
-        return uploaded_file, (uploaded_file.type or "image/jpeg"), orig_ext
-
-
-def _compress_pdf_bytes(raw_bytes):
-    """Best-effort PDF compression, in order of how much it saves:
-    1) Ghostscript (if installed on the server via packages.txt) — big savings,
-       especially for scanned/image-heavy PDFs.
-    2) pypdf content-stream compression — modest but always safe fallback.
-    3) If both fail or don't shrink the file, the original bytes are kept.
+def fetch_all_rows(query_builder, page_size: int = 1000):
     """
-    # --- Try Ghostscript first ---
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
-            tmp_in.write(raw_bytes)
-            tmp_in_path = tmp_in.name
-        tmp_out_path = tmp_in_path.replace(".pdf", "_out.pdf")
-        subprocess.run(
-            [
-                "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
-                "-dPDFSETTINGS=/ebook", "-dNOPAUSE", "-dBATCH", "-dQUIET",
-                f"-sOutputFile={tmp_out_path}", tmp_in_path,
-            ],
-            check=True, timeout=60,
-        )
-        with open(tmp_out_path, "rb") as f:
-            gs_compressed = f.read()
-        os.unlink(tmp_in_path)
-        os.unlink(tmp_out_path)
-        if gs_compressed and len(gs_compressed) < len(raw_bytes):
-            return gs_compressed
-    except Exception:
-        pass  # Ghostscript not installed or failed — fall through to pypdf
-
-    # --- Fallback: pypdf content-stream compression (modest, but safe) ---
-    try:
-        reader = PdfReader(io.BytesIO(raw_bytes))
-        writer = PdfWriter()
-        for page in reader.pages:
-            writer.add_page(page)
-        # compress_content_streams() only works once the page belongs to a PdfWriter,
-        # so this must run AFTER add_page(), not before.
-        for page in writer.pages:
-            try:
-                page.compress_content_streams()
-            except Exception:
-                pass
-        out_buf = io.BytesIO()
-        writer.write(out_buf)
-        pypdf_compressed = out_buf.getvalue()
-        if pypdf_compressed and len(pypdf_compressed) < len(raw_bytes):
-            return pypdf_compressed
-    except Exception:
-        pass
-
-    return raw_bytes  # nothing worked better — upload as-is rather than fail
-
-
-def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
-    """Compresses (if image/PDF) then uploads one Streamlit UploadedFile to R2,
-    returning its public download URL. Filename format: ProjectID_SiteID_FieldTag_xxxx.ext
-    (e.g. OM-RESPS-0580588_IN-3279057_Photo_a1b2c3.jpg)."""
-    if r2_client is None:
-        raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
-
-    orig_name = uploaded_file.name
-    ext = orig_name.split(".")[-1].lower() if "." in orig_name else "bin"
-
-    if ext in ("jpg", "jpeg", "png"):
-        file_obj, content_type, ext = _compress_image(uploaded_file)
-    elif ext == "pdf":
-        uploaded_file.seek(0)
-        raw_bytes = uploaded_file.read()
-        compressed_bytes = _compress_pdf_bytes(raw_bytes)
-        file_obj = io.BytesIO(compressed_bytes)
-        content_type = "application/pdf"
-    else:
-        uploaded_file.seek(0)
-        file_obj = uploaded_file
-        content_type = uploaded_file.type or "application/octet-stream"
-
-    def _safe(v, fallback):
-        cleaned = "".join(c for c in str(v) if c.isalnum() or c in ("-", "_"))
-        return cleaned or fallback
-
-    safe_proj = _safe(project_id, "proj")
-    safe_site = _safe(site_id, "site")
-    safe_field = _safe(field_tag, "file")
-    object_key = f"{folder}/{safe_proj}_{safe_site}_{safe_field}_{uuid.uuid4().hex[:6]}.{ext}"
-    r2_client.upload_fileobj(
-        file_obj,
-        R2_BUCKET,
-        object_key,
-        ExtraArgs={"ContentType": content_type},
-    )
-    return f"{R2_PUBLIC_URL}/{object_key}"
-
-
-def build_zip_from_urls(urls):
-    """Fetches each file from its public R2 URL and bundles them into one
-    in-memory ZIP, so the user can download everything with a single click
-    instead of one click per file."""
-    zip_buf = io.BytesIO()
-    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        used_names = set()
-        for url in urls:
-            try:
-                resp = requests.get(url, timeout=30)
-                resp.raise_for_status()
-                name = url.split("/")[-1] or f"file_{uuid.uuid4().hex[:6]}"
-                # avoid collisions inside the zip if two URLs somehow share a filename
-                final_name = name
-                dup_counter = 1
-                while final_name in used_names:
-                    base, dot, extn = name.rpartition(".")
-                    final_name = f"{base}_{dup_counter}.{extn}" if dot else f"{name}_{dup_counter}"
-                    dup_counter += 1
-                used_names.add(final_name)
-                zf.writestr(final_name, resp.content)
-            except Exception:
-                continue  # skip a file that failed to fetch rather than failing the whole zip
-    zip_buf.seek(0)
-    return zip_buf.getvalue()
-
-# -------------------------------------------------------------
-# --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
-# Without this, every keystroke in search / every rerun re-downloads the
-# whole table from Supabase, which is what was eating up the free-tier
-# egress quota. These cache results for a short time (30s) so repeated
-# reruns (typing in search, opening dialogs, pagination) reuse the same
-# data instead of hitting Supabase again. Call .clear() right before any
-# insert/update/delete so the next read is fresh, not stale.
-# -------------------------------------------------------------
-@st.cache_data(ttl=30, show_spinner=False)
-def fetch_site_data_cached(workspace):
-    try:
-        response = supabase.table("site_data").select("*").eq("workspace", workspace).execute()
-        return response.data or []
-    except Exception:
-        return []
-
-
-@st.cache_data(ttl=30, show_spinner=False)
-def fetch_po_upload_identifiers_cached(workspace):
-    """Returns the set of Project Name / Site ID values that already have a PO Working entry."""
-    identifiers = set()
-    try:
-        res_po = supabase.table("po_working").select("*").eq("workspace", workspace).execute()
-        for item in (res_po.data or []):
-            p_name = str(item.get("Project Name", "")).strip()
-            s_id = str(item.get("Site ID", "")).strip()
-            if p_name:
-                identifiers.add(p_name)
-            if s_id:
-                identifiers.add(s_id)
-    except Exception:
-        pass
-    return identifiers
-
-
-def clear_site_data_cache():
-    """Call this right before st.rerun() after any insert/update/delete on site_data or po_working."""
-    fetch_site_data_cached.clear()
-    fetch_po_upload_identifiers_cached.clear()
-
-
-# -------------------------------------------------------------
-# --- 🟢 NEW: BULK SYNC PO/WCC → SITE DATA ---
-# Backfills "PO No." and "WCC Number"/"WCC Status" into site_data rows
-# whose Project ID was added AFTER its PO/WCC was already uploaded via the
-# desktop PO & WCC Upload tool (that tool's one-time sync-on-upload
-# silently skips a Project ID that doesn't exist in site_data yet). This
-# only ever fills BLANK fields — anything already filled in is left alone.
-# -------------------------------------------------------------
-def _fetch_all_rows_paginated(table_name, workspace):
-    """Supabase caps a single select() at ~1000 rows by default — this
-    pages through with .range() so large workspaces are fully covered."""
+    Supabase/PostgREST by default returns max 1000 rows per request.
+    Ye helper .range() ke through baar baar fetch karke SAARI rows laata hai,
+    chahe table me 1000 se zyada rows kyun na ho.
+    'query_builder' ek function hai jo (start, end) leke supabase query chalata hai.
+    """
     all_rows = []
-    limit = 1000
-    offset = 0
+    start = 0
     while True:
-        res = supabase.table(table_name).select("*").eq("workspace", workspace) \
-            .range(offset, offset + limit - 1).execute()
-        chunk = res.data or []
-        if not chunk:
+        end = start + page_size - 1
+        res = query_builder(start, end)
+        batch = res.data or []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
             break
-        all_rows.extend(chunk)
-        if len(chunk) < limit:
-            break
-        offset += limit
+        start += page_size
     return all_rows
 
 
-def _split_list_field(raw):
-    """Split a comma-joined site_data field into a clean list, same rules
-    used by the Add/Edit Site Data dialogs (drops empty / 'nan' junk)."""
-    items = []
-    normalized = str(raw if raw is not None else "").replace("|", ",")
-    for x in normalized.split(","):
-        x = x.strip()
-        if x and x.lower() not in ("nan", "none", "null"):
-            items.append(x)
-    return items
-
-
-def run_bulk_sync_po_wcc(workspace):
-    """
-    Returns a summary dict: {po_filled, wcc_filled, date_status_filled,
-    already_ok, no_site_row, errors}.
-
-    "PO No." and "WCC Number"/"WCC Status" are backfilled from po_working.
-    "PO Date" and "PO Status" aren't stored on po_working at all — but they
-    ARE already sitting in Supabase, just on a DIFFERENT site_data row: the
-    project that existed in Site Data at the moment the PO was originally
-    uploaded got its Date/Status written directly. So here we also scan
-    every OTHER site_data row for a matching PO Number and copy its Date/
-    Status across to any row that's missing them for that same PO.
-    """
-    summary = {"po_filled": 0, "wcc_filled": 0, "date_status_filled": 0,
-               "already_ok": 0, "no_site_row": 0, "errors": 0}
+# -------------------------------------------------------------
+# --- EGRESS OPTIMIZATION: cached site_data lookup ---
+# Used only to check "does this Site ID / Project ID already exist in
+# site_data" while rendering the PO table. Previously this ran up to 4
+# separate Supabase queries (including a full-table fallback fetch) on
+# EVERY rerun (every search keystroke, every pagination click). Now it's
+# fetched once and cached for 30s, then matched locally in Python.
+# -------------------------------------------------------------
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_site_data_lookup_cached(workspace):
     try:
-        po_rows = _fetch_all_rows_paginated("po_working", workspace)
-
-        # One summary entry per Project Name (= Project ID) — a project can
-        # span many PO lines, so keep the LAST non-empty value seen for
-        # each field.
-        project_info = {}
-        for r in po_rows:
-            proj = str(r.get("Project Name", "")).strip()
-            if not proj or proj.lower() == "nan":
-                continue
-            info = project_info.setdefault(proj, {"po_number": "", "wcc_number": "", "wcc_status": ""})
-            po_num = str(r.get("PO Number", "")).strip()
-            if po_num and po_num.lower() != "nan":
-                info["po_number"] = po_num
-            wcc_num = str(r.get("wcc_number", "") or "").strip()
-            if wcc_num and wcc_num.lower() != "nan":
-                info["wcc_number"] = wcc_num
-            wcc_stat = str(r.get("wcc_status", "") or "").strip()
-            if wcc_stat and wcc_stat.lower() != "nan":
-                info["wcc_status"] = wcc_stat
-
-        site_rows = _fetch_all_rows_paginated("site_data", workspace)
-
-        # 🟢 Build PO Number -> (date, status) from whichever site_data row(s)
-        # already have it recorded. A project can list multiple PO Numbers,
-        # each with its own date/status at the same list position.
-        po_date_status_map = {}
-        for srow in site_rows:
-            po_list = _split_list_field(srow.get("PO No.", ""))
-            date_list = _split_list_field(srow.get("PO Date", ""))
-            status_list = _split_list_field(srow.get("PO Status", ""))
-            for idx, pono in enumerate(po_list):
-                entry = po_date_status_map.setdefault(pono, {"date": "", "status": ""})
-                if not entry["date"] and idx < len(date_list):
-                    entry["date"] = date_list[idx]
-                if not entry["status"] and idx < len(status_list):
-                    entry["status"] = status_list[idx]
-
-        for srow in site_rows:
-            proj_id = str(srow.get("Project ID", "")).strip()
-            if not proj_id or proj_id.lower() == "nan":
-                continue
-            info = project_info.get(proj_id)
-            if not info:
-                continue  # this project has no PO/WCC data uploaded at all yet
-
-            update_payload = {}
-            cur_po_no = str(srow.get("PO No.", "") or "").strip()
-            if not cur_po_no and info["po_number"]:
-                update_payload["PO No."] = info["po_number"]
-
-            cur_wcc_no = str(srow.get("WCC Number", "") or "").strip()
-            if not cur_wcc_no and info["wcc_number"]:
-                update_payload["WCC Number"] = info["wcc_number"]
-                if info["wcc_status"]:
-                    update_payload["WCC Status"] = info["wcc_status"]
-
-            # 🟢 Backfill PO Date / PO Status by matching each PO Number this
-            # row will end up having (existing + whatever we just filled in
-            # above) against po_date_status_map.
-            effective_po_list = _split_list_field(update_payload.get("PO No.", cur_po_no))
-            cur_date = str(srow.get("PO Date", "") or "").strip()
-            cur_status = str(srow.get("PO Status", "") or "").strip()
-            if effective_po_list and (not cur_date or not cur_status):
-                found_dates = [po_date_status_map.get(p, {}).get("date", "") for p in effective_po_list]
-                found_statuses = [po_date_status_map.get(p, {}).get("status", "") for p in effective_po_list]
-                if not cur_date and any(found_dates):
-                    update_payload["PO Date"] = ", ".join([d for d in found_dates if d])
-                if not cur_status and any(found_statuses):
-                    update_payload["PO Status"] = ", ".join([s for s in found_statuses if s])
-
-            if not update_payload:
-                summary["already_ok"] += 1
-                continue
-
-            row_id = srow.get("id")
-            if row_id is None:
-                summary["errors"] += 1
-                continue
-            try:
-                supabase.table("site_data").update(update_payload).eq("id", row_id).execute()
-                if "PO No." in update_payload:
-                    summary["po_filled"] += 1
-                if "WCC Number" in update_payload:
-                    summary["wcc_filled"] += 1
-                if "PO Date" in update_payload or "PO Status" in update_payload:
-                    summary["date_status_filled"] += 1
-            except Exception:
-                summary["errors"] += 1
-
-        matched_projects = {str(s.get("Project ID", "")).strip() for s in site_rows}
-        summary["no_site_row"] = len([p for p in project_info if p not in matched_projects])
-        return summary
-    except Exception as e:
-        summary["errors"] += 1
-        summary["fatal_error"] = str(e)
-        return summary
-
-
-@st.dialog("🔁 Bulk Sync PO/WCC → Site Data", width="large")
-def bulk_sync_dialog():
-    active_ws = st.session_state.get('active_workspace', 'VISPL')
-    st.caption(
-        f"Scans '{active_ws}' workspace's PO/WCC uploads and fills in 'PO No.', 'PO Date'/'PO Status', and "
-        f"'WCC Number'/'WCC Status' for any Project ID that's currently BLANK — for example, sites that were "
-        f"added to Site Data *after* their PO/WCC was already uploaded. PO Date/Status are recovered by copying "
-        f"from another site that already has the same PO Number recorded. Fields that already have a value are never touched."
-    )
-
-    if st.session_state.get("bulk_sync_result"):
-        result = st.session_state["bulk_sync_result"]
-        st.markdown("---")
-        if result.get("fatal_error"):
-            st.error(f"❌ Bulk Sync failed: {result['fatal_error']}")
-        else:
-            st.markdown(f"""
-                <div style="background: #f8fafc; padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 15px;">
-                    <div style="font-weight:800; color:#0f172a; font-size:1.05rem; margin-bottom:10px;">📊 Bulk Sync Summary</div>
-                    <div style="color:#15803d; margin-bottom:4px;">✅ PO No. bhari gayi: <b>{result['po_filled']}</b> project(s)</div>
-                    <div style="color:#15803d; margin-bottom:4px;">✅ PO Date/Status bhari gayi (kisi doosri project ke record se copy karke): <b>{result['date_status_filled']}</b> project(s)</div>
-                    <div style="color:#15803d; margin-bottom:4px;">✅ WCC Number/Status bhari gayi: <b>{result['wcc_filled']}</b> project(s)</div>
-                    <div style="color:#64748b; margin-bottom:4px;">ℹ️ Pehle se sahi thi (kuch nahi kiya): <b>{result['already_ok']}</b> project(s)</div>
-                    <div style="color:#a16207; margin-bottom:4px;">⚠️ PO/WCC data hai par Site Data me site hi nahi hai: <b>{result['no_site_row']}</b> project(s)</div>
-                    <div style="color:#b91c1c;">❌ Errors: <b>{result['errors']}</b></div>
-                </div>
-            """, unsafe_allow_html=True)
-            if result['no_site_row'] > 0:
-                st.info(
-                    f"👉 In {result['no_site_row']} project(s) ka PO/WCC data upload ho chuka hai, lekin inki "
-                    f"Project ID abhi Site Data me hai hi nahi. Pehle 'Add Record' se site add karo, "
-                    f"phir Bulk Sync dobara chalao."
-                )
-        col_close, _ = st.columns([1, 3])
-        with col_close:
-            if st.button("✅ OK, Close This Summary", type="primary", use_container_width=True, key="bulk_sync_close"):
-                st.session_state["bulk_sync_result"] = None
-                st.rerun()
-        st.markdown("---")
-
-    if st.button("🚀 Run Bulk Sync", type="primary", use_container_width=True, key="bulk_sync_run"):
-        with st.spinner("po_working aur site_data scan kiya ja raha hai..."):
-            summary = run_bulk_sync_po_wcc(active_ws)
-        st.session_state["bulk_sync_result"] = summary
-        clear_site_data_cache()
-        st.rerun()
-
-
-# -------------------------------------------------------------
-# --- SMTP EMAIL SENDING CONFIGURATION
-# -------------------------------------------------------------
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "visiontechinfrasolution@gmail.com"
-
-# PRAMOD BHAU: YAHAN APNA 16-DIGIT APP PASSWORD DAALIYE
-SENDER_PASSWORD = "ngamnbrvtlrnfrzm"
-
-def send_commissioning_email(to_email, cc_email, subject, body):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = to_email
-        msg['Cc'] = cc_email
-        msg['Subject'] = subject
-        
-        # HTML MIME Type is used here so bold tags work perfectly
-        msg.attach(MIMEText(body, 'html'))
-        
-        recipients = [e.strip() for e in to_email.split(',') if e.strip()]
-        if cc_email:
-            recipients.extend([e.strip() for e in cc_email.split(',') if e.strip()])
-            
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
-        server.quit()
-        return True, "Email sent successfully"
-    except Exception as e:
-        return False, f"SMTP Error: {str(e)}"
-
-# -------------------------------------------------------------
-# --- WHATSAPP SENDING LOGIC REMOVED (disabled for now) ---
-# -------------------------------------------------------------
-
-# --- 3.1 HELPER FOR DYNAMIC DROPDOWNS ---
-def get_all_dropdowns():
-    try:
-        res = supabase.table("dropdown_master").select("*").execute()
-        return res.data if res.data else []
+        return fetch_all_rows(
+            lambda start, end: supabase.table("site_data").select("*").eq("workspace", workspace).range(start, end).execute()
+        )
     except Exception:
         return []
 
-def get_opts(category, all_data):
-    opts = [row["option_value"] for row in all_data if row["category"] == category]
-    return ["Select"] + opts
-
-# --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
-def get_item_master_details():
-    mapping = {}
-    table_names_to_try = ["Item Code", "item_code"]
-    
-    for t_name in table_names_to_try:
+# --- NEW: EGRESS OPTIMIZATION — cached per-site lookup used inside the
+# "Edit PO Detailed Working" dialog. Previously these 2 small queries
+# (site_data + Excalation/Escalation Matrix, both filtered by Site ID) ran
+# on EVERY rerun while the dialog was open — every cell edit in the data
+# editor re-triggers the whole script, so every keystroke was hitting
+# Supabase twice more. Now cached for 30s per Site ID.
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_po_detail_site_info_cached(site_id, workspace):
+    cluster_val, rfai_val, srn_val, km_val = "-", "-", "-", "-"
+    if not site_id:
+        return cluster_val, rfai_val, srn_val, km_val
+    try:
+        res_site = supabase.table("site_data").select("*").eq("Site ID", str(site_id).strip()).eq("workspace", workspace).execute()
+        if res_site.data:
+            cluster_val = res_site.data[0].get("Cluster", "-")
+            rfai_val = res_site.data[0].get("RFAI Status", "-")
+            srn_val = res_site.data[0].get("SRN", "-")
+    except Exception:
+        pass
+    try:
+        res_exc = supabase.table("Excalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+        if res_exc.data:
+            km_val = res_exc.data[0].get("KM", "-")
+    except Exception:
         try:
-            res = supabase.table(t_name).select("*").execute()
-            if res.data:
-                for item in res.data:
-                    code = str(item.get("item_code", "")).strip()
-                    if code:
-                        mapping[code] = {
-                            "description": str(item.get("item_description", "") or ""),
-                            "stn_status": str(item.get("stn_status", "Required") or "Required"),
-                            "material_of": str(item.get("material_of", "Indus") or "Indus"),
-                            "rate": item.get("rate")
-                        }
-                return mapping 
-        except Exception as e:
-            continue
-            
-    return mapping
-
-# --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
-@st.dialog("📄 Add Site Data", width="large")
-def add_record_dialog():
-    st.caption("Configure comprehensive site metrics and procurement status")
-
-    # --- FIX: Defensive re-init in case session_state got reset mid-dialog
-    # (happens on mobile/tablet when the websocket reconnects after backgrounding) ---
-    if 'po_count' not in st.session_state:
-        st.session_state.po_count = 1
-    if 'add_mat_count' not in st.session_state:
-        st.session_state.add_mat_count = 1
-
-    all_dd = get_all_dropdowns() 
-    
-    with st.container():
-        st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
-        
-        # Row 1
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            dept = st.selectbox("DEPARTMENT", get_opts("Department", all_dd))
-        with c2:
-            operator = st.selectbox("OPERATOR", get_opts("Operator", all_dd))
-        with c3:
-            proj_name = st.selectbox("PROJECT NAME", get_opts("Project Name", all_dd))
-        with c4:
-            proj_id = st.text_input("PROJECT ID * (REQUIRED)", placeholder="Project ID")
-            
-        # Row 2
-        c5, c6, c7, c8 = st.columns(4)
-        with c5:
-            site_id = st.text_input("Site ID * (REQUIRED)", placeholder="Enter Site ID")
-            
-        site_name_val = ""
-        cluster_val = ""
-        area_val = "N/A"
-        km_val = "N/A"
-        lat_val = "N/A"
-        long_val = "N/A"
-        tech_val = "N/A"
-        fse_val = "N/A"
-        aom_val = "N/A"
-        
-        if site_id:
-            try:
-                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id.strip()).execute()
-                if master_res.data:
-                    site_name_val = master_res.data[0].get("Site Name", "")
-                    cluster_val = master_res.data[0].get("Cluster", "")
-                    area_val = master_res.data[0].get("Area", "N/A")
-                    km_val = master_res.data[0].get("KM", "N/A")
-                    lat_val = master_res.data[0].get("Lat", "N/A")
-                    long_val = master_res.data[0].get("Long", "N/A")
-                    tech_val = master_res.data[0].get("Technician Detail", "N/A")
-                    fse_val = master_res.data[0].get("FSE Detail", "N/A")
-                    aom_val = master_res.data[0].get("AOM Detail", "N/A")
-                    st.toast("Site Data Auto-Fetched Successfully! ✅", icon="✅")
-                else:
-                    st.toast("Site ID not found in Excalation Matrix table ⚠️", icon="⚠️")
-            except Exception as e:
-                st.toast(f"Table Error: {e} ❌", icon="❌")
-
-        with c6:
-            site_name = st.text_input("SITE NAME", value=site_name_val, placeholder="Auto Fetch")
-        with c7:
-            cluster = st.text_input("CLUSTER", value=cluster_val, placeholder="Auto Fetch")
-        with c8:
-            site_status = st.selectbox("SITE STATUS", get_opts("Site Status", all_dd))
-
-        st.markdown(f"""
-            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.08);">
-                <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #2563eb;">{area_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #2563eb;">{km_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #2563eb; white-space: pre;">{lat_val}  {long_val}</span></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 12px;">
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #2563eb;">{tech_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #2563eb;">{fse_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #2563eb;">{aom_val}</span></div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-            
-        st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
-        
-        work_desc = st.text_input("WORK DESCRIPTION", placeholder="Enter detailed work description")
-        
-        c9, c10, c11, c12 = st.columns(4)
-        with c9:
-            product = st.selectbox("PRODUCT", get_opts("Product", all_dd))
-        with c10:
-            rfai_status = st.selectbox("RFAI STATUS", get_opts("RFAI Status", all_dd))
-        with c11:
-            wh_material = st.selectbox("WH MATERIAL", get_opts("WH Material", all_dd))
-        with c12:
-            team_name = st.selectbox("TEAM NAME", get_opts("Team Name", all_dd))
-
-        c12a, c12b, c12c, c12d = st.columns(4)
-        with c12a:
-            photos_status = st.selectbox("PHOTOS", ["Select", "Available", "Pending"])
-        with c12b:
-            audit_status = st.selectbox("AUDIT", ["Select", "Done", "Pending", "Not Required"])
-        with c12c:
-            jms_status = st.selectbox("JMS", ["Select", "Available", "Pending", "Not Required"])
-        with c12d:
-            comm_report_status = st.selectbox("COMMISSIONING REPORT", ["Select", "Available", "Pending", "Not Required"])
-            
-        c13, c14, c15 = st.columns(3)
-        with c13:
-            ex_opts = get_opts("Extra Approval", all_dd)
-            def_extra = ex_opts.index("Not Available") if "Not Available" in ex_opts else 0
-            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=def_extra)
-        with c14:
-            tb_opts = get_opts("Team Billing Status", all_dd)
-            def_team = tb_opts.index("Pending") if "Pending" in tb_opts else 0
-            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=def_team)
-        with c15:
-            vb_opts = get_opts("Vision Billing Status", all_dd)
-            def_vis = vb_opts.index("Pending") if "Pending" in vb_opts else 0
-            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=def_vis)
-
-        st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
-        
-        po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
-        
-        for i in range(st.session_state.po_count):
-            if i > 0:
-                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
-            
-            c17, c18, c19, c20, c21 = st.columns(5)
-            with c17:
-                p_n = st.text_input("PO NO.", placeholder="11 digits", key=f"po_no_{i}")
-                po_nos.append(p_n)
-            with c18:
-                raw_p_d = st.date_input("PO DATE", value=None, key=f"po_date_{i}")
-                p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
-                po_dates.append(p_d)
-            with c19:
-                p_s = st.selectbox("PO STATUS", get_opts("PO Status", all_dd), key=f"po_status_{i}")
-                po_statuses.append(p_s)
-            with c20:
-                w_n = st.text_input("WCC NUMBER", placeholder="10 digits", key=f"wcc_num_{i}")
-                wcc_nums.append(w_n)
-            with c21:
-                w_s = st.selectbox("WCC STATUS", get_opts("WCC Status", all_dd), key=f"wcc_status_{i}")
-                wcc_statuses.append(w_s)
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- FIXED ADD/REMOVE PO BUTTONS ---
-        col_btn_add, col_btn_rem, _ = st.columns([3, 3, 4])
-        with col_btn_add:
-            if st.button("➕ Add Additional PO", use_container_width=True):
-                st.session_state.po_count += 1
-        with col_btn_rem:
-            if st.session_state.po_count > 1:
-                if st.button("➖ Remove PO", use_container_width=True):
-                    st.session_state.po_count -= 1
-            
-        # -------------------------------------------------------------
-        # WAREHOUSE MATERIAL TRACKING IN ADD RECORD
-        # -------------------------------------------------------------
-        st.markdown('<div class="modal-section-title">📦 WAREHOUSE MATERIAL TRACKING (OPTIONAL)</div>', unsafe_allow_html=True)
-        
-        trans_types = get_opts("Transaction Type", all_dd)
-        mat_status_opts = get_opts("Material Status", all_dd)
-        stn_status_opts = get_opts("STN Status", all_dd)
-        
-        a_mat_trans_types, a_mat_boqs, a_mat_item_codes, a_mat_descs, a_mat_qtys = [], [], [], [], []
-        a_mat_statuses, a_mat_dates, a_mat_stn_statuses, a_mat_remarks = [], [], [], []
-        
-        for i in range(st.session_state.add_mat_count):
-            if i > 0:
-                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
-            
-            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
-            with mc1:
-                t_type = st.selectbox("TRANSACTION TYPE", trans_types, key=f"a_trans_{i}")
-                a_mat_trans_types.append(t_type)
-            with mc2:
-                boq_no = st.text_input("BOQ NUMBER", placeholder="BOQ No", key=f"a_boq_{i}")
-                a_mat_boqs.append(boq_no)
-            with mc3:
-                i_code = st.text_input("ITEM CODE", placeholder="Type & Press Enter", key=f"a_icode_{i}")
-                a_mat_item_codes.append(i_code)
-
-            code_val = i_code.strip()
-            if code_val:
-                try:
-                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
-                    if not item_res.data:
-                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
-                        
-                    if item_res.data:
-                        fetched_desc = str(item_res.data[0].get("item_description", ""))
-                        fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
-                        
-                        st.session_state[f"a_idesc_{i}"] = fetched_desc
-                        if fetched_stn in stn_status_opts:
-                            st.session_state[f"a_stn_{i}"] = fetched_stn
-                            
-                        st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
-                    else:
-                        st.toast("Item Code not found in database ⚠️", icon="⚠️")
-                except Exception as e:
-                    st.toast(f"Table Error: {e} ❌", icon="❌")
-
-            with mc4:
-                current_desc_val = st.session_state.get(f"a_idesc_{i}", "")
-                i_desc = st.text_input("ITEM DESCRIPTION", value=current_desc_val, placeholder="Description", key=f"a_idesc_{i}")
-                a_mat_descs.append(i_desc)
-            with mc5:
-                i_qty = st.number_input("INDUS QTY", min_value=0, value=0, key=f"a_iqty_{i}")
-                a_mat_qtys.append(i_qty)
-                
-            mc6, mc7, mc8, mc9 = st.columns(4)
-            with mc6:
-                m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"a_mstat_{i}")
-                a_mat_statuses.append(m_stat)
-            with mc7:
-                raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"a_ddate_{i}")
-                d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
-                a_mat_dates.append(d_date)
-            with mc8:
-                default_stn = "Select"
-                if code_val and 'item_res' in locals() and item_res.data:
-                    default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
-                
-                stn_idx = stn_status_opts.index(default_stn) if default_stn in stn_status_opts else 0
-                stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"a_stn_{i}")
-                a_mat_stn_statuses.append(stn_stat)
-            with mc9:
-                rem = st.text_input("REMARKS", placeholder="Remarks notes", key=f"a_rem_{i}")
-                a_mat_remarks.append(rem)
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- FIXED ADD/REMOVE MATERIAL BUTTONS ---
-        col_a_add, col_a_rem, _ = st.columns([3, 3, 4])
-        with col_a_add:
-            if st.button("➕ Add Material Item", key="btn_a_add_mat", use_container_width=True):
-                st.session_state.add_mat_count += 1
-        with col_a_rem:
-            if st.session_state.add_mat_count > 1:
-                if st.button("➖ Remove Material", key="btn_a_rem_mat", use_container_width=True):
-                    st.session_state.add_mat_count -= 1
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- SUBMIT LOGIC ---
-        col_btn1, col_btn2 = st.columns([8, 2])
-        with col_btn2:
-            submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
-            
-        if submitted:
-            # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
-            po_nos = ["" if p.strip().lower() in ("nan", "none", "null") else p for p in po_nos]
-            wcc_nums = ["" if w.strip().lower() in ("nan", "none", "null") else w for w in wcc_nums]
-
-            has_error = False
-            if not proj_id or not site_id:
-                st.error("⚠️ Project ID aur Site ID dalna compulsory hai!")
-                has_error = True
-            for p in po_nos:
-                if p and (not p.isdigit() or len(p) != 11):
-                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
-                    has_error = True
-            for w in wcc_nums:
-                if w and (not w.isdigit() or len(w) != 10):
-                    st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
-                    has_error = True
-            
-            # --- FIX: DUPLICATE PROJECT ID CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
-            if not has_error:
-                active_ws_check = st.session_state.get('active_workspace', 'VISPL')
-                try:
-                    dup_check = supabase.table("site_data").select("id").eq("Project ID", proj_id).eq("workspace", active_ws_check).execute()
-                    if len(dup_check.data) > 0:
-                        st.error(f"❌ Project ID already exist in '{active_ws_check}' workspace")
-                        has_error = True
-                except Exception:
-                    pass
-                    
-            if not has_error:
-                insert_data = {
-                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "Department": dept if dept != "Select" else "",
-                    "Operator": operator if operator != "Select" else "",
-                    "Project Name": proj_name if proj_name != "Select" else "",
-                    "Project ID": proj_id,
-                    "Site ID": site_id,
-                    "Site Name": site_name,
-                    "Cluster": cluster,
-                    "Site Status": site_status if site_status != "Select" else "",
-                    "Work Description": work_desc,
-                    "Product": product if product != "Select" else "",
-                    
-                    "PO No.": ", ".join([p for p in po_nos if p]),
-                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
-                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
-                    
-                    "RFAI Status": rfai_status if rfai_status != "Select" else "",
-                    "WH Material": wh_material if wh_material != "Select" else "",
-                    "Team Name": team_name if team_name != "Select" else "",
-                    "Photos": photos_status if photos_status != "Select" else "",
-                    "Audit": audit_status if audit_status != "Select" else "",
-                    "JMS": jms_status if jms_status != "Select" else "",
-                    "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
-                    "Team Billing Status": team_billing if team_billing != "Select" else "",
-                    "Extra Approval": extra_approval if extra_approval != "Select" else "",
-                    "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
-                    
-                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
-                }
-                
-                try:
-                    res = supabase.table("site_data").insert(insert_data).execute()
-                    new_id = res.data[0].get('id') if (hasattr(res, 'data') and res.data) else None
-                    
-                    # --- WHATSAPP MESSAGE ON FIRST ASSIGNMENT: DISABLED FOR NOW ---
-                    
-                    # --- SAVE OPTIONAL WAREHOUSE MATERIAL ---
-                    active_ws_save = st.session_state.get('active_workspace', 'VISPL')
-                    for i in range(len(a_mat_item_codes)):
-                        if a_mat_item_codes[i].strip() != "" and a_mat_boqs[i].strip() != "":
-                            insert_wh = {
-                                "workspace": active_ws_save,
-                                "Project ID": proj_id,
-                                "Site ID": site_id,
-                                "Site Name": site_name,
-                                "Cluster": cluster,
-                                "Team": team_name if team_name != "Select" else "",
-                                "SRN Status": "Required",
-                                "Transaction Type": a_mat_trans_types[i] if a_mat_trans_types[i] != "Select" else "",
-                                "BOQ Number": a_mat_boqs[i],
-                                "Item Code": a_mat_item_codes[i].strip(),
-                                "Item Description": a_mat_descs[i],
-                                "Indus Qty": a_mat_qtys[i],
-                                "Material Status": a_mat_statuses[i] if a_mat_statuses[i] != "Select" else "",
-                                "Dispatch Date": a_mat_dates[i],
-                                "STN Status": a_mat_stn_statuses[i] if a_mat_stn_statuses[i] != "Select" else "",
-                                "Remark": a_mat_remarks[i]
-                            }
-                            try:
-                                # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
-                                dup_wh = supabase.table("warehouse_data").select("id").eq("Project ID", proj_id).eq("Item Code", a_mat_item_codes[i].strip()).eq("workspace", active_ws_save).execute()
-                                if not dup_wh.data:
-                                    supabase.table("warehouse_data").insert(insert_wh).execute()
-                            except Exception:
-                                pass
-                    
-                    st.success("✅ Record Successfully Added!")
-                    st.session_state.current_page = 1 # <--- NEW: Switch to page 1
-                    
-                    # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
-                        st.session_state.pending_comm_email = True
-                        st.session_state.comm_site_data = {
-                            "db_id": new_id,
-                            "proj_name": proj_name,
-                            "proj_id": proj_id,
-                            "site_id": site_id,
-                            "site_name": site_name,
-                            "cluster": cluster,
-                            "team_name": team_name,
-                            "tech_val": tech_val,
-                            "fse_val": fse_val,
-                            "lat_val": lat_val,
-                            "long_val": long_val,
-                        }
-                    
-                    clear_site_data_cache()
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"❌ Error Saving Data: {e}")
-
-# --- 3.6 EDIT RECORD DIALOG FUNCTION (NOW: VIEW + EDIT + DELETE COMBINED "MANAGE") ---
-@st.dialog("⚙️ Manage Site Data (View / Edit / Delete)", width="large")
-def edit_record_dialog(row_data):
-    st.caption("Update comprehensive site metrics and procurement status")
-    all_dd = get_all_dropdowns() 
-    # Every widget key below includes this record's id so that switching between
-    # different records' Manage dialogs never shows/saves a stale value left over
-    # from whichever record was edited previously in this browser session.
-    rid = row_data['id']
-    
-    def get_idx(val, opt_list):
-        if val in opt_list:
-            return opt_list.index(val)
-        val_norm = str(val or "").strip().lower()
-        for idx, option in enumerate(opt_list):
-            if str(option).strip().lower() == val_norm:
-                return idx
-        return 0
-
-    with st.container():
-        st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
-        
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            dept_opts = get_opts("Department", all_dd)
-            dept = st.selectbox("DEPARTMENT", dept_opts, index=get_idx(row_data.get('Department'), dept_opts), key=f"ed_dept_{rid}")
-        with c2:
-            op_opts = get_opts("Operator", all_dd)
-            operator = st.selectbox("OPERATOR", op_opts, index=get_idx(row_data.get('Operator'), op_opts), key=f"ed_op_{rid}")
-        with c3:
-            pn_opts = get_opts("Project Name", all_dd)
-            proj_name = st.selectbox("PROJECT NAME", pn_opts, index=get_idx(row_data.get('Project Name'), pn_opts), key=f"ed_pn_{rid}")
-        with c4:
-            # --- FIX: Project ID field ab EDITABLE hai (pehle disabled=True tha) ---
-            proj_id = st.text_input("PROJECT ID * (REQUIRED)", value=row_data.get('Project ID', ''), key=f"ed_pid_{rid}")
-            
-        c5, c6, c7, c8 = st.columns(4)
-        with c5:
-            site_id = st.text_input("Site ID * (REQUIRED)", value=row_data.get('Site ID', ''), key=f"ed_sid_{rid}")
-            
-        area_val, km_val, lat_val, long_val, tech_val, fse_val, aom_val = "N/A", "N/A", "N/A", "N/A", "N/A", "N/A", "N/A"
-        if site_id:
-            try:
-                master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id.strip()).execute()
-                if master_res.data:
-                    area_val = master_res.data[0].get("Area", "N/A")
-                    km_val = master_res.data[0].get("KM", "N/A")
-                    lat_val = master_res.data[0].get("Lat", "N/A")
-                    long_val = master_res.data[0].get("Long", "N/A")
-                    tech_val = master_res.data[0].get("Technician Detail", "N/A")
-                    fse_val = master_res.data[0].get("FSE Detail", "N/A")
-                    aom_val = master_res.data[0].get("AOM Detail", "N/A")
-            except:
-                pass
-
-        with c6:
-            site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''), key=f"ed_sname_{rid}")
-        with c7:
-            cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''), key=f"ed_clu_{rid}")
-        with c8:
-            ss_opts = get_opts("Site Status", all_dd)
-            site_status = st.selectbox("SITE STATUS", ss_opts, index=get_idx(row_data.get('Site Status'), ss_opts), key=f"ed_ss_{rid}")
-
-        st.markdown(f"""
-            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 8px; margin-top: 5px; margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.08);">
-                <div style="display: flex; justify-content: space-around; margin-bottom: 12px;">
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🏢 Area: <span style="color: #2563eb;">{area_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">📍 KM: <span style="color: #2563eb;">{km_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 1rem;">🌍 LAT LONG: <span style="color: #2563eb; white-space: pre;">{lat_val}  {long_val}</span></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(0,0,0,0.12); padding-top: 12px;">
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">🧑‍🔧 Technician: <span style="color: #2563eb;">{tech_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👨‍💼 FSE: <span style="color: #2563eb;">{fse_val}</span></div>
-                    <div style="color: #0f172a; font-weight: 600; font-size: 0.95rem;">👑 AOM: <span style="color: #2563eb;">{aom_val}</span></div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-            
-        st.markdown('<div class="modal-section-title">📦 MATERIAL, BILLING & RFAI DETAILS</div>', unsafe_allow_html=True)
-        
-        work_desc = st.text_input("WORK DESCRIPTION", value=row_data.get('Work Description', ''), key=f"ed_wd_{rid}")
-        
-        c9, c10, c11, c12 = st.columns(4)
-        with c9:
-            prod_opts = get_opts("Product", all_dd)
-            product = st.selectbox("PRODUCT", prod_opts, index=get_idx(row_data.get('Product'), prod_opts), key=f"ed_prod_{rid}")
-        with c10:
-            rfai_opts = get_opts("RFAI Status", all_dd)
-            rfai_status = st.selectbox("RFAI STATUS", rfai_opts, index=get_idx(row_data.get('RFAI Status'), rfai_opts), key=f"ed_rfai_{rid}")
-        with c11:
-            wh_opts = get_opts("WH Material", all_dd)
-            wh_material = st.selectbox("WH MATERIAL", wh_opts, index=get_idx(row_data.get('WH Material'), wh_opts), key=f"ed_wh_{rid}")
-        with c12:
-            team_opts = get_opts("Team Name", all_dd)
-            team_name = st.selectbox("TEAM NAME", team_opts, index=get_idx(row_data.get('Team Name'), team_opts), key=f"ed_team_{rid}")
-
-        c12a, c12b, c12c, c12d = st.columns(4)
-        photos_opts = ["Select", "Available", "Pending"]
-        audit_opts_fixed = ["Select", "Done", "Pending", "Not Required"]
-        jms_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
-        comm_report_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
-        with c12a:
-            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(row_data.get('Photos'), photos_opts), key=f"ed_photos_{rid}")
-        with c12b:
-            audit_status = st.selectbox("AUDIT", audit_opts_fixed, index=get_idx(row_data.get('Audit'), audit_opts_fixed), key=f"ed_audit_{rid}")
-        with c12c:
-            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key=f"ed_jms_{rid}")
-        with c12d:
-            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key=f"ed_comm_report_{rid}")
-
-        c13, c14, c15 = st.columns(3)
-        with c13:
-            ex_opts = get_opts("Extra Approval", all_dd)
-            extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=get_idx(row_data.get('Extra Approval'), ex_opts), key=f"ed_ex_{rid}")
-        with c14:
-            tb_opts = get_opts("Team Billing Status", all_dd)
-            team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=get_idx(row_data.get('Team Billing Status'), tb_opts), key=f"ed_tb_{rid}")
-        with c15:
-            vb_opts = get_opts("Vision Billing Status", all_dd)
-            vision_billing = st.selectbox("VISION BILLING STATUS", vb_opts, index=get_idx(row_data.get('Vision Billing Status'), vb_opts), key=f"ed_vb_{rid}")
-
-        st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
-        
-        def _clean_stored_list(raw_value):
-            """Split a comma-joined DB field into a list, dropping empty and
-            'nan'/'none'/'null' junk values so they never pre-fill a text box."""
-            items = []
-            normalized = str(raw_value if raw_value is not None else "").replace("|", ",")
-            for x in normalized.split(","):
-                x = x.strip()
-                if x and x.lower() not in ("nan", "none", "null"):
-                    items.append(x)
-            return items
-
-        po_no_list = _clean_stored_list(row_data.get("PO No.", ""))
-        po_date_list = _clean_stored_list(row_data.get("PO Date", ""))
-        po_status_list = _clean_stored_list(row_data.get("PO Status", ""))
-        wcc_num_list = _clean_stored_list(row_data.get("WCC Number", ""))
-        wcc_status_list = _clean_stored_list(row_data.get("WCC Status", ""))
-        
-        max_boxes = max(1, len(po_no_list), len(wcc_num_list))
-        if 'edit_po_count' not in st.session_state:
-            st.session_state.edit_po_count = max_boxes
-            
-        po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
-        
-        for i in range(st.session_state.edit_po_count):
-            if i > 0:
-                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
-            
-            c17, c18, c19, c20, c21 = st.columns(5)
-            with c17:
-                val = po_no_list[i] if i < len(po_no_list) else ""
-                p_n = st.text_input("PO NO.", value=val, key=f"e_po_no_{i}_{rid}")
-                po_nos.append(p_n)
-            with c18:
-                val = po_date_list[i] if i < len(po_date_list) else ""
-                parsed_date = None
-                if val:
-                    for fmt in ("%d/%m/%Y", "%d-%b-%Y", "%Y-%m-%d"):
-                        try:
-                            parsed_date = datetime.strptime(val.strip(), fmt).date()
-                            break
-                        except Exception:
-                            continue
-                raw_p_d = st.date_input("PO DATE", value=parsed_date, key=f"e_po_date_{i}_{rid}")
-                p_d = raw_p_d.strftime("%d/%m/%Y") if raw_p_d else ""
-                po_dates.append(p_d)
-            with c19:
-                val = po_status_list[i] if i < len(po_status_list) else "Select"
-                ps_opts = get_opts("PO Status", all_dd)
-                p_s = st.selectbox("PO STATUS", ps_opts, index=get_idx(val, ps_opts), key=f"e_po_status_{i}_{rid}")
-                po_statuses.append(p_s)
-            with c20:
-                val = wcc_num_list[i] if i < len(wcc_num_list) else ""
-                w_n = st.text_input("WCC NUMBER", value=val, key=f"e_wcc_num_{i}_{rid}")
-                wcc_nums.append(w_n)
-            with c21:
-                val = wcc_status_list[i] if i < len(wcc_status_list) else "Select"
-                ws_opts = get_opts("WCC Status", all_dd)
-                w_s = st.selectbox("WCC STATUS", ws_opts, index=get_idx(val, ws_opts), key=f"e_wcc_status_{i}_{rid}")
-                wcc_statuses.append(w_s)
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- FIXED ADD/REMOVE PO BUTTONS ---
-        col_btn_add, col_btn_rem, _ = st.columns([3, 3, 4])
-        with col_btn_add:
-            if st.button("➕ Add Additional PO", key="e_add_po", use_container_width=True):
-                st.session_state.edit_po_count += 1
-        with col_btn_rem:
-            if st.session_state.edit_po_count > 1:
-                if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
-                    st.session_state.edit_po_count -= 1
-
-        # -------------------------------------------------------------
-        # 📎 ATTACHMENTS — lavish Upload / Download buttons for Photos, JMS,
-        # and Commissioning Report. Files go to Cloudflare R2 (compressed on
-        # the way up); only their public URLs are stored in Supabase, in the
-        # matching "<Field> Files" comma-separated text column.
-        # -------------------------------------------------------------
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="modal-section-title">📎 ATTACHMENTS</div>', unsafe_allow_html=True)
-
-        def _parse_file_list(raw):
-            items = [u.strip() for u in str(raw if raw is not None else "").split(",") if u.strip()]
-            # Drop junk values (e.g. a literal "nan" that ended up saved from an
-            # older bug) and anything that isn't actually a URL.
-            return [u for u in items if u.lower() not in ("nan", "none", "null") and u.startswith("http")]
-
-        MAX_PHOTOS = 15
-        rid = row_data['id']
-
-        # Row 1: fields that also have a manual status dropdown above (Photos/JMS/Commissioning Report)
-        attach_field_configs_row1 = [
-            ("Photos Files", "photos", "Photo", "📷", ["jpg", "jpeg", "png"], "attach_lav_photo"),
-            ("JMS Files", "jms", "JMS", "📋", ["jpg", "jpeg", "png", "pdf"], "attach_lav_jms"),
-            ("Commissioning Report Files", "comm_report", "Comm. Report", "📄", ["jpg", "jpeg", "png", "pdf"], "attach_lav_report"),
-        ]
-        # Row 2: pure upload/download attachments — no status dropdown for these
-        attach_field_configs_row2 = [
-            ("MRN Files", "mrn", "MRN", "🧾", ["jpg", "jpeg", "png", "pdf"], "attach_lav_mrn"),
-            ("SRC Files", "src", "SRC", "📑", ["jpg", "jpeg", "png", "pdf"], "attach_lav_src"),
-            ("DC Files", "dc", "DC", "📦", ["jpg", "jpeg", "png", "pdf"], "attach_lav_dc"),
-            ("EWAY Files", "eway", "EWAY", "🚚", ["jpg", "jpeg", "png", "pdf"], "attach_lav_eway"),
-        ]
-        FILE_NAME_TAGS = {
-            "photos": "Photo", "jms": "JMS", "comm_report": "Comm_Report",
-            "mrn": "MRN", "src": "SRC", "dc": "DC", "eway": "EWAY",
-        }
-        # Only fields with a matching status dropdown get auto-set to "Available" on upload
-        STATUS_COL_MAP = {"photos": "Photos", "jms": "JMS", "comm_report": "Commissioning Report"}
-
-        proj_id_for_files = row_data.get('Project ID', 'proj')
-        site_id_for_files = row_data.get('Site ID', 'site')
-
-        def _render_attachment_field(config, att_col):
-            col_name, key_prefix, field_label, icon, allowed_ext, css_key = config
-            state_key = f"attach_{key_prefix}_{rid}"
-            processed_key = f"attach_processed_{key_prefix}_{rid}"
-
-            if state_key not in st.session_state:
-                st.session_state[state_key] = _parse_file_list(row_data.get(col_name, ""))
-            if processed_key not in st.session_state:
-                st.session_state[processed_key] = set()
-
-            is_photos_field = (key_prefix == "photos")
-            files_here = st.session_state[state_key]
-            is_available = len(files_here) > 0
-
-            with att_col:
-                count_suffix = f" ({len(files_here)}/{MAX_PHOTOS})" if is_photos_field else (f" ({len(files_here)})" if files_here else "")
-                st.markdown(f"<p style='text-align:center; font-weight:800; color:#334155; font-size:0.85rem; margin-bottom:4px;'>{icon} {field_label}{count_suffix}</p>", unsafe_allow_html=True)
-
-                # Lavish-styled dropzone IS the upload button — pick a file and it
-                # uploads immediately, no separate reveal/confirm click needed.
-                with st.container(key=css_key):
-                    picked_files = st.file_uploader(
-                        f"Upload {field_label}", type=allowed_ext, accept_multiple_files=True,
-                        key=f"uploader_{key_prefix}_{rid}", label_visibility="collapsed"
-                    )
-
-                if picked_files:
-                    unprocessed = [
-                        uf for uf in picked_files
-                        if (uf.name, uf.size) not in st.session_state[processed_key]
-                    ]
-                    if unprocessed:
-                        files_to_upload = unprocessed
-                        if is_photos_field:
-                            remaining_slots = MAX_PHOTOS - len(files_here)
-                            if remaining_slots <= 0:
-                                st.error(f"❌ Photos already {MAX_PHOTOS}/{MAX_PHOTOS} pe hai. Purani kuch hatao pehle.")
-                                files_to_upload = []
-                            elif len(unprocessed) > remaining_slots:
-                                st.warning(f"⚠️ Sirf {remaining_slots} naye add ho payenge (max {MAX_PHOTOS}) — baaki {len(unprocessed) - remaining_slots} skip kiye gaye.")
-                                files_to_upload = unprocessed[:remaining_slots]
-
-                        if files_to_upload:
-                            try:
-                                newly_uploaded_urls = []
-                                for uf in files_to_upload:
-                                    file_url = upload_file_to_r2(
-                                        uf, key_prefix, proj_id_for_files, site_id_for_files,
-                                        FILE_NAME_TAGS[key_prefix]
-                                    )
-                                    newly_uploaded_urls.append(file_url)
-                                    st.session_state[processed_key].add((uf.name, uf.size))
-                                st.session_state[state_key].extend(newly_uploaded_urls)
-                                update_payload = {col_name: ", ".join(st.session_state[state_key])}
-                                status_col = STATUS_COL_MAP.get(key_prefix)
-                                if status_col:
-                                    update_payload[status_col] = "Available"
-                                supabase.table("site_data").update(update_payload).eq("id", rid).execute()
-                                clear_site_data_cache()
-                                status_note = f" '{status_col}' status auto-set to Available (dialog dobara kholne par upar dikhega)." if status_col else ""
-                                st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded!{status_note}")
-                                files_here = st.session_state[state_key]
-                                is_available = len(files_here) > 0
-                            except Exception as e:
-                                st.error(f"❌ Upload failed: {e}")
-
-                if is_available:
-                    st.markdown("<div class='attach-status attach-status-available'>✅ Available</div>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<div class='attach-status attach-status-missing'>⭕ Not Available</div>", unsafe_allow_html=True)
-
-                # One-click download for everything in this field. A single file
-                # downloads directly; multiple files get zipped together first so
-                # one click/one save-dialog gets the user all of them at once.
-                if is_available:
-                    with st.container(key=f"attach_lav_download_{key_prefix}"):
-                        if len(files_here) == 1:
-                            st.link_button(f"⬇️  Download {field_label}", files_here[0], use_container_width=True)
-                        else:
-                            zip_ready_key = f"attach_zip_ready_{key_prefix}_{rid}"
-                            zip_source_key = f"attach_zip_source_{key_prefix}_{rid}"
-                            current_files_tuple = tuple(files_here)
-
-                            # Zip is (re)built silently whenever the file list changes —
-                            # e.g. right after a new upload, or the first time this dialog
-                            # opens for this record — so the button below is always
-                            # instantly clickable with no separate "prepare" step for the user.
-                            if st.session_state.get(zip_source_key) != current_files_tuple:
-                                with st.spinner(f"{field_label} download ke liye taiyar ho raha hai..."):
-                                    st.session_state[zip_ready_key] = build_zip_from_urls(files_here)
-                                    st.session_state[zip_source_key] = current_files_tuple
-
-                            safe_proj_dl = "".join(c for c in str(proj_id_for_files) if c.isalnum() or c in ("-", "_")) or "proj"
-                            safe_site_dl = "".join(c for c in str(site_id_for_files) if c.isalnum() or c in ("-", "_")) or "site"
-                            st.download_button(
-                                f"⬇️  Download {field_label} ({len(files_here)} files, .zip)",
-                                data=st.session_state[zip_ready_key],
-                                file_name=f"{safe_proj_dl}_{safe_site_dl}_{FILE_NAME_TAGS[key_prefix]}.zip",
-                                mime="application/zip",
-                                key=f"btn_zipdl_{key_prefix}_{rid}",
-                                use_container_width=True,
-                                )
-
-        attach_cols_row1 = st.columns(3)
-        for config, att_col in zip(attach_field_configs_row1, attach_cols_row1):
-            _render_attachment_field(config, att_col)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        attach_cols_row2 = st.columns(4)
-        for config, att_col in zip(attach_field_configs_row2, attach_cols_row2):
-            _render_attachment_field(config, att_col)
-            
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col_btn1, col_btn2 = st.columns([8, 2])
-        with col_btn2:
-            submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
-            
-        if submitted:
-            # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
-            po_nos = ["" if p.strip().lower() in ("nan", "none", "null") else p for p in po_nos]
-            wcc_nums = ["" if w.strip().lower() in ("nan", "none", "null") else w for w in wcc_nums]
-
-            has_error = False
-            if not site_id:
-                st.error("⚠️ Site ID dalna compulsory hai!")
-                has_error = True
-            # --- FIX: Project ID bhi ab required + validated ---
-            if not proj_id or not proj_id.strip():
-                st.error("⚠️ Project ID dalna compulsory hai!")
-                has_error = True
-            for p in po_nos:
-                if p and (not p.isdigit() or len(p) != 11):
-                    st.error(f"⚠️ PO NO. '{p}' strict 11 digit ka number hona chahiye!")
-                    has_error = True
-            for w in wcc_nums:
-                if w and (not w.isdigit() or len(w) != 10):
-                    st.error(f"⚠️ WCC NUMBER '{w}' strict 10 digit ka number hona chahiye!")
-                    has_error = True
-
-            # --- FIX: DUPLICATE PROJECT ID CHECK (scoped to workspace, excluding this record itself) ---
-            if not has_error and proj_id.strip() != str(row_data.get('Project ID', '')).strip():
-                active_ws_check = st.session_state.get('active_workspace', 'VISPL')
-                try:
-                    dup_check = (
-                        supabase.table("site_data")
-                        .select("id")
-                        .eq("Project ID", proj_id.strip())
-                        .eq("workspace", active_ws_check)
-                        .neq("id", row_data['id'])
-                        .execute()
-                    )
-                    if dup_check.data and len(dup_check.data) > 0:
-                        st.error(f"❌ Project ID already exist in '{active_ws_check}' workspace")
-                        has_error = True
-                except Exception:
-                    pass
-                    
-            if not has_error:
-                old_team_name = row_data.get('Team Name', '')
-                old_proj_id = row_data.get('Project ID', '')
-                
-                update_data = {
-                    # --- FIX: Project ID ab update_data me included hai ---
-                    "Project ID": proj_id.strip(),
-                    "Department": dept if dept != "Select" else "",
-                    "Operator": operator if operator != "Select" else "",
-                    "Project Name": proj_name if proj_name != "Select" else "",
-                    "Site ID": site_id,
-                    "Site Name": site_name,
-                    "Cluster": cluster,
-                    "Site Status": site_status if site_status != "Select" else "",
-                    "Work Description": work_desc,
-                    "Product": product if product != "Select" else "",
-                    
-                    "PO No.": ", ".join([p for p in po_nos if p]),
-                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
-                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
-                    
-                    "RFAI Status": rfai_status if rfai_status != "Select" else "",
-                    "WH Material": wh_material if wh_material != "Select" else "",
-                    "Team Name": team_name if team_name != "Select" else "",
-                    "Photos": photos_status if photos_status != "Select" else "",
-                    "Audit": audit_status if audit_status != "Select" else "",
-                    "JMS": jms_status if jms_status != "Select" else "",
-                    "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
-                    "Team Billing Status": team_billing if team_billing != "Select" else "",
-                    "Extra Approval": extra_approval if extra_approval != "Select" else "",
-                    "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
-                    
-                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
-                }
-                
-                try:
-                    supabase.table("site_data").update(update_data).eq("id", row_data['id']).execute()
-                    
-                    # --- WHATSAPP MESSAGE ON TEAM CHANGE: DISABLED FOR NOW ---
-                    
-                    st.success("✅ Record Successfully Updated!")
-                    
-                    # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    # Strictly fetch fresh flag status from Supabase handling both case variations safely
-                    try:
-                        fresh_check = supabase.table("site_data").select("*").eq("id", row_data['id']).execute()
-                        if fresh_check.data:
-                            row_fetched = fresh_check.data[0]
-                            val = row_fetched.get("Commissioning Email Sent")
-                            if val is None:
-                                val = row_fetched.get("commissioning_email_sent", "")
-                            already_sent_flag = str(val).strip().lower() if val else ""
-                        else:
-                            already_sent_flag = ""
-                    except Exception as e:
-                        already_sent_flag = ""
-                    
-                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and already_sent_flag != "yes":
-                        st.session_state.pending_comm_email = True
-                        st.session_state.comm_site_data = {
-                            "db_id": row_data['id'],
-                            "proj_name": proj_name,
-                            "proj_id": proj_id,
-                            "site_id": site_id,
-                            "site_name": site_name,
-                            "cluster": cluster,
-                            "team_name": team_name,
-                            "tech_val": tech_val,
-                            "fse_val": fse_val,
-                            "lat_val": lat_val,
-                            "long_val": long_val,
-                        }
-                    # -------------------------------------------------
-
-                    if 'edit_po_count' in st.session_state:
-                        del st.session_state['edit_po_count']
-                    clear_site_data_cache()
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"❌ Error Updating Data: {e}")
-
-        # ---------------------------------------------------------------
-        # --- DANGER ZONE: DELETE THIS RECORD (merged from separate button)
-        # ---------------------------------------------------------------
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
-            <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
-                <div style="color:#dc2626; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
-            </div>
-        """, unsafe_allow_html=True)
-        confirm_del = st.checkbox(
-            "Main is record ko permanently DELETE karna chahta hoon (is action ko undo nahi kiya ja sakta)",
-            key=f"del_confirm_{row_data['id']}"
-        )
-        if confirm_del:
-            if st.button("🗑️ Delete This Record Permanently", key=f"del_now_{row_data['id']}", type="secondary", use_container_width=True):
-                try:
-                    supabase.table("site_data").delete().eq("id", row_data['id']).execute()
-                    st.success("✅ Record Successfully Deleted!")
-                    clear_site_data_cache()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Deleting Record: {e}")
-
-# --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
-@st.dialog("📦 Warehouse Material Tracking", width="large")
-def material_movement_dialog(row_data):
-    st.caption("Manage transaction items and asset movements for selected site")
-
-    # --- FIX: Defensive re-init in case session_state got reset mid-dialog ---
-    if 'mat_count' not in st.session_state:
-        st.session_state.mat_count = 1
-
-    all_dd = get_all_dropdowns()
-    
-    def get_idx(val, opt_list):
-        return opt_list.index(val) if val in opt_list else 0
-
-    with st.container():
-        st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
-        
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        with c1:
-            st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True, key="m_pid")
-        with c2:
-            st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True, key="m_sid")
-        with c3:
-            st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True, key="m_sname")
-        with c4:
-            st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True, key="m_clu")
-        with c5:
-            st.text_input("TEAM", value=row_data.get('Team Name', ''), disabled=True, key="m_team")
-        with c6:
-            srn_opts = get_opts("SRN Status", all_dd)
-            srn_status = st.selectbox("SRN STATUS *", srn_opts, key="m_srn_status")
-
-        st.markdown('<div class="modal-section-title">📦 TRANSACTION & ASSET ITEMS</div>', unsafe_allow_html=True)
-        
-        trans_types = get_opts("Transaction Type", all_dd)
-        mat_status_opts = get_opts("Material Status", all_dd)
-        stn_status_opts = get_opts("STN Status", all_dd)
-        
-        mat_trans_types, mat_boqs, mat_item_codes, mat_descs, mat_qtys = [], [], [], [], []
-        mat_statuses, mat_dates, mat_stn_statuses, mat_remarks = [], [], [], []
-        
-        for i in range(st.session_state.mat_count):
-            if i > 0:
-                st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
-            
-            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
-            with mc1:
-                t_type = st.selectbox("TRANSACTION TYPE", trans_types, key=f"m_trans_{i}")
-                mat_trans_types.append(t_type)
-            with mc2:
-                boq_no = st.text_input("BOQ NUMBER *", placeholder="BOQ No", key=f"m_boq_{i}")
-                mat_boqs.append(boq_no)
-            
-            with mc3:
-                i_code = st.text_input("ITEM CODE *", placeholder="Type & Press Enter", key=f"m_icode_{i}")
-                mat_item_codes.append(i_code)
-
-            code_val = i_code.strip()
-            if code_val:
-                try:
-                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
-                    if not item_res.data:
-                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
-                        
-                    if item_res.data:
-                        fetched_desc = str(item_res.data[0].get("item_description", ""))
-                        fetched_stn = str(item_res.data[0].get("stn_status", "Required"))
-                        
-                        st.session_state[f"m_idesc_{i}"] = fetched_desc
-                        if fetched_stn in stn_status_opts:
-                            st.session_state[f"m_stn_{i}"] = fetched_stn
-                            
-                        st.toast("Item Data Auto-Fetched Successfully! ✅", icon="✅")
-                    else:
-                        st.toast("Item Code not found in database ⚠️", icon="⚠️")
-                except Exception as e:
-                    st.toast(f"Table Error: {e} ❌", icon="❌")
-
-            with mc4:
-                current_desc_val = st.session_state.get(f"m_idesc_{i}", "")
-                i_desc = st.text_input("ITEM DESCRIPTION", value=current_desc_val, placeholder="Description", key=f"m_idesc_{i}")
-                mat_descs.append(i_desc)
-                
-            with mc5:
-                i_qty = st.number_input("INDUS QTY", min_value=0, value=0, key=f"m_iqty_{i}")
-                mat_qtys.append(i_qty)
-                
-            mc6, mc7, mc8, mc9 = st.columns(4)
-            with mc6:
-                m_stat = st.selectbox("MATERIAL STATUS", mat_status_opts, key=f"m_mstat_{i}")
-                mat_statuses.append(m_stat)
-            with mc7:
-                raw_d_date = st.date_input("DISPATCH DATE", value=None, key=f"m_ddate_{i}")
-                d_date = raw_d_date.strftime("%d/%m/%Y") if raw_d_date else ""
-                mat_dates.append(d_date)
-            with mc8:
-                default_stn = "Select"
-                if code_val and 'item_res' in locals() and item_res.data:
-                    default_stn = fetched_stn if fetched_stn in stn_status_opts else "Select"
-                
-                stn_idx = stn_status_opts.index(default_stn) if default_stn in stn_status_opts else 0
-                stn_stat = st.selectbox("STN STATUS", stn_status_opts, index=stn_idx, key=f"m_stn_{i}")
-                mat_stn_statuses.append(stn_stat)
-            with mc9:
-                rem = st.text_input("REMARKS", placeholder="Remarks notes", key=f"m_rem_{i}")
-                mat_remarks.append(rem)
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- FIXED ADD/REMOVE MATERIAL BUTTONS ---
-        col_m_add, col_m_rem, _ = st.columns([3, 3, 4])
-        with col_m_add:
-            if st.button("➕ Add Item", key="btn_add_mat_item", use_container_width=True):
-                st.session_state.mat_count += 1
-        with col_m_rem:
-            if st.session_state.mat_count > 1:
-                if st.button("➖ Remove Item", key="btn_rem_mat_item", use_container_width=True):
-                    st.session_state.mat_count -= 1
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        col_ms1, col_ms2 = st.columns([8, 2])
-        with col_ms2:
-            save_mat = st.button("💾 Save Material", type="primary", use_container_width=True)
-            
-        if save_mat:
-            has_m_err = False
-            for b in mat_boqs:
-                if not b:
-                    st.error("⚠️ BOQ Number dalna compulsory hai!")
-                    has_m_err = True
-                    break
-                    
-            proj_id = row_data.get('Project ID', '')
-            active_ws_mat = st.session_state.get('active_workspace', 'VISPL')
-            seen_codes = set()
-            if not has_m_err:
-                for idx, ic in enumerate(mat_item_codes):
-                    code_str = ic.strip()
-                    if not code_str:
-                        st.error(f"⚠️ Item {idx+1}: Item Code cannot be empty!")
-                        has_m_err = True
-                        break
-                    if code_str in seen_codes:
-                        st.error(f"⚠️ Item {idx+1}: You entered duplicate Item Code '{code_str}' in this form!")
-                        has_m_err = True
-                        break
-                    seen_codes.add(code_str)
-
-            # --- FIX: DUPLICATE ITEM CODE CHECK — NOW SCOPED TO CURRENT WORKSPACE ONLY ---
-            if not has_m_err and proj_id:
-                for ic in mat_item_codes:
-                    code_str = ic.strip()
-                    try:
-                        dup_check = supabase.table("warehouse_data").select("id").eq("Project ID", proj_id).eq("Item Code", code_str).eq("workspace", active_ws_mat).execute()
-                        if dup_check.data and len(dup_check.data) > 0:
-                            st.error(f"❌ This item '{code_str}' already exist against this project id '{proj_id}' in '{active_ws_mat}' workspace.")
-                            has_m_err = True
-                            break
-                    except Exception:
-                        pass
-                        
-            if not has_m_err:
-                try:
-                    for i in range(len(mat_item_codes)):
-                        insert_dict = {
-                            "workspace": active_ws_mat,
-                            "Project ID": proj_id,
-                            "Site ID": row_data.get('Site ID', ''),
-                            "Site Name": row_data.get('Site Name', ''),
-                            "Cluster": row_data.get('Cluster', ''),
-                            "Team": row_data.get('Team Name', ''),
-                            "SRN Status": "Required",
-                            "Transaction Type": mat_trans_types[i] if mat_trans_types[i] != "Select" else "",
-                            "BOQ Number": mat_boqs[i],
-                            "Item Code": mat_item_codes[i].strip(),
-                            "Item Description": mat_descs[i],
-                            "Indus Qty": mat_qtys[i],
-                            "Material Status": mat_statuses[i] if mat_statuses[i] != "Select" else "",
-                            "Dispatch Date": mat_dates[i],
-                            "STN Status": mat_stn_statuses[i] if mat_stn_statuses[i] != "Select" else "",
-                            "Remark": mat_remarks[i]
-                        }
-                        supabase.table("warehouse_data").insert(insert_dict).execute()
-                        
-                    st.success("✅ Warehouse Material Successfully Saved!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Saving Material: {e}")
-
-# --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
-@st.dialog("📧 Commissioning Email Notification", width="large")
-def commissioning_email_dialog():
-    st.markdown("<p style='color:#334155; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
-    
-    data = st.session_state.get("comm_site_data", {})
-    db_id = data.get("db_id")
-    proj_name = data.get("proj_name", "")
-    proj_id = data.get("proj_id", "")
-    site_id = data.get("site_id", "")
-    site_name = data.get("site_name", "")
-    cluster = data.get("cluster", "")
-    tech_val = data.get("tech_val", "N/A")
-    fse_val = data.get("fse_val", "N/A")
-    team_name = data.get("team_name", "N/A")
-    lat_val = data.get("lat_val", "N/A")
-    long_val = data.get("long_val", "N/A")
-    
-    # Fetch Team Mobile
-    team_mobile = "N/A"
-    if team_name and team_name != "Select":
-        try:
-            t_res = supabase.table("dropdown_master").select("mobile").eq("category", "Team Name").eq("option_value", team_name).execute()
-            if t_res.data:
-                mob = t_res.data[0].get("mobile", "")
-                if mob and str(mob).upper() != "EMPTY":
-                    team_mobile = str(mob).strip()
-        except:
+            res_exc = supabase.table("Escalation Matrix").select("*").eq("Site ID", str(site_id).strip()).execute()
+            if res_exc.data:
+                km_val = res_exc.data[0].get("KM", "-")
+        except Exception:
             pass
+    return cluster_val, rfai_val, srn_val, km_val
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_po_item_master_cached():
+    """Quotation page jaisa searchable item master PO popup ke liye."""
+    tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
+    for table_name in tables_to_try:
+        try:
+            rows = fetch_all_rows(
+                lambda start, end, t=table_name: supabase.table(t).select("*").range(start, end).execute()
+            )
+            if not rows:
+                continue
+            items_df = pd.DataFrame(rows)
+            rename_map = {}
+            for col in items_df.columns:
+                clean_col = str(col).strip().lower()
+                if clean_col in ["item code", "item_code", "itemcode", "code", "material item"]:
+                    rename_map[col] = "Item Code"
+                elif clean_col in ["description", "desc", "item description", "item_description"]:
+                    rename_map[col] = "Description"
+                elif clean_col in ["price", "rate", "amount", "unit price"]:
+                    rename_map[col] = "Price"
+                elif clean_col in ["uom", "unit", "unit of measure", "unit_of_measure"]:
+                    rename_map[col] = "UOM"
+            items_df = items_df.rename(columns=rename_map)
+            if "Item Code" not in items_df.columns:
+                continue
+            for required_col, default_value in {"Description": "", "Price": 0, "UOM": ""}.items():
+                if required_col not in items_df.columns:
+                    items_df[required_col] = default_value
+            items_df = items_df[["Item Code", "Description", "UOM", "Price"]].copy()
+            items_df["Item Code"] = items_df["Item Code"].fillna("").astype(str).str.strip()
+            items_df["Description"] = items_df["Description"].fillna("").astype(str).str.strip()
+            items_df["UOM"] = items_df["UOM"].fillna("").astype(str).str.strip()
+            items_df["Price"] = pd.to_numeric(items_df["Price"], errors="coerce").fillna(0).astype(int)
+            items_df = items_df[items_df["Item Code"] != ""].drop_duplicates("Item Code", keep="first")
+            items_df["Display"] = items_df["Item Code"] + " | " + items_df["Description"]
+            return items_df.reset_index(drop=True)
+        except Exception:
+            continue
+    return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
+
+
+# --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
+# NOTE: iska already accha pattern hai — poori po_working table sirf EK BAAR
+# session_state me load hoti hai (jab tak explicitly delete na ho, jaise
+# upload/edit/delete/company-switch ke baad), baar baar Supabase se re-fetch nahi hoti.
+if 'po_working_df' not in st.session_state:
+    try:
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        all_data = fetch_all_rows(
+            lambda start, end: supabase.table("po_working").select("*").eq("workspace", active_ws).range(start, end).execute()
+        )
+        if all_data and len(all_data) > 0:
+            df_fetched = pd.DataFrame(all_data)
+            num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+            for col in num_cols:
+                if col in df_fetched.columns:
+                    df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
+                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(int)
+            st.session_state.po_working_df = df_fetched
+        else:
+            st.session_state.po_working_df = pd.DataFrame(columns=[
+                'id', 'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                'Item Num', 'Description', 'UOM', 'PO Qty', 
+                'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+            ])
+    except Exception:
+        st.session_state.po_working_df = pd.DataFrame(columns=[
+            'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+            'Item Num', 'Description', 'UOM', 'PO Qty', 
+            'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+        ])
+
+if 'id' not in st.session_state.po_working_df.columns:
+    st.session_state.po_working_df['id'] = None
+
+# --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
+@st.dialog("📄 Upload PO (Notepad)")
+def po_upload_dialog():
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    po_number_input = st.text_input("PO NUMBER", label_visibility="collapsed", placeholder="Enter PO Number...")
     
-    all_dd = get_all_dropdowns()
+    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:15px;'>PO DOCUMENT (TXT/CSV/TSV/EXCEL) <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("PO DOCUMENT", label_visibility="collapsed", type=["tsv", "csv", "txt", "xlsx"], key="po_upload_file")
     
-    comm_req = st.radio("Email For Commissioning Action:", ["Not Required", "Required"], horizontal=True, key="comm_popup_radio")
-    
-    if comm_req == "Required":
-        st.markdown("<hr style='border:1px solid rgba(255,255,255,0.1); margin: 15px 0;'>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            make_opts = get_opts("Make", all_dd)
-            if len(make_opts) <= 1:
-                make_opts = ["Select", "Amraraja", "Vertiv", "Exide", "HBL", "Other"]
-            comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
-            comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
-            
-        auto_to = ""
-        auto_cc = ""
-        if comm_make != "Select":
-            try:
-                to_list = []
-                cc_list = []
-                
-                # 1. Fetch from Make_Email_Master (Filters by Project Name AND Make)
-                res_make = supabase.table("Make_Email_Master").select("*").eq("Project Name", proj_name).ilike("Make", comm_make).execute()
-                if res_make.data:
-                    for row in res_make.data:
-                        m_to = str(row.get("Make_TO", "")).strip()
-                        m_cc = str(row.get("Make_CC", "")).strip()
-                        
-                        if m_to and m_to.lower() != "nan":
-                            to_list.extend([e.strip() for e in m_to.split(',') if e.strip()])
-                        if m_cc and m_cc.lower() != "nan":
-                            cc_list.extend([e.strip() for e in m_cc.split(',') if e.strip()])
-                                
-                # 2. Fetch Cluster FSE & AOM Emails from Cluster_Email_Master
-                res_cluster = supabase.table("Cluster_Email_Master").select("*").ilike("Cluster", cluster).execute()
-                if res_cluster.data:
-                    for row in res_cluster.data:
-                        fse_email = str(row.get("FSE Email", "")).strip()
-                        aom_email = str(row.get("AOM Email", "")).strip()
-                        
-                        if fse_email and fse_email.lower() != "nan":
-                            cc_list.extend([e.strip() for e in fse_email.split(',') if e.strip()])
-                        if aom_email and aom_email.lower() != "nan":
-                            cc_list.extend([e.strip() for e in aom_email.split(',') if e.strip()])
-                            
-                # Remove duplicates while preserving order
-                auto_to = ", ".join(list(dict.fromkeys(to_list)))
-                auto_cc = ", ".join(list(dict.fromkeys(cc_list)))
-            except Exception as e:
-                pass 
-                
-        with c2:
-            to_email = st.text_input("To Email *", value=auto_to, placeholder="Auto-fetched from DB or enter manually")
-            cc_email = st.text_input("CC Email", value=auto_cc, placeholder="Auto-fetched from DB or enter manually")
-            
-        # DYNAMIC EMAIL BODY GENERATION (HTML for Bold Support)
-        proj_type = "Battery Bank" if proj_name == "Battery Bank" else "SMPS/SPS"
-        subject = f"Request for {proj_type} Commissioning – {proj_id}_{site_id}_{site_name}"
-        
-        body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
-<p>Dear Sir,</p>
-
-<p>We are pleased to inform you that the {proj_type} installation work at the below-mentioned site has been completed successfully.</p>
-
-<p>Kindly arrange to depute your commissioning engineer at the earliest to carry out the {proj_type} commissioning.</p>
-
-<p><b>Site Details:</b><br>
-<b>Project ID:</b> {proj_id}<br>
-<b>Site ID:</b> {site_id}<br>
-<b>Site Name:</b> {site_name}<br>
-<b>Cluster:</b> {cluster}<br>
-<b>Lat Long :-</b> ({lat_val} / {long_val})<br>
-<b>Product Detial :-</b> {comm_desc}<br>
-<b>Technician Detail :</b> {tech_val}<br>
-<b>FSE Detail :</b> {fse_val}<br>
-<b>Team Name :</b> {team_name}<br>
-<b>Team Number :</b> {team_mobile}</p>
-
-<p>Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.</p>
-
-<p>If any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.</p>
-
-<p>Looking forward to your confirmation.</p>
-
-<p>Regards,<br>
-Visiontech Infra</p>
-</div>"""
-
-        with st.expander("👁️ Preview Email Template"):
-            st.markdown(f"**Subject:** {subject}")
-            st.markdown(body, unsafe_allow_html=True)
-            
     st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 1])
     
-    with col1:
-        if st.button("❌ Close / Ignore", use_container_width=True):
-            st.session_state.pending_comm_email = False
-            st.rerun()
-            
-    with col3:
-        if st.button("🚀 Send Email & Complete", type="primary", use_container_width=True):
-            if comm_req == "Required":
-                if comm_make == "Select":
-                    st.error("⚠️ Please select a Make.")
-                    return
-                if not comm_desc.strip():
-                    st.error("⚠️ Please enter a Description.")
-                    return
-                if not to_email.strip():
-                    st.error("⚠️ To Email address is required.")
-                    return
-                
-                success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
-                if success:
-                    st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
-                    if db_id:
-                        try:
-                            # SUPABASE ME SAVE KAREGA YAHAN
-                            try:
-                                supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
-                            except:
-                                supabase.table("site_data").update({"commissioning_email_sent": "Yes"}).eq("id", db_id).execute()
-                        except Exception as e:
-                            pass # Silently ignore so user isn't stuck
-                else:
-                    st.error(f"❌ Failed to send email: {err_msg}")
-                    return
-            else:
-                st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
-                
-            st.session_state.pending_comm_email = False
-            clear_site_data_cache()
-            st.rerun()
-
-# --- 3.8 BULK UPLOAD DIALOG FUNCTION (FIXED: proper error reporting + summary popup) ---
-@st.dialog("📤 Bulk Upload Site Data", width="large")
-def bulk_upload_dialog():
-    st.caption("Upload an Excel (.xlsx) or .tsv file to bulk import site records.")
-    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_site_file")
-
-    # --- SHOW LAST UPLOAD RESULT (persists across the rerun so it doesn't vanish) ---
-    if st.session_state.get("bulk_upload_result"):
-        result = st.session_state["bulk_upload_result"]
-        st.markdown("---")
-        st.markdown(f"""
-            <div style="background: #f8fafc; padding: 15px 20px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); margin-bottom: 15px;">
-                <div style="font-weight:800; color:#0f172a; font-size:1.05rem; margin-bottom:10px;">📊 Upload Summary</div>
-                <div style="color:#1e293b; margin-bottom:4px;">📄 Total Rows in File: <b>{result['total']}</b></div>
-                <div style="color:#15803d; margin-bottom:4px;">✅ Successfully Added: <b>{result['added']}</b></div>
-                <div style="color:#a16207; margin-bottom:4px;">🟡 Skipped (Duplicate Project ID in '{result['workspace']}'): <b>{result['dup']}</b></div>
-                <div style="color:#64748b; margin-bottom:4px;">⚪ Skipped (Missing/Blank Project ID): <b>{result['missing_pid']}</b></div>
-                <div style="color:#b91c1c;">❌ Failed (Error): <b>{result['failed']}</b></div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        if result["fail_details"]:
-            with st.expander(f"❌ View {len(result['fail_details'])} Failed Row Details (Reason)"):
-                for f in result["fail_details"]:
-                    st.markdown(f"- **Excel Row {f['row']}** (Project ID: `{f['pid'] or 'N/A'}`) → {f['reason']}")
-
-        col_close, _ = st.columns([1, 3])
-        with col_close:
-            if st.button("✅ OK, Close This Summary", type="primary", use_container_width=True):
-                st.session_state["bulk_upload_result"] = None
-                st.rerun()
-        st.markdown("---")
-
-    if uploaded_file:
-        if st.button("🚀 Process & Upload", type="primary", use_container_width=True):
+    col_cancel, col_submit = st.columns(2)
+    with col_cancel:
+        cancel_btn = st.button("Cancel", use_container_width=True)
+    with col_submit:
+        submit_btn = st.button("💾 Submit", type="primary", use_container_width=True)
+        
+    if cancel_btn:
+        st.rerun()
+        
+    if submit_btn:
+        if not po_number_input.strip():
+            st.error("⚠️ PO Number dalna compulsory hai!")
+        elif not uploaded_file:
+            st.error("⚠️ File upload karna compulsory hai!")
+        else:
             try:
-                if uploaded_file.name.endswith(('.xlsx', '.xls')):
-                    df_upload = pd.read_excel(uploaded_file)
-                else:
-                    df_upload = pd.read_csv(uploaded_file, sep='\t')
-            except Exception as e:
-                st.error(f"❌ Error reading file: {e}")
-                return
-
-            if df_upload.empty:
-                st.warning("⚠️ Uploaded file me koi data row nahi mili.")
-                return
-
-            active_ws_bulk = st.session_state.get('active_workspace', 'VISPL')
-            added_count = 0
-            skipped_dup_count = 0
-            missing_pid_count = 0
-            fail_details = []
-
-            total_rows = len(df_upload)
-            progress = st.progress(0, text="Processing rows...")
-            bulk_upload_base_time = datetime.utcnow()  # base time; each row gets +1ms so file order is preserved
-
-            for index, row in df_upload.iterrows():
-                progress.progress(
-                    min((index + 1) / total_rows, 1.0),
-                    text=f"Processing row {index + 1} of {total_rows}..."
-                )
-
-                # Excel row number as user sees it (header = row 1, data starts row 2)
-                excel_row_no = index + 2
-
-                p_id = str(row.get("Project ID", row.get("project_id", ""))).strip()
-                if not p_id or p_id.lower() == "nan":
-                    missing_pid_count += 1
-                    continue
-
-                # --- DUPLICATE PROJECT ID CHECK (scoped to current workspace) ---
-                try:
-                    dup_bulk = (
-                        supabase.table("site_data")
-                        .select("id")
-                        .eq("Project ID", p_id)
-                        .eq("workspace", active_ws_bulk)
-                        .execute()
+                df_raw = pd.read_csv(uploaded_file, sep='\t', encoding='cp1252', skiprows=8)
+                
+                cols_to_drop = [
+                    'Type', 'Type.1', 'Item/Job', 'Supplier Item', 'Type.2', 
+                    'Advance Amount', 'Advance Billed', 'Maximum Retainage Amount', 
+                    'Retainage Rate (%)', 'Status', 'Reason', 'Site Address'
+                ]
+                df_proc = df_raw.drop(columns=[c for c in cols_to_drop if c in df_raw.columns], errors='ignore')
+                df_proc = df_proc.dropna(subset=['Qty'])
+                
+                if 'Project Name' in df_proc.columns:
+                    proj_idx = df_proc.columns.get_loc('Project Name')
+                    df_proc = df_proc.iloc[:, :proj_idx+1]
+                    
+                df_proc = df_proc.rename(columns={'Line': 'Line Number', 'Qty': 'PO Qty'})
+                po_no = po_number_input.strip()
+                
+                df_proc['PO Number'] = po_no
+                df_proc['User Qty'] = 0
+                df_proc['VIS Qty'] = 0
+                df_proc['Diff'] = 0
+                df_proc['Claim Qty'] = 0
+                df_proc['Receipt Qty'] = 0
+                if 'Amount' not in df_proc.columns: df_proc['Amount'] = 0
+                if 'Price' not in df_proc.columns: df_proc['Price'] = 0
+                
+                final_cols = [
+                    'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
+                    'Item Num', 'Description', 'UOM', 'PO Qty', 
+                    'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+                ]
+                
+                for col in final_cols:
+                    if col not in df_proc.columns:
+                        df_proc[col] = ""
+                        
+                df_proc = df_proc[final_cols]
+                
+                num_columns_to_int = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
+                for col in num_columns_to_int:
+                    if col in df_proc.columns:
+                        df_proc[col] = df_proc[col].astype(str).str.replace(',', '', regex=True)
+                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
+                
+                df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
+                df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
+                
+                existing_df = st.session_state.po_working_df
+                new_rows_to_add = []
+                updated_count = 0
+                skipped_count = 0
+                update_errors = []
+                
+                # --- MATCHING RULE ---
+                # Har line ki uniqueness ab "Project Name" (Project ID) + "Item Num" (Item Code) se decide hoti hai,
+                # PO Number/Line Number se nahi. Isse same project ke andar same item code baar baar upload
+                # karne par duplicate nahi banta, sirf jab Qty change ho tabhi update hota hai.
+                for idx, new_row in df_proc.iterrows():
+                    proj_val = str(new_row.get('Project Name', '')).strip()
+                    item_val = str(new_row.get('Item Num', '')).strip()
+                    
+                    match_mask = (
+                        existing_df['Project Name'].astype(str).str.strip() == proj_val
+                    ) & (
+                        existing_df['Item Num'].astype(str).str.strip() == item_val
                     )
-                    if dup_bulk.data and len(dup_bulk.data) > 0:
-                        skipped_dup_count += 1
-                        continue
-                except Exception as e:
-                    fail_details.append({"row": excel_row_no, "pid": p_id, "reason": f"Duplicate-check DB error: {e}"})
-                    continue
-
-                insert_dict = {
-                    "workspace": active_ws_bulk,
-                    "created_at": (bulk_upload_base_time + timedelta(milliseconds=index)).isoformat(),
-                }
-                for col in columns_list:
-                    if col not in ("id", "🎯 Select"):
-                        val = row.get(col, row.get(col.lower(), ""))
-                        val_str = str(val).strip() if pd.notna(val) else ""
-                        if val_str.lower() == 'nan':
-                            val_str = ""
-                        insert_dict[col] = val_str
-
-                # Handle Excel float artifact on Site ID (e.g. "123.0" -> "123")
-                site_id_val = insert_dict.get("Site ID", "").strip()
-                if site_id_val.endswith(".0"):
-                    site_id_val = site_id_val[:-2]
-                insert_dict["Site ID"] = site_id_val
-
-                # Auto-fetch Site Name / Cluster from Excalation Matrix if blank
-                if site_id_val:
-                    sn = insert_dict.get("Site Name", "").strip()
-                    cl = insert_dict.get("Cluster", "").strip()
-                    is_sn_empty = not sn or sn.lower() in ["-", "nan", "none", "empty"]
-                    is_cl_empty = not cl or cl.lower() in ["-", "nan", "none", "empty"]
-                    if is_sn_empty or is_cl_empty:
-                        try:
-                            master_res = supabase.table("Excalation Matrix").select("*").eq("Site ID", site_id_val).execute()
-                            if master_res.data:
-                                if is_sn_empty:
-                                    insert_dict["Site Name"] = str(master_res.data[0].get("Site Name", "") or "").strip()
-                                if is_cl_empty:
-                                    insert_dict["Cluster"] = str(master_res.data[0].get("Cluster", "") or "").strip()
-                        except Exception:
-                            pass  # non-fatal: auto-fetch failing shouldn't block the insert
-
-                try:
-                    supabase.table("site_data").insert(insert_dict).execute()
-                    added_count += 1
-                except Exception as e:
-                    # THIS is the actual reason a row failed — now captured instead of swallowed
-                    fail_details.append({"row": excel_row_no, "pid": p_id, "reason": str(e)})
-
-            progress.empty()
-
-            # --- Save summary in session_state so it survives st.rerun() below ---
-            st.session_state["bulk_upload_result"] = {
-                "total": total_rows,
-                "added": added_count,
-                "dup": skipped_dup_count,
-                "missing_pid": missing_pid_count,
-                "failed": len(fail_details),
-                "fail_details": fail_details,
-                "workspace": active_ws_bulk,
-            }
-
-            st.session_state.current_page = 1
-            clear_site_data_cache()
-            st.rerun()
-
-# --- 3.8.5 NEW: FIXED UPDATE PO STATUS DIALOG FUNCTION ---
-@st.dialog("📝 Update PO Status", width="large")
-def update_po_status_dialog():
-    st.caption("Upload Excel (Col 1: 'PO No.', Col 2: 'PO Status') to bulk update existing records.")
-    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#334155; margin-bottom:5px;'>UPDATE FILE <span style='color:#dc2626;'>*</span></p>", unsafe_allow_html=True)
-    status_file = st.file_uploader("UPLOAD FILE", label_visibility="collapsed", type=["xlsx", "xls"], key="po_status_file")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_c, col_s = st.columns(2)
-    with col_c:
-        if st.button("Cancel", use_container_width=True):
-            st.rerun()
-    with col_s:
-        if st.button("🚀 Process & Update", type="primary", use_container_width=True):
-            if not status_file:
-                st.error("⚠️ Update file upload karna compulsory hai!")
-            else:
-                try:
-                    df_status = pd.read_excel(status_file)
+                    
+                    if match_mask.any():
+                        match_idx = existing_df[match_mask].index[0]
+                        row_id = existing_df.at[match_idx, 'id'] if 'id' in existing_df.columns else None
                         
-                    if 'PO No.' not in df_status.columns or 'PO Status' not in df_status.columns:
-                        st.error("❌ File me exactly 'PO No.' aur 'PO Status' naam ke columns hone chahiye!")
-                        return
-                    
-                    updated_count = 0
-                    not_found_count = 0
-                    
-                    active_ws = st.session_state.get('active_workspace', 'VISPL')
-                    all_db_res = supabase.table("site_data").select("*").eq("workspace", active_ws).execute()
-                    all_db_records = all_db_res.data if all_db_res.data else []
-                    
-                    for index, row in df_status.iterrows():
-                        try:
-                            po_no = str(int(float(row['PO No.']))).strip()
-                        except:
-                            po_no = str(row['PO No.']).strip()
-                            
-                        new_status = str(row['PO Status']).strip()
+                        curr_po = int(existing_df.at[match_idx, 'PO Qty']) if pd.notna(existing_df.at[match_idx, 'PO Qty']) else 0
+                        curr_vis = int(existing_df.at[match_idx, 'VIS Qty']) if pd.notna(existing_df.at[match_idx, 'VIS Qty']) else 0
+                        new_po = int(new_row['PO Qty'])
+                        new_price = int(new_row['Price'])
                         
-                        if not po_no or po_no.lower() == 'nan' or po_no == '0':
-                            continue
-                            
-                        match_found = False
-                        for record in all_db_records:
-                            db_po_string = str(record.get('PO No.', ''))
-                            db_po_list = [p.strip() for p in db_po_string.split(',')]
-                            
-                            if po_no in db_po_list:
-                                try:
-                                    supabase.table("site_data").update({"PO Status": new_status}).eq("id", record['id']).execute()
-                                    updated_count += 1
-                                    match_found = True
-                                except Exception:
-                                    pass
-                                    
-                        if not match_found:
-                            not_found_count += 1
-                            
-                    if updated_count > 0:
-                        st.success(f"✅ Status Update Complete! {updated_count} records updated successfully. ({not_found_count} not found)")
-                        clear_site_data_cache()
+                        new_diff = new_po - curr_vis
+                        new_amount = curr_vis * new_price
+                        
+                        if pd.notna(row_id):
+                            try:
+                                supabase.table("po_working").update({
+                                    'PO Number': po_no,
+                                    'Line Number': int(new_row['Line Number']),
+                                    'PO Qty': new_po,
+                                    'Price': new_price,
+                                    'UOM': str(new_row['UOM']),
+                                    'Description': str(new_row['Description']),
+                                    'Diff': new_diff,
+                                    'Amount': new_amount
+                                }).eq("id", row_id).execute()
+                                updated_count += 1
+                            except Exception as e:
+                                # FIX: pehle ye error silently swallow ho jaata tha - ab dikhega
+                                update_errors.append(f"Item {item_val}: {e}")
+                        else:
+                            update_errors.append(f"Item {item_val}: matched row me 'id' nahi mila, update skip ho gaya.")
                     else:
-                        st.warning(f"⚠️ No records were updated. ({not_found_count} PO numbers not found in database)")
+                        # Is Project ke liye ye Item Code pehli baar aa raha hai -> naya row add hoga
+                        new_rows_to_add.append(new_row.to_dict())
+                
+                inserted_count = 0
+                if new_rows_to_add:
+                    records_to_insert = []
+                    for rec in new_rows_to_add:
+                        clean_rec = {}
+                        clean_rec["workspace"] = st.session_state.get('active_workspace', 'VISPL')
+                        for k, v in rec.items():
+                            if k in num_columns_to_int:
+                                clean_rec[k] = int(v)
+                            else:
+                                clean_rec[k] = str(v).strip() if pd.notna(v) and str(v) != 'nan' else ""
+                        records_to_insert.append(clean_rec)
                     
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {e}")
+                    try:
+                        res = supabase.table("po_working").insert(records_to_insert).execute()
+                        inserted_count = len(res.data) if res.data else 0
+                        if inserted_count == 0:
+                            # Supabase ne error nahi diya lekin kuch bhi return nahi kiya - isko bhi flag karo
+                            update_errors.append("Insert call ne 0 rows return ki - RLS policy ya column mismatch check karo.")
+                    except Exception as e:
+                        st.error(f"❌ DB Insert Error: Please verify Supabase columns match exactly. Details: {e}")
+                        return
+                
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
 
-# --- 3.9 EXPORT DIALOG FUNCTION ---
-@st.dialog("📥 Export Data", width="large")
+                fetch_site_data_lookup_cached.clear()
+                fetch_po_detail_site_info_cached.clear()
+                
+                st.session_state['po_upload_success_msg'] = po_number_input
+                st.session_state['po_upload_summary'] = {
+                    'added': inserted_count,
+                    'updated': updated_count,
+                    'skipped': skipped_count,
+                    'errors': update_errors,
+                }
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error processing file: {e}")
+
+# --- 4. EXPORT DIALOG FUNCTION ---
+@st.dialog("📥 Export PO Working Data", width="large")
 def export_dialog(df_export):
-    st.caption("Download your live database records as an Excel file.")
+    st.caption("Download your processed working list as an Excel file.")
     
     export_df = df_export.copy()
     if "🎯 Select" in export_df.columns:
@@ -2534,387 +736,653 @@ def export_dialog(df_export):
     if "id" in export_df.columns:
         export_df = export_df.drop(columns=["id"])
         
-    # --- ADDING PO UPLOAD STATUS TO EXCEL ---
+    # --- ADDING SITE STATUS TO EXCEL ---
     active_ws = st.session_state.get('active_workspace', 'VISPL')
-    uploaded_po_identifiers = set()
-    try:
-        res_po = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
-        if res_po.data:
-            for item in res_po.data:
-                p_name = str(item.get("Project Name", "")).strip()
-                s_id = str(item.get("Site ID", "")).strip()
-                if p_name: uploaded_po_identifiers.add(p_name)
-                if s_id: uploaded_po_identifiers.add(s_id)
-    except Exception:
-        pass
+    available_sites = set()
+    available_projects = set()
 
-    def get_po_upload_status(row):
-        pid = str(row.get("Project ID", "")).strip()
+    # Reuses the same 30s-cached lookup instead of a fresh full-table fetch —
+    # export is an occasional action, but no reason to hit Supabase again if
+    # the page-level lookup already has fresh-enough data.
+    site_rows = fetch_site_data_lookup_cached(active_ws)
+    for item in site_rows:
+        s_id = str(item.get("Site ID", "")).strip()
+        p_id = str(item.get("Project ID", "")).strip()
+        p_name = str(item.get("Project Name", "")).strip()
+        
+        if s_id: available_sites.add(s_id)
+        if p_id: available_projects.add(p_id)
+        if p_name: available_projects.add(p_name)
+
+    def get_site_status(row):
         sid = str(row.get("Site ID", "")).strip()
-        if (pid and pid in uploaded_po_identifiers) or (sid and sid in uploaded_po_identifiers):
+        pname = str(row.get("Project Name", "")).strip()
+
+        is_site_avail = sid and sid in available_sites
+        is_proj_avail = pname and (pname in available_projects or pname in available_sites)
+
+        if is_site_avail or is_proj_avail:
             return "Available"
-        return "Pending"
-        
-    # Insert right after PO Status in Excel
-    if 'PO Status' in export_df.columns:
-        loc = export_df.columns.get_loc('PO Status') + 1
-        export_df.insert(loc, 'PO UPLOAD STATUS', export_df.apply(get_po_upload_status, axis=1))
+        return "Not Available"
+
+    if 'Project Name' in export_df.columns:
+        loc = export_df.columns.get_loc('Project Name') + 1
+        export_df.insert(loc, 'SITE STATUS', export_df.apply(get_site_status, axis=1))
     else:
-        export_df['PO UPLOAD STATUS'] = export_df.apply(get_po_upload_status, axis=1)
-    # ----------------------------------------
-        
+        export_df['SITE STATUS'] = export_df.apply(get_site_status, axis=1)
+    # -----------------------------------
+
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        export_df.to_excel(writer, index=False, sheet_name='Site Data')
+        export_df.to_excel(writer, index=False, sheet_name='PO Working Data')
         
     st.download_button(
         label="📊 Download Excel File",
         data=buffer.getvalue(),
-        file_name="Site_Data_Export.xlsx",
+        file_name="PO_Working_Export.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
         type="primary"
     )
 
-# ==============================================================
-# --- TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
-# ==============================================================
-if st.session_state.get('pending_comm_email'):
-    commissioning_email_dialog()
-# ==============================================================
+# --- 4.5 DETAILED PO VIEW DIALOG FUNCTION ---
+@st.dialog("✏️ Edit PO Detailed Working", width="large")
+def view_po_details_dialog(row_data):
+    po_no = row_data['PO Number']
+    site_id = row_data['Site ID']
+    site_name = row_data['Site Name']
+    proj_name = row_data['Project Name']
 
-# --- TOP SINGLE WORKSPACE BANNER ---
-active_ws_display = st.session_state.get('site_active_company', 'VISPL')
-st.markdown(f"""
-    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
-        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🏢 {active_ws_display}
-        </h1>
-    </div>
-""", unsafe_allow_html=True)
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    # FIX (egress optimization): ye 2 chhoti si single-row lookups (site_data +
+    # Excalation/Escalation Matrix) pehle BINA caching ke thi — dialog ke andar
+    # har interaction (jaise data editor me cell edit) par poora script phir
+    # se chalta hai, matlab har baar dono queries dobara Supabase ko hit karti
+    # thi. Ab 30s ke liye cache kiya gaya hai.
+    cluster_val, rfai_val, srn_val, km_val = fetch_po_detail_site_info_cached(site_id, active_ws)
 
-# --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
-col_title, col_ref, col_add, col_upload, col_update, col_sync, col_export = st.columns([2.2, 0.9, 1.3, 1.3, 1.3, 1.6, 1.3])
+    display_cols = [
+        'id', 'Line Number', 'PO Number', 'Item Num', 'Description', 'UOM', 
+        'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
+    ]
+    
+    editor_key = f"po_editor_{po_no}_{proj_name}"
+    
+    df_full = st.session_state.po_working_df
+    po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
+    real_indices = df_full[po_specific_mask].index.tolist()
+    
+    if editor_key in st.session_state:
+        edits = st.session_state[editor_key].get("edited_rows", {})
+        if edits:
+            for str_idx, changes in edits.items():
+                pos_idx = int(str_idx)
+                if pos_idx < len(real_indices):
+                    real_idx = real_indices[pos_idx] 
+                    for col, val in changes.items():
+                        st.session_state.po_working_df.loc[real_idx, col] = val
+
+    df_temp = st.session_state.po_working_df[po_specific_mask].copy()
+    
+    df_temp['PO Qty'] = df_temp['PO Qty'].astype(str).str.replace(',', '', regex=True)
+    df_temp['PO Qty'] = pd.to_numeric(df_temp['PO Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['VIS Qty'] = df_temp['VIS Qty'].astype(str).str.replace(',', '', regex=True)
+    df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Price'] = df_temp['Price'].astype(str).str.replace(',', '', regex=True)
+    df_temp['Price'] = pd.to_numeric(df_temp['Price'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Diff'] = df_temp['PO Qty'] - df_temp['VIS Qty']
+    df_temp['Amount'] = df_temp['VIS Qty'] * df_temp['Price']
+
+    # 🟢 WCC Qty / WCC Status — pushed here by the WCC Upload automation.
+    # Display-only in this dialog (not editable, not recalculated).
+    if 'wcc_qty' in df_temp.columns:
+        df_temp['wcc_qty'] = df_temp['wcc_qty'].astype(str).str.replace(',', '', regex=True)
+        df_temp['wcc_qty'] = pd.to_numeric(df_temp['wcc_qty'], errors='coerce').fillna(0).astype(int)
+    else:
+        df_temp['wcc_qty'] = 0
+
+    if 'wcc_status' in df_temp.columns:
+        df_temp['wcc_status'] = df_temp['wcc_status'].fillna('').astype(str)
+        df_temp['wcc_status'] = df_temp['wcc_status'].replace('nan', '')
+    else:
+        df_temp['wcc_status'] = ''
+    
+    df_temp['User Qty'] = df_temp['User Qty'].astype(str).str.replace(',', '', regex=True)
+    df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Claim Qty'] = df_temp['Claim Qty'].astype(str).str.replace(',', '', regex=True)
+    df_temp['Claim Qty'] = pd.to_numeric(df_temp['Claim Qty'], errors='coerce').fillna(0).astype(int)
+    
+    df_temp['Receipt Qty'] = df_temp['Receipt Qty'].astype(str).str.replace(',', '', regex=True)
+    df_temp['Receipt Qty'] = pd.to_numeric(df_temp['Receipt Qty'], errors='coerce').fillna(0).astype(int)
+    
+    st.session_state.po_working_df.update(df_temp)
+    
+    project_total_amount = (df_temp['PO Qty'] * df_temp['Price']).sum()
+    
+    st.markdown(f"""
+        <div class="kpi-pill-container">
+            <div class="kpi-pill">SITE ID: <span>{site_id}</span></div>
+            <div class="kpi-pill">SITE NAME: <span>{site_name}</span></div>
+            <div class="kpi-pill">PROJECT ID: <span>{proj_name}</span></div>
+            <div class="kpi-pill">CLUSTER: <span>{cluster_val}</span></div>
+            <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
+            <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
+            <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
+            <div class="kpi-pill" style="background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);">
+                <span style="color: #0f172a !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Download only this popup's complete PO/Project line details.
+    popup_export_df = df_temp[[c for c in display_cols if c in df_temp.columns]].copy()
+    if "id" in popup_export_df.columns:
+        popup_export_df = popup_export_df.drop(columns=["id"])
+    popup_excel = io.BytesIO()
+    with pd.ExcelWriter(popup_excel, engine="openpyxl") as writer:
+        popup_export_df.to_excel(writer, index=False, sheet_name="PO Line Details")
+    safe_po_file = "".join(ch for ch in str(po_no) if ch.isalnum() or ch in ("-", "_")) or "PO"
+    st.download_button(
+        "📥 Download This PO Excel",
+        data=popup_excel.getvalue(),
+        file_name=f"PO_{safe_po_file}_Line_Details.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"popup_excel_{safe_po_file}_{proj_name}",
+        use_container_width=True,
+        type="primary"
+    )
+
+    # Search item from master and save immediately against same PO + Project ID.
+    item_master_df = fetch_po_item_master_cached()
+    with st.expander("➕ Add New PO Line", expanded=False):
+        if item_master_df.empty:
+            st.warning("Item master me koi item nahi mila. Item Code/item_master table check karein.")
+        else:
+            item_options = [""] + item_master_df["Display"].tolist()
+            add_col1, add_col2, add_col3 = st.columns([6, 2, 2])
+            with add_col1:
+                selected_item_display = st.selectbox(
+                    "SEARCH ITEM CODE / DESCRIPTION", item_options,
+                    key=f"po_add_item_{safe_po_file}_{proj_name}"
+                )
+            selected_master_row = None
+            default_price = 0
+            default_uom = ""
+            if selected_item_display:
+                selected_rows = item_master_df[item_master_df["Display"] == selected_item_display]
+                if not selected_rows.empty:
+                    selected_master_row = selected_rows.iloc[0]
+                    default_price = int(selected_master_row.get("Price", 0) or 0)
+                    default_uom = str(selected_master_row.get("UOM", "") or "")
+            selected_item_key = "".join(
+                ch for ch in str(selected_item_display) if ch.isalnum()
+            )[:40] or "blank"
+            with add_col2:
+                new_po_qty = st.number_input(
+                    "PO QTY", min_value=0, value=0, step=1,
+                    key=f"po_add_qty_{safe_po_file}_{proj_name}"
+                )
+            with add_col3:
+                new_price = st.number_input(
+                    "PRICE", min_value=0, value=default_price, step=1,
+                    key=f"po_add_price_{safe_po_file}_{proj_name}_{selected_item_key}"
+                )
+            next_line_preview = int(pd.to_numeric(df_temp["Line Number"], errors="coerce").fillna(0).max()) + 1
+            if selected_master_row is not None:
+                st.caption(
+                    f"Description: {selected_master_row.get('Description', '')} | "
+                    f"UOM: {default_uom or '-'} | अगली Line: {next_line_preview}"
+                )
+            if st.button(
+                "➕ Add & Save Line", type="primary", use_container_width=True,
+                key=f"po_add_save_{safe_po_file}_{proj_name}"
+            ):
+                if selected_master_row is None:
+                    st.error("पहले Item Code select करें।")
+                elif int(new_po_qty) <= 0:
+                    st.error("PO Qty 0 से ज्यादा डालें।")
+                else:
+                    new_item_code = str(selected_master_row.get("Item Code", "")).strip()
+                    duplicate_mask = df_temp["Item Num"].astype(str).str.strip() == new_item_code
+                    if duplicate_mask.any():
+                        st.error("यह Item Code इस PO और Project ID में पहले से मौजूद है। Existing line edit करें।")
+                    else:
+                        insert_payload = {
+                            "workspace": active_ws,
+                            "PO Number": str(po_no).strip(),
+                            "Site ID": str(site_id).strip(),
+                            "Site Name": str(site_name).strip(),
+                            "Project Name": str(proj_name).strip(),
+                            "Line Number": next_line_preview,
+                            "Item Num": new_item_code,
+                            "Description": str(selected_master_row.get("Description", "") or "").strip(),
+                            "UOM": default_uom,
+                            "PO Qty": int(new_po_qty), "User Qty": 0, "VIS Qty": 0,
+                            "Diff": int(new_po_qty), "wcc_qty": 0, "wcc_status": "",
+                            "Claim Qty": 0, "Receipt Qty": 0,
+                            "Price": int(new_price), "Amount": 0
+                        }
+                        try:
+                            insert_result = supabase.table("po_working").insert(insert_payload).execute()
+                            saved_row = insert_result.data[0] if insert_result.data else insert_payload
+                            st.session_state.po_working_df = pd.concat(
+                                [st.session_state.po_working_df, pd.DataFrame([saved_row])],
+                                ignore_index=True
+                            )
+                            if editor_key in st.session_state:
+                                del st.session_state[editor_key]
+                            st.success(f"✅ Line {next_line_preview} Supabase में save हो गई।")
+                            try:
+                                st.rerun(scope="fragment")
+                            except TypeError:
+                                st.rerun()
+                        except Exception as add_error:
+                            st.error(f"❌ नई PO line save नहीं हुई: {add_error}")
+    
+    active_cols = [c for c in display_cols if c in st.session_state.po_working_df.columns]
+    po_specific_df = st.session_state.po_working_df[po_specific_mask][active_cols].copy()
+
+    st.markdown('<div class="modal-section-title">📋 PO LINE ITEMS</div>', unsafe_allow_html=True)
+    
+    edited_po_df = st.data_editor(
+        po_specific_df, 
+        key=editor_key,
+        use_container_width=True, 
+        hide_index=True,
+        height=400, 
+        column_config={
+            "id": None, "Site ID": None, "Site Name": None, "Project Name": None,
+            "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
+            "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
+            "PO Qty": st.column_config.NumberColumn("PO Qty", min_value=0, alignment="center", format="%d", step=1),
+            "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%d", step=1),
+            "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
+            "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
+            "wcc_qty": st.column_config.NumberColumn("WCC QTY", disabled=True, alignment="center", format="%d"),
+            "wcc_status": st.column_config.TextColumn("WCC STATUS", disabled=True, alignment="center"),
+            "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", alignment="center", format="%d", step=1),
+            "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", alignment="center", format="%d", step=1),
+            "Price": st.column_config.NumberColumn("Price", alignment="center", format="%d"),
+            "Amount": st.column_config.NumberColumn("Amount", disabled=True, alignment="center", format="%d")
+        }
+    )
+
+    # Delete one selected PO line from both Supabase and the popup table.
+    st.markdown('<div class="modal-section-title">🗑️ DELETE PO LINE</div>', unsafe_allow_html=True)
+    delete_options = []
+    delete_row_map = {}
+    for _, delete_row in po_specific_df.iterrows():
+        delete_id = delete_row.get("id")
+        delete_label = (
+            f"Line {delete_row.get('Line Number', '-')} | "
+            f"{delete_row.get('Item Num', '')} | {delete_row.get('Description', '')}"
+        )
+        delete_options.append(delete_label)
+        delete_row_map[delete_label] = delete_id
+
+    del_col1, del_col2 = st.columns([8, 2])
+    with del_col1:
+        selected_delete_line = st.selectbox(
+            "SELECT LINE TO DELETE",
+            options=[""] + delete_options,
+            key=f"po_delete_select_{safe_po_file}_{proj_name}"
+        )
+    with del_col2:
+        st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
+        delete_clicked = st.button(
+            "🗑️ Delete Line",
+            use_container_width=True,
+            key=f"po_delete_btn_{safe_po_file}_{proj_name}"
+        )
+
+    if delete_clicked:
+        if not selected_delete_line:
+            st.error("पहले delete करने वाली line select करें।")
+        else:
+            selected_delete_id = delete_row_map.get(selected_delete_line)
+            if pd.isna(selected_delete_id):
+                st.error("इस line की database ID नहीं मिली, इसलिए delete नहीं की गई।")
+            else:
+                try:
+                    supabase.table("po_working").delete().eq("id", selected_delete_id).execute()
+                    current_df = st.session_state.po_working_df
+                    st.session_state.po_working_df = current_df[current_df["id"] != selected_delete_id].reset_index(drop=True)
+                    if editor_key in st.session_state:
+                        del st.session_state[editor_key]
+                    st.success("✅ Selected PO line delete हो गई।")
+                    try:
+                        st.rerun(scope="fragment")
+                    except TypeError:
+                        st.rerun()
+                except Exception as delete_error:
+                    st.error(f"❌ Line delete नहीं हुई: {delete_error}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_v1, col_v2 = st.columns([8, 2])
+    with col_v2:
+        if st.button("💾 Submit", type="primary", use_container_width=True):
+            save_errors = []
+            def safe_int(value):
+                parsed_value = pd.to_numeric(value, errors="coerce")
+                return 0 if pd.isna(parsed_value) else int(parsed_value)
+
+            for idx, row in edited_po_df.iterrows():
+                try:
+                    if pd.notna(row.get('id')):
+                        po_qty_val = safe_int(row.get('PO Qty', 0))
+                        user_qty_val = safe_int(row.get('User Qty', 0))
+                        vis_qty_val = safe_int(row.get('VIS Qty', 0))
+                        claim_qty_val = safe_int(row.get('Claim Qty', 0))
+                        receipt_qty_val = safe_int(row.get('Receipt Qty', 0))
+                        price_val = safe_int(row.get('Price', 0))
+                        diff_val = po_qty_val - vis_qty_val
+                        amount_val = vis_qty_val * price_val
+                        update_payload = {
+                            "PO Qty": po_qty_val,
+                            "User Qty": user_qty_val,
+                            "VIS Qty": vis_qty_val,
+                            "Diff": diff_val,
+                            "Claim Qty": claim_qty_val,
+                            "Receipt Qty": receipt_qty_val,
+                            "Price": price_val,
+                            "Amount": amount_val
+                        }
+                        supabase.table("po_working").update(update_payload).eq("id", row['id']).execute()
+                except Exception as save_error:
+                    save_errors.append(f"Line {row.get('Line Number', idx + 1)}: {save_error}")
+
+            if save_errors:
+                st.error("❌ कुछ lines save नहीं हुई:\n" + "\n".join(save_errors))
+                return
+            
+            if editor_key in st.session_state:
+                del st.session_state[editor_key]
+                
+            if 'po_working_df' in st.session_state:
+                del st.session_state['po_working_df']
+                
+            st.success("✅ PO Lines Submitted Successfully to DB!")
+            st.rerun()
+
+# --- 5. TOP ACTION BAR ---
+col_title, col_ref, col_upload, col_export = st.columns([4, 1, 2, 2])
 with col_title:
-    st.markdown("<h2 style='margin:0; color:#0f172a;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin:0; color:white;'>🧾 PO Working Hub</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
-        clear_site_data_cache()
+        if 'po_working_df' in st.session_state:
+            del st.session_state['po_working_df']
+        fetch_site_data_lookup_cached.clear()
+        fetch_po_detail_site_info_cached.clear()
         st.rerun() 
-with col_add:
-    if st.button("➕ Add Record", use_container_width=True):
-        st.session_state.action = "add"
-        st.session_state.po_count = 1 
-        add_record_dialog() 
 with col_upload:
-    if st.button("📤 Bulk Upload", use_container_width=True):
-        bulk_upload_dialog() 
-with col_update:
-    if st.button("📝 Update Status", type="primary", use_container_width=True):
-        update_po_status_dialog() 
-with col_sync:
-    if st.button("🔁 Bulk Sync PO/WCC", use_container_width=True):
-        bulk_sync_dialog()
+    if st.button("📤 PO Upload Notepad", type="primary", use_container_width=True):
+        po_upload_dialog() 
 with col_export:
-    if st.button("📥 Export Data", use_container_width=True):
+    if st.button("📥 Export", use_container_width=True):
         st.session_state.action = "export"
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 5. FETCH & PREPARE DATA (cached — see fetch_site_data_cached above) ---
-table_name = "site_data"
-active_ws = st.session_state.get('active_workspace', 'VISPL')
-data = fetch_site_data_cached(active_ws)
+# --- CELEBRATION BLOCK AFTER UPLOAD ---
+if st.session_state.get('po_upload_success_msg'):
+    summary = st.session_state.get('po_upload_summary', {})
+    added = summary.get('added', 0)
+    updated = summary.get('updated', 0)
+    skipped = summary.get('skipped', 0)
+    errors = summary.get('errors', [])
 
-columns_list = [
-    "id", "Department", "Operator", "Project Name", "Project ID", "Site ID", 
-    "Site Name", "Cluster", "Site Status", "PO No.", "PO Date", 
-    "PO Status", "Product", "RFAI Status", "Work Description", "WH Material", 
-    "Team Name", "Photos", "Audit", "JMS", "Commissioning Report",
-    "Photos Files", "JMS Files", "Commissioning Report Files",
-    "MRN Files", "SRC Files", "DC Files", "EWAY Files",
-    "Team Billing Status", "Vision Billing Status", "Extra Approval", 
-    "WCC Number", "WCC Status", "Commissioning Email Sent"
-]
+    if added > 0 or updated > 0:
+        st.balloons()
+        st.toast(f"🎉 BINGO! PO {st.session_state['po_upload_success_msg']} Processed!", icon="🎈")
 
-if data:
-    df = pd.DataFrame(data)
-    
-    # ---> FIXED: Robust Sorting Logic to guarantee newest record is ALWAYS on Page 1, Row 1 <---
-    if 'created_at' in df.columns:
-        # If Supabase has 'created_at' timestamp, this is the most accurate way to sort newest first
-        df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
-        df = df.sort_values(by='created_at_dt', ascending=False).drop(columns=['created_at_dt']).reset_index(drop=True)
-    elif 'id' in df.columns:
-        # Fallback if created_at is missing: Check if ID is numeric
-        id_numeric = pd.to_numeric(df['id'], errors='coerce')
-        if id_numeric.notna().any():
-            # Sort numeric IDs descending
-            df['id_num'] = id_numeric.fillna(-1)
-            df = df.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
-        else:
-            # If ID is UUID string, reverse the order (Postgres appends new rows to the bottom)
-            df = df.iloc[::-1].reset_index(drop=True)
-            
-    for col in columns_list:
-        if col not in df.columns:
-            df[col] = ""
-else:
-    df = pd.DataFrame(columns=columns_list)
-
-if "🎯 Select" not in df.columns:
-    df.insert(0, "🎯 Select", False)
-else:
-    df["🎯 Select"] = False
-
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + TEAM FILTER + VIEW MODE TOGGLE ---
-col_table_title, col_team_filter, col_search, col_viewtoggle = st.columns([2.5, 2.2, 3, 2])
-with col_table_title:
-    st.markdown("##### 🗄️ Live Database Records")
-with col_team_filter:
-    _team_dd = get_all_dropdowns()
-    team_filter_opts = ["All Teams"] + sorted({
-        row["option_value"] for row in _team_dd if row["category"] == "Team Name" and row.get("option_value")
-    })
-    selected_team_filter = st.selectbox(
-        "Filter by Team", team_filter_opts, key="team_filter_select", label_visibility="collapsed"
+    st.success(
+        f"🎊 PO **{st.session_state['po_upload_success_msg']}** processed — "
+        f"🆕 {added} naye items add hue, ✏️ {updated} items update hue, "
+        f"⏭️ {skipped} items same the (no change)."
     )
-with col_search:
-    search_query = st_keyup("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
-with col_viewtoggle:
-    toggle_label = "📱 Mobile View" if st.session_state.site_view_mode == "table" else "🖥️ Table View"
-    if st.button(toggle_label, use_container_width=True, key="view_mode_toggle"):
-        st.session_state.site_view_mode = "cards" if st.session_state.site_view_mode == "table" else "table"
-        st.rerun()
+    if errors:
+        st.error("⚠️ Kuch items save nahi ho paaye:\n\n" + "\n".join(f"- {e}" for e in errors))
 
-# --- APPLY TEAM FILTER ---
-if selected_team_filter and selected_team_filter != "All Teams":
-    df = df[df["Team Name"].astype(str).str.strip() == selected_team_filter]
+    del st.session_state['po_upload_success_msg']
+    if 'po_upload_summary' in st.session_state:
+        del st.session_state['po_upload_summary']
 
-# --- APPLY SEARCH FILTER ---
-if search_query:
-    mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-    df = df[mask]
+# --- FETCH DATA FROM SESSION ---
+df = st.session_state.po_working_df.copy()
 
-# --- EXPORT LOGIC TRIGGER: AFTER team filter + search, so export matches exactly
-#     what's currently shown in the table (whether that's 1 row or 100,000) ---
 if st.session_state.get('action') == "export":
     export_dialog(df)
-    st.session_state.action = ""
+    st.session_state.action = "" 
 
-# --- 6. PAGINATION LOGIC (10 lines per page) ---
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 1
+# --- 6. LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
+with col_table_title:
+    st.markdown("##### 🗄️ Uploaded PO Summary")
+with col_search:
+    if HAS_KEYUP:
+        search_query = st_keyup("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed", debounce=300)
+    else:
+        search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
+        st.caption("Auto-search requires `streamlit-keyup`. Run: `pip install streamlit-keyup`")
+with col_viewtoggle:
+    toggle_label = "📱 Mobile View" if st.session_state.po_view_mode == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key="po_view_mode_toggle"):
+        st.session_state.po_view_mode = "cards" if st.session_state.po_view_mode == "table" else "table"
+        st.rerun()
+
+if 'po_last_search' not in st.session_state:
+    st.session_state.po_last_search = ""
+
+# Jab bhi search text change ho, page ko 1 par reset kar do - warna filtered
+# results kam hone par purane page number ki wajah se list khali dikhti hai.
+if search_query != st.session_state.po_last_search:
+    st.session_state.po_current_page = 1
+    st.session_state.po_last_search = search_query
+
+if search_query:
+    # fillna('') taaki blank/None values 'nan' text na ban jayein,
+    # regex=False taaki PO/Item text me mojood special characters (jaise ( ) + . /)
+    # se koi match error ya galat filtering na ho.
+    search_df = df.fillna('').astype(str)
+    mask = search_df.apply(lambda x: x.str.contains(search_query, case=False, na=False, regex=False)).any(axis=1)
+    df = df[mask]
+
+# --- CREATE UNIQUE PO SUMMARY LIST ---
+if not df.empty:
+    summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
+    summary_df = summary_df.iloc[::-1].reset_index(drop=True)
+else:
+    summary_df = pd.DataFrame(columns=["Project Name", "Site ID", "Site Name", "PO Number"])
+
+# --- 7. PAGINATION LOGIC ---
+if 'po_current_page' not in st.session_state:
+    st.session_state.po_current_page = 1
 
 rows_per_page = 10
-total_rows = len(df)
+total_rows = len(summary_df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
-if st.session_state.current_page > total_pages:
-    st.session_state.current_page = total_pages
-elif st.session_state.current_page < 1:
-    st.session_state.current_page = 1
+if st.session_state.po_current_page > total_pages:
+    st.session_state.po_current_page = total_pages
+elif st.session_state.po_current_page < 1:
+    st.session_state.po_current_page = 1
 
-# Keep the "go to page" input box in sync with current_page on every run.
-# IMPORTANT: this must happen here (before the number_input widget below is
-# created) — setting session_state for a widget's key AFTER that widget has
-# already been instantiated in the same run raises StreamlitWidgetAlreadyInstantiatedError.
-st.session_state['page_jump_input'] = st.session_state.current_page
-
-start_idx = (st.session_state.current_page - 1) * rows_per_page
+start_idx = (st.session_state.po_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. TABLE / CARD DISPLAY ---
-df_page = df.iloc[start_idx:end_idx].copy()
+# --- 8. SUMMARY DATA TABLE (or mobile cards) ---
+df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-def status_badge(val):
-    v = str(val).strip()
-    if not v or v.lower() in ("nan", "none", "-"):
-        return "<span class='tbl-cell'>-</span>"
-    vl = v.lower()
-    if vl == "not required":
-        cls = "status-grey"
-    elif "not" in vl and ("received" in vl or "available" in vl):
-        cls = "status-red"
-    elif any(k in vl for k in ["completed", "approved", "done", "available"]):
-        cls = "status-green"
-    elif any(k in vl for k in ["hold", "progress"]):
-        cls = "status-blue"
-    elif any(k in vl for k in ["pending", "awaiting", "required"]):
-        cls = "status-yellow"
-    elif any(k in vl for k in ["cancel", "reject"]):
-        cls = "status-red"
-    else:
-        cls = "status-grey"
-    return f"<span class='status-badge {cls}'>{v}</span>"
+def render_po_delete_confirm(safe_po_key, po_num, key_prefix=""):
+    """Shared inline delete confirmation block, used by both table and card view."""
+    if st.session_state.get(f"confirm_del_{safe_po_key}"):
+        wc1, wc2, wc3 = st.columns([6, 1, 1])
+        with wc1:
+            st.warning(f"Delete PO '{po_num}'? This will remove all associated items.")
+        with wc2:
+            if st.button("✅ Confirm", key=f"{key_prefix}confirm_yes_{safe_po_key}", use_container_width=True):
+                try:
+                    supabase.table("po_working").delete().eq("PO Number", po_num).execute()
+                    if 'po_working_df' in st.session_state:
+                        del st.session_state['po_working_df']
+                    st.session_state[f"confirm_del_{safe_po_key}"] = False
+                    st.success(f"✅ PO {po_num} Deleted Successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Deleting Record: {e}")
+        with wc3:
+            if st.button("❌ Cancel", key=f"{key_prefix}confirm_no_{safe_po_key}", use_container_width=True):
+                st.session_state[f"confirm_del_{safe_po_key}"] = False
+                st.rerun()
 
 if df_page.empty:
-    st.info("No records found.")
-
-elif st.session_state.site_view_mode == "cards":
-    # ---------------------------------------------------------------
-    # MOBILE-FRIENDLY CARD VIEW - one card per record, no horizontal scroll
-    # ---------------------------------------------------------------
-    for page_pos, (_, row) in enumerate(df_page.iterrows()):
-        row_dict = row.to_dict()
-        rid = row_dict.get("id")
-        serial_no = start_idx + page_pos + 1
-        is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
-
-        with st.container(border=True):
-            st.markdown(f"""
-                <div class="site-card-title">#{serial_no} — {row_dict.get('Site ID','') or '-'} | {row_dict.get('Site Name','') or '-'}</div>
-                <div class="site-card-sub">{row_dict.get('Project ID','') or '-'} • {row_dict.get('Cluster','') or '-'}</div>
-                <div class="site-card-row"><span class="site-card-label">Site Status</span><span class="site-card-value">{status_badge(row_dict.get('Site Status',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Operator</span><span class="site-card-value">{row_dict.get('Operator','') or '-'}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Project Name</span><span class="site-card-value">{row_dict.get('Project Name','') or '-'}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Team Name</span><span class="site-card-value">{row_dict.get('Team Name','') or '-'}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Photos</span><span class="site-card-value">{status_badge(row_dict.get('Photos',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Audit</span><span class="site-card-value">{status_badge(row_dict.get('Audit',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">JMS</span><span class="site-card-value">{status_badge(row_dict.get('JMS',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Commissioning Report</span><span class="site-card-value">{status_badge(row_dict.get('Commissioning Report',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">PO Status</span><span class="site-card-value">{status_badge(row_dict.get('PO Status',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Team Billing</span><span class="site-card-value">{status_badge(row_dict.get('Team Billing Status',''))}</span></div>
-                <div class="site-card-row"><span class="site-card-label">Vision Billing</span><span class="site-card-value">{status_badge(row_dict.get('Vision Billing Status',''))}</span></div>
-            """, unsafe_allow_html=True)
-
-            if is_wh_required:
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    if st.button("⚙️ Manage", key=f"card_mgr_{rid}", use_container_width=True):
-                        edit_record_dialog(row_dict)
-                with bc2:
-                    if st.button("📦 Material", key=f"card_mat_{rid}", use_container_width=True):
-                        if 'mat_count' in st.session_state:
-                            st.session_state.mat_count = 1
-                        material_movement_dialog(row_dict)
-            else:
-                if st.button("⚙️ Manage (View / Edit / Delete)", key=f"card_mgr_{rid}", use_container_width=True):
-                    edit_record_dialog(row_dict)
-
+    st.info("No PO records found.")
 else:
-    # ---------------------------------------------------------------
-    # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
-    # ---------------------------------------------------------------
-    COL_RATIOS = [
-        0.3, 0.4, 0.4,               # 0-2 (Sr No, Manage, Material)
-        1.2, 1.0, 1.5, 1.2, 1.2,     # 3-7 (Dept, Op, Proj Name, Proj ID, Site ID)
-        1.5, 1.0, 1.2, 1.2, 1.0,     # 8-12 (Site Name, Cluster, Status, PO No, PO Date)
-        1.0, 1.3, 1.0, 1.2, 2.0,     # 13-17 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
-        1.0, 1.2,                    # 18-19 (WH Mat, Team Name)
-        1.0, 1.0, 1.0, 1.3,          # 20-23 (Photos, Audit, JMS, Commissioning Report)
-        1.2, 1.2, 1.0,               # 24-26 (Team Bill, Vis Bill, Extra App)
-        1.2, 1.0                     # 27-28 (WCC Number, WCC Status)
-    ]
+    # Pre-fetch site data availability matching both Site ID and Project Name/ID flexibly
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
 
-    COL_LABELS = [
-        "#", "⚙️", "📦",
-        "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
-        "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
-        "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
-        "WH MATERIAL", "TEAM NAME", "PHOTOS", "AUDIT", "JMS", "COMMISSIONING REPORT",
-        "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL", 
-        "WCC NUMBER", "WCC STATUS"
-    ]
+    # Clean lists for query
+    site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
+    project_names_on_page = [str(x).strip() for x in df_page['Project Name'].unique() if str(x).strip() and str(x).strip() != '-']
 
-    with st.container(key="site_table_wrap", height=560):
-        # --- PRE-FETCH PO UPLOAD AVAILABILITY FOR CURRENT PAGE ITEMS ---
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        project_ids_on_page = [str(x).strip() for x in df_page['Project ID'].unique() if str(x).strip() and str(x).strip() != '-']
-        site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
-        
-        uploaded_po_identifiers = fetch_po_upload_identifiers_cached(active_ws) if (project_ids_on_page or site_ids_on_page) else set()
+    available_sites = set()
+    available_projects = set()
+    project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
 
-        # --- HEADER ROW ---
-        h_cols = st.columns(COL_RATIOS)
-        for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+    all_site_rows = fetch_site_data_lookup_cached(active_ws)
+    for item in all_site_rows:
+        sid_val = str(item.get("Site ID", "")).strip()
+        pid_val = str(item.get("Project ID", "")).strip()
+        pname_val = str(item.get("Project Name", "")).strip()
+        if sid_val:
+            available_sites.add(sid_val)
+        if pid_val:
+            available_projects.add(pid_val)
+            norm_key = pid_val.upper()
+            if pname_val:
+                project_name_lookup[pid_val] = pname_val
+                project_name_lookup[norm_key] = pname_val
+        if pname_val:
+            available_projects.add(pname_val)
 
-        # --- DATA ROWS ---
+    if st.session_state.po_view_mode == "cards":
+        # ---------------------------------------------------------------
+        # NEW: MOBILE-FRIENDLY CARD VIEW - one card per PO record
+        # ---------------------------------------------------------------
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
-            rid = row_dict.get("id")
+            po_num = str(row_dict.get('PO Number', '')).strip()
+            site_id_val = str(row_dict.get('Site ID', '')).strip()
+            proj_name_val = str(row_dict.get('Project Name', '')).strip()
+
             serial_no = start_idx + page_pos + 1
-            is_wh_required = str(row_dict.get("WH Material", "")).strip().lower() == "required"
+            safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}"
 
-            proj_id_val = str(row_dict.get("Project ID", "")).strip()
-            site_id_val = str(row_dict.get("Site ID", "")).strip()
+            is_site_avail = site_id_val and site_id_val in available_sites
+            is_proj_avail = proj_name_val and proj_name_val in available_projects
+            resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
 
-            if (proj_id_val and proj_id_val in uploaded_po_identifiers) or (site_id_val and site_id_val in uploaded_po_identifiers):
-                po_upload_status_html = "<span class='status-badge status-green'>Available</span>"
+            if is_site_avail or is_proj_avail:
+                status_html = "<span class='status-badge-green'>🟢 Available</span>"
             else:
-                po_upload_status_html = "<span class='status-badge status-yellow'>Pending</span>"
+                status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
 
-            rcols = st.columns(COL_RATIOS)
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="po-card-title">#{serial_no} — PO {row_dict.get('PO Number','') or '-'}</div>
+                    <div class="po-card-sub">{row_dict.get('Project Name','') or '-'}</div>
+                    <div class="po-card-row"><span class="po-card-label">Project Name</span><span class="po-card-value">{resolved_proj_name}</span></div>
+                    <div class="po-card-row"><span class="po-card-label">Site Status</span><span class="po-card-value">{status_html}</span></div>
+                    <div class="po-card-row"><span class="po-card-label">Site ID</span><span class="po-card-value">{row_dict.get('Site ID','') or '-'}</span></div>
+                    <div class="po-card-row"><span class="po-card-label">Site Name</span><span class="po-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
+                """, unsafe_allow_html=True)
 
-            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("✏️ Edit", key=f"card_edit_{safe_po_key}", use_container_width=True):
+                        view_po_details_dialog(row_dict)
+                with bc2:
+                    if st.button("🗑️ Delete", key=f"card_del_{safe_po_key}", use_container_width=True):
+                        st.session_state[f"confirm_del_{safe_po_key}"] = True
 
-            with rcols[1]:
-                if st.button("⚙️", key=f"mgrbtn_{rid}", help="Manage (View/Edit/Delete)", use_container_width=True):
-                    if 'edit_po_count' in st.session_state:
-                        del st.session_state['edit_po_count']
-                    edit_record_dialog(row_dict)
-            with rcols[2]:
-                if is_wh_required:
-                    if st.button("📦", key=f"mbtn_{rid}", help="Material", use_container_width=True):
-                        if 'mat_count' in st.session_state:
-                            st.session_state.mat_count = 1
-                        material_movement_dialog(row_dict)
+                render_po_delete_confirm(safe_po_key, po_num, key_prefix="card_")
 
-            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[13].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
-            rcols[14].markdown(po_upload_status_html, unsafe_allow_html=True)
-            rcols[15].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[16].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
-            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[20].markdown(status_badge(row_dict.get('Photos', '')), unsafe_allow_html=True)
-            rcols[21].markdown(status_badge(row_dict.get('Audit', '')), unsafe_allow_html=True)
-            rcols[22].markdown(status_badge(row_dict.get('JMS', '')), unsafe_allow_html=True)
-            rcols[23].markdown(status_badge(row_dict.get('Commissioning Report', '')), unsafe_allow_html=True)
-            rcols[24].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-            rcols[25].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-            rcols[26].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[27].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[28].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+    else:
+        # ---------------------------------------------------------------
+        # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+        # ---------------------------------------------------------------
+        # Total 9 cols (Sr No + 2 Buttons + 6 Data -> Project ID, Project Name, Status Badge, Site ID, Site Name, PO Number)
+        COL_RATIOS = [0.3, 0.35, 0.35, 1.6, 1.6, 1.3, 1.2, 1.8, 1.2] 
+        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT ID", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
+
+        with st.container(key="po_table_wrap", height=560):
+            # Header
+            h_cols = st.columns(COL_RATIOS)
+            for h_col, label in zip(h_cols, COL_LABELS):
+                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+
+            # Rows
+            for page_pos, (_, row) in enumerate(df_page.iterrows()):
+                row_dict = row.to_dict()
+                po_num = str(row_dict.get('PO Number', '')).strip()
+                site_id_val = str(row_dict.get('Site ID', '')).strip()
+                proj_name_val = str(row_dict.get('Project Name', '')).strip()
+                resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
+                
+                serial_no = start_idx + page_pos + 1
+                safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
+                
+                # Determine Site Status based on presence in ANY matched set
+                is_site_avail = site_id_val and site_id_val in available_sites
+                is_proj_avail = proj_name_val and proj_name_val in available_projects
+                
+                if is_site_avail or is_proj_avail:
+                    status_html = "<span class='status-badge-green'>🟢 Available</span>"
+                else:
+                    status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
+                
+                rcols = st.columns(COL_RATIOS)
+                
+                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+                
+                with rcols[1]:
+                    with st.container(key=f"ebtn_{safe_po_key}"):
+                        if st.button("✏️", key=f"edit_{safe_po_key}", help="Edit Details", use_container_width=True):
+                            view_po_details_dialog(row_dict)
+                with rcols[2]:
+                    with st.container(key=f"dbtn_{safe_po_key}"):
+                        if st.button("🗑️", key=f"del_{safe_po_key}", help="Delete", use_container_width=True):
+                            st.session_state[f"confirm_del_{safe_po_key}"] = True
+                            
+                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{resolved_proj_name}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
+
+                # Inline delete confirmation
+                render_po_delete_confirm(safe_po_key, po_num, key_prefix="")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 8. NEXT / PREVIOUS PAGINATION CONTROLS (with Go-To-Page box) ---
+# --- 9. NEXT / PREVIOUS PAGINATION CONTROLS ---
 col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
 
 with col_p1:
-    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1)):
-        st.session_state.current_page -= 1
+    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.po_current_page == 1)):
+        st.session_state.po_current_page -= 1
         st.rerun()
 
 with col_p2:
-    jc1, jc2, jc3 = st.columns([2, 1.3, 2])
-    with jc2:
-        page_input = st.number_input(
-            "Go to page",
-            min_value=1,
-            max_value=total_pages,
-            step=1,
-            key="page_jump_input",
-            label_visibility="collapsed"
-        )
-    st.markdown(f"<div class='page-count'>Page {st.session_state.current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-    if page_input != st.session_state.current_page:
-        st.session_state.current_page = int(page_input)
-        st.rerun()
+    st.markdown(f"<div class='page-count'>Page {st.session_state.po_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
 
 with col_p3:
-    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages)):
-        st.session_state.current_page += 1
+    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.po_current_page == total_pages)):
+        st.session_state.po_current_page += 1
         st.rerun()
