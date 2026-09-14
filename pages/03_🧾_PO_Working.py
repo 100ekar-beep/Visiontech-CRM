@@ -480,6 +480,48 @@ def fetch_po_detail_site_info_cached(site_id, workspace):
     return cluster_val, rfai_val, srn_val, km_val
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_po_item_master_cached():
+    """Quotation page jaisa searchable item master PO popup ke liye."""
+    tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
+    for table_name in tables_to_try:
+        try:
+            rows = fetch_all_rows(
+                lambda start, end, t=table_name: supabase.table(t).select("*").range(start, end).execute()
+            )
+            if not rows:
+                continue
+            items_df = pd.DataFrame(rows)
+            rename_map = {}
+            for col in items_df.columns:
+                clean_col = str(col).strip().lower()
+                if clean_col in ["item code", "item_code", "itemcode", "code", "material item"]:
+                    rename_map[col] = "Item Code"
+                elif clean_col in ["description", "desc", "item description", "item_description"]:
+                    rename_map[col] = "Description"
+                elif clean_col in ["price", "rate", "amount", "unit price"]:
+                    rename_map[col] = "Price"
+                elif clean_col in ["uom", "unit", "unit of measure", "unit_of_measure"]:
+                    rename_map[col] = "UOM"
+            items_df = items_df.rename(columns=rename_map)
+            if "Item Code" not in items_df.columns:
+                continue
+            for required_col, default_value in {"Description": "", "Price": 0, "UOM": ""}.items():
+                if required_col not in items_df.columns:
+                    items_df[required_col] = default_value
+            items_df = items_df[["Item Code", "Description", "UOM", "Price"]].copy()
+            items_df["Item Code"] = items_df["Item Code"].fillna("").astype(str).str.strip()
+            items_df["Description"] = items_df["Description"].fillna("").astype(str).str.strip()
+            items_df["UOM"] = items_df["UOM"].fillna("").astype(str).str.strip()
+            items_df["Price"] = pd.to_numeric(items_df["Price"], errors="coerce").fillna(0).astype(int)
+            items_df = items_df[items_df["Item Code"] != ""].drop_duplicates("Item Code", keep="first")
+            items_df["Display"] = items_df["Item Code"] + " | " + items_df["Description"]
+            return items_df.reset_index(drop=True)
+        except Exception:
+            continue
+    return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
+
+
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
 # NOTE: iska already accha pattern hai — poori po_working table sirf EK BAAR
 # session_state me load hoti hai (jab tak explicitly delete na ho, jaise
@@ -840,6 +882,106 @@ def view_po_details_dialog(row_data):
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    # Download only this popup's complete PO/Project line details.
+    popup_export_df = df_temp[[c for c in display_cols if c in df_temp.columns]].copy()
+    if "id" in popup_export_df.columns:
+        popup_export_df = popup_export_df.drop(columns=["id"])
+    popup_excel = io.BytesIO()
+    with pd.ExcelWriter(popup_excel, engine="openpyxl") as writer:
+        popup_export_df.to_excel(writer, index=False, sheet_name="PO Line Details")
+    safe_po_file = "".join(ch for ch in str(po_no) if ch.isalnum() or ch in ("-", "_")) or "PO"
+    st.download_button(
+        "📥 Download This PO Excel",
+        data=popup_excel.getvalue(),
+        file_name=f"PO_{safe_po_file}_Line_Details.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"popup_excel_{safe_po_file}_{proj_name}",
+        use_container_width=True,
+        type="primary"
+    )
+
+    # Search item from master and save immediately against same PO + Project ID.
+    item_master_df = fetch_po_item_master_cached()
+    with st.expander("➕ Add New PO Line", expanded=False):
+        if item_master_df.empty:
+            st.warning("Item master me koi item nahi mila. Item Code/item_master table check karein.")
+        else:
+            item_options = [""] + item_master_df["Display"].tolist()
+            add_col1, add_col2, add_col3 = st.columns([6, 2, 2])
+            with add_col1:
+                selected_item_display = st.selectbox(
+                    "SEARCH ITEM CODE / DESCRIPTION", item_options,
+                    key=f"po_add_item_{safe_po_file}_{proj_name}"
+                )
+            selected_master_row = None
+            default_price = 0
+            default_uom = ""
+            if selected_item_display:
+                selected_rows = item_master_df[item_master_df["Display"] == selected_item_display]
+                if not selected_rows.empty:
+                    selected_master_row = selected_rows.iloc[0]
+                    default_price = int(selected_master_row.get("Price", 0) or 0)
+                    default_uom = str(selected_master_row.get("UOM", "") or "")
+            selected_item_key = "".join(
+                ch for ch in str(selected_item_display) if ch.isalnum()
+            )[:40] or "blank"
+            with add_col2:
+                new_po_qty = st.number_input(
+                    "PO QTY", min_value=0, value=0, step=1,
+                    key=f"po_add_qty_{safe_po_file}_{proj_name}"
+                )
+            with add_col3:
+                new_price = st.number_input(
+                    "PRICE", min_value=0, value=default_price, step=1,
+                    key=f"po_add_price_{safe_po_file}_{proj_name}_{selected_item_key}",
+                    disabled=True
+                )
+            next_line_preview = int(pd.to_numeric(df_temp["Line Number"], errors="coerce").fillna(0).max()) + 1
+            if selected_master_row is not None:
+                st.caption(
+                    f"Description: {selected_master_row.get('Description', '')} | "
+                    f"UOM: {default_uom or '-'} | अगली Line: {next_line_preview}"
+                )
+            if st.button(
+                "➕ Add & Save Line", type="primary", use_container_width=True,
+                key=f"po_add_save_{safe_po_file}_{proj_name}"
+            ):
+                if selected_master_row is None:
+                    st.error("पहले Item Code select करें।")
+                elif int(new_po_qty) <= 0:
+                    st.error("PO Qty 0 से ज्यादा डालें।")
+                else:
+                    new_item_code = str(selected_master_row.get("Item Code", "")).strip()
+                    duplicate_mask = df_temp["Item Num"].astype(str).str.strip() == new_item_code
+                    if duplicate_mask.any():
+                        st.error("यह Item Code इस PO और Project ID में पहले से मौजूद है। Existing line edit करें।")
+                    else:
+                        insert_payload = {
+                            "workspace": active_ws,
+                            "PO Number": str(po_no).strip(),
+                            "Site ID": str(site_id).strip(),
+                            "Site Name": str(site_name).strip(),
+                            "Project Name": str(proj_name).strip(),
+                            "Line Number": next_line_preview,
+                            "Item Num": new_item_code,
+                            "Description": str(selected_master_row.get("Description", "") or "").strip(),
+                            "UOM": default_uom,
+                            "PO Qty": int(new_po_qty), "User Qty": 0, "VIS Qty": 0,
+                            "Diff": int(new_po_qty), "wcc_qty": 0, "wcc_status": "",
+                            "Claim Qty": 0, "Receipt Qty": 0,
+                            "Price": int(new_price), "Amount": 0
+                        }
+                        try:
+                            supabase.table("po_working").insert(insert_payload).execute()
+                            if editor_key in st.session_state:
+                                del st.session_state[editor_key]
+                            if "po_working_df" in st.session_state:
+                                del st.session_state["po_working_df"]
+                            st.success(f"✅ Line {next_line_preview} Supabase में save हो गई।")
+                            st.rerun()
+                        except Exception as add_error:
+                            st.error(f"❌ नई PO line save नहीं हुई: {add_error}")
     
     active_cols = [c for c in display_cols if c in st.session_state.po_working_df.columns]
     po_specific_df = st.session_state.po_working_df[po_specific_mask][active_cols].copy()
