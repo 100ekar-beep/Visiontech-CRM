@@ -13,11 +13,19 @@ from botocore.client import Config
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
 import smtplib  # <--- NEW: For Email Sending
+import json
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
 from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
 from datetime import datetime, timedelta # <--- Added for parsing existing date strings
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
@@ -39,6 +47,17 @@ if 'comm_site_data' not in st.session_state:
 
 if 'site_view_mode' not in st.session_state:
     st.session_state.site_view_mode = "table"
+
+if 'jms_open_row' not in st.session_state:
+    st.session_state.jms_open_row = None
+if 'jms_loaded_key' not in st.session_state:
+    st.session_state.jms_loaded_key = None
+if 'jms_lines' not in st.session_state:
+    st.session_state.jms_lines = []
+if 'jms_last_pdf' not in st.session_state:
+    st.session_state.jms_last_pdf = None
+if 'jms_add_gen' not in st.session_state:
+    st.session_state.jms_add_gen = 0
 
 # --- MULTI-COMPANY TAB SETUP (single login — switch company inside this page) ---
 SITE_COMPANIES = [
@@ -1073,6 +1092,270 @@ def get_item_master_details():
             continue
             
     return mapping
+
+# =============================================================
+# JMS BUILDER (PO auto-load + saved editable draft + PDF)
+# Requires the jms_drafts table from the supplied SQL file.
+# =============================================================
+JMS_COMPANY_NAMES = {
+    "VISPL": "Visiontech Infra Solutions",
+    "BHAGYASHREE": "Bhagyashree Enterprises",
+    "SAI TELE SERVICES": "Sai Tele Services",
+}
+
+def _clean_text(value):
+    if value is None:
+        return ""
+    value = str(value).strip()
+    return "" if value.lower() in ("nan", "none", "null") else value
+
+def _first_value(row, names, default=""):
+    for name in names:
+        value = _clean_text(row.get(name))
+        if value:
+            return value
+    return default
+
+def _number_value(value):
+    try:
+        number = float(value)
+        return 0.0 if math.isnan(number) else number
+    except (TypeError, ValueError):
+        return 0.0
+
+def _jms_row_key(row_data):
+    return f"{st.session_state.get('active_workspace', 'VISPL')}::{row_data.get('id')}"
+
+def _fetch_po_lines_for_site(row_data):
+    """Fetch every PO line for this project/site, tolerant of legacy column names."""
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    project_id = _clean_text(row_data.get("Project ID"))
+    site_id = _clean_text(row_data.get("Site ID"))
+    po_numbers = set(_split_list_field(row_data.get("PO No.", "")))
+    candidates = []
+
+    # Project Name in po_working is the Project ID in the current upload flow.
+    for field_name, field_value in (("Project Name", project_id), ("Site ID", site_id)):
+        if not field_value:
+            continue
+        try:
+            result = (supabase.table("po_working").select("*")
+                      .eq("workspace", workspace).eq(field_name, field_value).execute())
+            candidates.extend(result.data or [])
+        except Exception:
+            pass
+
+    # Remove duplicate rows returned by both Project ID and Site ID searches.
+    unique_rows, seen = [], set()
+    for idx, po_row in enumerate(candidates):
+        identity = po_row.get("id")
+        if identity is None:
+            identity = json.dumps(po_row, sort_keys=True, default=str)
+        identity = str(identity)
+        if identity not in seen:
+            seen.add(identity)
+            unique_rows.append(po_row)
+
+    # If Site Data contains PO numbers, do not mix unrelated PO lines.
+    if po_numbers:
+        matched = [r for r in unique_rows if _first_value(r, ["PO Number", "PO No.", "PO No", "po_number"]) in po_numbers]
+        if matched:
+            unique_rows = matched
+
+    lines = []
+    for po_row in unique_rows:
+        item_code = _first_value(po_row, ["Item Code", "item_code", "ITEM CODE", "ItemCode"])
+        description = _first_value(po_row, ["Item Description", "item_description", "Description", "ITEM DESCRIPTION"])
+        qty = _number_value(_first_value(po_row, ["VIS Qty", "VIS QTY", "User Qty", "USER QTY", "PO Qty", "PO QTY", "Qty", "QTY", "quantity"], 0))
+        if item_code or description:
+            lines.append({
+                "item_code": item_code,
+                "item_description": description,
+                "qty": qty,
+                "remarks": "",
+            })
+    return lines
+
+def _load_saved_jms(row_data):
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    try:
+        result = (supabase.table("jms_drafts").select("*")
+                  .eq("workspace", workspace).eq("site_data_id", str(row_data.get("id")))
+                  .limit(1).execute())
+        return (result.data or [None])[0]
+    except Exception:
+        return None
+
+def _save_jms_draft(row_data, circle, lines):
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    payload = {
+        "workspace": workspace,
+        "site_data_id": str(row_data.get("id")),
+        "project_id": _clean_text(row_data.get("Project ID")),
+        "site_id": _clean_text(row_data.get("Site ID")),
+        "site_name": _clean_text(row_data.get("Site Name")),
+        "company_name": JMS_COMPANY_NAMES.get(workspace, workspace),
+        "circle": circle,
+        "line_items": lines,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    return supabase.table("jms_drafts").upsert(
+        payload, on_conflict="workspace,site_data_id"
+    ).execute()
+
+def _build_jms_pdf(row_data, circle, lines):
+    buffer = io.BytesIO()
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    company = JMS_COMPANY_NAMES.get(workspace, workspace)
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        rightMargin=12*mm, leftMargin=12*mm, topMargin=10*mm, bottomMargin=10*mm,
+        title=f"JMS {_clean_text(row_data.get('Site ID'))}",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("JmsTitle", parent=styles["Title"], alignment=TA_CENTER,
+                                 fontName="Helvetica-Bold", fontSize=16, leading=19,
+                                 textColor=colors.HexColor("#3730a3"))
+    cell_style = ParagraphStyle("JmsCell", parent=styles["BodyText"], fontSize=8, leading=10)
+    head_style = ParagraphStyle("JmsHead", parent=cell_style, fontName="Helvetica-Bold",
+                                textColor=colors.white, alignment=TA_CENTER)
+    story = [Paragraph(escape(company.upper()), title_style),
+             Paragraph("JOINT MEASUREMENT SHEET", ParagraphStyle(
+                 "JmsSub", parent=styles["Heading2"], alignment=TA_CENTER,
+                 fontSize=11, leading=14, textColor=colors.HexColor("#475569"))), Spacer(1, 4*mm)]
+
+    info = [
+        ["Circle", circle or "Maharashtra", "Site ID", _clean_text(row_data.get("Site ID"))],
+        ["Project ID", _clean_text(row_data.get("Project ID")), "Site Name", _clean_text(row_data.get("Site Name"))],
+    ]
+    info_table = Table([[Paragraph(escape(str(v)), cell_style) for v in r] for r in info],
+                       colWidths=[28*mm, 76*mm, 28*mm, 120*mm])
+    info_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#eef2ff")),
+        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#eef2ff")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("PADDING", (0,0), (-1,-1), 6),
+    ]))
+    story += [info_table, Spacer(1, 5*mm)]
+
+    data = [[Paragraph(x, head_style) for x in ["S.No", "Item Code", "Item Description", "Qty as per Site", "Remarks"]]]
+    for idx, line in enumerate(lines, 1):
+        qty = _number_value(line.get("qty"))
+        qty_text = str(int(qty)) if qty.is_integer() else f"{qty:g}"
+        data.append([
+            Paragraph(str(idx), cell_style),
+            Paragraph(escape(_clean_text(line.get("item_code"))), cell_style),
+            Paragraph(escape(_clean_text(line.get("item_description"))), cell_style),
+            Paragraph(qty_text, cell_style),
+            Paragraph(escape(_clean_text(line.get("remarks"))), cell_style),
+        ])
+    item_table = Table(data, repeatRows=1, colWidths=[14*mm, 40*mm, 112*mm, 30*mm, 56*mm])
+    item_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#3730a3")),
+        ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#94a3b8")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("ALIGN", (0,1), (0,-1), "CENTER"), ("ALIGN", (3,1), (3,-1), "CENTER"),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f8fafc")]),
+        ("PADDING", (0,0), (-1,-1), 5),
+    ]))
+    story += [item_table, Spacer(1, 8*mm)]
+
+    signature_data = [
+        [Paragraph("TSP Partner", head_style), Paragraph("Auditor Name", head_style), Paragraph("Audit Agency", head_style)],
+        [Paragraph(escape(company), cell_style), "", ""],
+        [Paragraph("Signature: ____________________", cell_style), Paragraph("Signature: ____________________", cell_style), Paragraph("Signature: ____________________", cell_style)],
+    ]
+    sig_table = Table(signature_data, colWidths=[84*mm, 84*mm, 84*mm], rowHeights=[9*mm, 13*mm, 13*mm])
+    sig_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#3730a3")),
+        ("GRID", (0,0), (-1,-1), 0.6, colors.HexColor("#94a3b8")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("PADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(KeepTogether(sig_table))
+    doc.build(story)
+    return buffer.getvalue()
+
+@st.dialog("🧾 Create / Edit JMS", width="large")
+def jms_dialog(row_data):
+    active_key = _jms_row_key(row_data)
+    saved = None
+    if st.session_state.jms_loaded_key != active_key:
+        saved = _load_saved_jms(row_data)
+        saved_lines = saved.get("line_items") if saved else None
+        st.session_state.jms_lines = saved_lines if isinstance(saved_lines, list) else _fetch_po_lines_for_site(row_data)
+        st.session_state.jms_loaded_key = active_key
+        st.session_state.jms_last_pdf = None
+        st.session_state.jms_add_gen += 1
+        st.session_state[f"jms_circle_{active_key}"] = _clean_text(saved.get("circle")) if saved else "Maharashtra"
+
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    company = JMS_COMPANY_NAMES.get(workspace, workspace)
+    st.markdown(f"### {company}")
+    st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
+    circle = st.text_input("Circle", key=f"jms_circle_{active_key}")
+
+    st.markdown("#### PO / Saved JMS Line Items")
+    if st.session_state.jms_lines:
+        editor_df = pd.DataFrame(st.session_state.jms_lines)
+        for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
+            if col not in editor_df.columns:
+                editor_df[col] = default
+        edited = st.data_editor(
+            editor_df[["item_code", "item_description", "qty", "remarks"]],
+            hide_index=True, use_container_width=True, num_rows="dynamic",
+            column_config={
+                "item_code": st.column_config.TextColumn("Item Code"),
+                "item_description": st.column_config.TextColumn("Item Description", width="large"),
+                "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
+                "remarks": st.column_config.TextColumn("Remarks", width="medium"),
+            }, key=f"jms_editor_{active_key}")
+        st.session_state.jms_lines = edited.to_dict("records")
+    else:
+        st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
+
+    st.markdown("#### Add New Item")
+    master = get_item_master_details()
+    gen = st.session_state.jms_add_gen
+    add_code = st.selectbox(
+        "Item Code", [""] + sorted(master.keys()),
+        format_func=lambda code: "-- Select item --" if not code else f"{code} — {master[code]['description']}",
+        key=f"jms_add_code_{active_key}_{gen}") if master else st.text_input("Item Code", key=f"jms_add_code_{active_key}_{gen}")
+    add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jms_add_desc_{active_key}_{gen}")
+    if master and add_code:
+        st.caption(add_desc)
+    add_qty = st.number_input("Qty", min_value=0.0, step=1.0, value=0.0, key=f"jms_add_qty_{active_key}_{gen}")
+    if st.button("➕ Add New Item", use_container_width=True, key=f"jms_add_btn_{active_key}", disabled=not _clean_text(add_code)):
+        st.session_state.jms_lines.append({"item_code": add_code, "item_description": add_desc, "qty": add_qty, "remarks": ""})
+        st.session_state.jms_add_gen += 1
+        st.rerun()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("💾 Save JMS", type="primary", use_container_width=True, key=f"jms_save_{active_key}"):
+            clean_lines = [x for x in st.session_state.jms_lines if _clean_text(x.get("item_code")) or _clean_text(x.get("item_description"))]
+            if not clean_lines:
+                st.error("Kam se kam ek item line required hai.")
+            else:
+                try:
+                    _save_jms_draft(row_data, circle, clean_lines)
+                    st.session_state.jms_lines = clean_lines
+                    st.session_state.jms_last_pdf = _build_jms_pdf(row_data, circle, clean_lines)
+                    st.success("JMS save ho gayi. Ab PDF download kar sakte hain.")
+                except Exception as exc:
+                    st.error(f"JMS save nahi hui: {exc}")
+    with c2:
+        if st.button("✖ Close", use_container_width=True, key=f"jms_close_{active_key}"):
+            st.session_state.jms_open_row = None
+            st.session_state.jms_loaded_key = None
+            st.rerun()
+
+    if st.session_state.get("jms_last_pdf"):
+        safe_site = _clean_text(row_data.get("Site ID")) or "Site"
+        st.download_button("⬇️ Download JMS PDF", st.session_state.jms_last_pdf,
+                           file_name=f"JMS_{safe_site}.pdf", mime="application/pdf",
+                           use_container_width=True, key=f"jms_download_{active_key}")
 
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
@@ -2727,6 +3010,10 @@ end_idx = start_idx + rows_per_page
 # --- 7. TABLE / CARD DISPLAY ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
+# Keep the selected JMS popup open across Streamlit reruns (editor/add/save/download).
+if st.session_state.get("jms_open_row") is not None:
+    jms_dialog(st.session_state.jms_open_row)
+
 def status_badge(val):
     v = str(val).strip()
     if not v or v.lower() in ("nan", "none", "-"):
@@ -2779,25 +3066,35 @@ elif st.session_state.site_view_mode == "cards":
             """, unsafe_allow_html=True)
 
             if is_wh_required:
-                bc1, bc2 = st.columns(2)
+                bc1, bc2, bc3 = st.columns(3)
                 with bc1:
                     if st.button("⚙️ Manage", key=f"card_mgr_{rid}", use_container_width=True):
                         edit_record_dialog(row_dict)
                 with bc2:
+                    if st.button("🧾 JMS", key=f"card_jms_{rid}", use_container_width=True):
+                        st.session_state.jms_open_row = row_dict
+                        st.rerun()
+                with bc3:
                     if st.button("📦 Material", key=f"card_mat_{rid}", use_container_width=True):
                         if 'mat_count' in st.session_state:
                             st.session_state.mat_count = 1
                         material_movement_dialog(row_dict)
             else:
-                if st.button("⚙️ Manage (View / Edit / Delete)", key=f"card_mgr_{rid}", use_container_width=True):
-                    edit_record_dialog(row_dict)
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("⚙️ Manage", key=f"card_mgr_{rid}", use_container_width=True):
+                        edit_record_dialog(row_dict)
+                with bc2:
+                    if st.button("🧾 JMS", key=f"card_jms_{rid}", use_container_width=True):
+                        st.session_state.jms_open_row = row_dict
+                        st.rerun()
 
 else:
     # ---------------------------------------------------------------
     # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
     # ---------------------------------------------------------------
     COL_RATIOS = [
-        0.3, 0.4, 0.4,               # 0-2 (Sr No, Manage, Material)
+        0.3, 0.4, 0.5, 0.4,          # 0-3 (Sr No, Manage, JMS, Material)
         1.2, 1.0, 1.5, 1.2, 1.2,     # 3-7 (Dept, Op, Proj Name, Proj ID, Site ID)
         1.5, 1.0, 1.2, 1.2, 1.0,     # 8-12 (Site Name, Cluster, Status, PO No, PO Date)
         1.0, 1.3, 1.0, 1.2, 2.0,     # 13-17 (PO Status, PO Upload Status, Product, RFAI, Work Desc)
@@ -2808,7 +3105,7 @@ else:
     ]
 
     COL_LABELS = [
-        "#", "⚙️", "📦",
+        "#", "⚙️", "JMS", "📦",
         "DEPARTMENT", "OPERATOR", "PROJECT NAME", "PROJECT ID", "SITE ID", 
         "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE", 
         "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION", 
@@ -2855,38 +3152,42 @@ else:
                         del st.session_state['edit_po_count']
                     edit_record_dialog(row_dict)
             with rcols[2]:
+                if st.button("🧾", key=f"jmsbtn_{rid}", help="Create / Edit JMS", use_container_width=True):
+                    st.session_state.jms_open_row = row_dict
+                    st.rerun()
+            with rcols[3]:
                 if is_wh_required:
                     if st.button("📦", key=f"mbtn_{rid}", help="Material", use_container_width=True):
                         if 'mat_count' in st.session_state:
                             st.session_state.mat_count = 1
                         material_movement_dialog(row_dict)
 
-            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[13].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
-            rcols[14].markdown(po_upload_status_html, unsafe_allow_html=True)
-            rcols[15].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[16].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
-            rcols[17].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[20].markdown(status_badge(row_dict.get('Photos', '')), unsafe_allow_html=True)
-            rcols[21].markdown(status_badge(row_dict.get('Audit', '')), unsafe_allow_html=True)
-            rcols[22].markdown(status_badge(row_dict.get('JMS', '')), unsafe_allow_html=True)
-            rcols[23].markdown(status_badge(row_dict.get('Commissioning Report', '')), unsafe_allow_html=True)
-            rcols[24].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-            rcols[25].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-            rcols[26].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[27].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[28].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Department','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Operator','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[11].markdown(status_badge(row_dict.get('Site Status', '')), unsafe_allow_html=True)
+            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Date','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[14].markdown(status_badge(row_dict.get('PO Status', '')), unsafe_allow_html=True)
+            rcols[15].markdown(po_upload_status_html, unsafe_allow_html=True)
+            rcols[16].markdown(f"<div class='tbl-cell'>{row_dict.get('Product','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[17].markdown(status_badge(row_dict.get('RFAI Status', '')), unsafe_allow_html=True)
+            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Work Description','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[19].markdown(f"<div class='tbl-cell'>{row_dict.get('WH Material','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[20].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[21].markdown(status_badge(row_dict.get('Photos', '')), unsafe_allow_html=True)
+            rcols[22].markdown(status_badge(row_dict.get('Audit', '')), unsafe_allow_html=True)
+            rcols[23].markdown(status_badge(row_dict.get('JMS', '')), unsafe_allow_html=True)
+            rcols[24].markdown(status_badge(row_dict.get('Commissioning Report', '')), unsafe_allow_html=True)
+            rcols[25].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+            rcols[26].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+            rcols[27].markdown(f"<div class='tbl-cell'>{row_dict.get('Extra Approval','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[28].markdown(f"<div class='tbl-cell'>{row_dict.get('WCC Number','') or '-'}</div>", unsafe_allow_html=True)
+            rcols[29].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
