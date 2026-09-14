@@ -598,18 +598,52 @@ VISIONTECH_PAN = "AAICV3205F"
 
 # --- INVOICE PDF GENERATOR (fully in-memory — NEVER saved/uploaded to Supabase) ---
 def _wrap_text_for_pdf(pdf, text, width_mm):
-    """Word-wrap text to fit within width_mm using the PDF's currently set font."""
-    words = str(text).split(" ")
+    """Wrap text within width_mm, including long IDs that contain no spaces."""
+    usable_width = max(float(width_mm) - 2.0, 1.0)
+    words = str(text).replace("\r", "").split(" ")
     lines = []
     current = ""
+
+    def split_long_word(word):
+        """Hard-wrap a single token (Project ID, Site ID, etc.) by width."""
+        pieces = []
+        piece = ""
+        for char in str(word):
+            test_piece = piece + char
+            if piece and pdf.get_string_width(test_piece) > usable_width:
+                pieces.append(piece)
+                piece = char
+            else:
+                piece = test_piece
+        if piece or not pieces:
+            pieces.append(piece)
+        return pieces
+
     for w in words:
-        test = (current + " " + w).strip()
-        if pdf.get_string_width(test) <= width_mm - 2:
-            current = test
+        if "\n" in w:
+            parts = w.split("\n")
         else:
-            if current:
-                lines.append(current)
-            current = w
+            parts = [w]
+
+        expanded_parts = []
+        for part in parts:
+            expanded_parts.extend(split_long_word(part))
+
+        for part_index, part in enumerate(expanded_parts):
+            w = part
+            test = (current + " " + w).strip()
+            if pdf.get_string_width(test) <= usable_width:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+                current = w
+
+            # Preserve an explicit newline from the source text.
+            if len(parts) > 1 and part_index < len(expanded_parts) - 1:
+                if current:
+                    lines.append(current)
+                current = ""
     if current:
         lines.append(current)
     return lines or [""]
@@ -1778,42 +1812,59 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 def create_table(title, df, header_color):
                     if not df.empty:
-                        pdf.set_font("Arial", 'B', 12)
-                        pdf.set_text_color(*header_color)
-                        pdf.cell(190, 8, title, ln=True, align='L')
-                        
-                        pdf.set_fill_color(*header_color)
-                        pdf.set_text_color(255, 255, 255)
-                        pdf.set_font("Arial", 'B', 7)
-                        
                         cols = df.columns.tolist()
-                        
+
                         if len(cols) == 8:
+                            # Total = 190 mm. Widths remain fixed; long values wrap.
                             col_widths = [18, 18, 22, 24, 36, 24, 20, 28]
                         else:
                             col_widths = [190 / len(cols)] * len(cols)
 
-                        # Columns whose text should word-wrap inside its own box instead of
-                        # overflowing into the next column (e.g. long Site Names).
-                        wrap_cols = {"site name", "remark", "description"}
-                            
-                        for i, col in enumerate(cols):
-                            pdf.cell(col_widths[i], 8, str(col).upper().replace('_', ' '), border=1, align='C', fill=True)
-                        pdf.ln()
-                        
-                        pdf.set_text_color(0, 0, 0)
-                        
+                        # Project/Site values and remarks can be long. Every value stays
+                        # inside its original fixed-width cell and increases row height.
+                        wrap_cols = {
+                            "invoice no.", "project id", "site id", "site name",
+                            "remark", "description", "pay from", "pay type"
+                        }
+
+                        line_h = 4.0
+                        header_h = 8.0
+                        page_bottom = pdf.h - pdf.b_margin
+
+                        def draw_table_heading(continued=False):
+                            heading = f"{title} - CONTINUED" if continued else title
+                            pdf.set_font("Arial", 'B', 12)
+                            pdf.set_text_color(*header_color)
+                            pdf.cell(190, 8, heading, ln=True, align='L')
+
+                            pdf.set_fill_color(*header_color)
+                            pdf.set_text_color(255, 255, 255)
+                            pdf.set_font("Arial", 'B', 7)
+                            for i, col in enumerate(cols):
+                                pdf.cell(
+                                    col_widths[i], header_h,
+                                    str(col).upper().replace('_', ' '),
+                                    border=1, align='C', fill=True
+                                )
+                            pdf.ln(header_h)
+                            pdf.set_text_color(0, 0, 0)
+
+                        # Never start a table where only its heading can fit.
+                        if pdf.get_y() + 20 > page_bottom:
+                            pdf.add_page()
+                        draw_table_heading()
+
                         fill = False
-                        line_h = 4
                         for _, row in df.iterrows():
                             if fill:
                                 pdf.set_fill_color(241, 245, 249)
                             else:
                                 pdf.set_fill_color(255, 255, 255)
 
-                            # First pass: compute the row's shared height from any wrapped column
+                            # First pass: wrap every required value and calculate one common
+                            # height for the complete row.
                             row_vals = []
-                            row_height = line_h
+                            max_lines = 1
                             for i, col in enumerate(cols):
                                 val = row[col]
                                 col_lower = str(col).lower()
@@ -1825,36 +1876,44 @@ elif st.session_state.billing_active_page == "ledger":
                                         else:
                                             val_str = "-"
                                     except:
-                                        val_str = str(val)[:30]
-                                    is_wrap = False
+                                        val_str = str(val)
+                                    align = 'R'
                                 else:
                                     val_str = str(val) if pd.notna(val) and str(val).strip() != "" else "-"
-                                    is_wrap = col_lower in wrap_cols
+                                    align = 'L' if col_lower in wrap_cols else 'C'
 
-                                row_vals.append((val_str, is_wrap, col_widths[i]))
+                                pdf.set_font("Arial", '', 7.5)
+                                lines = _wrap_text_for_pdf(pdf, val_str, col_widths[i])
+                                if col_lower not in wrap_cols and len(lines) > 1:
+                                    # Safety: even an unexpected long value must not enter
+                                    # the next column.
+                                    align = 'C'
 
-                                if is_wrap:
-                                    pdf.set_font("Arial", '', 7.5)
-                                    n_lines = max(1, len(_wrap_text_for_pdf(pdf, val_str, col_widths[i])))
-                                    row_height = max(row_height, n_lines * line_h)
+                                row_vals.append((lines, align, col_widths[i]))
+                                max_lines = max(max_lines, len(lines))
 
-                            # Second pass: draw all cells at the shared row height
+                            row_height = max(6.0, max_lines * line_h + 2.0)
+
+                            # A complete row moves to the next page. This is the main fix
+                            # for PDFs that were splitting/cutting cells between pages.
+                            if pdf.get_y() + row_height > page_bottom:
+                                pdf.add_page()
+                                draw_table_heading(continued=True)
+
+                            # Second pass: draw a full-height rectangle for every cell, then
+                            # place wrapped text line-by-line within that same rectangle.
                             x0 = pdf.get_x()
                             y0 = pdf.get_y()
                             x_cursor = x0
-                            for val_str, is_wrap, w in row_vals:
-                                if is_wrap:
-                                    pdf.set_font("Arial", '', 7.5)
-                                    pdf.set_xy(x_cursor, y0)
-                                    y_before = pdf.get_y()
-                                    pdf.multi_cell(w, line_h, val_str, border=1, align='L', fill=fill)
-                                    used_h = pdf.get_y() - y_before
-                                    if used_h < row_height:
-                                        pdf.rect(x_cursor, pdf.get_y(), w, row_height - used_h, 'DF' if fill else 'D')
-                                else:
-                                    pdf.set_xy(x_cursor, y0)
-                                    pdf.set_font("Arial", '', 7.5)
-                                    pdf.cell(w, row_height, val_str, border=1, align='C', fill=fill)
+                            for lines, align, w in row_vals:
+                                pdf.set_xy(x_cursor, y0)
+                                pdf.rect(x_cursor, y0, w, row_height, 'DF' if fill else 'D')
+                                text_y = y0 + 1.0
+                                pdf.set_font("Arial", '', 7.5)
+                                for text_line in lines:
+                                    pdf.set_xy(x_cursor + 1.0, text_y)
+                                    pdf.cell(w - 2.0, line_h, text_line, border=0, align=align)
+                                    text_y += line_h
                                 x_cursor += w
                             pdf.set_xy(x0, y0 + row_height)
                             fill = not fill
