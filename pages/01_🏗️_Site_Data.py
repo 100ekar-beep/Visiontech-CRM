@@ -1130,6 +1130,54 @@ def _normalized_po_value(row, aliases, default=""):
             return value
     return default
 
+def _detect_po_item_code(row):
+    value = _normalized_po_value(row, [
+        "Item Num", "Item Code", "ItemCode", "Item Number", "ItemNumber", "Item No",
+        "ItemNo", "Oracle Item Code", "Material Code", "MaterialCode", "Item"
+    ])
+    if value:
+        return value
+    # Final schema-independent fallback for columns such as PO_Item_Code_New.
+    for key, raw in row.items():
+        nk = "".join(ch for ch in str(key).lower() if ch.isalnum())
+        if (("item" in nk and ("code" in nk or "number" in nk or nk.endswith("no")))
+                or ("material" in nk and "code" in nk)):
+            value = _clean_text(raw)
+            if value:
+                return value
+    return ""
+
+def _detect_po_qty(row):
+    # JMS quantity must come from PO Qty first. Other Qty columns are fallbacks only.
+    value = _normalized_po_value(row, [
+        "PO Qty", "PO Quantity", "PO Ordered Qty", "Ordered Qty", "Order Qty",
+        "Item Qty", "Quantity", "Qty", "VIS Qty", "User Qty"
+    ], "")
+    if value != "":
+        return _number_value(value)
+    for key, raw in row.items():
+        nk = "".join(ch for ch in str(key).lower() if ch.isalnum())
+        if (("po" in nk and ("qty" in nk or "quantity" in nk))
+                or nk in ("orderedquantity", "orderedqty", "itemquantity", "itemqty")):
+            value = _clean_text(raw)
+            if value != "":
+                return _number_value(value)
+    return 0.0
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _jms_item_description_code_map():
+    return {
+        " ".join(_clean_text(details.get("description")).lower().split()): code
+        for code, details in get_item_master_details().items()
+        if _clean_text(details.get("description"))
+    }
+
+def _code_from_item_master(description):
+    wanted = " ".join(_clean_text(description).lower().split())
+    if not wanted:
+        return ""
+    return _jms_item_description_code_map().get(wanted, "")
+
 def _number_value(value):
     try:
         number = float(value)
@@ -1170,6 +1218,12 @@ def _fetch_po_lines_for_site(row_data):
             seen.add(identity)
             unique_rows.append(po_row)
 
+    # JMS must follow the original Oracle PO line sequence.
+    unique_rows.sort(key=lambda r: (
+        _number_value(_normalized_po_value(r, ["Line Number", "Line Num", "Line No"], 999999)),
+        _clean_text(r.get("id"))
+    ))
+
     # If Site Data contains PO numbers, do not mix unrelated PO lines.
     if po_numbers:
         matched = [r for r in unique_rows if _first_value(r, ["PO Number", "PO No.", "PO No", "po_number"]) in po_numbers]
@@ -1178,15 +1232,13 @@ def _fetch_po_lines_for_site(row_data):
 
     lines = []
     for po_row in unique_rows:
-        item_code = _normalized_po_value(po_row, [
-            "Item Code", "ItemCode", "Item Number", "ItemNumber", "Item No", "Item", "Code"
-        ])
+        item_code = _detect_po_item_code(po_row)
         description = _normalized_po_value(po_row, [
             "Item Description", "ItemDescription", "Description", "PO Item Description"
         ])
-        qty = _number_value(_normalized_po_value(po_row, [
-            "VIS Qty", "User Qty", "PO Qty", "Ordered Qty", "Order Qty", "Quantity", "Qty"
-        ], 0))
+        qty = _detect_po_qty(po_row)
+        if not item_code and description:
+            item_code = _code_from_item_master(description)
         if item_code or description:
             lines.append({
                 "item_code": item_code,
@@ -1219,6 +1271,8 @@ def _merge_saved_lines_with_po(saved_lines, po_lines):
             if _number_value(row.get("qty")) == 0 and _number_value(source.get("qty")) != 0:
                 row["qty"] = source.get("qty", 0)
             used_codes.add(_clean_text(source.get("item_code")).lower())
+        if not _clean_text(row.get("item_code")) and _clean_text(row.get("item_description")):
+            row["item_code"] = _code_from_item_master(row.get("item_description"))
         merged.append(row)
     # A newly uploaded PO may contain additional items; append them without deleting saved edits.
     for po_line in po_lines:
@@ -1305,22 +1359,22 @@ def _build_jms_pdf(row_data, circle, lines):
             y -= leading
 
     source_lines = list(lines)
-    chunks = [source_lines[i:i + 20] for i in range(0, len(source_lines), 20)] or [[]]
+    chunks = [source_lines[i:i + 30] for i in range(0, len(source_lines), 30)] or [[]]
     for page_no, chunk in enumerate(chunks, 1):
-        margin = 12 * mm
+        margin = 10 * mm
         pdf.setLineWidth(0.8)
         pdf.rect(margin, margin, page_w - 2*margin, page_h - 2*margin)
 
         pdf.setFillColor(colors.HexColor("#3730a3"))
-        pdf.setFont("Helvetica-Bold", 15)
-        pdf.drawCentredString(page_w/2, page_h - 30*mm, company.upper())
+        pdf.setFont("Helvetica-Bold", 14)
+        pdf.drawCentredString(page_w/2, page_h - 20*mm, company.upper())
         pdf.setFillColor(colors.HexColor("#334155"))
-        pdf.setFont("Helvetica", 9)
-        pdf.drawCentredString(page_w/2, page_h - 40*mm, "Joint Measurement Sheet")
-        pdf.line(margin, page_h - 48*mm, page_w-margin, page_h - 48*mm)
+        pdf.setFont("Helvetica", 8.5)
+        pdf.drawCentredString(page_w/2, page_h - 27*mm, "Joint Measurement Sheet")
+        pdf.line(margin, page_h - 32*mm, page_w-margin, page_h - 32*mm)
 
         # Site information box - same order as sample PDF.
-        ix, iy, iw, ih = 20*mm, page_h - 78*mm, page_w - 40*mm, 18*mm
+        ix, iy, iw, ih = 16*mm, page_h - 52*mm, page_w - 32*mm, 14*mm
         pdf.setStrokeColor(colors.black); pdf.setLineWidth(0.55)
         pdf.rect(ix, iy, iw, ih); pdf.line(ix + iw/2, iy, ix + iw/2, iy + ih); pdf.line(ix, iy + ih/2, ix + iw, iy + ih/2)
         info = [
@@ -1330,13 +1384,13 @@ def _build_jms_pdf(row_data, circle, lines):
             ("Project ID :-", _clean_text(row_data.get("Project ID")), ix+iw/2, iy+ih/2, iw/2, ih/2),
         ]
         for label, value, x, top, width, height in info:
-            pdf.setFont("Helvetica-Bold", 6.5); pdf.drawString(x+3, top-height/2-2, label)
-            pdf.setFont("Helvetica", 6.5); pdf.drawString(x+28*mm, top-height/2-2, value[:55])
+            pdf.setFont("Helvetica-Bold", 6.2); pdf.drawString(x+3, top-height/2-2, label)
+            pdf.setFont("Helvetica", 6.2); pdf.drawString(x+25*mm, top-height/2-2, value[:55])
 
-        # 20 fixed compact rows, so at least 20 line items fit on every page.
-        tx, table_top = 20*mm, iy - 8*mm
-        widths = [11*mm, 32*mm, 88*mm, 18*mm, 26*mm]
-        header_h, row_h = 10*mm, 7.2*mm
+        # Exactly 30 equal rows fill the space down to the signature boxes.
+        tx, table_top = 16*mm, iy - 4*mm
+        widths = [10*mm, 33*mm, 91*mm, 18*mm, 26*mm]
+        header_h, row_h = 8*mm, 6.35*mm
         headers = ["S.No.", "Item Code", "Item Description", "Qty as per site", "Remarks"]
         x = tx
         pdf.setFillColor(colors.HexColor("#e5e7eb")); pdf.rect(tx, table_top-header_h, sum(widths), header_h, fill=1, stroke=0)
@@ -1346,30 +1400,31 @@ def _build_jms_pdf(row_data, circle, lines):
             draw_cell_text(label, x, table_top, width, header_h, size=5.4, bold=True, center=(label in ("S.No.", "Qty as per site")), max_lines=2)
             x += width
 
-        for row_pos in range(20):
+        for row_pos in range(30):
             y_top = table_top - header_h - row_pos*row_h
             line = chunk[row_pos] if row_pos < len(chunk) else {}
-            global_no = (page_no - 1)*20 + row_pos + 1 if row_pos < len(chunk) else ""
+            global_no = (page_no - 1)*30 + row_pos + 1 if row_pos < len(chunk) else ""
             qty = _number_value(line.get("qty")) if line else 0
             qty_text = (str(int(qty)) if float(qty).is_integer() else f"{qty:g}") if line else ""
             values = [global_no, _clean_text(line.get("item_code")), first_60_words(line.get("item_description")), qty_text, _clean_text(line.get("remarks"))]
             x = tx
             for col_no, (value, width) in enumerate(zip(values, widths)):
                 pdf.rect(x, y_top-row_h, width, row_h, fill=0, stroke=1)
-                draw_cell_text(value, x, y_top, width, row_h, size=4.1 if col_no == 2 else 4.5,
-                               center=col_no in (0,3), max_lines=4)
+                draw_cell_text(value, x, y_top, width, row_h,
+                               size=5.65 if col_no in (1,2) else 5.25,
+                               bold=col_no in (1,2), center=col_no in (0,3), max_lines=2)
                 x += width
 
         # Signature boxes copied from the sample layout.
-        sig_y, sig_h, gap = 15*mm, 37*mm, 7*mm
+        sig_y, sig_h, gap = 12*mm, 27*mm, 6*mm
         sig_w = (iw-gap)/2
         pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
         pdf.setFont("Helvetica-Bold", 6.5)
-        pdf.drawString(ix+6*mm, sig_y+16*mm, "TSP Partner Name :")
-        pdf.setFont("Helvetica", 6.2); pdf.drawString(ix+6*mm, sig_y+9*mm, company.upper())
+        pdf.drawString(ix+5*mm, sig_y+12*mm, "TSP Partner Name :")
+        pdf.setFont("Helvetica", 6.0); pdf.drawString(ix+5*mm, sig_y+6*mm, company.upper())
         pdf.setFont("Helvetica-Bold", 6.5)
-        pdf.drawString(ix+sig_w+gap+6*mm, sig_y+16*mm, "Auditor Name :-")
-        pdf.drawString(ix+sig_w+gap+6*mm, sig_y+9*mm, "Audit Agency :-")
+        pdf.drawString(ix+sig_w+gap+5*mm, sig_y+12*mm, "Auditor Name :-")
+        pdf.drawString(ix+sig_w+gap+5*mm, sig_y+6*mm, "Audit Agency :-")
         pdf.showPage()
 
     pdf.save()
@@ -1394,6 +1449,16 @@ def jms_dialog(row_data):
     st.markdown(f"### {company}")
     st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
     circle = st.text_input("Circle", key=f"jms_circle_{active_key}")
+
+    if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jms_reload_po_{active_key}"):
+        fresh_po_lines = _fetch_po_lines_for_site(row_data)
+        if fresh_po_lines:
+            st.session_state.jms_lines = _merge_saved_lines_with_po(st.session_state.jms_lines, fresh_po_lines)
+            st.session_state.jms_last_pdf = None
+            st.success("PO se Item Code aur Qty reload ho gaye.")
+            st.rerun()
+        else:
+            st.warning("Is Project ID / Site ID ke against po_working me koi line nahi mili.")
 
     st.markdown("#### PO / Saved JMS Line Items")
     if st.session_state.jms_lines:
