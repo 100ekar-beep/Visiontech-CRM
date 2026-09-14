@@ -806,7 +806,8 @@ def view_po_details_dialog(row_data):
         'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
     ]
     
-    editor_key = f"po_editor_{po_no}_{proj_name}"
+    # Versioned key clears the old data-editor schema where PO Qty was locked.
+    editor_key = f"po_editor_v3_{po_no}_{proj_name}"
     
     df_full = st.session_state.po_working_df
     po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
@@ -903,11 +904,15 @@ def view_po_details_dialog(row_data):
             st.warning("Item master me koi item nahi mila. Item Code/item_master table check karein.")
         else:
             item_options = [""] + item_master_df["Display"].tolist()
-            add_col1, add_col2, add_col3 = st.columns([6, 2, 2])
+            add_form_version_key = f"po_add_form_version_{safe_po_file}_{proj_name}"
+            if add_form_version_key not in st.session_state:
+                st.session_state[add_form_version_key] = 0
+            add_form_version = st.session_state[add_form_version_key]
+            add_col1, add_col2, add_col3, add_col4, add_col5 = st.columns([5, 1.5, 1.5, 1.5, 1.5])
             with add_col1:
                 selected_item_display = st.selectbox(
                     "SEARCH ITEM CODE / DESCRIPTION", item_options,
-                    key=f"po_add_item_{safe_po_file}_{proj_name}"
+                    key=f"po_add_item_{safe_po_file}_{proj_name}_{add_form_version}"
                 )
             selected_master_row = None
             default_price = 0
@@ -924,13 +929,22 @@ def view_po_details_dialog(row_data):
             with add_col2:
                 new_po_qty = st.number_input(
                     "PO QTY", min_value=0, value=0, step=1,
-                    key=f"po_add_qty_{safe_po_file}_{proj_name}"
+                    key=f"po_add_qty_{safe_po_file}_{proj_name}_{add_form_version}"
                 )
             with add_col3:
+                new_user_qty = st.number_input(
+                    "USER QTY", min_value=0, value=0, step=1,
+                    key=f"po_add_user_qty_{safe_po_file}_{proj_name}_{add_form_version}"
+                )
+            with add_col4:
+                new_vis_qty = st.number_input(
+                    "VIS QTY", min_value=0, value=0, step=1,
+                    key=f"po_add_vis_qty_{safe_po_file}_{proj_name}_{add_form_version}"
+                )
+            with add_col5:
                 new_price = st.number_input(
                     "PRICE", min_value=0, value=default_price, step=1,
-                    key=f"po_add_price_{safe_po_file}_{proj_name}_{selected_item_key}",
-                    disabled=True
+                    key=f"po_add_price_{safe_po_file}_{proj_name}_{selected_item_key}_{add_form_version}"
                 )
             next_line_preview = int(pd.to_numeric(df_temp["Line Number"], errors="coerce").fillna(0).max()) + 1
             if selected_master_row is not None:
@@ -940,7 +954,7 @@ def view_po_details_dialog(row_data):
                 )
             if st.button(
                 "➕ Add & Save Line", type="primary", use_container_width=True,
-                key=f"po_add_save_{safe_po_file}_{proj_name}"
+                key=f"po_add_save_{safe_po_file}_{proj_name}_{add_form_version}"
             ):
                 if selected_master_row is None:
                     st.error("पहले Item Code select करें।")
@@ -962,10 +976,14 @@ def view_po_details_dialog(row_data):
                             "Item Num": new_item_code,
                             "Description": str(selected_master_row.get("Description", "") or "").strip(),
                             "UOM": default_uom,
-                            "PO Qty": int(new_po_qty), "User Qty": 0, "VIS Qty": 0,
-                            "Diff": int(new_po_qty), "wcc_qty": 0, "wcc_status": "",
+                            "PO Qty": int(new_po_qty),
+                            "User Qty": int(new_user_qty),
+                            "VIS Qty": int(new_vis_qty),
+                            "Diff": int(new_po_qty) - int(new_vis_qty),
+                            "wcc_qty": 0, "wcc_status": "",
                             "Claim Qty": 0, "Receipt Qty": 0,
-                            "Price": int(new_price), "Amount": 0
+                            "Price": int(new_price),
+                            "Amount": int(new_vis_qty) * int(new_price)
                         }
                         try:
                             insert_result = supabase.table("po_working").insert(insert_payload).execute()
@@ -976,6 +994,8 @@ def view_po_details_dialog(row_data):
                             )
                             if editor_key in st.session_state:
                                 del st.session_state[editor_key]
+                            # Next manual-entry form starts fresh; PO Qty is always 0 by default.
+                            st.session_state[add_form_version_key] += 1
                             st.success(f"✅ Line {next_line_preview} Supabase में save हो गई।")
                             try:
                                 st.rerun(scope="fragment")
@@ -995,11 +1015,12 @@ def view_po_details_dialog(row_data):
         use_container_width=True, 
         hide_index=True,
         height=400, 
+        disabled=["Line Number", "PO Number", "Item Num", "Description", "UOM", "Diff", "wcc_qty", "wcc_status", "Amount"],
         column_config={
             "id": None, "Site ID": None, "Site Name": None, "Project Name": None,
             "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
             "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
-            "PO Qty": st.column_config.NumberColumn("PO Qty", disabled=True, alignment="center", format="%d"),
+            "PO Qty": st.column_config.NumberColumn("PO Qty", min_value=0, alignment="center", format="%d", step=1),
             "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%d", step=1),
             "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
             "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
@@ -1066,20 +1087,39 @@ def view_po_details_dialog(row_data):
     col_v1, col_v2 = st.columns([8, 2])
     with col_v2:
         if st.button("💾 Submit", type="primary", use_container_width=True):
+            save_errors = []
+            def safe_int(value):
+                parsed_value = pd.to_numeric(value, errors="coerce")
+                return 0 if pd.isna(parsed_value) else int(parsed_value)
+
             for idx, row in edited_po_df.iterrows():
                 try:
                     if pd.notna(row.get('id')):
+                        po_qty_val = safe_int(row.get('PO Qty', 0))
+                        user_qty_val = safe_int(row.get('User Qty', 0))
+                        vis_qty_val = safe_int(row.get('VIS Qty', 0))
+                        claim_qty_val = safe_int(row.get('Claim Qty', 0))
+                        receipt_qty_val = safe_int(row.get('Receipt Qty', 0))
+                        price_val = safe_int(row.get('Price', 0))
+                        diff_val = po_qty_val - vis_qty_val
+                        amount_val = vis_qty_val * price_val
                         update_payload = {
-                            "User Qty": int(row['User Qty']),
-                            "VIS Qty": int(row['VIS Qty']),
-                            "Diff": int(row['Diff']),
-                            "Claim Qty": int(row['Claim Qty']),
-                            "Receipt Qty": int(row['Receipt Qty']),
-                            "Amount": int(row['Amount'])
+                            "PO Qty": po_qty_val,
+                            "User Qty": user_qty_val,
+                            "VIS Qty": vis_qty_val,
+                            "Diff": diff_val,
+                            "Claim Qty": claim_qty_val,
+                            "Receipt Qty": receipt_qty_val,
+                            "Price": price_val,
+                            "Amount": amount_val
                         }
                         supabase.table("po_working").update(update_payload).eq("id", row['id']).execute()
-                except Exception:
-                    pass
+                except Exception as save_error:
+                    save_errors.append(f"Line {row.get('Line Number', idx + 1)}: {save_error}")
+
+            if save_errors:
+                st.error("❌ कुछ lines save नहीं हुई:\n" + "\n".join(save_errors))
+                return
             
             if editor_key in st.session_state:
                 del st.session_state[editor_key]
