@@ -25,6 +25,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
 
 # --- 1. PAGE CONFIGURATION ---
@@ -1116,6 +1118,18 @@ def _first_value(row, names, default=""):
             return value
     return default
 
+def _normalized_po_value(row, aliases, default=""):
+    """Find a PO value even when Excel/Supabase changed spaces, case or underscores."""
+    normalized = {
+        "".join(ch for ch in str(key).lower() if ch.isalnum()): value
+        for key, value in row.items()
+    }
+    for alias in aliases:
+        value = _clean_text(normalized.get("".join(ch for ch in alias.lower() if ch.isalnum())))
+        if value:
+            return value
+    return default
+
 def _number_value(value):
     try:
         number = float(value)
@@ -1164,9 +1178,15 @@ def _fetch_po_lines_for_site(row_data):
 
     lines = []
     for po_row in unique_rows:
-        item_code = _first_value(po_row, ["Item Code", "item_code", "ITEM CODE", "ItemCode"])
-        description = _first_value(po_row, ["Item Description", "item_description", "Description", "ITEM DESCRIPTION"])
-        qty = _number_value(_first_value(po_row, ["VIS Qty", "VIS QTY", "User Qty", "USER QTY", "PO Qty", "PO QTY", "Qty", "QTY", "quantity"], 0))
+        item_code = _normalized_po_value(po_row, [
+            "Item Code", "ItemCode", "Item Number", "ItemNumber", "Item No", "Item", "Code"
+        ])
+        description = _normalized_po_value(po_row, [
+            "Item Description", "ItemDescription", "Description", "PO Item Description"
+        ])
+        qty = _number_value(_normalized_po_value(po_row, [
+            "VIS Qty", "User Qty", "PO Qty", "Ordered Qty", "Order Qty", "Quantity", "Qty"
+        ], 0))
         if item_code or description:
             lines.append({
                 "item_code": item_code,
@@ -1175,6 +1195,41 @@ def _fetch_po_lines_for_site(row_data):
                 "remarks": "",
             })
     return lines
+
+def _merge_saved_lines_with_po(saved_lines, po_lines):
+    """Preserve user edits but repair blank legacy Item Codes/Qty from current PO."""
+    if not saved_lines:
+        return po_lines
+    po_by_desc = {_clean_text(x.get("item_description")).lower(): x for x in po_lines}
+    po_by_code = {_clean_text(x.get("item_code")).lower(): x for x in po_lines if _clean_text(x.get("item_code"))}
+    merged = []
+    used_codes = set()
+    for saved in saved_lines:
+        row = dict(saved)
+        code = _clean_text(row.get("item_code"))
+        desc = _clean_text(row.get("item_description"))
+        source = po_by_code.get(code.lower()) if code else None
+        if source is None and desc:
+            source = po_by_desc.get(desc.lower())
+        if source:
+            if not code:
+                row["item_code"] = source.get("item_code", "")
+            if not desc:
+                row["item_description"] = source.get("item_description", "")
+            if _number_value(row.get("qty")) == 0 and _number_value(source.get("qty")) != 0:
+                row["qty"] = source.get("qty", 0)
+            used_codes.add(_clean_text(source.get("item_code")).lower())
+        merged.append(row)
+    # A newly uploaded PO may contain additional items; append them without deleting saved edits.
+    for po_line in po_lines:
+        po_code = _clean_text(po_line.get("item_code")).lower()
+        po_desc = _clean_text(po_line.get("item_description")).lower()
+        already_present = po_code in used_codes if po_code else any(
+            _clean_text(x.get("item_description")).lower() == po_desc for x in merged
+        )
+        if not already_present:
+            merged.append(po_line)
+    return merged
 
 def _load_saved_jms(row_data):
     workspace = st.session_state.get("active_workspace", "VISPL")
@@ -1204,77 +1259,120 @@ def _save_jms_draft(row_data, circle, lines):
     ).execute()
 
 def _build_jms_pdf(row_data, circle, lines):
+    """Portrait A4 JMS matching the supplied sample; 20 compact rows per page."""
     buffer = io.BytesIO()
     workspace = st.session_state.get("active_workspace", "VISPL")
     company = JMS_COMPANY_NAMES.get(workspace, workspace)
-    doc = SimpleDocTemplate(
-        buffer, pagesize=landscape(A4),
-        rightMargin=12*mm, leftMargin=12*mm, topMargin=10*mm, bottomMargin=10*mm,
-        title=f"JMS {_clean_text(row_data.get('Site ID'))}",
-    )
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("JmsTitle", parent=styles["Title"], alignment=TA_CENTER,
-                                 fontName="Helvetica-Bold", fontSize=16, leading=19,
-                                 textColor=colors.HexColor("#3730a3"))
-    cell_style = ParagraphStyle("JmsCell", parent=styles["BodyText"], fontSize=8, leading=10)
-    head_style = ParagraphStyle("JmsHead", parent=cell_style, fontName="Helvetica-Bold",
-                                textColor=colors.white, alignment=TA_CENTER)
-    story = [Paragraph(escape(company.upper()), title_style),
-             Paragraph("JOINT MEASUREMENT SHEET", ParagraphStyle(
-                 "JmsSub", parent=styles["Heading2"], alignment=TA_CENTER,
-                 fontSize=11, leading=14, textColor=colors.HexColor("#475569"))), Spacer(1, 4*mm)]
+    page_w, page_h = A4
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setTitle(f"JMS {_clean_text(row_data.get('Site ID'))}")
 
-    info = [
-        ["Circle", circle or "Maharashtra", "Site ID", _clean_text(row_data.get("Site ID"))],
-        ["Project ID", _clean_text(row_data.get("Project ID")), "Site Name", _clean_text(row_data.get("Site Name"))],
-    ]
-    info_table = Table([[Paragraph(escape(str(v)), cell_style) for v in r] for r in info],
-                       colWidths=[28*mm, 76*mm, 28*mm, 120*mm])
-    info_table.setStyle(TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#eef2ff")),
-        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#eef2ff")),
-        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
-        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("PADDING", (0,0), (-1,-1), 6),
-    ]))
-    story += [info_table, Spacer(1, 5*mm)]
+    def first_60_words(value):
+        return " ".join(_clean_text(value).split()[:60])
 
-    data = [[Paragraph(x, head_style) for x in ["S.No", "Item Code", "Item Description", "Qty as per Site", "Remarks"]]]
-    for idx, line in enumerate(lines, 1):
-        qty = _number_value(line.get("qty"))
-        qty_text = str(int(qty)) if qty.is_integer() else f"{qty:g}"
-        data.append([
-            Paragraph(str(idx), cell_style),
-            Paragraph(escape(_clean_text(line.get("item_code"))), cell_style),
-            Paragraph(escape(_clean_text(line.get("item_description"))), cell_style),
-            Paragraph(qty_text, cell_style),
-            Paragraph(escape(_clean_text(line.get("remarks"))), cell_style),
-        ])
-    item_table = Table(data, repeatRows=1, colWidths=[14*mm, 40*mm, 112*mm, 30*mm, 56*mm])
-    item_table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#3730a3")),
-        ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#94a3b8")),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("ALIGN", (0,1), (0,-1), "CENTER"), ("ALIGN", (3,1), (3,-1), "CENTER"),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f8fafc")]),
-        ("PADDING", (0,0), (-1,-1), 5),
-    ]))
-    story += [item_table, Spacer(1, 8*mm)]
+    def fit_lines(text, max_width, font="Helvetica", size=4.2, max_lines=4):
+        words = str(text).split()
+        output, current = [], ""
+        for word in words:
+            trial = f"{current} {word}".strip()
+            if stringWidth(trial, font, size) <= max_width:
+                current = trial
+            else:
+                if current:
+                    output.append(current)
+                current = word
+                if len(output) >= max_lines:
+                    break
+        if current and len(output) < max_lines:
+            output.append(current)
+        if len(output) == max_lines and len(" ".join(output).split()) < len(words):
+            output[-1] = output[-1].rstrip(".") + "..."
+        return output
 
-    signature_data = [
-        [Paragraph("TSP Partner", head_style), Paragraph("Auditor Name", head_style), Paragraph("Audit Agency", head_style)],
-        [Paragraph(escape(company), cell_style), "", ""],
-        [Paragraph("Signature: ____________________", cell_style), Paragraph("Signature: ____________________", cell_style), Paragraph("Signature: ____________________", cell_style)],
-    ]
-    sig_table = Table(signature_data, colWidths=[84*mm, 84*mm, 84*mm], rowHeights=[9*mm, 13*mm, 13*mm])
-    sig_table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#3730a3")),
-        ("GRID", (0,0), (-1,-1), 0.6, colors.HexColor("#94a3b8")),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("PADDING", (0,0), (-1,-1), 6),
-    ]))
-    story.append(KeepTogether(sig_table))
-    doc.build(story)
+    def draw_cell_text(text, x, y_top, width, height, size=4.2, bold=False, center=False, max_lines=4):
+        font = "Helvetica-Bold" if bold else "Helvetica"
+        rows = fit_lines(text, width - 4, font, size, max_lines)
+        leading = size + 0.9
+        total = len(rows) * leading
+        y = y_top - (height - total) / 2 - size
+        pdf.setFont(font, size)
+        for line in rows:
+            tx = x + width / 2 if center else x + 2
+            if center:
+                pdf.drawCentredString(tx, y, line)
+            else:
+                pdf.drawString(tx, y, line)
+            y -= leading
+
+    source_lines = list(lines)
+    chunks = [source_lines[i:i + 20] for i in range(0, len(source_lines), 20)] or [[]]
+    for page_no, chunk in enumerate(chunks, 1):
+        margin = 12 * mm
+        pdf.setLineWidth(0.8)
+        pdf.rect(margin, margin, page_w - 2*margin, page_h - 2*margin)
+
+        pdf.setFillColor(colors.HexColor("#3730a3"))
+        pdf.setFont("Helvetica-Bold", 15)
+        pdf.drawCentredString(page_w/2, page_h - 30*mm, company.upper())
+        pdf.setFillColor(colors.HexColor("#334155"))
+        pdf.setFont("Helvetica", 9)
+        pdf.drawCentredString(page_w/2, page_h - 40*mm, "Joint Measurement Sheet")
+        pdf.line(margin, page_h - 48*mm, page_w-margin, page_h - 48*mm)
+
+        # Site information box - same order as sample PDF.
+        ix, iy, iw, ih = 20*mm, page_h - 78*mm, page_w - 40*mm, 18*mm
+        pdf.setStrokeColor(colors.black); pdf.setLineWidth(0.55)
+        pdf.rect(ix, iy, iw, ih); pdf.line(ix + iw/2, iy, ix + iw/2, iy + ih); pdf.line(ix, iy + ih/2, ix + iw, iy + ih/2)
+        info = [
+            ("Circle :-", circle or "Maharashtra", ix, iy + ih, iw/2, ih/2),
+            ("Site ID :-", _clean_text(row_data.get("Site ID")), ix+iw/2, iy+ih, iw/2, ih/2),
+            ("Site Name :-", _clean_text(row_data.get("Site Name")), ix, iy+ih/2, iw/2, ih/2),
+            ("Project ID :-", _clean_text(row_data.get("Project ID")), ix+iw/2, iy+ih/2, iw/2, ih/2),
+        ]
+        for label, value, x, top, width, height in info:
+            pdf.setFont("Helvetica-Bold", 6.5); pdf.drawString(x+3, top-height/2-2, label)
+            pdf.setFont("Helvetica", 6.5); pdf.drawString(x+28*mm, top-height/2-2, value[:55])
+
+        # 20 fixed compact rows, so at least 20 line items fit on every page.
+        tx, table_top = 20*mm, iy - 8*mm
+        widths = [11*mm, 32*mm, 88*mm, 18*mm, 26*mm]
+        header_h, row_h = 10*mm, 7.2*mm
+        headers = ["S.No.", "Item Code", "Item Description", "Qty as per site", "Remarks"]
+        x = tx
+        pdf.setFillColor(colors.HexColor("#e5e7eb")); pdf.rect(tx, table_top-header_h, sum(widths), header_h, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        for label, width in zip(headers, widths):
+            pdf.rect(x, table_top-header_h, width, header_h, fill=0, stroke=1)
+            draw_cell_text(label, x, table_top, width, header_h, size=5.4, bold=True, center=(label in ("S.No.", "Qty as per site")), max_lines=2)
+            x += width
+
+        for row_pos in range(20):
+            y_top = table_top - header_h - row_pos*row_h
+            line = chunk[row_pos] if row_pos < len(chunk) else {}
+            global_no = (page_no - 1)*20 + row_pos + 1 if row_pos < len(chunk) else ""
+            qty = _number_value(line.get("qty")) if line else 0
+            qty_text = (str(int(qty)) if float(qty).is_integer() else f"{qty:g}") if line else ""
+            values = [global_no, _clean_text(line.get("item_code")), first_60_words(line.get("item_description")), qty_text, _clean_text(line.get("remarks"))]
+            x = tx
+            for col_no, (value, width) in enumerate(zip(values, widths)):
+                pdf.rect(x, y_top-row_h, width, row_h, fill=0, stroke=1)
+                draw_cell_text(value, x, y_top, width, row_h, size=4.1 if col_no == 2 else 4.5,
+                               center=col_no in (0,3), max_lines=4)
+                x += width
+
+        # Signature boxes copied from the sample layout.
+        sig_y, sig_h, gap = 15*mm, 37*mm, 7*mm
+        sig_w = (iw-gap)/2
+        pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
+        pdf.setFont("Helvetica-Bold", 6.5)
+        pdf.drawString(ix+6*mm, sig_y+16*mm, "TSP Partner Name :")
+        pdf.setFont("Helvetica", 6.2); pdf.drawString(ix+6*mm, sig_y+9*mm, company.upper())
+        pdf.setFont("Helvetica-Bold", 6.5)
+        pdf.drawString(ix+sig_w+gap+6*mm, sig_y+16*mm, "Auditor Name :-")
+        pdf.drawString(ix+sig_w+gap+6*mm, sig_y+9*mm, "Audit Agency :-")
+        pdf.showPage()
+
+    pdf.save()
     return buffer.getvalue()
 
 @st.dialog("🧾 Create / Edit JMS", width="large")
@@ -1284,7 +1382,8 @@ def jms_dialog(row_data):
     if st.session_state.jms_loaded_key != active_key:
         saved = _load_saved_jms(row_data)
         saved_lines = saved.get("line_items") if saved else None
-        st.session_state.jms_lines = saved_lines if isinstance(saved_lines, list) else _fetch_po_lines_for_site(row_data)
+        po_lines = _fetch_po_lines_for_site(row_data)
+        st.session_state.jms_lines = _merge_saved_lines_with_po(saved_lines, po_lines) if isinstance(saved_lines, list) else po_lines
         st.session_state.jms_loaded_key = active_key
         st.session_state.jms_last_pdf = None
         st.session_state.jms_add_gen += 1
