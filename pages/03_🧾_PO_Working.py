@@ -659,11 +659,6 @@ def po_upload_dialog():
                         new_po = int(new_row['PO Qty'])
                         new_price = int(new_row['Price'])
                         
-                        # Agar Qty bilkul same hai to kuch bhi change nahi karna (no duplicate, no rewrite)
-                        if curr_po == new_po:
-                            skipped_count += 1
-                            continue
-                        
                         new_diff = new_po - curr_vis
                         new_amount = curr_vis * new_price
                         
@@ -973,13 +968,19 @@ def view_po_details_dialog(row_data):
                             "Price": int(new_price), "Amount": 0
                         }
                         try:
-                            supabase.table("po_working").insert(insert_payload).execute()
+                            insert_result = supabase.table("po_working").insert(insert_payload).execute()
+                            saved_row = insert_result.data[0] if insert_result.data else insert_payload
+                            st.session_state.po_working_df = pd.concat(
+                                [st.session_state.po_working_df, pd.DataFrame([saved_row])],
+                                ignore_index=True
+                            )
                             if editor_key in st.session_state:
                                 del st.session_state[editor_key]
-                            if "po_working_df" in st.session_state:
-                                del st.session_state["po_working_df"]
                             st.success(f"✅ Line {next_line_preview} Supabase में save हो गई।")
-                            st.rerun()
+                            try:
+                                st.rerun(scope="fragment")
+                            except TypeError:
+                                st.rerun()
                         except Exception as add_error:
                             st.error(f"❌ नई PO line save नहीं हुई: {add_error}")
     
@@ -1010,6 +1011,56 @@ def view_po_details_dialog(row_data):
             "Amount": st.column_config.NumberColumn("Amount", disabled=True, alignment="center", format="%d")
         }
     )
+
+    # Delete one selected PO line from both Supabase and the popup table.
+    st.markdown('<div class="modal-section-title">🗑️ DELETE PO LINE</div>', unsafe_allow_html=True)
+    delete_options = []
+    delete_row_map = {}
+    for _, delete_row in po_specific_df.iterrows():
+        delete_id = delete_row.get("id")
+        delete_label = (
+            f"Line {delete_row.get('Line Number', '-')} | "
+            f"{delete_row.get('Item Num', '')} | {delete_row.get('Description', '')}"
+        )
+        delete_options.append(delete_label)
+        delete_row_map[delete_label] = delete_id
+
+    del_col1, del_col2 = st.columns([8, 2])
+    with del_col1:
+        selected_delete_line = st.selectbox(
+            "SELECT LINE TO DELETE",
+            options=[""] + delete_options,
+            key=f"po_delete_select_{safe_po_file}_{proj_name}"
+        )
+    with del_col2:
+        st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
+        delete_clicked = st.button(
+            "🗑️ Delete Line",
+            use_container_width=True,
+            key=f"po_delete_btn_{safe_po_file}_{proj_name}"
+        )
+
+    if delete_clicked:
+        if not selected_delete_line:
+            st.error("पहले delete करने वाली line select करें।")
+        else:
+            selected_delete_id = delete_row_map.get(selected_delete_line)
+            if pd.isna(selected_delete_id):
+                st.error("इस line की database ID नहीं मिली, इसलिए delete नहीं की गई।")
+            else:
+                try:
+                    supabase.table("po_working").delete().eq("id", selected_delete_id).execute()
+                    current_df = st.session_state.po_working_df
+                    st.session_state.po_working_df = current_df[current_df["id"] != selected_delete_id].reset_index(drop=True)
+                    if editor_key in st.session_state:
+                        del st.session_state[editor_key]
+                    st.success("✅ Selected PO line delete हो गई।")
+                    try:
+                        st.rerun(scope="fragment")
+                    except TypeError:
+                        st.rerun()
+                except Exception as delete_error:
+                    st.error(f"❌ Line delete नहीं हुई: {delete_error}")
     
     st.markdown("<br>", unsafe_allow_html=True)
     col_v1, col_v2 = st.columns([8, 2])
