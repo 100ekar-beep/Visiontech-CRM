@@ -29,6 +29,19 @@ if 'jmspage_add_gen' not in st.session_state:
 if 'jmspage_current_page' not in st.session_state:
     st.session_state.jmspage_current_page = 1
 
+# --- GUARD AGAINST STALE DIALOG STATE AFTER PAGE NAVIGATION ---
+# session_state is shared across every page in the app, so if a JMS dialog was left
+# open (user navigated away without clicking "Close"), jmspage_open_row would still
+# be set on the next visit and the dialog would auto-pop-up. We tie "the dialog is
+# genuinely open on THIS page visit" to a URL marker instead: it only survives
+# reruns caused by interacting with widgets inside this same page (typing, editing,
+# clicking Save/Add/Reload — none of which change the URL), but a fresh sidebar
+# navigation to this page does NOT carry it over, so we know to reset stale state.
+if st.query_params.get("jms_ctx") != "open":
+    st.session_state.jmspage_open_row = None
+    st.session_state.jmspage_loaded_key = None
+    st.session_state.jmspage_last_pdf = None
+
 # --- MULTI-COMPANY TAB SETUP (same as Site Data page) ---
 SITE_COMPANIES = [
     ("VISPL", "VISPL"),
@@ -755,6 +768,7 @@ def jms_dialog(row_data):
         if st.button("✖ Close", use_container_width=True, key=f"jmspage_close_{active_key}"):
             st.session_state.jmspage_open_row = None
             st.session_state.jmspage_loaded_key = None
+            st.query_params.pop("jms_ctx", None)
             st.rerun()
 
     if st.session_state.get("jmspage_last_pdf"):
@@ -861,6 +875,7 @@ else:
                 btn_label = "✏️ Edit JMS" if has_jms else "🧾 Create JMS"
                 if st.button(btn_label, key=f"jmsrowbtn_{rid}", use_container_width=True):
                     st.session_state.jmspage_open_row = row_dict
+                    st.query_params["jms_ctx"] = "open"
                     st.rerun()
 
             with rcols[8]:
