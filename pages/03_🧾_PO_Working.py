@@ -447,6 +447,60 @@ def fetch_site_data_lookup_cached(workspace):
     except Exception:
         return []
 
+
+def add_site_details_to_excel(export_df, site_rows):
+    """Har exported PO line par Site Name, Site ID aur Project ID ensure kare."""
+    result = export_df.copy()
+
+    site_by_id = {}
+    site_by_project = {}
+    for item in site_rows or []:
+        site_id = str(item.get("Site ID", "") or "").strip()
+        site_name = str(item.get("Site Name", "") or "").strip()
+        project_id = str(item.get("Project ID", "") or "").strip()
+        project_name = str(item.get("Project Name", "") or "").strip()
+        details = {
+            "Site ID": site_id,
+            "Site Name": site_name,
+            "Project ID": project_id or project_name,
+        }
+        if site_id:
+            site_by_id[site_id.upper()] = details
+        for project_key in (project_id, project_name):
+            if project_key:
+                site_by_project[project_key.upper()] = details
+
+    def resolve_details(row):
+        row_site_id = str(row.get("Site ID", "") or "").strip()
+        # po_working ka "Project Name" column asal mein Project ID store karta hai.
+        row_project_id = str(
+            row.get("Project ID", "") or row.get("Project Name", "") or ""
+        ).strip()
+        matched = (
+            site_by_id.get(row_site_id.upper())
+            or site_by_project.get(row_project_id.upper())
+            or {}
+        )
+        return pd.Series({
+            "Site Name": str(row.get("Site Name", "") or "").strip() or matched.get("Site Name", ""),
+            "Site ID": row_site_id or matched.get("Site ID", ""),
+            "Project ID": row_project_id or matched.get("Project ID", ""),
+        })
+
+    details_df = result.apply(resolve_details, axis=1)
+    for column in ["Site Name", "Site ID", "Project ID"]:
+        result[column] = details_df[column]
+
+    # Internal/misleading field ko Excel mein exact requested name se dikhayein.
+    if "Project Name" in result.columns:
+        result = result.drop(columns=["Project Name"])
+
+    detail_columns = ["Site Name", "Site ID", "Project ID"]
+    other_columns = [c for c in result.columns if c not in detail_columns]
+    insert_at = other_columns.index("PO Number") + 1 if "PO Number" in other_columns else 0
+    ordered_columns = other_columns[:insert_at] + detail_columns + other_columns[insert_at:]
+    return result[ordered_columns]
+
 # --- NEW: EGRESS OPTIMIZATION — cached per-site lookup used inside the
 # "Edit PO Detailed Working" dialog. Previously these 2 small queries
 # (site_data + Excalation/Escalation Matrix, both filtered by Site ID) ran
@@ -754,6 +808,9 @@ def export_dialog(df_export):
         if p_id: available_projects.add(p_id)
         if p_name: available_projects.add(p_name)
 
+    # Har PO line ke aage exact Site Name, Site ID aur Project ID add/fill karein.
+    export_df = add_site_details_to_excel(export_df, site_rows)
+
     def get_site_status(row):
         sid = str(row.get("Site ID", "")).strip()
         pname = str(row.get("Project Name", "")).strip()
@@ -765,8 +822,8 @@ def export_dialog(df_export):
             return "Available"
         return "Not Available"
 
-    if 'Project Name' in export_df.columns:
-        loc = export_df.columns.get_loc('Project Name') + 1
+    if 'Project ID' in export_df.columns:
+        loc = export_df.columns.get_loc('Project ID') + 1
         export_df.insert(loc, 'SITE STATUS', export_df.apply(get_site_status, axis=1))
     else:
         export_df['SITE STATUS'] = export_df.apply(get_site_status, axis=1)
@@ -880,9 +937,14 @@ def view_po_details_dialog(row_data):
     """, unsafe_allow_html=True)
 
     # Download only this popup's complete PO/Project line details.
-    popup_export_df = df_temp[[c for c in display_cols if c in df_temp.columns]].copy()
+    popup_export_cols = ['Site ID', 'Site Name', 'Project Name'] + display_cols
+    popup_export_df = df_temp[[c for c in popup_export_cols if c in df_temp.columns]].copy()
     if "id" in popup_export_df.columns:
         popup_export_df = popup_export_df.drop(columns=["id"])
+    popup_export_df = add_site_details_to_excel(
+        popup_export_df,
+        fetch_site_data_lookup_cached(active_ws),
+    )
     popup_excel = io.BytesIO()
     with pd.ExcelWriter(popup_excel, engine="openpyxl") as writer:
         popup_export_df.to_excel(writer, index=False, sheet_name="PO Line Details")
