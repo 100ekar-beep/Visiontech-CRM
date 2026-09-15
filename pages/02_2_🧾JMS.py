@@ -15,18 +15,18 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 st.set_page_config(page_title="JMS - Joint Measurement Sheet", page_icon="🧾", layout="wide")
 
 # --- SESSION STATE ---
-if 'jms_open_row' not in st.session_state:
-    st.session_state.jms_open_row = None
-if 'jms_loaded_key' not in st.session_state:
-    st.session_state.jms_loaded_key = None
-if 'jms_lines' not in st.session_state:
-    st.session_state.jms_lines = []
-if 'jms_last_pdf' not in st.session_state:
-    st.session_state.jms_last_pdf = None
-if 'jms_add_gen' not in st.session_state:
-    st.session_state.jms_add_gen = 0
-if 'jms_current_page' not in st.session_state:
-    st.session_state.jms_current_page = 1
+if 'jmspage_open_row' not in st.session_state:
+    st.session_state.jmspage_open_row = None
+if 'jmspage_loaded_key' not in st.session_state:
+    st.session_state.jmspage_loaded_key = None
+if 'jmspage_lines' not in st.session_state:
+    st.session_state.jmspage_lines = []
+if 'jmspage_last_pdf' not in st.session_state:
+    st.session_state.jmspage_last_pdf = None
+if 'jmspage_add_gen' not in st.session_state:
+    st.session_state.jmspage_add_gen = 0
+if 'jmspage_current_page' not in st.session_state:
+    st.session_state.jmspage_current_page = 1
 
 # --- MULTI-COMPANY TAB SETUP (same as Site Data page) ---
 SITE_COMPANIES = [
@@ -184,7 +184,7 @@ with st.container(key="jms_company_nav_bar"):
             ):
                 st.session_state.site_active_company = company_id
                 st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[company_id]
-                st.session_state.jms_current_page = 1
+                st.session_state.jmspage_current_page = 1
                 st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -603,35 +603,35 @@ def _build_jms_pdf(row_data, circle, lines):
 @st.dialog("🧾 Create / Edit JMS", width="large")
 def jms_dialog(row_data):
     active_key = _jms_row_key(row_data)
-    if st.session_state.jms_loaded_key != active_key:
+    if st.session_state.jmspage_loaded_key != active_key:
         saved = _load_saved_jms(row_data)
         saved_lines = saved.get("line_items") if saved else None
         po_lines = _fetch_po_lines_for_site(row_data)
-        st.session_state.jms_lines = _merge_saved_lines_with_po(saved_lines, po_lines) if isinstance(saved_lines, list) else po_lines
-        st.session_state.jms_loaded_key = active_key
-        st.session_state.jms_last_pdf = None
-        st.session_state.jms_add_gen += 1
-        st.session_state[f"jms_circle_{active_key}"] = _clean_text(saved.get("circle")) if saved else "Maharashtra"
+        st.session_state.jmspage_lines = _merge_saved_lines_with_po(saved_lines, po_lines) if isinstance(saved_lines, list) else po_lines
+        st.session_state.jmspage_loaded_key = active_key
+        st.session_state.jmspage_last_pdf = None
+        st.session_state.jmspage_add_gen += 1
+        st.session_state[f"jmspage_circle_{active_key}"] = _clean_text(saved.get("circle")) if saved else "Maharashtra"
 
     workspace = st.session_state.get("active_workspace", "VISPL")
     company = JMS_COMPANY_NAMES.get(workspace, workspace)
     st.markdown(f"### {company}")
     st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
-    circle = st.text_input("Circle", key=f"jms_circle_{active_key}")
+    circle = st.text_input("Circle", key=f"jmspage_circle_{active_key}")
 
-    if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jms_reload_po_{active_key}"):
+    if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jmspage_reload_po_{active_key}"):
         fresh_po_lines = _fetch_po_lines_for_site(row_data)
         if fresh_po_lines:
-            st.session_state.jms_lines = _merge_saved_lines_with_po(st.session_state.jms_lines, fresh_po_lines)
-            st.session_state.jms_last_pdf = None
+            st.session_state.jmspage_lines = _merge_saved_lines_with_po(st.session_state.jmspage_lines, fresh_po_lines)
+            st.session_state.jmspage_last_pdf = None
             st.success("PO se Item Code aur Qty reload ho gaye.")
             st.rerun()
         else:
             st.warning("Is Project ID / Site ID ke against po_working me koi line nahi mili.")
 
     st.markdown("#### PO / Saved JMS Line Items")
-    if st.session_state.jms_lines:
-        editor_df = pd.DataFrame(st.session_state.jms_lines)
+    if st.session_state.jmspage_lines:
+        editor_df = pd.DataFrame(st.session_state.jmspage_lines)
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
             if col not in editor_df.columns:
                 editor_df[col] = default
@@ -649,7 +649,7 @@ def jms_dialog(row_data):
                 "item_description": st.column_config.TextColumn("Item Description", width="large"),
                 "qty": st.column_config.TextColumn("Qty", help="Qty editable hai; 0 ya blank dono blank rahenge."),
                 "remarks": st.column_config.TextColumn("Remarks", width="medium"),
-            }, key=f"jms_editor_{active_key}")
+            }, key=f"jmspage_editor_{active_key}")
         edited_records = edited.to_dict("records")
         for item in edited_records:
             raw_qty = _clean_text(item.get("qty"))
@@ -662,53 +662,53 @@ def jms_dialog(row_data):
             else:
                 item["qty"] = None
             item["qty_manual"] = True
-        st.session_state.jms_lines = edited_records
+        st.session_state.jmspage_lines = edited_records
     else:
         st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
 
     st.markdown("#### Add New Item")
     master = get_item_master_details()
-    gen = st.session_state.jms_add_gen
+    gen = st.session_state.jmspage_add_gen
     add_code = st.selectbox(
         "Item Code", [""] + sorted(master.keys()),
         format_func=lambda code: "-- Select item --" if not code else f"{code} — {master[code]['description']}",
-        key=f"jms_add_code_{active_key}_{gen}") if master else st.text_input("Item Code", key=f"jms_add_code_{active_key}_{gen}")
-    add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jms_add_desc_{active_key}_{gen}")
+        key=f"jmspage_add_code_{active_key}_{gen}") if master else st.text_input("Item Code", key=f"jmspage_add_code_{active_key}_{gen}")
+    add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jmspage_add_desc_{active_key}_{gen}")
     if master and add_code:
         st.caption(add_desc)
-    add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jms_add_qty_{active_key}_{gen}")
-    if st.button("➕ Add New Item", use_container_width=True, key=f"jms_add_btn_{active_key}", disabled=not _clean_text(add_code)):
+    add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jmspage_add_qty_{active_key}_{gen}")
+    if st.button("➕ Add New Item", use_container_width=True, key=f"jmspage_add_btn_{active_key}", disabled=not _clean_text(add_code)):
         add_qty = _number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None
-        st.session_state.jms_lines.append({"item_code": add_code, "item_description": add_desc, "qty": None if add_qty == 0 else add_qty, "qty_manual": True, "remarks": ""})
-        st.session_state.jms_add_gen += 1
+        st.session_state.jmspage_lines.append({"item_code": add_code, "item_description": add_desc, "qty": None if add_qty == 0 else add_qty, "qty_manual": True, "remarks": ""})
+        st.session_state.jmspage_add_gen += 1
         st.rerun()
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("💾 Save JMS", type="primary", use_container_width=True, key=f"jms_save_{active_key}"):
-            clean_lines = [x for x in st.session_state.jms_lines if _clean_text(x.get("item_code")) or _clean_text(x.get("item_description"))]
+        if st.button("💾 Save JMS", type="primary", use_container_width=True, key=f"jmspage_save_{active_key}"):
+            clean_lines = [x for x in st.session_state.jmspage_lines if _clean_text(x.get("item_code")) or _clean_text(x.get("item_description"))]
             if not clean_lines:
                 st.error("Kam se kam ek item line required hai.")
             else:
                 try:
                     _save_jms_draft(row_data, circle, clean_lines)
-                    st.session_state.jms_lines = clean_lines
-                    st.session_state.jms_last_pdf = _build_jms_pdf(row_data, circle, clean_lines)
+                    st.session_state.jmspage_lines = clean_lines
+                    st.session_state.jmspage_last_pdf = _build_jms_pdf(row_data, circle, clean_lines)
                     clear_jms_cache()
                     st.success("JMS save ho gayi. Ab PDF download kar sakte hain.")
                 except Exception as exc:
                     st.error(f"JMS save nahi hui: {exc}")
     with c2:
-        if st.button("✖ Close", use_container_width=True, key=f"jms_close_{active_key}"):
-            st.session_state.jms_open_row = None
-            st.session_state.jms_loaded_key = None
+        if st.button("✖ Close", use_container_width=True, key=f"jmspage_close_{active_key}"):
+            st.session_state.jmspage_open_row = None
+            st.session_state.jmspage_loaded_key = None
             st.rerun()
 
-    if st.session_state.get("jms_last_pdf"):
+    if st.session_state.get("jmspage_last_pdf"):
         safe_site = _clean_text(row_data.get("Site ID")) or "Site"
-        st.download_button("⬇️ Download JMS PDF", st.session_state.jms_last_pdf,
+        st.download_button("⬇️ Download JMS PDF", st.session_state.jmspage_last_pdf,
                            file_name=f"JMS_{safe_site}.pdf", mime="application/pdf",
-                           use_container_width=True, key=f"jms_download_{active_key}")
+                           use_container_width=True, key=f"jmspage_download_{active_key}")
 
 
 # --- TOP BANNER ---
@@ -749,8 +749,8 @@ else:
     df = pd.DataFrame(columns=columns_needed)
 
 # Keep the JMS dialog open across reruns while editing/saving
-if st.session_state.get("jms_open_row") is not None:
-    jms_dialog(st.session_state.jms_open_row)
+if st.session_state.get("jmspage_open_row") is not None:
+    jms_dialog(st.session_state.jmspage_open_row)
 
 # --- SEARCH ---
 search_query = st_keyup("Search", placeholder="🔍 Search by Site Name / Project ID / Site ID / Cluster / PO No...", label_visibility="collapsed")
@@ -764,12 +764,12 @@ st.markdown("<br>", unsafe_allow_html=True)
 rows_per_page = 15
 total_rows = len(df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
-if st.session_state.jms_current_page > total_pages:
-    st.session_state.jms_current_page = total_pages
-elif st.session_state.jms_current_page < 1:
-    st.session_state.jms_current_page = 1
+if st.session_state.jmspage_current_page > total_pages:
+    st.session_state.jmspage_current_page = total_pages
+elif st.session_state.jmspage_current_page < 1:
+    st.session_state.jmspage_current_page = 1
 
-start_idx = (st.session_state.jms_current_page - 1) * rows_per_page
+start_idx = (st.session_state.jmspage_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx].copy()
 
@@ -807,7 +807,7 @@ else:
             with rcols[7]:
                 btn_label = "✏️ Edit JMS" if has_jms else "🧾 Create JMS"
                 if st.button(btn_label, key=f"jmsrowbtn_{rid}", use_container_width=True):
-                    st.session_state.jms_open_row = row_dict
+                    st.session_state.jmspage_open_row = row_dict
                     st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -815,12 +815,12 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- PAGINATION CONTROLS ---
 col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
 with col_p1:
-    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.jms_current_page == 1)):
-        st.session_state.jms_current_page -= 1
+    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.jmspage_current_page == 1)):
+        st.session_state.jmspage_current_page -= 1
         st.rerun()
 with col_p2:
-    st.markdown(f"<div class='page-count'>Page {st.session_state.jms_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-count'>Page {st.session_state.jmspage_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
 with col_p3:
-    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.jms_current_page == total_pages)):
-        st.session_state.jms_current_page += 1
+    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.jmspage_current_page == total_pages)):
+        st.session_state.jmspage_current_page += 1
         st.rerun()
