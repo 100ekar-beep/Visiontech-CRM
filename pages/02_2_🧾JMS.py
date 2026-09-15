@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import json
 from datetime import datetime
 from supabase import create_client, Client
 from st_keyup import st_keyup
@@ -166,7 +167,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
     }
     .st-key-jms_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1100px !important;
+        min-width: 1250px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(0,0,0,0.12) !important;
         padding: 8px 0 !important;
@@ -642,6 +643,16 @@ def _build_jms_pdf(row_data, circle, lines):
     pdf.save()
     return buffer.getvalue()
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_jms_pdf_bytes(workspace, site_data_id, updated_at, row_json, circle, lines_json):
+    """Builds the JMS PDF straight from a saved draft, without opening the dialog.
+    Cached on (workspace, site_data_id, updated_at) so it's instant after the first
+    build and only regenerates when the draft is actually saved/changed again."""
+    row_data = json.loads(row_json)
+    lines = json.loads(lines_json)
+    return _build_jms_pdf(row_data, circle, lines)
+
+
 @st.dialog("🧾 Create / Edit JMS", width="large")
 def jms_dialog(row_data):
     active_key = _jms_row_key(row_data)
@@ -816,8 +827,8 @@ end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx].copy()
 
 # --- TABLE ---
-COL_RATIOS = [0.4, 1.5, 1.2, 1.2, 1.2, 1.3, 1.2, 1.2]
-COL_LABELS = ["#", "SITE NAME", "PROJECT ID", "SITE ID", "CLUSTER", "PO NO.", "JMS STATUS", "ACTION"]
+COL_RATIOS = [0.4, 1.4, 1.1, 1.1, 1.1, 1.2, 1.1, 1.1, 1.2]
+COL_LABELS = ["#", "SITE NAME", "PROJECT ID", "SITE ID", "CLUSTER", "PO NO.", "JMS STATUS", "ACTION", "DOWNLOAD"]
 
 if df_page.empty:
     st.info("No records found.")
@@ -851,6 +862,28 @@ else:
                 if st.button(btn_label, key=f"jmsrowbtn_{rid}", use_container_width=True):
                     st.session_state.jmspage_open_row = row_dict
                     st.rerun()
+
+            with rcols[8]:
+                if has_jms:
+                    draft = jms_drafts_map[str(rid)]
+                    draft_circle = _clean_text(draft.get("circle")) or "Maharashtra"
+                    draft_lines = draft.get("line_items") or []
+                    updated_at = _clean_text(draft.get("updated_at"))
+                    try:
+                        pdf_bytes = _cached_jms_pdf_bytes(
+                            active_ws, str(rid), updated_at,
+                            json.dumps(row_dict, default=str), draft_circle,
+                            json.dumps(draft_lines, default=str),
+                        )
+                        safe_site = _clean_text(row_dict.get("Site ID")) or "Site"
+                        st.download_button(
+                            "⬇️ PDF", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
+                            mime="application/pdf", key=f"jmsrowdl_{rid}", use_container_width=True,
+                        )
+                    except Exception:
+                        st.caption("PDF error")
+                else:
+                    st.markdown("<div class='tbl-cell' style='color:#94a3b8;'>-</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
