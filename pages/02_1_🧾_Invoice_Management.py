@@ -4,6 +4,7 @@ import math
 import io
 import json
 import re
+import html
 from supabase import create_client, Client
 from st_keyup import st_keyup
 from datetime import datetime, date
@@ -2418,13 +2419,43 @@ if st.session_state.active_page == "vis":
         "Pay 1 Amt", "Pay 1 Date", "Pay 2 Amt", "Pay 2 Date", "Pay 3 Amt", "Pay 3 Date", "Balance", "Remark"
     ]
 
+    # VIS has many columns. Give every column enough real width instead of
+    # squeezing the complete table into the browser width.
+    vis_table_min_width = max(1600, 135 + len(keys_seq) * 135)
+    st.markdown(
+        f"""
+        <style>
+        .st-key-invoice_table_wrap {{
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+        }}
+        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"] {{
+            min-width: {vis_table_min_width}px !important;
+            width: {vis_table_min_width}px !important;
+            flex-wrap: nowrap !important;
+        }}
+        .st-key-invoice_table_wrap div[data-testid="column"] {{
+            min-width: 0 !important;
+        }}
+        .st-key-invoice_table_wrap .tbl-head {{
+            white-space: normal !important;
+            line-height: 1.15 !important;
+            min-height: 34px !important;
+            display: flex !important;
+            align-items: center !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     with st.container(key="invoice_table_wrap", height=560):
         if df_page.empty:
             st.info("No invoice records found.")
         else:
             h_cols = st.columns(COL_RATIOS)
             for h_col, label in zip(h_cols, COL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                h_col.markdown(f"<div class='tbl-cell tbl-head'>{html.escape(str(label))}</div>", unsafe_allow_html=True)
 
             for page_pos, (_, row) in enumerate(df_page.iterrows()):
                 row_dict = row.to_dict()
@@ -2455,8 +2486,20 @@ if st.session_state.active_page == "vis":
                         except:
                             val = '-'
 
-                    display_val = val if val is not None and str(val).strip() != '' else '-'
-                    rcols[idx].markdown(f"<div class='tbl-cell'>{display_val}</div>", unsafe_allow_html=True)
+                    # Empty database/Pandas values should show as a clean dash,
+                    # never as None / nan / NaT in the invoice table.
+                    if val is None or pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'nat', 'none'):
+                        display_val = '-'
+                    elif isinstance(val, float):
+                        display_val = f"{val:,.2f}".rstrip('0').rstrip('.')
+                    else:
+                        display_val = str(val)
+
+                    safe_display_val = html.escape(display_val)
+                    rcols[idx].markdown(
+                        f"<div class='tbl-cell' title='{safe_display_val}'>{safe_display_val}</div>",
+                        unsafe_allow_html=True
+                    )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
