@@ -247,6 +247,28 @@ def get_unlimited_po_working(ws):
     return all_rows
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_item_lookup(ws):
+    """Create an item-code lookup from all PO Working rows in this workspace."""
+    lookup = {}
+    for row in get_unlimited_po_working(ws):
+        code = _clean_code_for_db(row.get("Item Num", ""))
+        if not code or str(code).lower() in ("nan", "none"):
+            continue
+        key = str(code).strip().lower()
+        description = str(row.get("Description", "") or "").strip()
+        price = pd.to_numeric(row.get("Price", 0), errors="coerce")
+        price = 0.0 if pd.isna(price) else float(price)
+        if key not in lookup:
+            lookup[key] = {"code": str(code), "description": description, "price": price}
+        else:
+            if not lookup[key]["description"] and description:
+                lookup[key]["description"] = description
+            if lookup[key]["price"] <= 0 and price > 0:
+                lookup[key]["price"] = price
+    return lookup
+
+
 # ---> HELPER: find a column regardless of case / leading-trailing spaces <---
 def _find_col(df, target_name):
     target_clean = target_name.strip().lower()
@@ -708,6 +730,74 @@ def add_mrn_dialog():
             
         all_po_dfs[po] = edited_df
 
+    # Extra payable items which are not part of this site's selected PO(s).
+    st.markdown('<div class="modal-section-title">➕ ADD ITEM NOT AVAILABLE IN PO</div>', unsafe_allow_html=True)
+    st.caption("Item Code type karein. Description PO Working se automatic aayega; Qty aur Price editable hain.")
+
+    extra_rows_key = f"mrn_extra_rows_{selected_proj}"
+    if extra_rows_key not in st.session_state:
+        st.session_state[extra_rows_key] = []
+
+    add_col, _ = st.columns([2, 8])
+    with add_col:
+        if st.button("➕ Add Extra Item", key=f"add_extra_item_{selected_proj}", use_container_width=True):
+            next_id = max(st.session_state[extra_rows_key], default=0) + 1
+            st.session_state[extra_rows_key].append(next_id)
+            st.rerun()
+
+    item_lookup = fetch_item_lookup(st.session_state.get('active_workspace', 'VISPL'))
+    extra_items_to_save = []
+    rows_to_remove = []
+
+    for row_id in st.session_state[extra_rows_key]:
+        code_key = f"extra_item_code_{selected_proj}_{row_id}"
+        ec1, ec2, ec3, ec4, ec5 = st.columns([1.6, 3.8, 1.2, 1.4, 0.55])
+        with ec1:
+            entered_code = st.text_input(
+                "Item Code *", key=code_key, placeholder="Item code"
+            ).strip()
+        clean_entered_code = _clean_code_for_db(entered_code)
+        master_item = item_lookup.get(str(clean_entered_code).strip().lower(), {})
+        auto_description = master_item.get("description", "")
+        default_adjusted_price = float(master_item.get("price", 0) or 0) * (team_percent / 100.0)
+
+        with ec2:
+            st.text_input(
+                "Description (Auto)", value=auto_description,
+                disabled=True, key=f"extra_desc_{selected_proj}_{row_id}"
+            )
+        with ec3:
+            extra_qty = st.number_input(
+                "Qty", min_value=0.0, step=0.01, value=0.0,
+                key=f"extra_qty_{selected_proj}_{row_id}"
+            )
+        with ec4:
+            extra_price = st.number_input(
+                "Price", min_value=0.0, step=0.01,
+                value=default_adjusted_price,
+                key=f"extra_price_{selected_proj}_{row_id}_{str(clean_entered_code).lower()}"
+            )
+        with ec5:
+            st.write("")
+            if st.button("🗑️", key=f"remove_extra_{selected_proj}_{row_id}", help="Remove this item"):
+                rows_to_remove.append(row_id)
+
+        extra_total = float(extra_qty) * float(extra_price)
+        if entered_code:
+            st.caption(f"Extra Item Total: ₹ {extra_total:,.2f}")
+        grand_basic_total += extra_total
+        extra_items_to_save.append({
+            "Item Code": clean_entered_code,
+            "Description": auto_description,
+            "User Qty": float(extra_qty),
+            "Adjusted Price": float(extra_price),
+            "Total": extra_total,
+        })
+
+    if rows_to_remove:
+        st.session_state[extra_rows_key] = [x for x in st.session_state[extra_rows_key] if x not in rows_to_remove]
+        st.rerun()
+
     st.markdown('<div class="modal-section-title">💳 BILLING SUMMARY</div>', unsafe_allow_html=True)
     
     final_amount = grand_basic_total
@@ -731,8 +821,9 @@ def add_mrn_dialog():
                 st.error("⚠️ Team Name is required! Please assign a team to this project in Site Data before generating MRN.")
                 return
                 
-            if not selected_pos:
-                st.error("⚠️ Please select at least one PO.")
+            valid_extra_items = [x for x in extra_items_to_save if x["Item Code"] and x["User Qty"] > 0]
+            if not selected_pos and not valid_extra_items:
+                st.error("⚠️ Please select at least one PO or add one Extra Item with Qty greater than 0.")
                 return
             if grand_basic_total <= 0:
                 st.error("⚠️ User Qty must be greater than 0 to generate MRN.")
@@ -747,6 +838,14 @@ def add_mrn_dialog():
                     if u_qty > a_qty + 1e-6:
                         st.error(f"❌ Error in PO {po}: User Qty ({u_qty:g}) cannot be greater than Available Qty ({a_qty:g}) for Item '{r['Item Code']}'.")
                         return
+
+            for item in valid_extra_items:
+                if not item["Description"]:
+                    st.error(f"❌ Item Code '{item['Item Code']}' PO Working me nahi mila. Sahi Item Code enter karein.")
+                    return
+                if item["Adjusted Price"] <= 0:
+                    st.error(f"❌ Extra Item '{item['Item Code']}' ka Price 0 se greater hona chahiye.")
+                    return
 
             while True:
                 new_mrn_no = f"MRN-{random.randint(100000, 999999)}"
@@ -793,6 +892,19 @@ def add_mrn_dialog():
                                 "Adjusted Price": float(row["Adjusted Price"]),
                                 "Total": float(row["Line Total"])
                             })
+
+                for item in valid_extra_items:
+                    items_to_insert.append({
+                        "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                        "MRN Number": new_mrn_no,
+                        "PO Number": "NON-PO",
+                        "Project ID": selected_proj,
+                        "Item Code": _clean_code_for_db(item["Item Code"]),
+                        "Description": str(item["Description"]),
+                        "User Qty": round(float(item["User Qty"]), 3),
+                        "Adjusted Price": float(item["Adjusted Price"]),
+                        "Total": float(item["Total"])
+                    })
 
                 # ---> 🔴 CRITICAL FIX: the items-insert failure warning used to
                 # flash for a split second and then get wiped out by the
@@ -883,6 +995,14 @@ def add_mrn_dialog():
                     st.session_state.pop(f"mrn_qty_store_{_po}", None)
                     st.session_state.pop(f"mrn_editor_curkey_{_po}", None)
                     st.session_state.pop(f"editor_mrn_{_po}", None)
+                st.session_state.pop(extra_rows_key, None)
+                for _key in list(st.session_state.keys()):
+                    if _key.startswith((
+                        f"extra_item_code_{selected_proj}_", f"extra_code_show_{selected_proj}_",
+                        f"extra_desc_{selected_proj}_", f"extra_qty_{selected_proj}_",
+                        f"extra_price_{selected_proj}_", f"remove_extra_{selected_proj}_"
+                    )):
+                        st.session_state.pop(_key, None)
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Generating MRN: {e}")
