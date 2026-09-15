@@ -252,12 +252,23 @@ def fetch_item_lookup(ws):
     """Create an item-code lookup from all PO Working rows in this workspace."""
     lookup = {}
     for row in get_unlimited_po_working(ws):
-        code = _clean_code_for_db(row.get("Item Num", ""))
+        code = _clean_code_for_db(
+            row.get("Item Num") or row.get("Item Code") or row.get("item_code") or ""
+        )
         if not code or str(code).lower() in ("nan", "none"):
             continue
         key = str(code).strip().lower()
-        description = str(row.get("Description", "") or "").strip()
-        price = pd.to_numeric(row.get("Price", 0), errors="coerce")
+        description = str(
+            row.get("Description")
+            or row.get("Item Description")
+            or row.get("Item Desc")
+            or row.get("description")
+            or ""
+        ).strip()
+        price = pd.to_numeric(
+            row.get("Price") or row.get("Unit Price") or row.get("Rate") or 0,
+            errors="coerce"
+        )
         price = 0.0 if pd.isna(price) else float(price)
         if key not in lookup:
             lookup[key] = {"code": str(code), "description": description, "price": price}
@@ -757,15 +768,27 @@ def add_mrn_dialog():
         )
 
     item_lookup = fetch_item_lookup(st.session_state.get('active_workspace', 'VISPL'))
+    searchable_item_codes = [x["code"] for x in item_lookup.values()]
+    searchable_item_codes = sorted(
+        list(dict.fromkeys(searchable_item_codes)),
+        key=lambda x: str(x).lower()
+    )
     extra_items_to_save = []
 
     for row_id in st.session_state[extra_rows_key]:
         code_key = f"extra_item_code_{selected_proj}_{row_id}"
         ec1, ec2, ec3, ec4, ec5 = st.columns([1.6, 3.8, 1.2, 1.4, 0.55])
         with ec1:
-            entered_code = st.text_input(
-                "Item Code *", key=code_key, placeholder="Item code"
-            ).strip()
+            entered_code = st.selectbox(
+                "Item Code *",
+                options=[None] + searchable_item_codes,
+                index=0,
+                key=code_key,
+                placeholder="Type to search Item Code...",
+                format_func=lambda x: "" if x is None else str(x),
+                help="Box par click karke Item Code ke starting numbers type karein. Matching codes turant filter honge."
+            )
+            entered_code = "" if entered_code is None else str(entered_code).strip()
         clean_entered_code = _clean_code_for_db(entered_code)
         master_item = item_lookup.get(str(clean_entered_code).strip().lower(), {})
         auto_description = master_item.get("description", "")
