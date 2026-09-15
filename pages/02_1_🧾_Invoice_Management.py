@@ -2410,7 +2410,13 @@ if st.session_state.active_page == "vis":
         'balance', 'remark'
     ]
 
-    COL_RATIOS = [0.3, 0.65] + [1.0] * len(keys_seq)
+    # Same clean table pattern used by the other invoice tabs.  Wider fields
+    # get more space, while short tax/amount fields stay compact.
+    COL_RATIOS = [
+        0.38, 0.72, 1.15, 1.35, 1.05, 1.05, 0.82, 0.82, 0.82, 1.05,
+        1.35, 1.15, 1.45, 1.25, 1.25, 1.25, 1.00, 1.05,
+        1.05, 1.05, 1.05, 1.05, 1.05, 1.05, 1.10, 1.35
+    ]
     COL_LABELS = [
         "#", "Setting",
         "Circle", "Invoice No", "Invoice Date", "Basic Amount", "CGST", "SGST", "IGST", "Total",
@@ -2421,21 +2427,32 @@ if st.session_state.active_page == "vis":
 
     # VIS has many columns. Give every column enough real width instead of
     # squeezing the complete table into the browser width.
-    vis_table_min_width = max(1600, 135 + len(keys_seq) * 135)
+    vis_table_min_width = 3650
     st.markdown(
         f"""
         <style>
         .st-key-invoice_table_wrap {{
             overflow-x: auto !important;
             overflow-y: auto !important;
+            border: 1px solid rgba(148, 163, 184, 0.28) !important;
+            border-radius: 10px !important;
+            background: rgba(15, 23, 42, 0.28) !important;
         }}
         .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"] {{
             min-width: {vis_table_min_width}px !important;
             width: {vis_table_min_width}px !important;
             flex-wrap: nowrap !important;
+            min-height: 48px !important;
+            padding: 0 !important;
+            gap: 0 !important;
         }}
         .st-key-invoice_table_wrap div[data-testid="column"] {{
             min-width: 0 !important;
+            min-height: 48px !important;
+            padding: 8px 10px !important;
+            border-right: 1px solid rgba(148, 163, 184, 0.16) !important;
+            display: flex !important;
+            align-items: center !important;
         }}
         .st-key-invoice_table_wrap .tbl-head {{
             white-space: normal !important;
@@ -2443,6 +2460,27 @@ if st.session_state.active_page == "vis":
             min-height: 34px !important;
             display: flex !important;
             align-items: center !important;
+            color: #f8fafc !important;
+            font-size: 0.74rem !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.25px !important;
+            text-transform: none !important;
+        }}
+        .st-key-invoice_table_wrap .tbl-cell:not(.tbl-head) {{
+            color: #e2e8f0 !important;
+            font-size: 0.78rem !important;
+            line-height: 1.25 !important;
+        }}
+        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {{
+            background: linear-gradient(90deg, rgba(59,130,246,0.28), rgba(139,92,246,0.24)) !important;
+            border-bottom: 1px solid rgba(148,163,184,0.35) !important;
+            min-height: 58px !important;
+        }}
+        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):nth-child(even) {{
+            background: rgba(255,255,255,0.018) !important;
+        }}
+        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {{
+            background: rgba(59,130,246,0.10) !important;
         }}
         </style>
         """,
