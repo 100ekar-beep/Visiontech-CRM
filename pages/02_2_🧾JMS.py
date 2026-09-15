@@ -86,6 +86,48 @@ st.markdown("""
 
     .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #334155; margin-top: 10px; }
 
+    /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION (same theme as Site Data page,
+       so switching pages doesn't flip the sidebar's look)
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+
+    [data-testid="stSidebarNav"] a span {
+        color: inherit !important;
+    }
+
     /* Company Nav Bar */
     .st-key-jms_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-jms_company_nav_bar button {
