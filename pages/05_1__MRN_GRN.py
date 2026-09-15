@@ -738,16 +738,26 @@ def add_mrn_dialog():
     if extra_rows_key not in st.session_state:
         st.session_state[extra_rows_key] = []
 
+    def add_extra_row():
+        next_id = max(st.session_state[extra_rows_key], default=0) + 1
+        st.session_state[extra_rows_key].append(next_id)
+
+    def remove_extra_row(row_id):
+        st.session_state[extra_rows_key] = [
+            x for x in st.session_state[extra_rows_key] if x != row_id
+        ]
+
     add_col, _ = st.columns([2, 8])
     with add_col:
-        if st.button("➕ Add Extra Item", key=f"add_extra_item_{selected_proj}", use_container_width=True):
-            next_id = max(st.session_state[extra_rows_key], default=0) + 1
-            st.session_state[extra_rows_key].append(next_id)
-            st.rerun()
+        st.button(
+            "➕ Add Extra Item",
+            key=f"add_extra_item_{selected_proj}",
+            use_container_width=True,
+            on_click=add_extra_row
+        )
 
     item_lookup = fetch_item_lookup(st.session_state.get('active_workspace', 'VISPL'))
     extra_items_to_save = []
-    rows_to_remove = []
 
     for row_id in st.session_state[extra_rows_key]:
         code_key = f"extra_item_code_{selected_proj}_{row_id}"
@@ -779,8 +789,13 @@ def add_mrn_dialog():
             )
         with ec5:
             st.write("")
-            if st.button("🗑️", key=f"remove_extra_{selected_proj}_{row_id}", help="Remove this item"):
-                rows_to_remove.append(row_id)
+            st.button(
+                "🗑️",
+                key=f"remove_extra_{selected_proj}_{row_id}",
+                help="Remove this item",
+                on_click=remove_extra_row,
+                args=(row_id,)
+            )
 
         extra_total = float(extra_qty) * float(extra_price)
         if entered_code:
@@ -793,10 +808,6 @@ def add_mrn_dialog():
             "Adjusted Price": float(extra_price),
             "Total": extra_total,
         })
-
-    if rows_to_remove:
-        st.session_state[extra_rows_key] = [x for x in st.session_state[extra_rows_key] if x not in rows_to_remove]
-        st.rerun()
 
     st.markdown('<div class="modal-section-title">💳 BILLING SUMMARY</div>', unsafe_allow_html=True)
     
