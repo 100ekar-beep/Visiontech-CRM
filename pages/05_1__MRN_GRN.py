@@ -797,7 +797,8 @@ def add_mrn_dialog():
         with ec2:
             st.text_input(
                 "Description (Auto)", value=auto_description,
-                disabled=True, key=f"extra_desc_{selected_proj}_{row_id}"
+                disabled=True,
+                key=f"extra_desc_{selected_proj}_{row_id}_{str(clean_entered_code).lower()}"
             )
         with ec3:
             extra_qty = st.number_input(
