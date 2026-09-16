@@ -5,6 +5,7 @@ import io
 import json
 import re
 import html
+import time
 from supabase import create_client, Client
 from st_keyup import st_keyup
 from datetime import datetime, date
@@ -681,14 +682,34 @@ def parse_date_safely(val):
 # =========================================================================
 
 @st.cache_data(ttl=30, show_spinner=False)
+def _fetch_table_data(table_name):
+    """Fetch table data with retries.
+
+    Successful responses are cached, but network failures are raised so an
+    empty/failed response never gets stuck in Streamlit's cache.
+    """
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = supabase.table(table_name).select("*").execute()
+            return response.data or []
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(2)
+
+    raise RuntimeError(
+        f"Could not load table '{table_name}' after 3 attempts: {last_error}"
+    )
+
+
 def get_table_df(table_name):
     """Fetch a Supabase table into a DataFrame, newest (highest id) first.
     Cached for 30s so search/pagination/dialogs on the same tab don't
     re-download the whole table on every rerun — call get_table_df.clear()
     right before st.rerun() after any insert/update/delete."""
     try:
-        response = supabase.table(table_name).select("*").execute()
-        data = response.data
+        data = _fetch_table_data(table_name)
     except Exception as e:
         st.error(f"⚠️ Could not load table '{table_name}': {e}")
         data = []
@@ -705,6 +726,11 @@ def get_table_df(table_name):
     else:
         df = pd.DataFrame()
     return df
+
+
+# Keep all existing get_table_df.clear() calls working. They now clear only
+# successful cached Supabase responses; failed requests are never cached.
+get_table_df.clear = _fetch_table_data.clear
 
 
 def field_widget(col_name, value, key, container):
