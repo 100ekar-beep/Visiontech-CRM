@@ -2620,8 +2620,17 @@ with col_upload:
     if st.button("📤 Bulk Upload", use_container_width=True):
         bulk_upload_dialog() 
 with col_update:
-    if st.button("📝 Update Status", type="primary", use_container_width=True):
-        update_po_status_dialog() 
+    notifications_enabled = st.session_state.get('site_active_company') in ("VISPL", "Bhagyashree")
+    if st.button(
+        "🔔 Notifications",
+        type="primary",
+        use_container_width=True,
+        disabled=not notifications_enabled,
+        help=None if notifications_enabled else "Notifications abhi Sai Tele ke liye configured nahi hain.",
+    ):
+        st.session_state['notification_workspace'] = st.session_state.get('active_workspace', 'VISPL')
+        st.session_state['notification_company'] = st.session_state.get('site_active_company', 'VISPL')
+        st.switch_page("pages/15_🔔_PO_Notifications.py")
 with col_sync:
     if st.button("🔁 Bulk Sync PO/WCC", use_container_width=True):
         bulk_sync_dialog()
