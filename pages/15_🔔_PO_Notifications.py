@@ -109,3 +109,4 @@ for item in notifications:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Read status update nahi hua: {exc}")
+
