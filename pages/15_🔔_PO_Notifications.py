@@ -3,10 +3,6 @@ import streamlit as st
 
 st.set_page_config(page_title="PO Notifications", page_icon="🔔", layout="wide")
 
-if not st.session_state.get("logged_in", False):
-    st.error("Please login from the main page.")
-    st.stop()
-
 workspace = st.session_state.get(
     "notification_workspace",
     st.session_state.get("active_workspace", "VISPL"),
