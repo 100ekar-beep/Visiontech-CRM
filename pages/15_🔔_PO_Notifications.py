@@ -16,9 +16,19 @@ if workspace not in ("VISPL", "BHAGYASHREE"):
 
 @st.cache_resource
 def get_supabase():
-    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    # Normalize accidental spaces/newlines copied into Streamlit Secrets.
+    url = "".join(str(st.secrets["supabase"]["url"]).split())
+    key = "".join(str(st.secrets["supabase"]["key"]).split())
+    if not url.startswith(("https://", "http://")):
+        raise ValueError("Supabase URL must start with https://")
+    return create_client(url, key)
 
-supabase = get_supabase()
+try:
+    supabase = get_supabase()
+except Exception as exc:
+    st.error(f"Supabase connection initialize nahi hua: {exc}")
+    st.info("Streamlit Cloud → Manage app → Settings → Secrets check karke app reboot karein.")
+    st.stop()
 
 st.markdown(f"""
 <div style="background:linear-gradient(90deg,#2563eb,#7c3aed,#db2777);padding:20px;
@@ -109,4 +119,3 @@ for item in notifications:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Read status update nahi hua: {exc}")
-
