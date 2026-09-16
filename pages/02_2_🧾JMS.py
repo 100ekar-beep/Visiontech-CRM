@@ -4,6 +4,7 @@ import math
 import io
 import json
 from datetime import datetime
+from uuid import uuid4
 from supabase import create_client, Client
 from st_keyup import st_keyup
 from reportlab.lib import colors
@@ -669,33 +670,40 @@ def _cached_jms_pdf_bytes(workspace, site_data_id, updated_at, row_json, circle,
 @st.dialog("🧾 Create / Edit JMS", width="large")
 def jms_dialog(row_data):
     active_key = _jms_row_key(row_data)
+    is_blank_jms = bool(row_data.get("_blank_jms"))
     if st.session_state.jmspage_loaded_key != active_key:
-        saved = _load_saved_jms(row_data)
+        saved = None if is_blank_jms else _load_saved_jms(row_data)
         saved_lines = saved.get("line_items") if saved else None
-        po_lines = _fetch_po_lines_for_site(row_data)
+        po_lines = [] if is_blank_jms else _fetch_po_lines_for_site(row_data)
         st.session_state.jmspage_lines = _merge_saved_lines_with_po(saved_lines, po_lines) if isinstance(saved_lines, list) else po_lines
         st.session_state.jmspage_loaded_key = active_key
         st.session_state.jmspage_last_pdf = None
         st.session_state.jmspage_add_gen += 1
-        st.session_state[f"jmspage_circle_{active_key}"] = _clean_text(saved.get("circle")) if saved else "Maharashtra"
+        st.session_state[f"jmspage_circle_{active_key}"] = (
+            _clean_text(saved.get("circle")) if saved else ("" if is_blank_jms else "Maharashtra")
+        )
 
     workspace = st.session_state.get("active_workspace", "VISPL")
     company = JMS_COMPANY_NAMES.get(workspace, workspace)
     st.markdown(f"### {company}")
-    st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
+    if is_blank_jms:
+        st.caption("Blank JMS — site details blank rahenge. Item Code select karke Qty manually enter kijiye.")
+    else:
+        st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
     circle = st.text_input("Circle", key=f"jmspage_circle_{active_key}")
 
-    if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jmspage_reload_po_{active_key}"):
-        fresh_po_lines = _fetch_po_lines_for_site(row_data)
-        if fresh_po_lines:
-            st.session_state.jmspage_lines = _merge_saved_lines_with_po(st.session_state.jmspage_lines, fresh_po_lines)
-            st.session_state.jmspage_last_pdf = None
-            st.success("PO se Item Code aur Qty reload ho gaye.")
-            st.rerun()
-        else:
-            st.warning("Is Project ID / Site ID ke against po_working me koi line nahi mili.")
+    if not is_blank_jms:
+        if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jmspage_reload_po_{active_key}"):
+            fresh_po_lines = _fetch_po_lines_for_site(row_data)
+            if fresh_po_lines:
+                st.session_state.jmspage_lines = _merge_saved_lines_with_po(st.session_state.jmspage_lines, fresh_po_lines)
+                st.session_state.jmspage_last_pdf = None
+                st.success("PO se Item Code aur Qty reload ho gaye.")
+                st.rerun()
+            else:
+                st.warning("Is Project ID / Site ID ke against po_working me koi line nahi mili.")
 
-    st.markdown("#### PO / Saved JMS Line Items")
+    st.markdown("#### Manual JMS Line Items" if is_blank_jms else "#### PO / Saved JMS Line Items")
     if st.session_state.jmspage_lines:
         editor_df = pd.DataFrame(st.session_state.jmspage_lines)
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
@@ -730,7 +738,10 @@ def jms_dialog(row_data):
             item["qty_manual"] = True
         st.session_state.jmspage_lines = edited_records
     else:
-        st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
+        if is_blank_jms:
+            st.info("Neeche Item Code select karke Qty manually enter kijiye.")
+        else:
+            st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
 
     st.markdown("#### Add New Item")
     master = get_item_master_details()
@@ -788,9 +799,25 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-col_title, col_ref = st.columns([5, 1])
+col_title, col_blank, col_ref = st.columns([4, 1.25, 1])
 with col_title:
     st.markdown("<h2 style='margin:0; color:#0f172a;'>Joint Measurement Sheets</h2>", unsafe_allow_html=True)
+with col_blank:
+    if st.button("➕ Blank JMS", type="primary", use_container_width=True):
+        blank_id = f"blank-{uuid4().hex}"
+        st.session_state.jmspage_open_row = {
+            "id": blank_id,
+            "_blank_jms": True,
+            "Site Name": "",
+            "Project ID": "",
+            "Site ID": "",
+            "Cluster": "",
+            "PO No.": "",
+        }
+        st.session_state.jmspage_loaded_key = None
+        st.session_state.jmspage_last_pdf = None
+        st.query_params["jms_ctx"] = "open"
+        st.rerun()
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         clear_jms_cache()
