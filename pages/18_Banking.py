@@ -603,6 +603,10 @@ def parse_material_statement(file_bytes: bytes, sheet_name: str, vendor_name: st
         if transaction_hash in seen_hashes:
             continue
         seen_hashes.add(transaction_hash)
+        material_remark = (
+            f"Material Payment - Ref No. {invoice_no.strip()} "
+            f"Dt. {invoice_date.strftime('%d-%b-%Y')}"
+        )
 
         records.append(
             {
@@ -610,11 +614,11 @@ def parse_material_statement(file_bytes: bytes, sheet_name: str, vendor_name: st
                 "account_key": vendor["key"],
                 "pay_from": vendor["pay_from"],
                 "transaction_date": invoice_date.isoformat(),
-                "narration": f"Material Payment - {vendor['pay_from']}",
+                "narration": material_remark,
                 "reference_no": invoice_no,
                 "withdrawal_amount": invoice_amount,
                 "pay_type": "Material",
-                "payment_remark": f"Material Payment - {vendor['pay_from']}",
+                "payment_remark": material_remark,
                 "transaction_hash": transaction_hash,
                 "source_file_name": file_name,
                 "source_sheet_name": sheet_name,
@@ -652,16 +656,21 @@ def build_manual_material_record(vendor_name: str, invoice_date, invoice_no, inv
     if allow_duplicate:
         fingerprint_source += f"|MANUAL-PROCEED|{datetime.datetime.now().isoformat()}"
 
+    material_remark = (
+        f"Material Payment - Ref No. {clean_invoice_no} "
+        f"Dt. {parsed_date.strftime('%d-%b-%Y')}"
+    )
+
     return {
         "workspace": ALLOWED_WORKSPACE,
         "account_key": vendor["key"],
         "pay_from": vendor["pay_from"],
         "transaction_date": parsed_date.isoformat(),
-        "narration": f"Material Payment - {vendor['pay_from']}",
+        "narration": material_remark,
         "reference_no": clean_invoice_no,
         "withdrawal_amount": clean_amount,
         "pay_type": "Material",
-        "payment_remark": f"Material Payment - {vendor['pay_from']}",
+        "payment_remark": material_remark,
         "transaction_hash": hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest(),
         "source_file_name": "Manual Entry",
         "source_sheet_name": "Manual",
@@ -698,8 +707,41 @@ def fetch_transactions(account_key: str, status: str):
     return query.execute().data or []
 
 
+def refresh_material_payment_details(transaction_ids):
+    clean_ids = [int(value) for value in transaction_ids]
+    if not clean_ids:
+        return
+    rows = (
+        supabase.table("bank_transactions")
+        .select("id,pay_type,transaction_date,reference_no")
+        .in_("id", clean_ids)
+        .execute()
+    ).data or []
+    for row in rows:
+        if str(row.get("pay_type", "")).strip().lower() != "material":
+            continue
+        invoice_date = to_date(row.get("transaction_date"))
+        invoice_no = to_text(row.get("reference_no")).strip()
+        if not invoice_date or not invoice_no:
+            continue
+        material_remark = (
+            f"Material Payment - Ref No. {invoice_no} "
+            f"Dt. {invoice_date.strftime('%d-%b-%Y')}"
+        )
+        (
+            supabase.table("bank_transactions")
+            .update({
+                "narration": material_remark,
+                "payment_remark": material_remark,
+            })
+            .eq("id", int(row["id"]))
+            .execute()
+        )
+
+
 def approve_transaction(transaction_id: int, assignment: str):
     mode, pay_to = parse_assignment(assignment)
+    refresh_material_payment_details([transaction_id])
     return supabase.rpc(
         "approve_bank_transaction",
         {
@@ -767,6 +809,7 @@ def bulk_approve_transactions(transaction_ids, assignment: str, duplicate_action
     mode, pay_to = parse_assignment(assignment)
     if mode not in {"Team", "Vendor"}:
         raise ValueError("Team या Vendor select करें")
+    refresh_material_payment_details(transaction_ids)
     return supabase.rpc(
         "bulk_approve_bank_transactions",
         {
