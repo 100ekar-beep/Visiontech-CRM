@@ -795,6 +795,21 @@ def revoke_approved_transaction(transaction_id: int):
     ).execute()
 
 
+def change_approved_transaction_assignment(transaction_id: int, assignment: str):
+    mode, pay_to = parse_assignment(assignment)
+    if mode not in {"Team", "Vendor"}:
+        raise ValueError("Team या Vendor select करें")
+    return supabase.rpc(
+        "change_approved_bank_transaction_assignment",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_mode": mode,
+            "p_pay_to": pay_to,
+            "p_updated_by": current_user(),
+        },
+    ).execute()
+
+
 def bulk_move_transactions(transaction_ids, destination: str, suspense_remark=""):
     if destination == "Suspense":
         destination_type = "Suspense"
@@ -1466,8 +1481,37 @@ def render_approved(records, account_key):
         cols[1].markdown(f"<div class='txn-row narration'>{safe_narration}</div>", unsafe_allow_html=True)
         cols[2].markdown(f"<div class='txn-row narration'>{safe_reference}</div>", unsafe_allow_html=True)
         cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
-        booked_to = html.escape(f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}")
-        cols[4].markdown(f"<div class='txn-row approved'>{booked_to}</div>", unsafe_allow_html=True)
+        change_options = (
+            [f"Team — {name}" for name in load_people("Team Name")]
+            + [f"Vendor — {name}" for name in load_people("Vendor Name")]
+        )
+        current_assignment = (
+            f"{str(row.get('assignment_mode', '')).strip()} — "
+            f"{str(row.get('pay_to', '')).strip()}"
+        ).strip(" —")
+        if current_assignment and current_assignment not in change_options:
+            change_options.insert(0, current_assignment)
+        selected_assignment = cols[4].selectbox(
+            "Booked To",
+            options=change_options,
+            index=change_options.index(current_assignment) if current_assignment in change_options else 0,
+            key=f"approved_assignment_{account_key}_{row_id}",
+            label_visibility="collapsed",
+        )
+        if cols[5].button(
+            "✓ Update",
+            key=f"update_approved_{account_key}_{row_id}",
+            type="primary",
+            use_container_width=True,
+        ):
+            try:
+                if selected_assignment == current_assignment:
+                    raise ValueError("नई Team/Vendor select करें")
+                change_approved_transaction_assignment(row_id, selected_assignment)
+                st.success("Booked To successfully change हो गया।")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Change failed: {exc}")
         if cols[5].button(
             "↩ Revoke",
             key=f"revoke_approved_{account_key}_{row_id}",
