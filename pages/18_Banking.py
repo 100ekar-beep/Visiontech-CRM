@@ -37,6 +37,31 @@ ACCOUNTS = {
     },
 }
 
+MATERIAL_VENDORS = {
+    "RUSHIKESH STEEL": {
+        "key": "MATERIAL_RUSHIKESH_STEEL",
+        "pay_from": "RUSHIKESH STEEL",
+    },
+    "RUSHIKESH STEEL CORPORATION": {
+        "key": "MATERIAL_RUSHIKESH_STEEL_CORPORATION",
+        "pay_from": "RUSHIKESH STEEL CORPORATION",
+    },
+    "Vighanharta Enterprises": {
+        "key": "MATERIAL_VIGHANHARTA_ENTERPRISES",
+        "pay_from": "Vighanharta Enterprises",
+    },
+    "S M ENTERPRISES": {
+        "key": "MATERIAL_S_M_ENTERPRISES",
+        "pay_from": "S M ENTERPRISES",
+    },
+    "S K AND SONS ENTERPRISES": {
+        "key": "MATERIAL_S_K_AND_SONS_ENTERPRISES",
+        "pay_from": "S K AND SONS ENTERPRISES",
+    },
+}
+
+MAIN_ACCOUNT_TABS = list(ACCOUNTS.keys()) + ["Material"]
+
 
 st.markdown(
     """
@@ -115,18 +140,21 @@ st.markdown(
     div.stDownloadButton > button div { color: #ffffff !important; font-weight: 800 !important; }
 
     .st-key-banking_account_nav div[data-testid="stHorizontalBlock"],
-    .st-key-banking_view_nav div[data-testid="stHorizontalBlock"] {
+    .st-key-banking_view_nav div[data-testid="stHorizontalBlock"],
+    .st-key-banking_material_vendor_nav div[data-testid="stHorizontalBlock"] {
         gap: 14px !important; flex-wrap: wrap !important;
     }
     .st-key-banking_account_nav button,
-    .st-key-banking_view_nav button {
+    .st-key-banking_view_nav button,
+    .st-key-banking_material_vendor_nav button {
         font-size: 1.05rem !important; font-weight: 800 !important;
         min-height: 58px !important; padding: 14px 12px !important;
         border-radius: 13px !important; white-space: nowrap !important;
         transition: all 0.25s ease !important;
     }
     .st-key-banking_account_nav button[kind="secondary"],
-    .st-key-banking_view_nav button[kind="secondary"] {
+    .st-key-banking_view_nav button[kind="secondary"],
+    .st-key-banking_material_vendor_nav button[kind="secondary"] {
         background: #ffffff !important; color: #475569 !important;
         border: 1.5px solid rgba(15,23,42,0.12) !important;
         box-shadow: 0 3px 8px rgba(15,23,42,0.08) !important;
@@ -136,16 +164,21 @@ st.markdown(
     .st-key-banking_account_nav button[kind="secondary"] div,
     .st-key-banking_view_nav button[kind="secondary"] p,
     .st-key-banking_view_nav button[kind="secondary"] span,
-    .st-key-banking_view_nav button[kind="secondary"] div {
+    .st-key-banking_view_nav button[kind="secondary"] div,
+    .st-key-banking_material_vendor_nav button[kind="secondary"] p,
+    .st-key-banking_material_vendor_nav button[kind="secondary"] span,
+    .st-key-banking_material_vendor_nav button[kind="secondary"] div {
         color: #475569 !important; font-weight: 800 !important;
     }
     .st-key-banking_account_nav button[kind="secondary"]:hover,
-    .st-key-banking_view_nav button[kind="secondary"]:hover {
+    .st-key-banking_view_nav button[kind="secondary"]:hover,
+    .st-key-banking_material_vendor_nav button[kind="secondary"]:hover {
         background: #f8fafc !important; transform: translateY(-2px) !important;
         border-color: rgba(79,70,229,0.35) !important;
     }
     .st-key-banking_account_nav button[kind="primary"],
-    .st-key-banking_view_nav button[kind="primary"] {
+    .st-key-banking_view_nav button[kind="primary"],
+    .st-key-banking_material_vendor_nav button[kind="primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: #ffffff !important; border: none !important;
         box-shadow: 0 7px 18px rgba(79,70,229,0.38) !important;
@@ -510,6 +543,91 @@ def parse_statement(file_bytes: bytes, sheet_name: str, account_label: str, file
     return records
 
 
+def parse_material_statement(file_bytes: bytes, sheet_name: str, vendor_name: str, file_name: str):
+    raw = pd.read_excel(
+        io.BytesIO(file_bytes),
+        sheet_name=sheet_name,
+        header=None,
+        dtype=object,
+    )
+
+    header_aliases = {
+        "invoicedate": "date",
+        "date": "date",
+        "billdate": "date",
+        "invoiceno": "invoice_no",
+        "invoicenumber": "invoice_no",
+        "billno": "invoice_no",
+        "billnumber": "invoice_no",
+        "referenceno": "invoice_no",
+        "invoiceamount": "amount",
+        "billamount": "amount",
+        "amount": "amount",
+    }
+    header_row = None
+    column_map = {}
+    for row_index in range(len(raw)):
+        found = {}
+        for column_index, value in enumerate(raw.iloc[row_index].tolist()):
+            mapped_name = header_aliases.get(clean_header(value))
+            if mapped_name and mapped_name not in found:
+                found[mapped_name] = column_index
+        if all(name in found for name in ("date", "invoice_no", "amount")):
+            header_row = row_index
+            column_map = found
+            break
+
+    if header_row is None:
+        raise ValueError("Invoice Date, Invoice No. और Invoice Amount वाली header row नहीं मिली।")
+
+    vendor = MATERIAL_VENDORS[vendor_name]
+    records = []
+    seen_hashes = set()
+    for row_index in range(header_row + 1, len(raw)):
+        row = raw.iloc[row_index]
+        invoice_date = to_date(row.iloc[column_map["date"]])
+        invoice_no = to_text(row.iloc[column_map["invoice_no"]])
+        invoice_amount = to_amount(row.iloc[column_map["amount"]])
+        if not invoice_date or not invoice_no or invoice_amount is None:
+            continue
+
+        fingerprint_source = "|".join(
+            [
+                vendor["key"],
+                invoice_date.isoformat(),
+                invoice_no.strip().upper(),
+                f"{invoice_amount:.2f}",
+            ]
+        )
+        transaction_hash = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+        if transaction_hash in seen_hashes:
+            continue
+        seen_hashes.add(transaction_hash)
+
+        records.append(
+            {
+                "workspace": ALLOWED_WORKSPACE,
+                "account_key": vendor["key"],
+                "pay_from": vendor["pay_from"],
+                "transaction_date": invoice_date.isoformat(),
+                "narration": f"Material Payment - {vendor['pay_from']}",
+                "reference_no": invoice_no,
+                "withdrawal_amount": invoice_amount,
+                "pay_type": "Material",
+                "payment_remark": f"Material Payment - {vendor['pay_from']}",
+                "transaction_hash": transaction_hash,
+                "source_file_name": file_name,
+                "source_sheet_name": sheet_name,
+                "status": "Pending",
+                "imported_by": current_user(),
+            }
+        )
+
+    if not records:
+        raise ValueError("Selected sheet में कोई valid material invoice नहीं मिला।")
+    return records
+
+
 def fetch_transactions(account_key: str, status: str):
     query = (
         supabase.table("bank_transactions")
@@ -733,14 +851,17 @@ def render_table_toolbar(records, account_key, view_name):
 
 
 def render_statement_preview(preview_df: pd.DataFrame):
+    date_column = "Invoice Date" if "Invoice Date" in preview_df.columns else "Date"
+    reference_column = "Invoice No." if "Invoice No." in preview_df.columns else "Chq./Ref.No."
+    amount_column = "Invoice Amount" if "Invoice Amount" in preview_df.columns else "Withdrawal Amt."
     rows_html = []
     for _, row in preview_df.iterrows():
         rows_html.append(
             "<tr>"
-            f"<td class='p-date'>{html.escape(str(row['Date']))}</td>"
+            f"<td class='p-date'>{html.escape(str(row[date_column]))}</td>"
             f"<td class='p-narration'>{html.escape(str(row['Narration']))}</td>"
-            f"<td class='p-ref'>{html.escape(str(row['Chq./Ref.No.']))}</td>"
-            f"<td class='p-amount'>{html.escape(str(row['Withdrawal Amt.']))}</td>"
+            f"<td class='p-ref'>{html.escape(str(row[reference_column]))}</td>"
+            f"<td class='p-amount'>{html.escape(str(row[amount_column]))}</td>"
             "</tr>"
         )
 
@@ -753,10 +874,10 @@ def render_statement_preview(preview_df: pd.DataFrame):
         "<col style='width:125px'>"
         "</colgroup>"
         "<thead><tr>"
-        "<th class='p-date'>Date</th>"
+        f"<th class='p-date'>{date_column}</th>"
         "<th class='p-narration'>Narration</th>"
-        "<th class='p-ref'>Chq./Ref.No.</th>"
-        "<th class='p-amount'>Withdrawal</th>"
+        f"<th class='p-ref'>{reference_column}</th>"
+        f"<th class='p-amount'>{amount_column}</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>"
@@ -1248,29 +1369,53 @@ def bulk_duplicate_payment_dialog():
 
 if "banking_active_account" not in st.session_state:
     st.session_state.banking_active_account = "HDFC VISPL"
+if "banking_active_material_vendor" not in st.session_state:
+    st.session_state.banking_active_material_vendor = next(iter(MATERIAL_VENDORS))
 if "banking_active_view" not in st.session_state:
     st.session_state.banking_active_view = "Assign & Approve"
 
 with st.container(key="banking_account_nav"):
-    account_nav_columns = st.columns(len(ACCOUNTS))
-    for nav_column, account_name in zip(account_nav_columns, ACCOUNTS.keys()):
+    account_nav_columns = st.columns(len(MAIN_ACCOUNT_TABS))
+    for nav_column, account_name in zip(account_nav_columns, MAIN_ACCOUNT_TABS):
         with nav_column:
             account_active = st.session_state.banking_active_account == account_name
             if st.button(
                 account_name,
-                key=f"bank_account_nav_{ACCOUNTS[account_name]['key']}",
+                key=f"bank_account_nav_{clean_header(account_name)}",
                 type="primary" if account_active else "secondary",
                 use_container_width=True,
             ):
                 st.session_state.banking_active_account = account_name
                 st.rerun()
 
-active_account_heading = html.escape(st.session_state.banking_active_account)
+is_material = st.session_state.banking_active_account == "Material"
+if is_material:
+    with st.container(key="banking_material_vendor_nav"):
+        vendor_columns = st.columns(len(MATERIAL_VENDORS))
+        for vendor_column, vendor_name in zip(vendor_columns, MATERIAL_VENDORS.keys()):
+            with vendor_column:
+                vendor_active = st.session_state.banking_active_material_vendor == vendor_name
+                if st.button(
+                    vendor_name,
+                    key=f"material_vendor_nav_{MATERIAL_VENDORS[vendor_name]['key']}",
+                    type="primary" if vendor_active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.banking_active_material_vendor = vendor_name
+                    st.rerun()
+    active_account_label = st.session_state.banking_active_material_vendor
+    active_account_data = MATERIAL_VENDORS[active_account_label]
+    active_account_heading = f"Material — {html.escape(active_account_label)}"
+else:
+    active_account_label = st.session_state.banking_active_account
+    active_account_data = ACCOUNTS[active_account_label]
+    active_account_heading = html.escape(active_account_label)
+
 st.markdown(
     f"""
     <div class="bank-title">
         <h1>🏦 {active_account_heading}</h1>
-        <p>Statement upload, Team/Vendor allocation and payment approval</p>
+        <p>{'Material invoice upload, allocation and payment approval' if is_material else 'Statement upload, Team/Vendor allocation and payment approval'}</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1302,9 +1447,6 @@ with st.expander("Expense Category Master — नया खर्च जोड�
     except Exception as exc:
         st.warning(f"Expense categories load नहीं हुईं: {exc}")
 
-active_account_label = st.session_state.banking_active_account
-active_account_data = ACCOUNTS[active_account_label]
-
 for account_label, account in [(active_account_label, active_account_data)]:
     with st.container():
         st.subheader(account_label)
@@ -1329,9 +1471,9 @@ for account_label, account in [(active_account_label, active_account_data)]:
                         st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### Step 1: Statement Upload")
+        st.markdown("#### Step 1: Material Invoice Upload" if is_material else "#### Step 1: Statement Upload")
         uploaded = st.file_uploader(
-            "Upload bank statement (.xls or .xlsx)",
+            "Upload material statement (.xls or .xlsx)" if is_material else "Upload bank statement (.xls or .xlsx)",
             type=["xls", "xlsx"],
             key=f"upload_{account['key']}",
         )
@@ -1345,20 +1487,36 @@ for account_label, account in [(active_account_label, active_account_data)]:
                     options=sheet_names,
                     key=f"sheet_{account['key']}",
                 )
-                preview_records = parse_statement(
-                    file_bytes,
-                    selected_sheet,
-                    account_label,
-                    uploaded.name,
-                )
-                st.info(f"Preview: {len(preview_records)} withdrawal transactions मिले। Deposit और Closing Balance शामिल नहीं हैं।")
+                if is_material:
+                    preview_records = parse_material_statement(
+                        file_bytes,
+                        selected_sheet,
+                        account_label,
+                        uploaded.name,
+                    )
+                    st.info(f"Preview: {len(preview_records)} material invoices मिले। Existing duplicate invoices import नहीं होंगे।")
+                else:
+                    preview_records = parse_statement(
+                        file_bytes,
+                        selected_sheet,
+                        account_label,
+                        uploaded.name,
+                    )
+                    st.info(f"Preview: {len(preview_records)} withdrawal transactions मिले। Deposit और Closing Balance शामिल नहीं हैं।")
 
                 preview_df = pd.DataFrame(preview_records)[
                     ["transaction_date", "narration", "reference_no", "withdrawal_amount"]
                 ].sort_values("transaction_date", ascending=False)
-                preview_df.columns = ["Date", "Narration", "Chq./Ref.No.", "Withdrawal Amt."]
-                preview_df["Date"] = pd.to_datetime(preview_df["Date"]).dt.strftime("%d-%b-%Y")
-                preview_df["Withdrawal Amt."] = preview_df["Withdrawal Amt."].apply(format_amount)
+                preview_df.columns = [
+                    "Invoice Date" if is_material else "Date",
+                    "Narration",
+                    "Invoice No." if is_material else "Chq./Ref.No.",
+                    "Invoice Amount" if is_material else "Withdrawal Amt.",
+                ]
+                date_column = "Invoice Date" if is_material else "Date"
+                amount_column = "Invoice Amount" if is_material else "Withdrawal Amt."
+                preview_df[date_column] = pd.to_datetime(preview_df[date_column]).dt.strftime("%d-%b-%Y")
+                preview_df[amount_column] = preview_df[amount_column].apply(format_amount)
                 render_statement_preview(preview_df)
 
                 if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
