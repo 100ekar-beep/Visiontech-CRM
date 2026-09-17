@@ -770,22 +770,39 @@ def render_bulk_search_and_move(records, account_key):
             "<div class='bulk-panel-title'>🔎 Bulk Transaction Move</div>",
             unsafe_allow_html=True,
         )
-        search_text = st.text_input(
-            "Search Transaction Type",
-            placeholder="Search...  UPI-LITE / RENT / GST",
-            key=f"bulk_search_{account_key}",
-            label_visibility="collapsed",
-        ).strip()
+        search_column, amount_column = st.columns([3.2, 1.2])
+        with search_column:
+            search_text = st.text_input(
+                "Search Transaction Type",
+                placeholder="Search...  UPI-LITE / RENT / GST / Team name",
+                key=f"bulk_search_{account_key}",
+            ).strip()
+        with amount_column:
+            amount_less_than = st.number_input(
+                "Amount Less Than",
+                min_value=0,
+                value=0,
+                step=100,
+                key=f"bulk_amount_less_than_{account_key}",
+                help="Example: 1000 डालने पर केवल ₹1,000 से कम entries दिखेंगी।",
+            )
 
-        if not search_text:
+        if not search_text and amount_less_than <= 0:
             return
 
         search_lower = search_text.lower()
         matches = [
             row
             for row in records
-            if search_lower in str(row.get("narration", "")).lower()
-            or search_lower in str(row.get("reference_no", "")).lower()
+            if (
+                not search_lower
+                or search_lower in str(row.get("narration", "")).lower()
+                or search_lower in str(row.get("reference_no", "")).lower()
+            )
+            and (
+                amount_less_than <= 0
+                or float(row.get("withdrawal_amount") or 0) < amount_less_than
+            )
         ]
 
         if not matches:
@@ -797,7 +814,10 @@ def render_bulk_search_and_move(records, account_key):
 
         select_all = st.checkbox(
             "Select All",
-            key=f"bulk_select_all_{account_key}_{hashlib.sha1(search_lower.encode()).hexdigest()[:10]}",
+            key=(
+                f"bulk_select_all_{account_key}_"
+                f"{hashlib.sha1(f'{search_lower}|{amount_less_than}'.encode()).hexdigest()[:10]}"
+            ),
         )
 
         selection_df = pd.DataFrame(
@@ -815,7 +835,7 @@ def render_bulk_search_and_move(records, account_key):
         )
 
         editor_key = hashlib.sha1(
-            f"{account_key}|{search_lower}|{select_all}".encode("utf-8")
+            f"{account_key}|{search_lower}|{amount_less_than}|{select_all}".encode("utf-8")
         ).hexdigest()[:12]
         edited_df = st.data_editor(
             selection_df,
