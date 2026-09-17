@@ -1409,6 +1409,40 @@ def render_approved(records, account_key):
         st.info("अभी कोई approved transaction नहीं है।")
         return
 
+    booked_filter_columns = st.columns([0.9, 5.0, 1.4, 1.1, 2.1, 1.0])
+    booked_to_values = sorted(
+        {
+            (
+                str(row.get("assignment_mode", "")).strip(),
+                str(row.get("pay_to", "")).strip(),
+            )
+            for row in records
+            if str(row.get("pay_to", "")).strip()
+        },
+        key=lambda value: (value[0].lower(), value[1].lower()),
+    )
+    booked_to_options = ["All Team & Vendor"] + [
+        f"{mode}: {pay_to}" if mode else pay_to
+        for mode, pay_to in booked_to_values
+    ]
+    with booked_filter_columns[4]:
+        booked_to_filter = st.selectbox(
+            "Booked To Filter",
+            options=booked_to_options,
+            key=f"approved_booked_to_filter_{account_key}",
+        )
+
+    if booked_to_filter != "All Team & Vendor":
+        records = [
+            row
+            for row in records
+            if (
+                f"{str(row.get('assignment_mode', '')).strip()}: "
+                f"{str(row.get('pay_to', '')).strip()}"
+            ).strip(": ")
+            == booked_to_filter
+        ]
+
     records = render_table_toolbar(records, account_key, "Approved Payments")
     if not records:
         st.warning("Search से कोई matching transaction नहीं मिला।")
