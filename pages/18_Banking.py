@@ -784,6 +784,16 @@ def restore_to_pending(transaction_id: int):
     ).execute()
 
 
+def revoke_approved_transaction(transaction_id: int):
+    return supabase.rpc(
+        "revoke_bank_transaction_approval",
+        {
+            "p_transaction_id": int(transaction_id),
+            "p_revoked_by": current_user(),
+        },
+    ).execute()
+
+
 def bulk_move_transactions(transaction_ids, destination: str):
     if destination == "Suspense":
         destination_type = "Suspense"
@@ -1320,6 +1330,46 @@ def render_pending(records, account_key, view_status="Pending"):
     render_pagination_buttons(page_state_key, current_page, page_count)
 
 
+@st.dialog("↩ Revoke Approved Payment", width="large")
+def revoke_approved_payment_dialog():
+    row = st.session_state.get("banking_revoke_review")
+    if not row:
+        st.info("Revoke के लिए कोई payment select नहीं है।")
+        return
+
+    st.warning("यह payment Team/Vendor ledger से हटेगी और transaction वापस Assign & Approve में आएगी।")
+    booked_to = f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}"
+    details = pd.DataFrame(
+        [
+            {
+                "Date": format_date(row.get("transaction_date")),
+                "Narration": str(row.get("narration", "")),
+                "Ref. No.": str(row.get("reference_no", "")),
+                "Amount": format_amount(row.get("withdrawal_amount")),
+                "Booked To": booked_to,
+            }
+        ]
+    )
+    st.dataframe(details, use_container_width=True, hide_index=True)
+
+    cancel_column, revoke_column = st.columns(2)
+    if cancel_column.button("Cancel", use_container_width=True):
+        st.session_state.pop("banking_revoke_review", None)
+        st.rerun()
+    if revoke_column.button(
+        "Confirm Revoke",
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            revoke_approved_transaction(int(row["id"]))
+            st.session_state.pop("banking_revoke_review", None)
+            st.success("Payment revoke हो गई। Transaction वापस Assign & Approve में आ गया।")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Revoke failed: {exc}")
+
+
 def render_approved(records, account_key):
     if not records:
         st.info("अभी कोई approved transaction नहीं है।")
@@ -1333,9 +1383,15 @@ def render_approved(records, account_key):
     page_state_key = f"approved_page_{account_key}"
     visible, current_page, page_count = get_paginated_records(records, page_state_key)
 
-    render_header(show_assignment=False)
+    header_columns = st.columns([0.9, 5.0, 1.4, 1.1, 2.1, 1.0])
+    for column, label in zip(
+        header_columns,
+        ["Date", "Narration", "Chq./Ref.No.", "Withdrawal", "Booked To", "Action"],
+    ):
+        column.markdown(f"<div class='table-head'>{label}</div>", unsafe_allow_html=True)
     for row in visible:
-        cols = st.columns([0.9, 5.4, 1.5, 1.1, 2.3])
+        row_id = int(row["id"])
+        cols = st.columns([0.9, 5.0, 1.4, 1.1, 2.1, 1.0])
         cols[0].markdown(f"<div class='txn-row'><b>{format_date(row.get('transaction_date'))}</b></div>", unsafe_allow_html=True)
         safe_narration = html.escape(str(row.get("narration", "")))
         safe_reference = html.escape(str(row.get("reference_no", "")))
@@ -1344,6 +1400,13 @@ def render_approved(records, account_key):
         cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
         booked_to = html.escape(f"{row.get('assignment_mode', '')}: {row.get('pay_to', '')}")
         cols[4].markdown(f"<div class='txn-row approved'>{booked_to}</div>", unsafe_allow_html=True)
+        if cols[5].button(
+            "↩ Revoke",
+            key=f"revoke_approved_{account_key}_{row_id}",
+            use_container_width=True,
+        ):
+            st.session_state["banking_revoke_review"] = row
+            revoke_approved_payment_dialog()
 
     render_pagination_buttons(page_state_key, current_page, page_count)
 
