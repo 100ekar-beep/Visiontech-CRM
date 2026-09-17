@@ -628,6 +628,63 @@ def parse_material_statement(file_bytes: bytes, sheet_name: str, vendor_name: st
     return records
 
 
+def build_manual_material_record(vendor_name: str, invoice_date, invoice_no, invoice_amount, allow_duplicate=False):
+    vendor = MATERIAL_VENDORS[vendor_name]
+    clean_invoice_no = to_text(invoice_no).strip()
+    clean_amount = to_amount(invoice_amount)
+    if not clean_invoice_no:
+        raise ValueError("Invoice Number डालें।")
+    if clean_amount is None or clean_amount <= 0:
+        raise ValueError("Invoice Amount 0 से ज्यादा डालें।")
+
+    parsed_date = to_date(invoice_date)
+    if not parsed_date:
+        raise ValueError("Valid Invoice Date डालें।")
+
+    fingerprint_source = "|".join(
+        [
+            vendor["key"],
+            parsed_date.isoformat(),
+            clean_invoice_no.upper(),
+            f"{clean_amount:.2f}",
+        ]
+    )
+    if allow_duplicate:
+        fingerprint_source += f"|MANUAL-PROCEED|{datetime.datetime.now().isoformat()}"
+
+    return {
+        "workspace": ALLOWED_WORKSPACE,
+        "account_key": vendor["key"],
+        "pay_from": vendor["pay_from"],
+        "transaction_date": parsed_date.isoformat(),
+        "narration": f"Material Payment - {vendor['pay_from']}",
+        "reference_no": clean_invoice_no,
+        "withdrawal_amount": clean_amount,
+        "pay_type": "Material",
+        "payment_remark": f"Material Payment - {vendor['pay_from']}",
+        "transaction_hash": hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest(),
+        "source_file_name": "Manual Entry",
+        "source_sheet_name": "Manual",
+        "status": "Pending",
+        "imported_by": current_user(),
+    }
+
+
+def find_manual_material_duplicate(record: dict):
+    response = (
+        supabase.table("bank_transactions")
+        .select("id,transaction_date,reference_no,withdrawal_amount,status,pay_from")
+        .eq("workspace", ALLOWED_WORKSPACE)
+        .eq("account_key", record["account_key"])
+        .eq("transaction_date", record["transaction_date"])
+        .eq("reference_no", record["reference_no"])
+        .eq("withdrawal_amount", record["withdrawal_amount"])
+        .order("id", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
 def fetch_transactions(account_key: str, status: str):
     query = (
         supabase.table("bank_transactions")
@@ -822,6 +879,50 @@ def transaction_excel(records, sheet_name):
             worksheet.cell(row_index, 1).number_format = "DD-MMM-YYYY"
             worksheet.cell(row_index, 2).alignment = Alignment(wrap_text=True, vertical="top")
             worksheet.cell(row_index, 4).number_format = "#,##0.##"
+    return output.getvalue()
+
+
+@st.cache_data(show_spinner=False)
+def material_upload_template_excel():
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Material Upload"
+    worksheet.sheet_view.showGridLines = False
+
+    worksheet.merge_cells("A1:C1")
+    worksheet["A1"] = "Material Invoice Upload"
+    worksheet["A1"].fill = PatternFill("solid", fgColor="4F46E5")
+    worksheet["A1"].font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
+    worksheet["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    worksheet.row_dimensions[1].height = 28
+
+    worksheet.merge_cells("A2:C2")
+    worksheet["A2"] = "Enter one invoice per row. Do not change the three column names."
+    worksheet["A2"].fill = PatternFill("solid", fgColor="EEF2FF")
+    worksheet["A2"].font = Font(name="Arial", size=10, italic=True, color="3730A3")
+    worksheet["A2"].alignment = Alignment(horizontal="left", vertical="center")
+
+    headers = ["Invoice Date", "Invoice No.", "Invoice Amount"]
+    for column_number, header in enumerate(headers, start=1):
+        cell = worksheet.cell(row=4, column=column_number, value=header)
+        cell.fill = PatternFill("solid", fgColor="312E81")
+        cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    worksheet.column_dimensions["A"].width = 18
+    worksheet.column_dimensions["B"].width = 25
+    worksheet.column_dimensions["C"].width = 20
+    worksheet.freeze_panes = "A5"
+    for row_number in range(5, 105):
+        worksheet.cell(row_number, 1).number_format = "DD-MMM-YYYY"
+        worksheet.cell(row_number, 2).number_format = "@"
+        worksheet.cell(row_number, 3).number_format = "#,##0.00"
+
+    output = io.BytesIO()
+    workbook.save(output)
     return output.getvalue()
 
 
@@ -1367,6 +1468,89 @@ def bulk_duplicate_payment_dialog():
             st.error(f"Bulk approval failed: {exc}")
 
 
+@st.dialog("➕ Manual Material Invoice", width="large")
+def manual_material_invoice_dialog(vendor_name: str):
+    vendor = MATERIAL_VENDORS[vendor_name]
+    st.markdown(f"### {html.escape(vendor['pay_from'])}")
+
+    review_key = f"banking_manual_material_review_{vendor['key']}"
+    review = st.session_state.get(review_key)
+
+    if review:
+        record = review["record"]
+        duplicates = review["duplicates"]
+        st.warning("यह invoice पहले से मौजूद हो सकता है। नीचे existing entry check करें।")
+        duplicate_df = pd.DataFrame(
+            [
+                {
+                    "Vendor": row.get("pay_from", vendor["pay_from"]),
+                    "Invoice Date": format_date(row.get("transaction_date")),
+                    "Invoice No.": row.get("reference_no", ""),
+                    "Invoice Amount": format_amount(row.get("withdrawal_amount")),
+                    "Status": row.get("status", ""),
+                }
+                for row in duplicates
+            ]
+        )
+        st.dataframe(duplicate_df, use_container_width=True, hide_index=True)
+        left, right = st.columns(2)
+        if left.button("Duplicate Entry — Do Not Add", use_container_width=True):
+            st.session_state.pop(review_key, None)
+            st.rerun()
+        if right.button("Proceed Anyway", type="primary", use_container_width=True):
+            try:
+                duplicate_record = build_manual_material_record(
+                    vendor_name,
+                    record["transaction_date"],
+                    record["reference_no"],
+                    record["withdrawal_amount"],
+                    allow_duplicate=True,
+                )
+                supabase.table("bank_transactions").insert(duplicate_record).execute()
+                st.session_state.pop(review_key, None)
+                st.success("Manual invoice Pending में add हो गया।")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Manual invoice save नहीं हुआ: {exc}")
+        return
+
+    with st.form(f"manual_material_form_{vendor['key']}", clear_on_submit=False):
+        date_column, invoice_column, amount_column = st.columns([1.1, 1.5, 1.1])
+        with date_column:
+            invoice_date = st.date_input("Invoice Date", value=datetime.date.today())
+        with invoice_column:
+            invoice_no = st.text_input("Invoice Number", placeholder="Example: 1254/26-27")
+        with amount_column:
+            invoice_amount = st.number_input("Invoice Amount", min_value=0.0, step=1.0, format="%.2f")
+        save_clicked = st.form_submit_button(
+            "Save Manual Invoice",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if save_clicked:
+        try:
+            record = build_manual_material_record(
+                vendor_name,
+                invoice_date,
+                invoice_no,
+                invoice_amount,
+            )
+            duplicates = find_manual_material_duplicate(record)
+            if duplicates:
+                st.session_state[review_key] = {
+                    "record": record,
+                    "duplicates": duplicates,
+                }
+                st.rerun(scope="fragment")
+            else:
+                supabase.table("bank_transactions").insert(record).execute()
+                st.success("Manual invoice Pending में add हो गया।")
+                st.rerun()
+        except Exception as exc:
+            st.error(f"Manual invoice save नहीं हुआ: {exc}")
+
+
 if "banking_active_account" not in st.session_state:
     st.session_state.banking_active_account = "HDFC VISPL"
 if "banking_active_material_vendor" not in st.session_state:
@@ -1472,6 +1656,25 @@ for account_label, account in [(active_account_label, active_account_data)]:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### Step 1: Material Invoice Upload" if is_material else "#### Step 1: Statement Upload")
+        if is_material:
+            manual_column, template_column, blank_column = st.columns([1.5, 1.9, 3.6])
+            with manual_column:
+                if st.button(
+                    "➕ Manual Add Entry",
+                    key=f"manual_material_entry_{account['key']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    manual_material_invoice_dialog(account_label)
+            with template_column:
+                st.download_button(
+                    "⬇️ Download Material Excel Format",
+                    data=material_upload_template_excel(),
+                    file_name="Material_Statement_Upload_Template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"download_material_template_{account['key']}",
+                    use_container_width=True,
+                )
         uploaded = st.file_uploader(
             "Upload material statement (.xls or .xlsx)" if is_material else "Upload bank statement (.xls or .xlsx)",
             type=["xls", "xlsx"],
