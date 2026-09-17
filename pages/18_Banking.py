@@ -753,11 +753,12 @@ def approve_transaction(transaction_id: int, assignment: str):
     ).execute()
 
 
-def move_to_suspense(transaction_id: int):
+def move_to_suspense(transaction_id: int, suspense_remark: str):
     return supabase.rpc(
         "mark_bank_transaction_suspense",
         {
             "p_transaction_id": int(transaction_id),
+            "p_suspense_remark": str(suspense_remark).strip(),
             "p_updated_by": current_user(),
         },
     ).execute()
@@ -794,7 +795,7 @@ def revoke_approved_transaction(transaction_id: int):
     ).execute()
 
 
-def bulk_move_transactions(transaction_ids, destination: str):
+def bulk_move_transactions(transaction_ids, destination: str, suspense_remark=""):
     if destination == "Suspense":
         destination_type = "Suspense"
         expense_category = None
@@ -810,6 +811,7 @@ def bulk_move_transactions(transaction_ids, destination: str):
             "p_transaction_ids": [int(value) for value in transaction_ids],
             "p_destination": destination_type,
             "p_expense_category": expense_category,
+            "p_suspense_remark": str(suspense_remark).strip(),
             "p_updated_by": current_user(),
         },
     ).execute()
@@ -883,7 +885,8 @@ def filter_transaction_records(records, search_text):
         return records
     search_fields = (
         "transaction_date", "narration", "reference_no", "withdrawal_amount",
-        "status", "assignment_mode", "pay_to", "expense_category", "pay_from", "pay_type",
+        "status", "assignment_mode", "pay_to", "expense_category", "suspense_remark",
+        "pay_from", "pay_type",
     )
     filtered = []
     for row in records:
@@ -907,6 +910,7 @@ def transaction_excel(records, sheet_name):
                 "Type": str(row.get("assignment_mode", "")),
                 "Team/Vendor": str(row.get("pay_to", "")),
                 "Expense Category": str(row.get("expense_category", "")),
+                "Suspense Remark": str(row.get("suspense_remark", "")),
                 "Payment From": str(row.get("pay_from", "")),
                 "Payment Type": str(row.get("pay_type", "")),
             }
@@ -926,7 +930,7 @@ def transaction_excel(records, sheet_name):
             cell.alignment = Alignment(horizontal="center", vertical="center")
         worksheet.freeze_panes = "A2"
         worksheet.auto_filter.ref = worksheet.dimensions
-        for column_index, width in enumerate([15, 70, 25, 20, 18, 16, 28, 28, 25, 18], start=1):
+        for column_index, width in enumerate([15, 70, 25, 20, 18, 16, 28, 28, 42, 25, 18], start=1):
             worksheet.column_dimensions[worksheet.cell(1, column_index).column_letter].width = width
         for row_index in range(2, worksheet.max_row + 1):
             worksheet.cell(row_index, 1).number_format = "DD-MMM-YYYY"
@@ -1145,6 +1149,14 @@ def render_bulk_search_and_move(records, account_key):
                 options=destination_options,
                 key=f"bulk_destination_{account_key}",
             )
+            bulk_suspense_remark = ""
+            if destination == "Suspense":
+                bulk_suspense_remark = st.text_area(
+                    "Suspense Remark",
+                    placeholder="इस transaction को Suspense में रखने का कारण लिखें...",
+                    key=f"bulk_suspense_remark_{account_key}",
+                    height=80,
+                )
         with action_column:
             st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
             move_clicked = st.button(
@@ -1160,6 +1172,8 @@ def render_bulk_search_and_move(records, account_key):
                     raise ValueError("कम से कम एक entry select करें")
                 if destination == "— Select Destination —":
                     raise ValueError("Move To destination select करें")
+                if destination == "Suspense" and not bulk_suspense_remark.strip():
+                    raise ValueError("Suspense Remark लिखें")
                 if destination.startswith(("Team — ", "Vendor — ")):
                     selected_id_set = set(selected_ids)
                     selected_rows = [
@@ -1188,7 +1202,7 @@ def render_bulk_search_and_move(records, account_key):
                     bulk_approve_transactions(selected_ids, destination, "proceed")
                     st.success(f"{len(selected_ids)} payments approve हो गईं।")
                 else:
-                    bulk_move_transactions(selected_ids, destination)
+                    bulk_move_transactions(selected_ids, destination, bulk_suspense_remark)
                     st.success(f"{len(selected_ids)} selected entries successfully move हो गईं।")
                 st.rerun()
             except Exception as exc:
@@ -1275,7 +1289,16 @@ def render_pending(records, account_key, view_status="Pending"):
         cols[0].markdown(f"<div class='txn-row'><b>{format_date(row.get('transaction_date'))}</b></div>", unsafe_allow_html=True)
         safe_narration = html.escape(str(row.get("narration", "")))
         safe_reference = html.escape(str(row.get("reference_no", "")))
-        cols[1].markdown(f"<div class='txn-row narration'>{safe_narration}</div>", unsafe_allow_html=True)
+        safe_suspense_remark = html.escape(str(row.get("suspense_remark", "") or ""))
+        remark_html = (
+            f"<br><span style='color:#b45309;font-weight:700;'>📝 {safe_suspense_remark}</span>"
+            if view_status == "Suspense" and safe_suspense_remark
+            else ""
+        )
+        cols[1].markdown(
+            f"<div class='txn-row narration'>{safe_narration}{remark_html}</div>",
+            unsafe_allow_html=True,
+        )
         cols[2].markdown(f"<div class='txn-row narration'>{safe_reference}</div>", unsafe_allow_html=True)
         cols[3].markdown(f"<div class='txn-row amount'>{format_amount(row.get('withdrawal_amount'))}</div>", unsafe_allow_html=True)
         assignment = cols[4].selectbox(
@@ -1285,6 +1308,15 @@ def render_pending(records, account_key, view_status="Pending"):
             label_visibility="collapsed",
         )
         expense_category = None
+        suspense_remark = ""
+        if assignment == "Suspense":
+            suspense_remark = cols[4].text_input(
+                "Suspense Remark",
+                value=str(row.get("suspense_remark", "") or ""),
+                placeholder="Suspense का कारण...",
+                key=f"suspense_remark_{view_status}_{account_key}_{row_id}",
+                label_visibility="collapsed",
+            )
         if assignment == "Other Expense":
             expense_categories = load_expense_categories()
             if expense_categories:
@@ -1300,7 +1332,9 @@ def render_pending(records, account_key, view_status="Pending"):
             try:
                 mode, _ = parse_assignment(assignment)
                 if mode == "Suspense":
-                    move_to_suspense(row_id)
+                    if not suspense_remark.strip():
+                        raise ValueError("Suspense Remark लिखें")
+                    move_to_suspense(row_id, suspense_remark)
                     st.success("Transaction Suspense में रख दिया गया।")
                     st.rerun()
 
