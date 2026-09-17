@@ -881,12 +881,15 @@ def generate_invoice_pdf(row_dict):
     pdf.cell(150, 8, "Gross Invoice Value", border=1, align='R')
     pdf.cell(40, 8, f"{gross_value:,.2f}", border=1, align='R', ln=True)
 
-    tds_amt = gross_value * 0.01
+    # TDS applies only to Team/work bills. Vendor bills are material supply bills.
+    tds_applicable = invoice_type != "Vendor"
+    tds_amt = gross_value * 0.01 if tds_applicable else 0.0
     net_payable = gross_value - tds_amt
 
-    pdf.set_font("Arial", '', 9)
-    pdf.cell(150, 8, "Less: TDS 1%", border=1, align='R')
-    pdf.cell(40, 8, f"{tds_amt:,.2f}", border=1, align='R', ln=True)
+    if tds_applicable:
+        pdf.set_font("Arial", '', 9)
+        pdf.cell(150, 8, "Less: TDS 1%", border=1, align='R')
+        pdf.cell(40, 8, f"{tds_amt:,.2f}", border=1, align='R', ln=True)
 
     pdf.ln(4)
     pdf.set_font("Arial", 'B', 12)
@@ -1417,8 +1420,9 @@ if st.session_state.billing_active_page == "invoice":
                         basic_v = row_dict.get('basic_amount')
                         gst_v = row_dict.get('gst_amount')
                         amt_v = row_dict.get('amount')
+                        is_vendor_invoice = str(row_dict.get('invoice_type', '')).strip() == 'Vendor'
                         if pd.notna(amt_v):
-                            tds_v = amt_v * 0.01
+                            tds_v = 0.0 if is_vendor_invoice else amt_v * 0.01
                             net_v = amt_v - tds_v
                         else:
                             tds_v = None
@@ -1434,7 +1438,7 @@ if st.session_state.billing_active_page == "invoice":
                                 <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{cell(row_dict.get('cluster'))}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">Basic Amount</span><span class="billing-card-value">{'₹ %s' % format(basic_v, ',.0f') if pd.notna(basic_v) else '-'}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">GST Amount</span><span class="billing-card-value">{'₹ %s' % format(gst_v, ',.0f') if pd.notna(gst_v) else '-'}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">TDS (1%)</span><span class="billing-card-value">{'₹ %s' % format(tds_v, ',.0f') if tds_v is not None else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">TDS (1%)</span><span class="billing-card-value">{'Not Applicable' if is_vendor_invoice else ('₹ %s' % format(tds_v, ',.0f') if tds_v is not None else '-')}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Total (Net)</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(net_v, ',.0f') if net_v is not None else '-'}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">Vendor</span><span class="billing-card-value">{cell(row_dict.get('vendor_name'))}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
@@ -1526,10 +1530,12 @@ if st.session_state.billing_active_page == "invoice":
                             gst_v = row_dict.get('gst_amount')
                             rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                             amt_v = row_dict.get('amount')
+                            is_vendor_invoice = str(row_dict.get('invoice_type', '')).strip() == 'Vendor'
                             if pd.notna(amt_v):
-                                tds_v = amt_v * 0.01
+                                tds_v = 0.0 if is_vendor_invoice else amt_v * 0.01
                                 net_v = amt_v - tds_v
-                                rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
+                                tds_display = "Not Applicable" if is_vendor_invoice else f"₹ {tds_v:,.0f}"
+                                rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>{tds_display}</div>", unsafe_allow_html=True)
                                 rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
                             else:
                                 rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
@@ -1699,7 +1705,7 @@ elif st.session_state.billing_active_page == "ledger":
                 df_inv_rep = df_inv_rep[req_cols]
 
                 df_inv_rep["amount"] = pd.to_numeric(df_inv_rep["amount"], errors="coerce").fillna(0.0)
-                df_inv_rep["tds_amount"] = df_inv_rep["amount"] * 0.01
+                df_inv_rep["tds_amount"] = 0.0 if rep_mode == "Vendor" else df_inv_rep["amount"] * 0.01
                 df_inv_rep["net_payable"] = df_inv_rep["amount"] - df_inv_rep["tds_amount"]
                 df_inv_rep = df_inv_rep.drop(columns=["amount"])
 
