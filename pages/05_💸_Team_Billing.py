@@ -1332,17 +1332,25 @@ if st.session_state.billing_active_page == "invoice":
     active_invoice_type = "Team" if st.session_state.invoice_sub_tab == "team" else "Vendor"
     inv_data_raw = [r for r in inv_data_raw_all if str(r.get("invoice_type", "")).strip() == active_invoice_type]
 
-    inv_team_opts = ["All Teams"]
+    is_vendor_tab = active_invoice_type == "Vendor"
+    inv_filter_col = "vendor_name" if is_vendor_tab else "team_name"
+    inv_filter_all = "All Vendors" if is_vendor_tab else "All Teams"
+    inv_team_opts = [inv_filter_all]
     if inv_data_raw:
-        _teams = sorted(set(str(r.get("team_name", "")).strip() for r in inv_data_raw if str(r.get("team_name", "")).strip()))
-        inv_team_opts += _teams
+        _entities = sorted(set(str(r.get(inv_filter_col, "")).strip() for r in inv_data_raw if str(r.get(inv_filter_col, "")).strip()))
+        inv_team_opts += _entities
 
     col_search, col_teamfilter, col_addbtn, col_dl, col_zip = st.columns([2.6, 1.8, 1.6, 1.4, 1.8])
 
     with col_search:
         search_inv = st_keyup("Search", placeholder="🔍 Search Invoices...", label_visibility="collapsed", key="search_inv_input")
     with col_teamfilter:
-        team_filter_inv = st.selectbox("Team Filter", options=inv_team_opts, label_visibility="collapsed", key="inv_team_filter")
+        team_filter_inv = st.selectbox(
+            "Vendor Filter" if is_vendor_tab else "Team Filter",
+            options=inv_team_opts,
+            label_visibility="collapsed",
+            key=f"inv_entity_filter_{active_invoice_type.lower()}"
+        )
     with col_addbtn:
         if st.session_state.invoice_sub_tab == "team":
             if st.button("➕ Add Team Invoice", type="primary", use_container_width=True):
@@ -1357,21 +1365,35 @@ if st.session_state.billing_active_page == "invoice":
         if inv_data_raw:
             df_inv = pd.DataFrame(inv_data_raw)
 
-            if team_filter_inv and team_filter_inv != "All Teams" and "team_name" in df_inv.columns:
-                df_inv = df_inv[df_inv["team_name"].astype(str).str.strip() == team_filter_inv]
+            if team_filter_inv and team_filter_inv != inv_filter_all and inv_filter_col in df_inv.columns:
+                df_inv = df_inv[df_inv[inv_filter_col].astype(str).str.strip() == team_filter_inv]
 
             if search_inv:
                 mask = df_inv.astype(str).apply(lambda x: x.str.contains(search_inv, case=False, na=False)).any(axis=1)
                 df_inv = df_inv[mask]
 
             with col_dl:
+                if is_vendor_tab:
+                    vendor_export_columns = {
+                        "vendor_name": "Vendor Name",
+                        "invoice_no": "Invoice No.",
+                        "date": "Invoice Date",
+                        "basic_amount": "Basic Amount",
+                        "gst_amount": "GST Amount",
+                        "amount": "Total Amount",
+                        "team_name": "Team Name",
+                        "remark": "Remark",
+                    }
+                    export_df = df_inv.reindex(columns=list(vendor_export_columns)).rename(columns=vendor_export_columns)
+                else:
+                    export_df = df_inv
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_inv.to_excel(writer, index=False, sheet_name='Invoices')
+                    export_df.to_excel(writer, index=False, sheet_name='Invoices')
                 st.download_button(label="📥 Excel", data=buffer.getvalue(), file_name="Invoices_List.xlsx", use_container_width=True, type="secondary", key="dl_inv_btn")
 
             with col_zip:
-                if team_filter_inv and team_filter_inv != "All Teams" and not df_inv.empty:
+                if team_filter_inv and team_filter_inv != inv_filter_all and not df_inv.empty:
                     try:
                         zip_buffer = io.BytesIO()
                         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1474,8 +1496,12 @@ if st.session_state.billing_active_page == "invoice":
                     # ---------------------------------------------------------------
                     # DESKTOP WIDE TABLE VIEW
                     # ---------------------------------------------------------------
-                    INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
-                    INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
+                    if is_vendor_tab:
+                        INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.55, 1.25, 1.0, 1.05, 1.0, 1.1, 1.35, 1.7]
+                        INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "VENDOR NAME", "INVOICE NO.", "INVOICE DATE", "BASIC AMOUNT", "GST AMOUNT", "TOTAL AMOUNT", "TEAM NAME", "REMARK"]
+                    else:
+                        INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
+                        INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
 
                     with st.container(key="inv_table_header"):
                         h_cols = st.columns(INV_COL_RATIOS)
@@ -1517,32 +1543,40 @@ if st.session_state.billing_active_page == "invoice":
                                     except Exception as e:
                                         st.error(f"Error deleting: {e}")
 
-                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                            rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                            rcols[7].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                            rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
-
                             basic_v = row_dict.get('basic_amount')
-                            rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                             gst_v = row_dict.get('gst_amount')
-                            rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
                             amt_v = row_dict.get('amount')
                             is_vendor_invoice = str(row_dict.get('invoice_type', '')).strip() == 'Vendor'
-                            if pd.notna(amt_v):
-                                tds_v = 0.0 if is_vendor_invoice else amt_v * 0.01
-                                net_v = amt_v - tds_v
-                                tds_display = "Not Applicable" if is_vendor_invoice else f"₹ {tds_v:,.0f}"
-                                rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>{tds_display}</div>", unsafe_allow_html=True)
-                                rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
-                            else:
-                                rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
 
-                            rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                            rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                            if is_vendor_tab:
+                                rcols[4].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                                rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                                rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                                rcols[7].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[8].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[9].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[10].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                                rcols[11].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                            else:
+                                rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
+                                rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
+                                rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
+                                rcols[7].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
+                                rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
+                                rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
+                                rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
+                                rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                if pd.notna(amt_v):
+                                    tds_v = amt_v * 0.01
+                                    net_v = amt_v - tds_v
+                                    rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
+                                    rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
+                                else:
+                                    rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                    rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                                rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
+                                rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
             else:
                 st.info("No invoices match your search.")
         else:
