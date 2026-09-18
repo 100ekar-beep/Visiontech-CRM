@@ -1233,12 +1233,62 @@ def payment_dialog(row_data=None, mode="Team"):
             except Exception as e:
                 st.error(f"Error: {e}")
 
+@st.dialog("🔄 Team Material Transfer", width="large")
+def team_material_transfer_dialog():
+    c1, c2 = st.columns(2)
+    from_team = c1.selectbox("Material Given By (From Team) *", options=team_list, key="mt_from_team")
+    to_options = [name for name in team_list if name != from_team]
+    to_team = c2.selectbox("Material Received By (To Team) *", options=to_options, key="mt_to_team")
+
+    c3, c4, c5 = st.columns(3)
+    transfer_date = c3.date_input("Transfer Date *", value=datetime.date.today(), format="DD/MM/YYYY", key="mt_date")
+    reference_no = c4.text_input("Challan / Reference No.", key="mt_reference")
+    amount = c5.number_input("Material Value (₹) *", min_value=0.0, step=1.0, value=None, placeholder="0", key="mt_amount")
+
+    c6, c7 = st.columns([2, 1])
+    material_description = c6.text_input("Material Description *", placeholder="Example: GI Pole, Battery, Cable...", key="mt_description")
+    quantity = c7.text_input("Quantity", placeholder="Example: 5 Nos / 100 Kg", key="mt_quantity")
+    remark = st.text_area("Remark", placeholder="Optional note...", key="mt_remark")
+
+    st.info("From Team के ledger में amount जुड़ेगा और To Team के ledger से उतना ही amount घटेगा।")
+
+    if st.button("💾 Save Material Transfer", type="primary", use_container_width=True, key="mt_save"):
+        if not to_options:
+            st.error("कम-से-कम दो Team होना आवश्यक है।")
+        elif from_team == to_team:
+            st.error("From Team और To Team अलग होने चाहिए।")
+        elif not material_description.strip():
+            st.error("Material Description डालें।")
+        elif amount is None or amount <= 0:
+            st.error("Material Value zero से ज्यादा होना चाहिए।")
+        else:
+            try:
+                supabase.table("team_material_transfers").insert({
+                    "workspace": st.session_state.get("active_workspace", "VISPL"),
+                    "transfer_date": str(transfer_date),
+                    "from_team": from_team,
+                    "to_team": to_team,
+                    "reference_no": reference_no.strip() or None,
+                    "material_description": material_description.strip(),
+                    "quantity": quantity.strip() or None,
+                    "amount": amount,
+                    "remark": remark.strip() or None,
+                    "status": "Active",
+                }).execute()
+                fetch_team_material_transfers_cached.clear()
+                fetch_ledger_data_cached.clear()
+                st.success("✅ Material Transfer दोनों Team ledgers में दर्ज हो गया।")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Material Transfer save error: {e}")
+
 # --- 6. MAIN PAGE NAVIGATION (custom buttons, replaces st.tabs for guaranteed styling) ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 
 BILLING_NAV_PAGES = [
     ("invoice", "📄 Invoice Entry"),
     ("payment", "💳 Payment Entry"),
+    ("transfer", "🔄 Material Transfer"),
     ("ledger", "📊 Ledger Reports"),
     ("mrn", "🕒 Pending MRN Approval"),
 ]
@@ -1278,6 +1328,15 @@ def fetch_billing_payments_cached(workspace):
     try:
         pay_res = supabase.table("billing_payments").select("*").eq("workspace", workspace).order("id", desc=True).execute()
         return pay_res.data or []
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_team_material_transfers_cached(workspace):
+    try:
+        result = supabase.table("team_material_transfers").select("*").eq("workspace", workspace).order("transfer_date", desc=True).order("id", desc=True).execute()
+        return result.data or []
     except Exception:
         return []
 
@@ -1707,7 +1766,85 @@ elif st.session_state.billing_active_page == "payment":
         st.error(f"Database error: {e}")
 
 # ==========================================
-# PAGE 3: REPORTS & LEDGER
+# PAGE 3: TEAM MATERIAL TRANSFER
+# ==========================================
+elif st.session_state.billing_active_page == "transfer":
+    active_ws = st.session_state.get("active_workspace", "VISPL")
+    c_add, c_search, c_download = st.columns([1.7, 4.5, 1.8])
+    with c_add:
+        if st.button("➕ New Transfer", type="primary", use_container_width=True, key="add_material_transfer"):
+            team_material_transfer_dialog()
+    with c_search:
+        transfer_search = st_keyup("Search Transfer", placeholder="🔍 Search team, material, reference...", label_visibility="collapsed", key="transfer_search")
+
+    transfer_rows = fetch_team_material_transfers_cached(active_ws)
+    df_transfer = pd.DataFrame(transfer_rows)
+    if not df_transfer.empty:
+        if transfer_search:
+            transfer_mask = df_transfer.astype(str).apply(lambda col: col.str.contains(transfer_search, case=False, na=False)).any(axis=1)
+            df_transfer = df_transfer[transfer_mask]
+
+        with c_download:
+            transfer_buffer = io.BytesIO()
+            export_cols = ["transfer_date", "from_team", "to_team", "reference_no", "material_description", "quantity", "amount", "remark", "status"]
+            transfer_export = df_transfer.reindex(columns=export_cols).rename(columns={
+                "transfer_date": "Date", "from_team": "From Team", "to_team": "To Team",
+                "reference_no": "Reference No.", "material_description": "Material",
+                "quantity": "Quantity", "amount": "Amount", "remark": "Remark", "status": "Status"
+            })
+            with pd.ExcelWriter(transfer_buffer, engine="openpyxl") as writer:
+                transfer_export.to_excel(writer, index=False, sheet_name="Material Transfers")
+            st.download_button("📥 Download Excel", transfer_buffer.getvalue(), "Team_Material_Transfers.xlsx", use_container_width=True, key="transfer_excel")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        ratios = [0.35, 0.7, 1.0, 1.0, 1.05, 1.7, 0.8, 1.0, 1.4, 0.8]
+        labels = ["#", "ACTION", "DATE", "FROM TEAM", "TO TEAM", "MATERIAL", "QTY", "AMOUNT", "REMARK / REF.", "STATUS"]
+        header_cols = st.columns(ratios)
+        for header_col, label in zip(header_cols, labels):
+            header_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+        with st.container(height=520, key="material_transfer_table"):
+            for pos, (_, transfer) in enumerate(df_transfer.reset_index(drop=True).iterrows()):
+                row = transfer.to_dict()
+                rid = row.get("id")
+                row_cols = st.columns(ratios)
+                row_cols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                with row_cols[1]:
+                    if row.get("status") == "Active":
+                        if st.button("↩️", key=f"reverse_transfer_{rid}", help="Revoke Transfer", use_container_width=True):
+                            try:
+                                supabase.table("team_material_transfers").update({
+                                    "status": "Reversed",
+                                    "reversed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                }).eq("id", rid).execute()
+                                fetch_team_material_transfers_cached.clear()
+                                fetch_ledger_data_cached.clear()
+                                st.success("✅ Transfer revoked. दोनों ledgers से adjustment हट गया।")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Revoke error: {e}")
+                    else:
+                        st.button("↩️", key=f"reversed_transfer_{rid}", disabled=True, use_container_width=True)
+                transfer_date_display = pd.to_datetime(row.get("transfer_date"), errors="coerce")
+                transfer_date_display = transfer_date_display.strftime("%d/%m/%Y") if pd.notna(transfer_date_display) else "-"
+                row_cols[2].markdown(f"<div class='tbl-cell'>{transfer_date_display}</div>", unsafe_allow_html=True)
+                row_cols[3].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('from_team'))}</div>", unsafe_allow_html=True)
+                row_cols[4].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('to_team'))}</div>", unsafe_allow_html=True)
+                row_cols[5].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('material_description'))}</div>", unsafe_allow_html=True)
+                row_cols[6].markdown(f"<div class='tbl-cell'>{cell(row.get('quantity'))}</div>", unsafe_allow_html=True)
+                amount_value = pd.to_numeric(row.get("amount"), errors="coerce")
+                row_cols[7].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amount_value:,.0f}</div>" if pd.notna(amount_value) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                ref_remark = " | ".join(v for v in [str(row.get("reference_no") or "").strip(), str(row.get("remark") or "").strip()] if v)
+                row_cols[8].markdown(f"<div class='tbl-cell-wrap'>{cell(ref_remark)}</div>", unsafe_allow_html=True)
+                status_color = "#10b981" if row.get("status") == "Active" else "#ef4444"
+                row_cols[9].markdown(f"<div class='tbl-cell' style='font-weight:800;color:{status_color};'>{cell(row.get('status'))}</div>", unsafe_allow_html=True)
+    else:
+        with c_download:
+            st.button("📥 Download Excel", disabled=True, use_container_width=True, key="transfer_excel_disabled")
+        st.info("अभी कोई Team Material Transfer नहीं है। New Transfer से पहली entry जोड़ें।")
+
+# ==========================================
+# PAGE 4: REPORTS & LEDGER
 # ==========================================
 elif st.session_state.billing_active_page == "ledger":
     col_rmode, col_rname, _ = st.columns([3, 4, 3])
@@ -1722,7 +1859,9 @@ elif st.session_state.billing_active_page == "ledger":
     if sel_name and sel_name != "-- Select --":
         tot_inv = 0.0
         tot_pay = 0.0
-        df_inv_rep, df_pay_rep = pd.DataFrame(), pd.DataFrame()
+        tot_material_given = 0.0
+        tot_material_received = 0.0
+        df_inv_rep, df_pay_rep, df_transfer_rep = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
@@ -1764,17 +1903,49 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 if "date" in df_pay_rep.columns:
                     df_pay_rep["date"] = pd.to_datetime(df_pay_rep["date"], errors="coerce").dt.strftime('%d/%m/%Y')
+
+            if rep_mode == "Team":
+                all_transfers = fetch_team_material_transfers_cached(active_ws)
+                team_transfers = [
+                    row for row in all_transfers
+                    if row.get("status") == "Active"
+                    and (row.get("from_team") == sel_name or row.get("to_team") == sel_name)
+                ]
+                if team_transfers:
+                    raw_transfer_df = pd.DataFrame(team_transfers)
+                    raw_transfer_df["amount"] = pd.to_numeric(raw_transfer_df["amount"], errors="coerce").fillna(0.0)
+                    tot_material_given = raw_transfer_df.loc[raw_transfer_df["from_team"] == sel_name, "amount"].sum()
+                    tot_material_received = raw_transfer_df.loc[raw_transfer_df["to_team"] == sel_name, "amount"].sum()
+
+                    transfer_report_rows = []
+                    for _, transfer_row in raw_transfer_df.iterrows():
+                        is_given = transfer_row.get("from_team") == sel_name
+                        transfer_report_rows.append({
+                            "Date": pd.to_datetime(transfer_row.get("transfer_date"), errors="coerce").strftime("%d/%m/%Y"),
+                            "Direction": "Material Given (+)" if is_given else "Material Received (-)",
+                            "Other Team": transfer_row.get("to_team") if is_given else transfer_row.get("from_team"),
+                            "Material": transfer_row.get("material_description"),
+                            "Quantity": transfer_row.get("quantity"),
+                            "Reference No.": transfer_row.get("reference_no"),
+                            "Amount": transfer_row.get("amount"),
+                            "Remark": transfer_row.get("remark"),
+                        })
+                    df_transfer_rep = pd.DataFrame(transfer_report_rows)
                     
         except Exception as e:
             st.error(f"Error fetching data: {e}")
 
-        bal = tot_inv - tot_pay
-        k1, k2, k3 = st.columns(3)
+        bal = tot_inv - tot_pay + tot_material_given - tot_material_received
+        k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
             st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Billed</div><div class='kpi-value-blue'>₹ {tot_inv:,.0f}</div></div>", unsafe_allow_html=True)
         with k2:
             st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Paid</div><div class='kpi-value-green'>₹ {tot_pay:,.0f}</div></div>", unsafe_allow_html=True)
         with k3:
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Material Given</div><div class='kpi-value-blue'>₹ {tot_material_given:,.0f}</div></div>", unsafe_allow_html=True)
+        with k4:
+            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Material Received</div><div class='kpi-value-red'>₹ {tot_material_received:,.0f}</div></div>", unsafe_allow_html=True)
+        with k5:
             bal_color = "kpi-value-red" if bal > 0 else "kpi-value-green"
             st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Net Balance</div><div class='{bal_color}'>₹ {bal:,.0f}</div></div>", unsafe_allow_html=True)
 
@@ -1788,6 +1959,10 @@ elif st.session_state.billing_active_page == "ledger":
             st.markdown("#### 💸 Payments")
             st.dataframe(df_pay_rep, use_container_width=True, hide_index=True)
 
+        if rep_mode == "Team":
+            st.markdown("#### 🔄 Material Transfers")
+            st.dataframe(df_transfer_rep, use_container_width=True, hide_index=True)
+
         st.markdown("---")
         
         col_down1, col_down2, _ = st.columns([2, 2, 6])
@@ -1797,7 +1972,12 @@ elif st.session_state.billing_active_page == "ledger":
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 if not df_inv_rep.empty: df_inv_rep.to_excel(writer, index=False, sheet_name='Invoices')
                 if not df_pay_rep.empty: df_pay_rep.to_excel(writer, index=False, sheet_name='Payments')
-                summary_df = pd.DataFrame({"Name": [sel_name], "Total Billed": [tot_inv], "Total Paid": [tot_pay], "Balance": [bal]})
+                if not df_transfer_rep.empty: df_transfer_rep.to_excel(writer, index=False, sheet_name='Material Transfers')
+                summary_df = pd.DataFrame({
+                    "Name": [sel_name], "Total Billed": [tot_inv], "Total Paid": [tot_pay],
+                    "Material Given": [tot_material_given], "Material Received": [tot_material_received],
+                    "Balance": [bal]
+                })
                 summary_df.to_excel(writer, index=False, sheet_name='Summary')
             
             st.download_button(label="📊 Download Excel", data=buffer.getvalue(), file_name=f"{sel_name}_Ledger.xlsx", type="primary", use_container_width=True)
@@ -1833,7 +2013,7 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 pdf.set_fill_color(248, 250, 252)
                 pdf.set_draw_color(203, 213, 225)
-                pdf.rect(10, pdf.get_y(), 190, 25, 'FD')
+                pdf.rect(10, pdf.get_y(), 190, 34, 'FD')
                 
                 pdf.set_y(pdf.get_y() + 5)
                 pdf.set_font("Arial", 'B', 11)
@@ -1847,6 +2027,12 @@ elif st.session_state.billing_active_page == "ledger":
                 bal_color = red_color if bal > 0 else green_color
                 pdf.set_text_color(*bal_color)
                 pdf.cell(64, 8, f"Net Balance: Rs. {bal:,.0f}", ln=True, align='C')
+
+                if rep_mode == "Team":
+                    pdf.set_text_color(71, 85, 105)
+                    pdf.set_font("Arial", 'B', 9)
+                    pdf.cell(95, 8, f"Material Given (+): Rs. {tot_material_given:,.0f}", ln=False, align='C')
+                    pdf.cell(95, 8, f"Material Received (-): Rs. {tot_material_received:,.0f}", ln=True, align='C')
                 
                 pdf.ln(12)
                 
@@ -1961,6 +2147,8 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 create_table("INVOICES (BILLED)", df_inv_rep, secondary_color)
                 create_table("PAYMENTS (PAID)", df_pay_rep, green_color)
+                if rep_mode == "Team":
+                    create_table("TEAM MATERIAL TRANSFERS", df_transfer_rep, (139, 92, 246))
                 
                 raw = pdf.output(dest='S')
                 return bytes(raw) if isinstance(raw, (bytearray, bytes)) else raw.encode('latin1')
