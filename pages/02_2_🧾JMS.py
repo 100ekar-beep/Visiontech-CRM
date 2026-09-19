@@ -341,6 +341,28 @@ def _clean_text(value):
     value = str(value).strip()
     return "" if value.lower() in ("nan", "none", "null") else value
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _lookup_blank_jms_site(site_id):
+    """Fetch Site Name and Cluster from Excalation Matrix for Blank JMS."""
+    clean_site_id = _clean_text(site_id)
+    if not clean_site_id:
+        return "", ""
+
+    for table_name in ("Excalation Matrix", "Escalation Matrix"):
+        try:
+            result = (supabase.table(table_name).select("*")
+                      .eq("Site ID", clean_site_id).limit(1).execute())
+            if result.data:
+                site_row = result.data[0]
+                return (
+                    _first_value(site_row, ["Site Name", "SITE NAME", "site_name"]),
+                    _first_value(site_row, ["Cluster", "CLUSTER", "cluster"]),
+                )
+        except Exception:
+            continue
+    return "", ""
+
 def _first_value(row, names, default=""):
     for name in names:
         value = _clean_text(row.get(name))
@@ -600,7 +622,8 @@ def _build_jms_pdf(row_data, circle, lines):
         pdf.drawCentredString(page_w/2, page_h - 20*mm, company.upper())
         pdf.setFillColor(colors.HexColor("#334155"))
         pdf.setFont("Helvetica", 8.5)
-        pdf.drawCentredString(page_w/2, page_h - 27*mm, "Joint Measurement Sheet")
+        pdf_subtitle = "Joint Measurement Sheet - Circle: M&G" if row_data.get("_blank_jms") else "Joint Measurement Sheet"
+        pdf.drawCentredString(page_w/2, page_h - 27*mm, pdf_subtitle)
         pdf.line(margin, page_h - 32*mm, page_w-margin, page_h - 32*mm)
 
         ix, iy, iw, ih = 16*mm, page_h - 52*mm, page_w - 32*mm, 14*mm
@@ -688,42 +711,54 @@ def jms_dialog(row_data):
         st.session_state.jmspage_last_pdf = None
         st.session_state.jmspage_add_gen += 1
         st.session_state[f"jmspage_circle_{active_key}"] = (
-            _clean_text(saved.get("circle")) if saved else ("" if is_blank_jms else "Maharashtra")
+            "M&G" if is_blank_jms else (_clean_text(saved.get("circle")) if saved else "Maharashtra")
         )
         if is_blank_jms:
             st.session_state[f"jmspage_blank_project_{active_key}"] = _clean_text(row_data.get("Project ID"))
             st.session_state[f"jmspage_blank_site_id_{active_key}"] = _clean_text(row_data.get("Site ID"))
-            st.session_state[f"jmspage_blank_site_name_{active_key}"] = _clean_text(row_data.get("Site Name"))
-            st.session_state[f"jmspage_blank_cluster_{active_key}"] = _clean_text(row_data.get("Cluster"))
 
     workspace = st.session_state.get("active_workspace", "VISPL")
     company = JMS_COMPANY_NAMES.get(workspace, workspace)
     st.markdown(f"### {company}")
     if is_blank_jms:
-        st.caption("Blank JMS — neeche site details manually bhariye. Ye details JMS PDF me print hongi.")
-        detail_col1, detail_col2 = st.columns(2)
-        with detail_col1:
+        st.caption("Blank JMS — Project ID aur Site ID bhariye. Site Name aur Cluster auto aa jayenge.")
+        detail_top1, detail_top2 = st.columns(2)
+        with detail_top1:
             blank_project_id = st.text_input(
                 "PROJECT ID",
                 key=f"jmspage_blank_project_{active_key}",
                 placeholder="Project ID enter karein"
             )
-            blank_site_name = st.text_input(
-                "SITE NAME",
-                key=f"jmspage_blank_site_name_{active_key}",
-                placeholder="Site Name enter karein"
-            )
-        with detail_col2:
+        with detail_top2:
             blank_site_id = st.text_input(
                 "SITE ID",
                 key=f"jmspage_blank_site_id_{active_key}",
-                placeholder="Site ID enter karein"
+                placeholder="Site ID enter karke Enter dabayein"
             )
-            blank_cluster = st.text_input(
+
+        blank_site_name, blank_cluster = _lookup_blank_jms_site(blank_site_id)
+        auto_key_part = "".join(ch for ch in _clean_text(blank_site_id) if ch.isalnum()) or "empty"
+        detail_bottom1, detail_bottom2 = st.columns(2)
+        with detail_bottom1:
+            st.text_input(
+                "SITE NAME",
+                value=blank_site_name,
+                disabled=True,
+                key=f"jmspage_blank_site_name_auto_{active_key}_{auto_key_part}"
+            )
+        with detail_bottom2:
+            st.text_input(
                 "CLUSTER",
-                key=f"jmspage_blank_cluster_{active_key}",
-                placeholder="Cluster enter karein"
+                value=blank_cluster,
+                disabled=True,
+                key=f"jmspage_blank_cluster_auto_{active_key}_{auto_key_part}"
             )
+
+        if _clean_text(blank_site_id):
+            if blank_site_name or blank_cluster:
+                st.success("✅ Site Name aur Cluster Excalation Matrix se mil gaye.")
+            else:
+                st.warning("Is Site ID ka data Excalation Matrix me nahi mila.")
 
         row_data["Project ID"] = _clean_text(blank_project_id)
         row_data["Site ID"] = _clean_text(blank_site_id)
@@ -732,7 +767,10 @@ def jms_dialog(row_data):
         st.session_state.jmspage_open_row = row_data
     else:
         st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
-    circle = st.text_input("Circle", key=f"jmspage_circle_{active_key}")
+    if is_blank_jms:
+        circle = st.text_input("CIRCLE", value="M&G", disabled=True, key=f"jmspage_circle_{active_key}")
+    else:
+        circle = st.text_input("Circle", key=f"jmspage_circle_{active_key}")
 
     if not is_blank_jms:
         if st.button("🔄 Reload Item Code & Qty from PO", use_container_width=True, key=f"jmspage_reload_po_{active_key}"):
