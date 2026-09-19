@@ -8,6 +8,7 @@ from fpdf import FPDF
 import base64
 from datetime import datetime, timezone, timedelta
 import os
+import uuid
 
 # --- CLOUDINARY IMPORT (NEW) ---
 import cloudinary
@@ -471,20 +472,53 @@ def compress_image_for_whatsapp(file_bytes, target_bytes):
     raise RuntimeError("Image compress nahi ho payi.")
 
 
-def verify_public_url(url, timeout=15):
+def verify_public_url(url, timeout=20):
     """
     Confirms the uploaded file's public URL is actually reachable/downloadable
     (mimics what WhatsApp's servers will try to do). Returns (ok, detail).
     """
     try:
-        resp = requests.head(url, allow_redirects=True, timeout=timeout)
-        if resp.status_code == 200:
-            return True, "OK"
-        # Some storage providers don't support HEAD properly; fall back to a ranged GET.
-        resp2 = requests.get(url, headers={"Range": "bytes=0-1024"}, timeout=timeout)
-        if resp2.status_code in (200, 206):
-            return True, "OK"
-        return False, f"URL status code: {resp.status_code} (GET fallback: {resp2.status_code})"
+        # Cloudinary CDN can take a moment before a newly uploaded asset is
+        # available on every edge. Retry briefly instead of failing instantly.
+        last_head = None
+        last_get = None
+        for attempt in range(3):
+            resp = requests.head(
+                url,
+                allow_redirects=True,
+                timeout=timeout,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            last_head = resp
+            if resp.status_code == 200:
+                return True, "OK"
+
+            # Some providers/CDNs don't support HEAD correctly; use a small GET.
+            resp2 = requests.get(
+                url,
+                headers={"Range": "bytes=0-1024", "User-Agent": "Mozilla/5.0"},
+                allow_redirects=True,
+                timeout=timeout,
+            )
+            last_get = resp2
+            if resp2.status_code in (200, 206):
+                return True, "OK"
+
+            if attempt < 2:
+                time.sleep(2)
+
+        cloudinary_reason = ""
+        if last_get is not None:
+            cloudinary_reason = last_get.headers.get("X-Cld-Error", "")
+        if not cloudinary_reason and last_head is not None:
+            cloudinary_reason = last_head.headers.get("X-Cld-Error", "")
+
+        head_code = last_head.status_code if last_head is not None else "NA"
+        get_code = last_get.status_code if last_get is not None else "NA"
+        detail = f"URL status code: {head_code} (GET fallback: {get_code})"
+        if cloudinary_reason:
+            detail += f" | Cloudinary reason: {cloudinary_reason}"
+        return False, detail
     except Exception as e:
         return False, f"URL fetch error: {e}"
 
@@ -503,19 +537,41 @@ def upload_to_cloudinary(file_bytes, file_ext, content_type):
     else:
         resource_type = "raw"  # e.g. pdf
 
-    unique_public_id = f"whatsapp_media/{int(time.time())}"
+    unique_name = f"{int(time.time())}_{uuid.uuid4().hex[:10]}"
+
+    # Raw assets (PDF etc.) keep their extension as part of public_id.
+    # For image/video Cloudinary appends the requested format to secure_url.
+    if resource_type == "raw":
+        unique_public_id = f"whatsapp_media/{unique_name}.{file_ext}"
+    else:
+        unique_public_id = f"whatsapp_media/{unique_name}"
 
     # IMPORTANT: WhatsApp/Interakt needs the media URL to END with the correct
     # file extension (e.g. ".mp4") to correctly detect the media type. Cloudinary's
     # secure_url does NOT include an extension by default — without this explicit
     # 'format' param, WhatsApp fails with "Error 131053: Unable to upload the media".
-    result = cloudinary.uploader.upload(
-        file_bytes,
-        resource_type=resource_type,
-        public_id=unique_public_id,
-        overwrite=True,
-        format=file_ext
-    )
+    upload_options = {
+        "resource_type": resource_type,
+        "type": "upload",             # unsigned public delivery URL
+        "access_mode": "public",      # avoid authenticated/private 401 URL
+        "public_id": unique_public_id,
+        "overwrite": True,
+        "invalidate": True,
+    }
+
+    # `format` is valid for image/video. For raw files the extension must be
+    # inside public_id itself, otherwise the generated URL can be invalid.
+    if resource_type in ("image", "video"):
+        upload_options["format"] = file_ext
+
+    result = cloudinary.uploader.upload(file_bytes, **upload_options)
+
+    if result.get("type") != "upload" or result.get("access_mode", "public") != "public":
+        raise RuntimeError(
+            "Cloudinary ne file ko public mode me save nahi kiya. "
+            "Cloudinary Upload Preset/Access Control ko Public rakhein."
+        )
+
     return result["secure_url"], result["public_id"], resource_type
 
 
