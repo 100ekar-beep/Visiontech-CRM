@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import io
 import json
+import html
 from datetime import datetime
 from uuid import uuid4
 from supabase import create_client, Client
@@ -340,6 +341,26 @@ def _clean_text(value):
         return ""
     value = str(value).strip()
     return "" if value.lower() in ("nan", "none", "null") else value
+
+
+def _readonly_detail_box(label, value):
+    safe_label = html.escape(_clean_text(label))
+    safe_value = html.escape(_clean_text(value) or "-")
+    st.markdown(
+        f"""
+        <div style="margin-bottom:12px;">
+            <div style="font-size:0.82rem;font-weight:900;color:#111827;letter-spacing:0.4px;margin-bottom:6px;">
+                {safe_label}
+            </div>
+            <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:9px;
+                        padding:12px 14px;min-height:46px;color:#000000;font-size:1rem;
+                        font-weight:900;display:flex;align-items:center;box-sizing:border-box;">
+                {safe_value}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -737,22 +758,11 @@ def jms_dialog(row_data):
             )
 
         blank_site_name, blank_cluster = _lookup_blank_jms_site(blank_site_id)
-        auto_key_part = "".join(ch for ch in _clean_text(blank_site_id) if ch.isalnum()) or "empty"
         detail_bottom1, detail_bottom2 = st.columns(2)
         with detail_bottom1:
-            st.text_input(
-                "SITE NAME",
-                value=blank_site_name,
-                disabled=True,
-                key=f"jmspage_blank_site_name_auto_{active_key}_{auto_key_part}"
-            )
+            _readonly_detail_box("SITE NAME", blank_site_name)
         with detail_bottom2:
-            st.text_input(
-                "CLUSTER",
-                value=blank_cluster,
-                disabled=True,
-                key=f"jmspage_blank_cluster_auto_{active_key}_{auto_key_part}"
-            )
+            _readonly_detail_box("CLUSTER", blank_cluster)
 
         if _clean_text(blank_site_id):
             if blank_site_name or blank_cluster:
@@ -768,7 +778,8 @@ def jms_dialog(row_data):
     else:
         st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
     if is_blank_jms:
-        circle = st.text_input("CIRCLE", value="M&G", disabled=True, key=f"jmspage_circle_{active_key}")
+        circle = "M&G"
+        _readonly_detail_box("CIRCLE", circle)
     else:
         circle = st.text_input("Circle", key=f"jmspage_circle_{active_key}")
 
