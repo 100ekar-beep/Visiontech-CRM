@@ -796,6 +796,11 @@ def jms_dialog(row_data):
 
     st.markdown("#### Manual JMS Line Items" if is_blank_jms else "#### PO / Saved JMS Line Items")
     if st.session_state.jmspage_lines:
+        if is_blank_jms:
+            # Blank JMS means Qty must stay strictly empty in UI, saved draft and PDF.
+            for blank_line in st.session_state.jmspage_lines:
+                blank_line["qty"] = None
+                blank_line["qty_manual"] = True
         editor_df = pd.DataFrame(st.session_state.jmspage_lines)
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
             if col not in editor_df.columns:
@@ -809,6 +814,7 @@ def jms_dialog(row_data):
         edited = st.data_editor(
             editor_df[["item_code", "item_description", "qty", "remarks"]],
             hide_index=True, use_container_width=True, num_rows="dynamic",
+            disabled=["qty"] if is_blank_jms else [],
             column_config={
                 "item_code": st.column_config.TextColumn("Item Code"),
                 "item_description": st.column_config.TextColumn("Item Description", width="large"),
@@ -817,20 +823,23 @@ def jms_dialog(row_data):
             }, key=f"jmspage_editor_{active_key}")
         edited_records = edited.to_dict("records")
         for item in edited_records:
-            raw_qty = _clean_text(item.get("qty"))
-            if raw_qty:
-                try:
-                    parsed_qty = float(raw_qty.replace(",", ""))
-                    item["qty"] = None if parsed_qty == 0 else parsed_qty
-                except ValueError:
-                    item["qty"] = None
-            else:
+            if is_blank_jms:
                 item["qty"] = None
+            else:
+                raw_qty = _clean_text(item.get("qty"))
+                if raw_qty:
+                    try:
+                        parsed_qty = float(raw_qty.replace(",", ""))
+                        item["qty"] = None if parsed_qty == 0 else parsed_qty
+                    except ValueError:
+                        item["qty"] = None
+                else:
+                    item["qty"] = None
             item["qty_manual"] = True
         st.session_state.jmspage_lines = edited_records
     else:
         if is_blank_jms:
-            st.info("Neeche Item Code select karke Qty manually enter kijiye.")
+            st.info("Neeche Item Code select kijiye. Blank JMS me Qty column khali rahega.")
         else:
             st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
 
@@ -844,9 +853,12 @@ def jms_dialog(row_data):
     add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jmspage_add_desc_{active_key}_{gen}")
     if master and add_code:
         st.caption(add_desc)
-    add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jmspage_add_qty_{active_key}_{gen}")
+    if is_blank_jms:
+        add_qty_raw = ""
+    else:
+        add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jmspage_add_qty_{active_key}_{gen}")
     if st.button("➕ Add New Item", use_container_width=True, key=f"jmspage_add_btn_{active_key}", disabled=not _clean_text(add_code)):
-        add_qty = _number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None
+        add_qty = None if is_blank_jms else (_number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None)
         st.session_state.jmspage_lines.append({"item_code": add_code, "item_description": add_desc, "qty": None if add_qty == 0 else add_qty, "qty_manual": True, "remarks": ""})
         st.session_state.jmspage_add_gen += 1
         st.rerun()
