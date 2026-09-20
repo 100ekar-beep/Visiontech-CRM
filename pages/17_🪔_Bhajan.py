@@ -516,7 +516,7 @@ with logout_col:
         st.session_state["bhajan_authenticated"] = False
         st.rerun()
 
-tab_library, tab_add = st.tabs(["📚 सभी भजन", "➕ नया भजन"])
+tab_index, tab_library, tab_add = st.tabs(["🔎 भजन Index", "📚 सभी भजन", "➕ नया भजन"])
 
 with tab_add:
     existing_categories = fetch_existing_categories()
@@ -566,6 +566,77 @@ with tab_add:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Save error: {exc}")
+
+with tab_index:
+    try:
+        index_rows = fetch_bhajans()
+    except Exception as exc:
+        st.error(f"Bhajan Index load नहीं हुआ: {exc}")
+        index_rows = []
+
+    index_categories = sorted(
+        {str(x.get("category", "")).strip() for x in index_rows if x.get("category")},
+        key=str.casefold,
+    )
+
+    st.markdown("### 📖 भजन Index")
+    st.caption("भजन का नाम, Category या भजन की कोई पंक्ति लिखकर खोजें।")
+
+    idx_search_col, idx_category_col, idx_refresh_col = st.columns([5, 3, 1])
+    with idx_search_col:
+        index_query = st.text_input(
+            "Index Search",
+            placeholder="🔍 भजन खोजें...",
+            label_visibility="collapsed",
+            key="bhajan_index_search",
+        )
+    with idx_category_col:
+        index_category = st.selectbox(
+            "Index Category",
+            ["सभी Categories"] + index_categories,
+            label_visibility="collapsed",
+            key="bhajan_index_category",
+        )
+    with idx_refresh_col:
+        if st.button("🔄", key="refresh_bhajan_index", help="Refresh Index", use_container_width=True):
+            clear_cache()
+            st.rerun()
+
+    index_filtered = index_rows
+    if index_category != "सभी Categories":
+        index_filtered = [x for x in index_filtered if x.get("category") == index_category]
+    if index_query.strip():
+        index_needle = index_query.strip().casefold()
+        index_filtered = [
+            x for x in index_filtered
+            if index_needle in str(x.get("title", "")).casefold()
+            or index_needle in str(x.get("category", "")).casefold()
+            or index_needle in str(x.get("lyrics", "")).casefold()
+        ]
+
+    st.markdown(f"**मिले हुए भजन: {len(index_filtered)} / {len(index_rows)}**")
+
+    if not index_filtered:
+        st.info("इस Search में कोई भजन नहीं मिला।")
+    else:
+        head_no, head_title, head_category, head_action = st.columns([0.7, 4.6, 2.7, 1.3])
+        head_no.markdown("**क्र.**")
+        head_title.markdown("**भजन का नाम**")
+        head_category.markdown("**Category**")
+        head_action.markdown("**Action**")
+
+        for serial_no, row in enumerate(index_filtered, start=1):
+            no_col, name_col, cat_col, open_col = st.columns([0.7, 4.6, 2.7, 1.3])
+            no_col.markdown(f"**{serial_no}.**")
+            name_col.markdown(f"🪔 {html.escape(str(row.get('title', '')))}")
+            cat_col.markdown(html.escape(str(row.get("category", ""))))
+            if open_col.button(
+                "📖 खोलें",
+                key=f"index_open_{row['id']}",
+                use_container_width=True,
+            ):
+                view_bhajan(row)
+            st.divider()
 
 with tab_library:
     try:
