@@ -715,12 +715,35 @@ def add_mrn_dialog():
         for idx, item_row in df_display.iterrows():
             rcols = st.columns(ROW_RATIOS)
             qty_key = f"mrn_row_qty_{po}_{idx}"
+            qty_box_key = f"mrn_qtybox_{po}_{idx}"
+
+            # 🟢 Read the CURRENT value before creating the widget (Streamlit
+            # already applied any just-typed edit to session_state before
+            # this rerun starts), so we know whether to highlight the box
+            # in the SAME render as the widget itself — not one run late.
+            pre_qty = float(st.session_state.get(qty_key, 0.0) or 0.0)
+            is_filled = pre_qty > 0
+
+            # Scoped CSS for just this one Qty box: green border/background,
+            # bold green digits, when it has a value > 0.
+            if is_filled:
+                st.markdown(f"""
+                    <style>
+                    .st-key-{qty_box_key} input {{
+                        background-color: rgba(34, 197, 94, 0.15) !important;
+                        border: 1.5px solid #22c55e !important;
+                        color: #22c55e !important;
+                        font-weight: 800 !important;
+                    }}
+                    </style>
+                """, unsafe_allow_html=True)
 
             with rcols[6]:
-                current_qty = st.number_input(
-                    "Qty", min_value=0.0, step=0.01, format="%.2f",
-                    key=qty_key, label_visibility="collapsed"
-                )
+                with st.container(key=qty_box_key):
+                    current_qty = st.number_input(
+                        "Qty", min_value=0.0, step=0.01, format="%.2f",
+                        key=qty_key, label_visibility="collapsed"
+                    )
             row_qtys.append(float(current_qty))
 
             # 🟢 Bold + green as soon as a Qty is entered for this row.
@@ -729,9 +752,15 @@ def add_mrn_dialog():
 
             line_total = float(current_qty) * float(item_row["Adjusted Price"])
 
+            # Only the first 60 words of the description are shown inline;
+            # the full text is still available on hover (title attribute).
+            full_desc = str(item_row["Item Description"])
+            desc_words = full_desc.split()
+            desc_display = " ".join(desc_words[:60]) + ("…" if len(desc_words) > 60 else "")
+
             rcols[0].markdown(f"<div style='{cell_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
             rcols[1].markdown(f"<div style='{cell_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
-            rcols[2].markdown(f"<div style='{cell_style}' title=\"{item_row['Item Description']}\">{item_row['Item Description']}</div>", unsafe_allow_html=True)
+            rcols[2].markdown(f"<div style='{cell_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
             rcols[3].markdown(f"<div style='{cell_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
             rcols[4].markdown(f"<div style='{cell_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
             rcols[5].markdown(f"<div style='{cell_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
