@@ -673,105 +673,141 @@ def add_mrn_dialog():
     ROW_RATIOS = [0.6, 1.1, 2.6, 0.7, 0.7, 0.9, 0.9, 1.0, 1.0]
     ROW_LABELS = ["LINE", "ITEM CODE", "DESCRIPTION", "PO QTY", "WCC QTY", "AVAIL QTY", "USER QTY", "PRICE", "TOTAL"]
 
-    for po in selected_pos:
-        st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
-        
-        df_po = preview_po_dfs.get(po)
-        if df_po is None:
-            df_po = fetch_po_line_items(po, site_id, selected_proj)
-        
-        if df_po.empty:
-            st.info(f"No line items found in PO Working for PO: {po}")
-            continue
+    # ---> 🟢 FIX: every Qty box typed into was causing a FULL script rerun
+    # (Streamlit's normal behavior for any widget outside a form). With many
+    # rows across multiple POs, that meant dozens of reruns while filling
+    # in an MRN — and on this particular deployment, those repeated reruns
+    # were what made the dialog unstable/close. Wrapping all the Qty inputs
+    # in one st.form stops Streamlit from rerunning on every keystroke —
+    # NOTHING happens until the "Apply Quantities" button below is clicked,
+    # which then causes exactly ONE rerun with every entered value applied
+    # together. Trade-off: the bold/green highlight and running totals only
+    # refresh at that point, not live per keystroke — but that's the
+    # correct trade for stability here. <---
+    with st.form(key="mrn_qty_form", border=False):
+        for po in selected_pos:
+            st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
             
-        df_display = pd.DataFrame()
-        df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
-        df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
-        df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
-        
-        raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
-        raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
-        
-        df_display["PO Qty"] = raw_po_qty
+            df_po = preview_po_dfs.get(po)
+            if df_po is None:
+                df_po = fetch_po_line_items(po, site_id, selected_proj)
+            
+            if df_po.empty:
+                st.info(f"No line items found in PO Working for PO: {po}")
+                continue
+                
+            df_display = pd.DataFrame()
+            df_display["PO Line No"] = df_po.get("Line Number", [""]*len(df_po))
+            df_display["Item Code"] = df_po.get("Item Num", [""]*len(df_po))
+            df_display["Item Description"] = df_po.get("Description", [""]*len(df_po))
+            
+            raw_po_qty = pd.to_numeric(df_po.get("PO Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+            raw_used_qty = pd.to_numeric(df_po.get("Used Qty", [0]*len(df_po)), errors='coerce').fillna(0)
+            
+            df_display["PO Qty"] = raw_po_qty
 
-        raw_wcc_qty = pd.to_numeric(df_po.get("wcc_qty", [0]*len(df_po)), errors='coerce').fillna(0)
-        df_display["WCC Qty"] = raw_wcc_qty
+            raw_wcc_qty = pd.to_numeric(df_po.get("wcc_qty", [0]*len(df_po)), errors='coerce').fillna(0)
+            df_display["WCC Qty"] = raw_wcc_qty
 
-        df_display["Available Qty"] = raw_po_qty - raw_used_qty
-        
-        original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
-        df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
-        
-        df_display = df_display.reset_index(drop=True)
+            df_display["Available Qty"] = raw_po_qty - raw_used_qty
+            
+            original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
+            df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
+            
+            df_display = df_display.reset_index(drop=True)
 
-        h_cols = st.columns(ROW_RATIOS)
-        for h_col, label in zip(h_cols, ROW_LABELS):
-            h_col.markdown(
-                f"<div style='color:#94a3b8; font-weight:800; font-size:0.72rem; letter-spacing:0.6px; text-transform:uppercase;'>{label}</div>",
-                unsafe_allow_html=True
-            )
+            h_cols = st.columns(ROW_RATIOS)
+            for h_col, label in zip(h_cols, ROW_LABELS):
+                h_col.markdown(
+                    f"<div style='color:#94a3b8; font-weight:800; font-size:0.72rem; letter-spacing:0.6px; text-transform:uppercase;'>{label}</div>",
+                    unsafe_allow_html=True
+                )
 
-        row_qtys = []
-        for idx, item_row in df_display.iterrows():
-            rcols = st.columns(ROW_RATIOS)
-            qty_key = f"mrn_row_qty_{po}_{idx}"
-            qty_box_key = f"mrn_qtybox_{po}_{idx}"
+            row_qtys = []
+            for idx, item_row in df_display.iterrows():
+                qty_key = f"mrn_row_qty_{po}_{idx}"
+                qty_box_key = f"mrn_qtybox_{po}_{idx}"
 
-            # 🟢 Read the CURRENT value before creating the widget (Streamlit
-            # already applied any just-typed edit to session_state before
-            # this rerun starts), so we know whether to highlight the box
-            # in the SAME render as the widget itself — not one run late.
-            pre_qty = float(st.session_state.get(qty_key, 0.0) or 0.0)
-            is_filled = pre_qty > 0
+                # 🟢 Read the CURRENT value before creating the widget — this
+                # reflects the value from the LAST form submission (since
+                # widgets inside a form don't update session_state until
+                # submit), used to decide the highlight for this render.
+                pre_qty = float(st.session_state.get(qty_key, 0.0) or 0.0)
+                is_filled = pre_qty > 0
 
-            # Scoped CSS for just this one Qty box: green border/background,
-            # bold green digits, when it has a value > 0.
-            if is_filled:
-                st.markdown(f"""
-                    <style>
-                    .st-key-{qty_box_key} input {{
-                        background-color: rgba(34, 197, 94, 0.15) !important;
-                        border: 1.5px solid #22c55e !important;
-                        color: #22c55e !important;
-                        font-weight: 800 !important;
-                    }}
-                    </style>
-                """, unsafe_allow_html=True)
+                # Scoped CSS for just this one Qty box: green border/background,
+                # bold green digits, when it has a value > 0.
+                if is_filled:
+                    st.markdown(f"""
+                        <style>
+                        .st-key-{qty_box_key} input {{
+                            background-color: rgba(34, 197, 94, 0.15) !important;
+                            border: 1.5px solid #22c55e !important;
+                            color: #22c55e !important;
+                            font-weight: 800 !important;
+                        }}
+                        </style>
+                    """, unsafe_allow_html=True)
 
-            with rcols[6]:
-                with st.container(key=qty_box_key):
-                    current_qty = st.number_input(
-                        "Qty", min_value=0.0, step=0.01, format="%.2f",
-                        key=qty_key, label_visibility="collapsed"
+                # 🟢 Each item now sits inside its OWN bordered box (one visual
+                # "card" per row) — before this, a long description wrapped
+                # across 5-6 lines and visually blended into the next item with
+                # no clear boundary. The border makes every row's boundary
+                # obvious no matter how long the text is.
+                with st.container(border=True):
+                    rcols = st.columns(ROW_RATIOS)
+
+                    with rcols[6]:
+                        with st.container(key=qty_box_key):
+                            current_qty = st.number_input(
+                                "Qty", min_value=0.0, step=0.01, format="%.2f",
+                                key=qty_key, label_visibility="collapsed"
+                            )
+                    row_qtys.append(float(current_qty))
+
+                    # 🟢 Bold + green as soon as a Qty is entered for this row.
+                    is_filled = current_qty > 0
+                    # white-space:nowrap + text-overflow:ellipsis forces this
+                    # cell to stay on a SINGLE line, however long the text is —
+                    # the row height never grows, and every row lines up evenly
+                    # instead of some rows being 1 line and others 6 lines tall.
+                    cell_style = (
+                        "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; "
+                        + ("color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;")
                     )
-            row_qtys.append(float(current_qty))
 
-            # 🟢 Bold + green as soon as a Qty is entered for this row.
-            is_filled = current_qty > 0
-            cell_style = "color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;"
+                    line_total = float(current_qty) * float(item_row["Adjusted Price"])
 
-            line_total = float(current_qty) * float(item_row["Adjusted Price"])
+                    # Only the first 60 words of the description are kept in the
+                    # DOM at all; the full text is still available on hover
+                    # (title attribute). Combined with the single-line CSS above,
+                    # most descriptions will show an ellipsis well before even
+                    # reaching the 60-word mark — hover to read the rest.
+                    full_desc = str(item_row["Item Description"])
+                    desc_words = full_desc.split()
+                    desc_display = " ".join(desc_words[:60]) + ("…" if len(desc_words) > 60 else "")
 
-            # Only the first 60 words of the description are shown inline;
-            # the full text is still available on hover (title attribute).
-            full_desc = str(item_row["Item Description"])
-            desc_words = full_desc.split()
-            desc_display = " ".join(desc_words[:60]) + ("…" if len(desc_words) > 60 else "")
+                    rcols[0].markdown(f"<div style='{cell_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div style='{cell_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div style='{cell_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div style='{cell_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div style='{cell_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(f"<div style='{cell_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[7].markdown(f"<div style='{cell_style}'>₹ {item_row['Adjusted Price']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[8].markdown(f"<div style='{cell_style}'>₹ {line_total:,.2f}</div>", unsafe_allow_html=True)
 
-            rcols[0].markdown(f"<div style='{cell_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
-            rcols[1].markdown(f"<div style='{cell_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
-            rcols[2].markdown(f"<div style='{cell_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
-            rcols[3].markdown(f"<div style='{cell_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div style='{cell_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div style='{cell_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div style='{cell_style}'>₹ {item_row['Adjusted Price']:.2f}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div style='{cell_style}'>₹ {line_total:,.2f}</div>", unsafe_allow_html=True)
+            df_display["User Qty"] = row_qtys
+            df_display["Line Total"] = df_display["User Qty"] * df_display["Adjusted Price"]
 
-        df_display["User Qty"] = row_qtys
-        df_display["Line Total"] = df_display["User Qty"] * df_display["Adjusted Price"]
+            grand_basic_total += float(df_display["Line Total"].sum())
+            all_po_dfs[po] = df_display
 
-        grand_basic_total += float(df_display["Line Total"].sum())
-        all_po_dfs[po] = df_display
+        if selected_pos:
+            st.form_submit_button(
+                "✅ Apply Quantities (Recalculate Totals)",
+                use_container_width=True, type="primary"
+            )
+            st.caption("Sab items ka Qty daalne ke baad ye button dabao — page sirf ek hi baar refresh hoga, har box par nahi.")
 
     # Extra payable items which are not part of this site's selected PO(s).
     st.markdown('<div class="modal-section-title">➕ ADD ITEM NOT AVAILABLE IN PO</div>', unsafe_allow_html=True)
