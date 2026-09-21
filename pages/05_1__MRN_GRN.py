@@ -790,16 +790,26 @@ def add_mrn_dialog():
                     # instead of being cut off with "…" after a few
                     # characters — the full (up to 60-word) text is visible,
                     # not just whatever fits on one line.
-                    wrap_style = "white-space:normal; overflow-wrap:break-word; word-break:break-word; display:block; " + color_style
+                    # 🟢 FIX: word-count alone doesn't control how much
+                    # SPACE the text takes once it wraps — a 34-word
+                    # description can still wrap to 6 lines in a narrow
+                    # column. This CSS line-clamp caps the description to
+                    # exactly 2 visible lines no matter how many words it
+                    # has, with "…" added automatically by the browser.
+                    wrap_style = (
+                        "display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; "
+                        "overflow:hidden; white-space:normal; overflow-wrap:break-word; word-break:break-word; "
+                        + color_style
+                    )
 
                     line_total = float(current_qty) * float(item_row["Adjusted Price"])
 
-                    # Only the first 60 words of the description are kept in the
-                    # DOM at all; the full text is still available on hover
-                    # (title attribute) in case it's cut off at exactly 60 words.
+                    # 🟢 FIX: switched to character-count truncation (like
+                    # Excel's =LEFT(text, 80)) instead of word-count — takes
+                    # exactly the first 80 characters (letters + spaces
+                    # counted one by one), not the first 80 words.
                     full_desc = str(item_row["Item Description"])
-                    desc_words = full_desc.split()
-                    desc_display = " ".join(desc_words[:80]) + ("…" if len(desc_words) > 80 else "")
+                    desc_display = full_desc[:80] + ("…" if len(full_desc) > 80 else "")
 
                     rcols[0].markdown(f"<div style='{single_line_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
                     rcols[1].markdown(f"<div style='{single_line_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
