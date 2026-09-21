@@ -103,6 +103,17 @@ st.markdown("""
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
     /* FIXED HORIZONTAL SCROLLING DATA TABLE */
+    /* 🟢 MRN "Add New MRN" dialog: each PO line item is rendered in its own
+       st.container(border=True, key=f"mrn_rowcard_{po}_{idx}") box. The
+       keys are different for every row, so instead of one CSS rule per
+       row we match on a shared PREFIX in the class name — Streamlit adds
+       a class like "st-key-mrn_rowcard_<po>_<idx>" to each one, and
+       [class*="..."] matches any class containing that substring. */
+    div[class*="st-key-mrn_rowcard_"] {
+        border: 1.5px solid rgba(255, 255, 255, 0.55) !important;
+        border-radius: 8px !important;
+    }
+
     .st-key-site_table_wrap {
         background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
         overflow: auto !important; padding: 0px 0 !important;
@@ -753,8 +764,12 @@ def add_mrn_dialog():
                 # "card" per row) — before this, a long description wrapped
                 # across 5-6 lines and visually blended into the next item with
                 # no clear boundary. The border makes every row's boundary
-                # obvious no matter how long the text is.
-                with st.container(border=True):
+                # obvious no matter how long the text is. Given a `key`, so
+                # we can target it with CSS and make the border clearly
+                # visible (bright white) instead of Streamlit's default
+                # faint grey.
+                row_card_key = f"mrn_rowcard_{po}_{idx}"
+                with st.container(border=True, key=row_card_key):
                     rcols = st.columns(ROW_RATIOS)
 
                     with rcols[6]:
@@ -767,34 +782,33 @@ def add_mrn_dialog():
 
                     # 🟢 Bold + green as soon as a Qty is entered for this row.
                     is_filled = current_qty > 0
-                    # white-space:nowrap + text-overflow:ellipsis forces this
-                    # cell to stay on a SINGLE line, however long the text is —
-                    # the row height never grows, and every row lines up evenly
-                    # instead of some rows being 1 line and others 6 lines tall.
-                    cell_style = (
-                        "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; "
-                        + ("color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;")
-                    )
+                    color_style = "color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;"
+                    # Short columns (line no, item code, qty numbers, price,
+                    # total) stay on a single line — they're always short.
+                    single_line_style = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; " + color_style
+                    # 🟢 FIX: Description now WRAPS onto multiple lines
+                    # instead of being cut off with "…" after a few
+                    # characters — the full (up to 60-word) text is visible,
+                    # not just whatever fits on one line.
+                    wrap_style = "white-space:normal; overflow-wrap:break-word; word-break:break-word; display:block; " + color_style
 
                     line_total = float(current_qty) * float(item_row["Adjusted Price"])
 
                     # Only the first 60 words of the description are kept in the
                     # DOM at all; the full text is still available on hover
-                    # (title attribute). Combined with the single-line CSS above,
-                    # most descriptions will show an ellipsis well before even
-                    # reaching the 60-word mark — hover to read the rest.
+                    # (title attribute) in case it's cut off at exactly 60 words.
                     full_desc = str(item_row["Item Description"])
                     desc_words = full_desc.split()
                     desc_display = " ".join(desc_words[:60]) + ("…" if len(desc_words) > 60 else "")
 
-                    rcols[0].markdown(f"<div style='{cell_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div style='{cell_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div style='{cell_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div style='{cell_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
-                    rcols[4].markdown(f"<div style='{cell_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
-                    rcols[5].markdown(f"<div style='{cell_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
-                    rcols[7].markdown(f"<div style='{cell_style}'>₹ {item_row['Adjusted Price']:.2f}</div>", unsafe_allow_html=True)
-                    rcols[8].markdown(f"<div style='{cell_style}'>₹ {line_total:,.2f}</div>", unsafe_allow_html=True)
+                    rcols[0].markdown(f"<div style='{single_line_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div style='{single_line_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div style='{wrap_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div style='{single_line_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div style='{single_line_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(f"<div style='{single_line_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[7].markdown(f"<div style='{single_line_style}'>₹ {item_row['Adjusted Price']:.2f}</div>", unsafe_allow_html=True)
+                    rcols[8].markdown(f"<div style='{single_line_style}'>₹ {line_total:,.2f}</div>", unsafe_allow_html=True)
 
             df_display["User Qty"] = row_qtys
             df_display["Line Total"] = df_display["User Qty"] * df_display["Adjusted Price"]
