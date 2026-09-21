@@ -655,6 +655,24 @@ def add_mrn_dialog():
     grand_basic_total = 0.0
     all_po_dfs = {}
     
+    # ---> 🟢 REWRITE: manual per-row rendering instead of st.data_editor. <---
+    # Two reasons:
+    #  1) st.data_editor inside an st.dialog is known (across several
+    #     Streamlit versions) to sometimes silently close the whole dialog
+    #     the moment a cell is edited — no error shown, the popup just
+    #     vanishes and all progress is lost. Plain widgets (number_input)
+    #     inside a dialog don't have this problem.
+    #  2) st.data_editor / st.dataframe have no supported way to colour a
+    #     SPECIFIC row conditionally (Styler-based row highlighting isn't
+    #     supported inside an editable grid). Rendering each row manually
+    #     with st.columns + st.markdown lets us bold+green any row the
+    #     user has put a Qty against, live, as they type.
+    # A nice side effect: since each Qty box is a normal st.number_input
+    # with a stable key, Streamlit remembers its value across reruns on
+    # its own — no more manual qty_store/session_state bookkeeping needed.
+    ROW_RATIOS = [0.6, 1.1, 2.6, 0.7, 0.7, 0.9, 0.9, 1.0, 1.0]
+    ROW_LABELS = ["LINE", "ITEM CODE", "DESCRIPTION", "PO QTY", "WCC QTY", "AVAIL QTY", "USER QTY", "PRICE", "TOTAL"]
+
     for po in selected_pos:
         st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
         
@@ -680,66 +698,51 @@ def add_mrn_dialog():
         df_display["WCC Qty"] = raw_wcc_qty
 
         df_display["Available Qty"] = raw_po_qty - raw_used_qty
-        df_display["User Qty"] = 0.0
         
         original_price = pd.to_numeric(df_po.get("Price", [0]*len(df_po)), errors='coerce').fillna(0)
         df_display["Adjusted Price"] = original_price * (team_percent / 100.0)
-        df_display["Line Total"] = 0.0
         
         df_display = df_display.reset_index(drop=True)
-        
-        editor_state_key = f"mrn_editor_curkey_{po}"
-        qty_store_key = f"mrn_qty_store_{po}"
-        if qty_store_key not in st.session_state:
-            st.session_state[qty_store_key] = {}
-        
-        # Keep one permanent widget key for this PO.  Earlier this key contained
-        # a hash of User Qty, so every edit created a brand-new data_editor and
-        # Streamlit moved the cursor/focus out of the quantity cell.
-        editor_key = f"editor_mrn_{po}"
-        current_key = st.session_state.get(editor_state_key, editor_key)
-        if current_key in st.session_state and st.session_state[current_key].get("edited_rows"):
-            for row_idx, changes in st.session_state[current_key]["edited_rows"].items():
-                if "User Qty" in changes:
-                    st.session_state[qty_store_key][int(row_idx)] = changes["User Qty"]
-        
-        for row_idx, qty_val in st.session_state[qty_store_key].items():
-            if row_idx in df_display.index:
-                df_display.at[row_idx, "User Qty"] = qty_val
-        
-        df_display["Line Total"] = (
-            pd.to_numeric(df_display["User Qty"], errors='coerce').fillna(0) * df_display["Adjusted Price"]
-        )
-        
-        st.session_state[editor_state_key] = editor_key
-        
-        edited_df = st.data_editor(
-            df_display,
-            key=editor_key,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "PO Line No": st.column_config.TextColumn("LINE NO", disabled=True),
-                "Item Code": st.column_config.TextColumn("ITEM CODE", disabled=True),
-                "Item Description": st.column_config.TextColumn("DESCRIPTION", disabled=True, width="large"),
-                "PO Qty": st.column_config.NumberColumn("PO QTY", disabled=True, format="%.2f"),
-                "WCC Qty": st.column_config.NumberColumn("WCC QTY", disabled=True, format="%.2f"),
-                "Available Qty": st.column_config.NumberColumn("AVAILABLE QTY", disabled=True, format="%.2f"),
-                "User Qty": st.column_config.NumberColumn("USER QTY", min_value=0.0, step=0.01, format="%.2f", required=True),
-                "Adjusted Price": st.column_config.NumberColumn(f"PRICE ({team_percent}%)", disabled=True, format="₹ %.2f"),
-                "Line Total": st.column_config.NumberColumn("TOTAL", disabled=True, format="₹ %.2f"),
-            }
-        )
-        
-        for idx, r in edited_df.iterrows():
-            u_qty = pd.to_numeric(r["User Qty"], errors='coerce')
-            u_qty = 0.0 if pd.isna(u_qty) else float(u_qty)
-            rate = float(r["Adjusted Price"])
-            tot = u_qty * rate
-            edited_df.at[idx, "Line Total"] = tot
-            grand_basic_total += tot
-            
-        all_po_dfs[po] = edited_df
+
+        h_cols = st.columns(ROW_RATIOS)
+        for h_col, label in zip(h_cols, ROW_LABELS):
+            h_col.markdown(
+                f"<div style='color:#94a3b8; font-weight:800; font-size:0.72rem; letter-spacing:0.6px; text-transform:uppercase;'>{label}</div>",
+                unsafe_allow_html=True
+            )
+
+        row_qtys = []
+        for idx, item_row in df_display.iterrows():
+            rcols = st.columns(ROW_RATIOS)
+            qty_key = f"mrn_row_qty_{po}_{idx}"
+
+            with rcols[6]:
+                current_qty = st.number_input(
+                    "Qty", min_value=0.0, step=0.01, format="%.2f",
+                    key=qty_key, label_visibility="collapsed"
+                )
+            row_qtys.append(float(current_qty))
+
+            # 🟢 Bold + green as soon as a Qty is entered for this row.
+            is_filled = current_qty > 0
+            cell_style = "color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;"
+
+            line_total = float(current_qty) * float(item_row["Adjusted Price"])
+
+            rcols[0].markdown(f"<div style='{cell_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
+            rcols[1].markdown(f"<div style='{cell_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
+            rcols[2].markdown(f"<div style='{cell_style}' title=\"{item_row['Item Description']}\">{item_row['Item Description']}</div>", unsafe_allow_html=True)
+            rcols[3].markdown(f"<div style='{cell_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(f"<div style='{cell_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
+            rcols[5].markdown(f"<div style='{cell_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
+            rcols[7].markdown(f"<div style='{cell_style}'>₹ {item_row['Adjusted Price']:.2f}</div>", unsafe_allow_html=True)
+            rcols[8].markdown(f"<div style='{cell_style}'>₹ {line_total:,.2f}</div>", unsafe_allow_html=True)
+
+        df_display["User Qty"] = row_qtys
+        df_display["Line Total"] = df_display["User Qty"] * df_display["Adjusted Price"]
+
+        grand_basic_total += float(df_display["Line Total"].sum())
+        all_po_dfs[po] = df_display
 
     # Extra payable items which are not part of this site's selected PO(s).
     st.markdown('<div class="modal-section-title">➕ ADD ITEM NOT AVAILABLE IN PO</div>', unsafe_allow_html=True)
@@ -910,7 +913,6 @@ def add_mrn_dialog():
                 # Save Header
                 supabase.table("mrn_data").insert(header_data).execute()
                 
-                # ---> Build the line items payload <---
                 items_to_insert = []
                 for po, d_df in all_po_dfs.items():
                     for _, row in d_df.iterrows():
@@ -941,18 +943,6 @@ def add_mrn_dialog():
                         "Total": float(item["Total"])
                     })
 
-                # ---> 🔴 CRITICAL FIX: the items-insert failure warning used to
-                # flash for a split second and then get wiped out by the
-                # unconditional st.rerun() at the end of this handler — the
-                # user (and dev) never actually got to read WHY items failed
-                # to save (e.g. an RLS policy block, a column mismatch, a
-                # NOT NULL violation). That's exactly why MRNs like
-                # MRN-133939 ended up with a header + billing amount but zero
-                # rows in mrn_items: the insert was silently failing every
-                # time. We now persist any failure into session_state and
-                # render it as a banner at the TOP of the page (see below,
-                # near the workspace banner) so it survives the rerun and
-                # can actually be seen and diagnosed. <---
                 items_saved_count = 0
                 if items_to_insert:
                     try:
@@ -960,10 +950,6 @@ def add_mrn_dialog():
                         items_saved_count = len(items_to_insert)
                         st.session_state.mrn_items_error_banner = None
                     except Exception as batch_err:
-                        # ---> Batch insert failed (e.g. one bad row's data made
-                        # Postgres reject the WHOLE batch). Retry one row at a
-                        # time instead of losing everything, so 12 good rows
-                        # aren't sacrificed for 1 bad one. <---
                         row_failures = []
                         for item in items_to_insert:
                             try:
@@ -985,18 +971,12 @@ def add_mrn_dialog():
                         else:
                             st.session_state.mrn_items_error_banner = None
                 else:
-                    # Nothing to insert at all — every row's User Qty came
-                    # through as 0/blank even though a Basic Amount was
-                    # computed. Surface this too, since it points to the
-                    # same class of bug (qty typed but not carried through
-                    # to the save step).
                     st.session_state.mrn_items_error_banner = {
                         "mrn_no": new_mrn_no,
                         "error": "No line items had a User Qty > 0 at save time, even though Basic Amount was non-zero. The typed quantities did not carry through to the save step.",
                         "attempted_count": 0,
                     }
 
-                # SEND TO PENDING_BILLING_INVOICES FOR APPROVAL
                 billing_payload = {
                     "workspace": st.session_state.get('active_workspace', 'VISPL'),
                     "invoice_type": "Team",
@@ -1026,10 +1006,12 @@ def add_mrn_dialog():
                     )
                 st.session_state.mrn_current_page = 1
                 fetch_mrn_data.clear()
+                # ---> Clean up the row-level Qty widget state for these POs
+                # so a future MRN on the same PO starts fresh (0 everywhere). <---
                 for _po in selected_pos:
-                    st.session_state.pop(f"mrn_qty_store_{_po}", None)
-                    st.session_state.pop(f"mrn_editor_curkey_{_po}", None)
-                    st.session_state.pop(f"editor_mrn_{_po}", None)
+                    for _key in list(st.session_state.keys()):
+                        if _key.startswith(f"mrn_row_qty_{_po}_"):
+                            st.session_state.pop(_key, None)
                 st.session_state.pop(extra_rows_key, None)
                 for _key in list(st.session_state.keys()):
                     if _key.startswith((
@@ -1073,10 +1055,6 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# ---> 🔴 NEW: persistent MRN line-items save-failure banner. This survives
-# the st.rerun() that follows MRN generation, so the actual Supabase error
-# (RLS policy block, column mismatch, NOT NULL violation, etc.) is visible
-# instead of flashing and disappearing. Stays until manually dismissed. <---
 if st.session_state.get('mrn_items_error_banner'):
     _err = st.session_state.mrn_items_error_banner
     st.error(
