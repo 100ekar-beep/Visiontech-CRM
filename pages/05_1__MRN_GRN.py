@@ -799,7 +799,7 @@ def add_mrn_dialog():
                     # (title attribute) in case it's cut off at exactly 60 words.
                     full_desc = str(item_row["Item Description"])
                     desc_words = full_desc.split()
-                    desc_display = " ".join(desc_words[:60]) + ("…" if len(desc_words) > 60 else "")
+                    desc_display = " ".join(desc_words[:80]) + ("…" if len(desc_words) > 80 else "")
 
                     rcols[0].markdown(f"<div style='{single_line_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
                     rcols[1].markdown(f"<div style='{single_line_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
