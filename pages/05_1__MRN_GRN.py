@@ -746,16 +746,18 @@ def add_mrn_dialog():
                 pre_qty = float(st.session_state.get(qty_key, 0.0) or 0.0)
                 is_filled = pre_qty > 0
 
-                # Scoped CSS for just this one Qty box: green border/background,
-                # bold green digits, when it has a value > 0.
+                # Scoped CSS for just this one Qty box: green border/background
+                # stays as a "filled" indicator, but the digits themselves are
+                # now black, bold, and centered for readability.
                 if is_filled:
                     st.markdown(f"""
                         <style>
                         .st-key-{qty_box_key} input {{
                             background-color: rgba(34, 197, 94, 0.15) !important;
                             border: 1.5px solid #22c55e !important;
-                            color: #22c55e !important;
+                            color: #000000 !important;
                             font-weight: 800 !important;
+                            text-align: center !important;
                         }}
                         </style>
                     """, unsafe_allow_html=True)
