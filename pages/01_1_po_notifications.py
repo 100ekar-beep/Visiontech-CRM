@@ -24,23 +24,42 @@
 ================================================================================
 """
 
+import os
 import streamlit as st
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
 # ==============================================================================
-# CONFIG  -- apni details yaha edit karo
+# CONFIG
 # ==============================================================================
-# 🟢 Same Supabase project the desktop app uses. For production, move these
-# into .streamlit/secrets.toml and read via st.secrets["SUPABASE_URL"] etc.
-SUPABASE_URL = "https://jddnuekuhjhoenmggmdj.supabase.co"
-SUPABASE_KEY = "sb_secret_mY2J2QcZEcGAMIy5PTIjsg_8V2Sl0jO"
+# 🟢 Key ab yaha hardcoded NAHI hai. Ye .streamlit/secrets.toml (ya, agar
+# wahan nahi mila, environment variables) se padhi jaati hai — isliye key
+# rotate/change karne pe is file ko touch nahi karna padega, aur GitHub pe
+# accidentally push/expose bhi nahi hogi.
+#
+# .streamlit/secrets.toml me (isi folder ke andar, jaha ye .py file hai):
+#
+#     SUPABASE_URL = "https://jddnuekuhjhoenmggmdj.supabase.co"
+#     SUPABASE_KEY = "yaha apni ABHI VALID wali secret/service_role key daalo"
+#
+# (secrets.toml ko .gitignore me daal do taaki wo kabhi GitHub pe na jaaye.)
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
 
 WORKSPACES = ["VISPL", "BHAGYASHREE"]
 
 TABLE_NAME = "po_notifications"
 
 st.set_page_config(page_title="PO Notification - Visiontech", page_icon="🔔", layout="wide")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error(
+        "❌ Supabase URL/Key configure nahi hai.\n\n"
+        "Is app ke folder me `.streamlit/secrets.toml` banao aur usme "
+        "SUPABASE_URL aur SUPABASE_KEY daalo (file ke top comment me exact "
+        "format diya hai)."
+    )
+    st.stop()
 
 
 @st.cache_resource
