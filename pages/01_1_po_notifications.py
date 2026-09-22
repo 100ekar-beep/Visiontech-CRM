@@ -9,9 +9,9 @@
  POs, last 1 month).
 
  Flow:
-   - User selects their Workspace (VISPL / BHAGYASHREE) and logs in with
-     that workspace's password. Each workspace only ever sees ITS OWN rows
-     (filtered by `workspace` column) — never the other company's data.
+   - User picks their Workspace (VISPL / BHAGYASHREE) from the sidebar —
+     no login/password. Data shown is always filtered by that workspace's
+     `workspace` column, so each company only sees its own rows.
    - Main page = "Open" view: every revised PO not yet closed. Each row has
      a "✅ Close" button — clicking it marks that row is_closed = True and
      it disappears from this page (moves to the Closed page).
@@ -36,12 +36,7 @@ from supabase import create_client, Client
 SUPABASE_URL = "https://jddnuekuhjhoenmggmdj.supabase.co"
 SUPABASE_KEY = "sb_secret_mY2J2QcZEcGAMIy5PTIjsg_8V2Sl0jO"
 
-# 🟢 Ek simple password per workspace — apni marzi ki strong password daal
-# lena. Isi se decide hota hai ki kaunsi company kaunsa data dekh sakti hai.
-WORKSPACE_LOGINS = {
-    "VISPL": "vispl@123",
-    "BHAGYASHREE": "bhagya@123",
-}
+WORKSPACES = ["VISPL", "BHAGYASHREE"]
 
 TABLE_NAME = "po_notifications"
 
@@ -57,36 +52,17 @@ supabase = get_supabase_client()
 
 
 # ==============================================================================
-# AUTH (simple, workspace-scoped)
+# SIDEBAR (workspace selector — no password/login)
 # ==============================================================================
-def render_login():
-    st.title("🔔 PO Notification — Login")
-    st.caption("Apna workspace select karke password daalein. Har workspace sirf apna hi data dekh sakta hai.")
-
-    with st.form("login_form"):
-        workspace = st.selectbox("🏢 Workspace", list(WORKSPACE_LOGINS.keys()))
-        password = st.text_input("🔑 Password", type="password")
-        submitted = st.form_submit_button("Login", use_container_width=True)
-
-    if submitted:
-        if WORKSPACE_LOGINS.get(workspace) == password:
-            st.session_state["workspace"] = workspace
-            st.rerun()
-        else:
-            st.error("❌ Password galat hai.")
-
-
-def render_logout_sidebar():
-    st.sidebar.markdown(f"### 🏢 {st.session_state['workspace']}")
-    if st.sidebar.button("🚪 Logout", use_container_width=True):
-        st.session_state.pop("workspace", None)
-        st.rerun()
+def render_sidebar():
+    st.sidebar.markdown("### 🏢 Workspace")
+    workspace = st.sidebar.selectbox("Select Workspace", WORKSPACES, label_visibility="collapsed")
     st.sidebar.divider()
     page = st.sidebar.radio("📄 Page", ["🔔 Open Notifications", "✅ Closed"], index=0)
     st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh", use_container_width=True):
         st.rerun()
-    return page
+    return workspace, page
 
 
 # ==============================================================================
@@ -200,12 +176,7 @@ def render_closed_page(workspace):
 # MAIN
 # ==============================================================================
 def main():
-    if "workspace" not in st.session_state:
-        render_login()
-        return
-
-    workspace = st.session_state["workspace"]
-    page = render_logout_sidebar()
+    workspace, page = render_sidebar()
 
     if page == "🔔 Open Notifications":
         render_open_page(workspace)
