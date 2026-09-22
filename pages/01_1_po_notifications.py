@@ -32,19 +32,21 @@ from supabase import create_client, Client
 # ==============================================================================
 # CONFIG
 # ==============================================================================
-# 🟢 Key ab yaha hardcoded NAHI hai. Ye .streamlit/secrets.toml (ya, agar
-# wahan nahi mila, environment variables) se padhi jaati hai — isliye key
-# rotate/change karne pe is file ko touch nahi karna padega, aur GitHub pe
-# accidentally push/expose bhi nahi hogi.
+# 🟢 Key ab yaha hardcoded NAHI hai. Ye st.secrets se aati hai, isi format me
+# jo already aapke doosre Streamlit pages (share.streamlit.io) me use ho raha
+# hai:
 #
-# .streamlit/secrets.toml me (isi folder ke andar, jaha ye .py file hai):
+#     [supabase]
+#     url = "https://jddnuekuhjhoenmggmdj.supabase.co"
+#     key = "yaha apni ABHI VALID wali secret/service_role key"
 #
-#     SUPABASE_URL = "https://jddnuekuhjhoenmggmdj.supabase.co"
-#     SUPABASE_KEY = "yaha apni ABHI VALID wali secret/service_role key daalo"
-#
-# (secrets.toml ko .gitignore me daal do taaki wo kabhi GitHub pe na jaaye.)
-SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
-SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
+# Agar ye page usi existing Streamlit Cloud app me add ho raha hai jaha ye
+# secrets pehle se saved hain, to kuch bhi naya banane ki zaroorat nahi.
+# Local testing ke liye, apne is app ke folder me .streamlit/secrets.toml
+# banao aur upar wala [supabase] block usme paste kar do.
+_supabase_secrets = st.secrets.get("supabase", {})
+SUPABASE_URL = _supabase_secrets.get("url") or st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
+SUPABASE_KEY = _supabase_secrets.get("key") or st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
 
 WORKSPACES = ["VISPL", "BHAGYASHREE"]
 
