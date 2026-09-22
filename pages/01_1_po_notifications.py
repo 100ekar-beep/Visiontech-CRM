@@ -52,16 +52,93 @@ supabase = get_supabase_client()
 
 
 # ==============================================================================
-# SIDEBAR (workspace selector — no password/login)
+# SIDEBAR STYLE  (rounded card-style nav buttons, matches the rest of the app)
 # ==============================================================================
+SIDEBAR_NAV_CSS = """
+<style>
+section[data-testid="stSidebar"] div.stButton > button {
+    width: 100%;
+    text-align: left;
+    background-color: #1b1d2e;
+    color: #d6d6e0;
+    border: 1px solid #2a2d40;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    box-shadow: none;
+    transition: all 0.15s ease-in-out;
+}
+section[data-testid="stSidebar"] div.stButton > button:hover {
+    background-color: #262a40;
+    color: #ffffff;
+    border-color: #3b3f58;
+}
+section[data-testid="stSidebar"] div.stButton > button:focus:not(:active) {
+    color: inherit;
+}
+</style>
+"""
+
+ACTIVE_NAV_CSS_TEMPLATE = """
+<style>
+section[data-testid="stSidebar"] div.stButton:nth-of-type({idx}) > button {{
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    color: #ffffff !important;
+    border: none;
+}}
+section[data-testid="stSidebar"] div.stButton:nth-of-type({idx}) > button:hover {{
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    color: #ffffff !important;
+}}
+</style>
+"""
+
+
+def get_count(workspace, is_closed):
+    try:
+        res = (
+            supabase.table(TABLE_NAME)
+            .select("id", count="exact")
+            .eq("workspace", workspace)
+            .eq("is_closed", is_closed)
+            .execute()
+        )
+        return res.count or 0
+    except Exception:
+        return 0
+
+
 def render_sidebar():
     st.sidebar.markdown("### 🏢 Workspace")
     workspace = st.sidebar.selectbox("Select Workspace", WORKSPACES, label_visibility="collapsed")
-    st.sidebar.divider()
-    page = st.sidebar.radio("📄 Page", ["🔔 Open Notifications", "✅ Closed"], index=0)
+    st.sidebar.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
+
+    open_count = get_count(workspace, is_closed=False)
+    closed_count = get_count(workspace, is_closed=True)
+
+    st.session_state.setdefault("nav_page", "open")
+
+    st.markdown(SIDEBAR_NAV_CSS, unsafe_allow_html=True)
+
+    if st.sidebar.button(f"🔔  {open_count} Open Notification{'s' if open_count != 1 else ''}",
+                          use_container_width=True, key="nav_open_btn"):
+        st.session_state["nav_page"] = "open"
+        st.rerun()
+
+    if st.sidebar.button(f"✅  {closed_count} Closed", use_container_width=True, key="nav_closed_btn"):
+        st.session_state["nav_page"] = "closed"
+        st.rerun()
+
+    active_idx = 1 if st.session_state["nav_page"] == "open" else 2
+    st.markdown(ACTIVE_NAV_CSS_TEMPLATE.format(idx=active_idx), unsafe_allow_html=True)
+
     st.sidebar.divider()
     if st.sidebar.button("🔄 Refresh", use_container_width=True):
         st.rerun()
+
+    page = "🔔 Open Notifications" if st.session_state["nav_page"] == "open" else "✅ Closed"
     return workspace, page
 
 
