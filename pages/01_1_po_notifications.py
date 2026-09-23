@@ -369,7 +369,7 @@ def _fetch_all_site_data_paginated(workspace):
     while True:
         res = (
             supabase.table("site_data")
-            .select("Project ID, Site ID, Site Name, RFAI Status")
+            .select('"Project ID","Site ID","Site Name","RFAI Status"')
             .eq("workspace", workspace)
             .range(offset, offset + limit - 1)
             .execute()
