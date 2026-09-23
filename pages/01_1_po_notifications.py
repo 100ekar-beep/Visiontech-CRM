@@ -1,172 +1,286 @@
 """
 ================================================================================
  VISIONTECH INFRA SOLUTION PVT. LTD.
- PO NOTIFICATION  —  Streamlit page
+ PO NOTIFICATION  —  Streamlit page (matches Site Data Hub's design system)
  --------------------------------------------------------------------------
+ IMPORTANT: save this file at exactly:
+     pages/15_🔔_PO_Notifications.py
+ (same folder structure as your other numbered pages), because Site Data
+ Hub navigates here with:
+     st.switch_page("pages/15_🔔_PO_Notifications.py")
+
  Reads/writes the Supabase table `po_notifications` (see
- supabase_po_notifications.sql). Data lands in that table from the desktop
- "PO & WCC Upload Software" app's new Notification tab (Rev Number > 0
- POs, last 1 month).
+ supabase_po_notifications.sql). Data lands there from the desktop "PO &
+ WCC Upload Software" app's Notification tab.
+
+ Workspace handling:
+   - If opened via the "🔔 Notifications" button on Site Data Hub, it
+     already set st.session_state['notification_workspace'] /
+     ['notification_company'] to match whichever company tab was active
+     there — this page picks that up automatically.
+   - If opened directly (e.g. from the sidebar), a VISPL / Bhagyashree
+     switcher bar (same style as Site Data Hub's company tabs) lets the
+     user pick.
 
  Flow:
-   - User picks their Workspace (VISPL / BHAGYASHREE) from the sidebar —
-     no login/password. Data shown is always filtered by that workspace's
-     `workspace` column, so each company only sees its own rows.
-   - Main page = "Open" view: every revised PO not yet closed. Each row has
-     a "✅ Close" button — clicking it marks that row is_closed = True and
-     it disappears from this page (moves to the Closed page).
-   - "Closed" page = history of everything you've already closed, with a
+   - "🔔 Open" tab (default): every revised PO not yet closed, each row
+     with a "✅ Close" button. Clicking it marks that row is_closed = True
+     and it moves to the Closed tab.
+   - "✅ Closed" tab: history of everything already closed, with a
      "↩️ Reopen" button in case something was closed by mistake.
-   - Next time the desktop app finds a NEW revision for a PO you already
+   - When the desktop app finds a NEW revision for a PO you already
      closed, that new revision inserts as a brand-new (open) row — so it
-     will show up here again, while your closed record for the old
-     revision stays in the Closed page untouched.
+     shows up in Open again, while your closed record for the old
+     revision stays untouched in Closed.
 ================================================================================
 """
 
-import os
 import streamlit as st
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
-# ==============================================================================
-# CONFIG
-# ==============================================================================
-# 🟢 Key ab yaha hardcoded NAHI hai. Ye st.secrets se aati hai, isi format me
-# jo already aapke doosre Streamlit pages (share.streamlit.io) me use ho raha
-# hai:
-#
-#     [supabase]
-#     url = "https://jddnuekuhjhoenmggmdj.supabase.co"
-#     key = "yaha apni ABHI VALID wali secret/service_role key"
-#
-# Agar ye page usi existing Streamlit Cloud app me add ho raha hai jaha ye
-# secrets pehle se saved hain, to kuch bhi naya banane ki zaroorat nahi.
-# Local testing ke liye, apne is app ke folder me .streamlit/secrets.toml
-# banao aur upar wala [supabase] block usme paste kar do.
-_supabase_secrets = st.secrets.get("supabase", {})
-SUPABASE_URL = _supabase_secrets.get("url") or st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
-SUPABASE_KEY = _supabase_secrets.get("key") or st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
-
-WORKSPACES = ["VISPL", "BHAGYASHREE"]
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(page_title="PO Notification - Visiontech", page_icon="🔔", layout="wide")
 
 TABLE_NAME = "po_notifications"
 
-st.set_page_config(page_title="PO Notification - Visiontech", page_icon="🔔", layout="wide")
+# --- WORKSPACE / COMPANY STATE (mirrors Site Data Hub) ---
+NOTIF_COMPANIES = [("VISPL", "VISPL"), ("Bhagyashree", "Bhagyashree")]
+NOTIF_COMPANY_WORKSPACE_MAP = {"VISPL": "VISPL", "Bhagyashree": "BHAGYASHREE"}
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error(
-        "❌ Supabase URL/Key configure nahi hai.\n\n"
-        "Is app ke folder me `.streamlit/secrets.toml` banao aur usme "
-        "SUPABASE_URL aur SUPABASE_KEY daalo (file ke top comment me exact "
-        "format diya hai)."
-    )
-    st.stop()
+if 'notification_company' not in st.session_state:
+    st.session_state.notification_company = "VISPL"
+if 'notification_workspace' not in st.session_state:
+    st.session_state.notification_workspace = NOTIF_COMPANY_WORKSPACE_MAP[st.session_state.notification_company]
+if 'notif_tab' not in st.session_state:
+    st.session_state.notif_tab = "open"
+
+# --- 2. LAVISH CUSTOM CSS (same design language as Site Data Hub) ---
+st.markdown("""
+    <style>
+    /* Light Premium Theme */
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+
+    /* Gradient action buttons everywhere (Refresh, tabs, Close/Reopen...) */
+    div.stButton > button {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+        color: white !important;
+        border: none;
+        border-radius: 8px;
+        font-weight: 800 !important;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
+    }
+    div.stButton > button p,
+    div.stButton > button span,
+    div.stButton > button div {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
+
+    /* =========================================================
+       PREMIUM SIDEBAR NAVIGATION (identical to other pages)
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important;
+        margin: 0.5rem 1rem !important;
+        border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        color: #cbd5e1 !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        color: #ffffff !important;
+        border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
+
+    /* =========================================================
+       WORKSPACE / TAB NAV BAR (VISPL / Bhagyashree AND Open / Closed)
+       — same segmented-button pattern as Site Data Hub's company bar
+       ========================================================= */
+    .st-key-notif_company_nav_bar div[data-testid="stHorizontalBlock"],
+    .st-key-notif_tab_nav_bar div[data-testid="stHorizontalBlock"] {
+        gap: 12px !important; flex-wrap: wrap !important;
+    }
+    .st-key-notif_company_nav_bar button,
+    .st-key-notif_tab_nav_bar button {
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 14px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
+        white-space: nowrap !important;
+    }
+    .st-key-notif_company_nav_bar button[kind="secondary"],
+    .st-key-notif_tab_nav_bar button[kind="secondary"] {
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
+    }
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover,
+    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover {
+        background: #f1f5f9 !important; color: #0f172a !important;
+        border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
+    }
+    .st-key-notif_company_nav_bar button[kind="secondary"] p,
+    .st-key-notif_company_nav_bar button[kind="secondary"] span,
+    .st-key-notif_company_nav_bar button[kind="secondary"] div,
+    .st-key-notif_tab_nav_bar button[kind="secondary"] p,
+    .st-key-notif_tab_nav_bar button[kind="secondary"] span,
+    .st-key-notif_tab_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover p,
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover span,
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover div,
+    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover p,
+    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover span,
+    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover div { color: #0f172a !important; }
+    .st-key-notif_company_nav_bar button[kind="primary"],
+    .st-key-notif_tab_nav_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    }
+    .st-key-notif_company_nav_bar button[kind="primary"] p,
+    .st-key-notif_company_nav_bar button[kind="primary"] span,
+    .st-key-notif_company_nav_bar button[kind="primary"] div,
+    .st-key-notif_tab_nav_bar button[kind="primary"] p,
+    .st-key-notif_tab_nav_bar button[kind="primary"] span,
+    .st-key-notif_tab_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
+
+    /* =========================================================
+       LAVISH TABLE (identical pattern to site_table_wrap)
+       ========================================================= */
+    .st-key-notif_table_wrap {
+        background: #ffffff;
+        border: 1px solid rgba(0,0,0,0.15);
+        border-radius: 10px;
+        overflow: auto !important;
+        padding: 0px 0 !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    }
+    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"] {
+        min-width: 900px !important;
+        align-items: center !important;
+        border-bottom: 1px solid rgba(0,0,0,0.12) !important;
+        padding: 10px 0 !important;
+        flex-wrap: nowrap !important;
+        background: #ffffff !important;
+    }
+    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {
+        background: #eef2ff !important;
+        border-bottom: 2px solid rgba(79,70,229,0.35) !important;
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 2 !important;
+    }
+    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {
+        background: #f8fafc !important;
+    }
+    .st-key-notif_table_wrap div[data-testid="column"] {
+        padding: 0 15px !important;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border-right: 1px solid rgba(0,0,0,0.08);
+    }
+    .st-key-notif_table_wrap div[data-testid="column"]:last-child { border-right: none; }
+    .st-key-notif_table_wrap .tbl-head {
+        background: transparent;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        color: #312e81;
+        text-transform: uppercase;
+        white-space: nowrap !important;
+    }
+    .st-key-notif_table_wrap .tbl-cell {
+        color: #0f172a;
+        font-size: 0.9rem;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100%;
+    }
+    .st-key-notif_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
+
+    /* Status badge pill (same palette as Site Data Hub) */
+    .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        white-space: nowrap !important;
+        text-align: center;
+    }
+    .status-green  { background: rgba(34,197,94,0.15);  color: #15803d; }
+    .status-blue   { background: rgba(59,130,246,0.15); color: #1d4ed8; }
+    .status-yellow { background: rgba(234,179,8,0.15);  color: #a16207; }
+    .status-red    { background: rgba(239,68,68,0.15);  color: #b91c1c; }
+    .status-grey   { background: rgba(148,163,184,0.18); color: #334155; }
+    </style>
+""", unsafe_allow_html=True)
 
 
+# --- 3. SUPABASE CONNECTION (same pattern as Site Data Hub) ---
 @st.cache_resource
-def get_supabase_client() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-supabase = get_supabase_client()
-
-
-# ==============================================================================
-# SIDEBAR STYLE  (rounded card-style nav buttons, matches the rest of the app)
-# ==============================================================================
-SIDEBAR_NAV_CSS = """
-<style>
-section[data-testid="stSidebar"] div.stButton > button {
-    width: 100%;
-    text-align: left;
-    background-color: #1b1d2e;
-    color: #d6d6e0;
-    border: 1px solid #2a2d40;
-    border-radius: 14px;
-    padding: 14px 18px;
-    margin-bottom: 10px;
-    font-weight: 600;
-    font-size: 15px;
-    box-shadow: none;
-    transition: all 0.15s ease-in-out;
-}
-section[data-testid="stSidebar"] div.stButton > button:hover {
-    background-color: #262a40;
-    color: #ffffff;
-    border-color: #3b3f58;
-}
-section[data-testid="stSidebar"] div.stButton > button:focus:not(:active) {
-    color: inherit;
-}
-</style>
-"""
-
-ACTIVE_NAV_CSS_TEMPLATE = """
-<style>
-section[data-testid="stSidebar"] div.stButton:nth-of-type({idx}) > button {{
-    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-    color: #ffffff !important;
-    border: none;
-}}
-section[data-testid="stSidebar"] div.stButton:nth-of-type({idx}) > button:hover {{
-    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-    color: #ffffff !important;
-}}
-</style>
-"""
-
-
-def get_count(workspace, is_closed):
+def init_connection():
     try:
-        res = (
-            supabase.table(TABLE_NAME)
-            .select("id", count="exact")
-            .eq("workspace", workspace)
-            .eq("is_closed", is_closed)
-            .execute()
-        )
-        return res.count or 0
-    except Exception:
-        return 0
+        url: str = st.secrets["supabase"]["url"]
+        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
+        key: str = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"🚨 Supabase connection error: {e}")
+        return None
 
 
-def render_sidebar():
-    st.sidebar.markdown("### 🏢 Workspace")
-    workspace = st.sidebar.selectbox("Select Workspace", WORKSPACES, label_visibility="collapsed")
-    st.sidebar.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
-
-    open_count = get_count(workspace, is_closed=False)
-    closed_count = get_count(workspace, is_closed=True)
-
-    st.session_state.setdefault("nav_page", "open")
-
-    st.markdown(SIDEBAR_NAV_CSS, unsafe_allow_html=True)
-
-    if st.sidebar.button(f"🔔  {open_count} Open Notification{'s' if open_count != 1 else ''}",
-                          use_container_width=True, key="nav_open_btn"):
-        st.session_state["nav_page"] = "open"
-        st.rerun()
-
-    if st.sidebar.button(f"✅  {closed_count} Closed", use_container_width=True, key="nav_closed_btn"):
-        st.session_state["nav_page"] = "closed"
-        st.rerun()
-
-    active_idx = 1 if st.session_state["nav_page"] == "open" else 2
-    st.markdown(ACTIVE_NAV_CSS_TEMPLATE.format(idx=active_idx), unsafe_allow_html=True)
-
-    st.sidebar.divider()
-    if st.sidebar.button("🔄 Refresh", use_container_width=True):
-        st.rerun()
-
-    page = "🔔 Open Notifications" if st.session_state["nav_page"] == "open" else "✅ Closed"
-    return workspace, page
+supabase: Client = init_connection()
 
 
-# ==============================================================================
-# DATA HELPERS
-# ==============================================================================
-def fetch_rows(workspace, is_closed):
+def status_badge(val):
+    v = str(val).strip()
+    if not v or v.lower() in ("nan", "none", "-"):
+        return "<span class='tbl-cell'>-</span>"
+    vl = v.lower()
+    if vl == "not required":
+        cls = "status-grey"
+    elif any(k in vl for k in ["completed", "approved", "done", "available", "closed"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress", "open"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<span class='status-badge {cls}'>{v}</span>"
+
+
+# --- 4. CACHED DATA FETCHERS (same TTL-cache pattern as Site Data Hub) ---
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_notifications_cached(workspace, is_closed):
     try:
         res = (
             supabase.table(TABLE_NAME)
@@ -177,9 +291,12 @@ def fetch_rows(workspace, is_closed):
             .execute()
         )
         return res.data or []
-    except Exception as e:
-        st.error(f"❌ Supabase se data fetch karne me error: {e}")
+    except Exception:
         return []
+
+
+def clear_notif_cache():
+    fetch_notifications_cached.clear()
 
 
 def close_row(row_id):
@@ -206,81 +323,106 @@ def reopen_row(row_id):
         return False
 
 
-# ==============================================================================
-# RENDER: OPEN NOTIFICATIONS PAGE
-# ==============================================================================
-def render_open_page(workspace):
-    st.title("🔔 PO Notification — Open")
-    st.caption(f"Workspace: **{workspace}**  •  Revised PO's (Rev Number > 0) jinhe abhi close nahi kiya gaya.")
-
-    rows = fetch_rows(workspace, is_closed=False)
-
-    if not rows:
-        st.info("✅ Koi open notification nahi hai. Sab clear hai!")
-        return
-
-    st.write(f"**{len(rows)} open notification(s)**")
-
-    header = st.columns([2, 1.2, 1.5, 1.5, 1.2])
-    for col, label in zip(header, ["PO Number", "Rev Number", "PO Amount", "PO Status", "Action"]):
-        col.markdown(f"**{label}**")
-    st.divider()
-
-    for row in rows:
-        c1, c2, c3, c4, c5 = st.columns([2, 1.2, 1.5, 1.5, 1.2])
-        c1.write(row.get("po_number", "-"))
-        c2.write(row.get("rev_number", "-"))
-        c3.write(row.get("amount", "-"))
-        c4.write(row.get("po_status", "-"))
-        if c5.button("✅ Close", key=f"close_{row['id']}", use_container_width=True):
-            if close_row(row["id"]):
+# --- 5. WORKSPACE NAV BAR (VISPL / Bhagyashree — same style as Site Data Hub) ---
+with st.container(key="notif_company_nav_bar"):
+    nav_cols = st.columns(len(NOTIF_COMPANIES))
+    for nav_col, (company_id, company_label) in zip(nav_cols, NOTIF_COMPANIES):
+        is_active = st.session_state.notification_company == company_id
+        with nav_col:
+            if st.button(
+                company_label, key=f"notif_nav_{company_id}",
+                use_container_width=True, type=("primary" if is_active else "secondary")
+            ):
+                st.session_state.notification_company = company_id
+                st.session_state.notification_workspace = NOTIF_COMPANY_WORKSPACE_MAP[company_id]
                 st.rerun()
 
+st.markdown("<br>", unsafe_allow_html=True)
 
-# ==============================================================================
-# RENDER: CLOSED PAGE (history)
-# ==============================================================================
-def render_closed_page(workspace):
-    st.title("✅ PO Notification — Closed")
-    st.caption(f"Workspace: **{workspace}**  •  Jo notifications close kar di gayi hain (history).")
+workspace = st.session_state.notification_workspace
+company_display = st.session_state.notification_company
 
-    rows = fetch_rows(workspace, is_closed=True)
+# --- 6. TOP BANNER (same gradient banner style as Site Data Hub) ---
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.2rem; text-transform: uppercase;">
+            🔔 {company_display} — PO Notification
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
 
-    if not rows:
+# --- 7. TOP ACTION BAR: title + Open/Closed segmented tabs + Refresh ---
+open_rows_preview = fetch_notifications_cached(workspace, False)
+closed_rows_preview = fetch_notifications_cached(workspace, True)
+open_count = len(open_rows_preview)
+closed_count = len(closed_rows_preview)
+
+col_title, col_tabs, col_ref = st.columns([2, 3, 1])
+with col_title:
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>📋 Notifications</h2>", unsafe_allow_html=True)
+with col_tabs:
+    with st.container(key="notif_tab_nav_bar"):
+        t1, t2 = st.columns(2)
+        with t1:
+            if st.button(f"🔔 Open ({open_count})", key="notif_tab_open", use_container_width=True,
+                         type=("primary" if st.session_state.notif_tab == "open" else "secondary")):
+                st.session_state.notif_tab = "open"
+                st.rerun()
+        with t2:
+            if st.button(f"✅ Closed ({closed_count})", key="notif_tab_closed", use_container_width=True,
+                         type=("primary" if st.session_state.notif_tab == "closed" else "secondary")):
+                st.session_state.notif_tab = "closed"
+                st.rerun()
+with col_ref:
+    if st.button("🔄 Refresh", use_container_width=True):
+        clear_notif_cache()
+        st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# --- 8. LAVISH TABLE ---
+is_closed_tab = st.session_state.notif_tab == "closed"
+rows = closed_rows_preview if is_closed_tab else open_rows_preview
+
+if not rows:
+    if is_closed_tab:
         st.info("Abhi tak kuch close nahi kiya gaya.")
-        return
-
-    st.write(f"**{len(rows)} closed notification(s)**")
-
-    header = st.columns([2, 1.2, 1.5, 1.5, 1.8, 1.2])
-    for col, label in zip(header, ["PO Number", "Rev Number", "PO Amount", "PO Status", "Closed At", "Action"]):
-        col.markdown(f"**{label}**")
-    st.divider()
-
-    for row in rows:
-        c1, c2, c3, c4, c5, c6 = st.columns([2, 1.2, 1.5, 1.5, 1.8, 1.2])
-        c1.write(row.get("po_number", "-"))
-        c2.write(row.get("rev_number", "-"))
-        c3.write(row.get("amount", "-"))
-        c4.write(row.get("po_status", "-"))
-        closed_at = row.get("closed_at", "-")
-        c5.write(str(closed_at)[:19].replace("T", " ") if closed_at else "-")
-        if c6.button("↩️ Reopen", key=f"reopen_{row['id']}", use_container_width=True):
-            if reopen_row(row["id"]):
-                st.rerun()
-
-
-# ==============================================================================
-# MAIN
-# ==============================================================================
-def main():
-    workspace, page = render_sidebar()
-
-    if page == "🔔 Open Notifications":
-        render_open_page(workspace)
     else:
-        render_closed_page(workspace)
+        st.success("✅ Koi open notification nahi hai. Sab clear hai!")
+else:
+    if is_closed_tab:
+        col_ratios = [0.5, 1.8, 1.2, 1.4, 1.4, 1.6, 1.2]
+        col_labels = ["#", "PO NUMBER", "REV NUMBER", "PO AMOUNT", "PO STATUS", "CLOSED AT", "ACTION"]
+    else:
+        col_ratios = [0.5, 1.8, 1.2, 1.4, 1.4, 1.2]
+        col_labels = ["#", "PO NUMBER", "REV NUMBER", "PO AMOUNT", "PO STATUS", "ACTION"]
 
+    with st.container(key="notif_table_wrap", height=520):
+        h_cols = st.columns(col_ratios)
+        for h_col, label in zip(h_cols, col_labels):
+            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    main()
+        for pos, row in enumerate(rows):
+            rid = row.get("id")
+            rcols = st.columns(col_ratios)
+            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+            rcols[1].markdown(f"<div class='tbl-cell'>{row.get('po_number', '-')}</div>", unsafe_allow_html=True)
+            rcols[2].markdown(f"<div class='tbl-cell'>{row.get('rev_number', '-')}</div>", unsafe_allow_html=True)
+            rcols[3].markdown(f"<div class='tbl-cell'>{row.get('amount', '-')}</div>", unsafe_allow_html=True)
+            rcols[4].markdown(status_badge(row.get('po_status', '-')), unsafe_allow_html=True)
+
+            if is_closed_tab:
+                closed_at = row.get("closed_at", "-")
+                closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
+                rcols[5].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                with rcols[6]:
+                    if st.button("↩️ Reopen", key=f"reopen_{rid}", use_container_width=True):
+                        if reopen_row(rid):
+                            clear_notif_cache()
+                            st.rerun()
+            else:
+                with rcols[5]:
+                    if st.button("✅ Close", key=f"close_{rid}", use_container_width=True):
+                        if close_row(rid):
+                            clear_notif_cache()
+                            st.rerun()
