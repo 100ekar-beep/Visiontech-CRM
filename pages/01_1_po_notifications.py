@@ -32,6 +32,9 @@
      closed, that new revision inserts as a brand-new (open) row — so it
      shows up in Open again, while your closed record for the old
      revision stays untouched in Closed.
+
+ RFAI NOTIFICATION needs this column (run once in Supabase SQL Editor):
+     ALTER TABLE rfai_notifications ADD COLUMN IF NOT EXISTS project_name text;
 ================================================================================
 """
 
@@ -369,7 +372,7 @@ def _fetch_all_site_data_paginated(workspace):
     while True:
         res = (
             supabase.table("site_data")
-            .select('"Project ID","Site ID","Site Name","RFAI Status","PO No.","WCC Number"')
+            .select('"Project ID","Project Name","Site ID","Site Name","RFAI Status","PO No.","WCC Number"')
             .eq("workspace", workspace)
             .range(offset, offset + limit - 1)
             .execute()
@@ -400,6 +403,7 @@ def sync_rfai_notifications(workspace):
             records.append({
                 "workspace": workspace,
                 "project_id": proj_id,
+                "project_name": str(r.get("Project Name", "") or "").strip(),
                 "site_id": str(r.get("Site ID", "") or "").strip(),
                 "site_name": str(r.get("Site Name", "") or "").strip(),
                 "rfai_status": status_val,
@@ -634,11 +638,13 @@ else:
             st.success("✅ Koi open RFAI notification nahi hai. Sab clear hai!")
     else:
         if is_rfai_closed_tab:
-            col_ratios = [0.5, 1.6, 1.2, 1.6, 1.6, 1.3, 1.3, 1.6, 1.2]
-            col_labels = ["#", "PROJECT ID", "SITE ID", "SITE NAME", "RFAI STATUS", "PO NUMBER", "WCC NUMBER", "CLOSED AT", "ACTION"]
+            col_ratios = [0.5, 1.5, 1.8, 1.1, 1.6, 1.6, 1.3, 1.3, 1.6, 1.2]
+            col_labels = ["#", "PROJECT ID", "PROJECT NAME", "SITE ID", "SITE NAME", "RFAI STATUS",
+                          "PO NUMBER", "WCC NUMBER", "CLOSED AT", "ACTION"]
         else:
-            col_ratios = [0.5, 1.6, 1.2, 1.6, 1.6, 1.3, 1.3, 1.2]
-            col_labels = ["#", "PROJECT ID", "SITE ID", "SITE NAME", "RFAI STATUS", "PO NUMBER", "WCC NUMBER", "ACTION"]
+            col_ratios = [0.5, 1.5, 1.8, 1.1, 1.6, 1.6, 1.3, 1.3, 1.2]
+            col_labels = ["#", "PROJECT ID", "PROJECT NAME", "SITE ID", "SITE NAME", "RFAI STATUS",
+                          "PO NUMBER", "WCC NUMBER", "ACTION"]
 
         with st.container(key="notif_table_wrap", height=520):
             h_cols = st.columns(col_ratios)
@@ -647,26 +653,28 @@ else:
 
             for pos, row in enumerate(rfai_rows):
                 rid = row.get("id")
+                project_name = row.get("project_name", "") or ""
                 rcols = st.columns(col_ratios)
                 rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
                 rcols[1].markdown(f"<div class='tbl-cell'>{row.get('project_id', '-')}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_id', '-')}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-')}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(status_badge(row.get('rfai_status', '-')), unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{row.get('po_no', '-') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row.get('wcc_number', '-') or '-'}</div>", unsafe_allow_html=True)
+                rcols[2].markdown(f"<div class='tbl-cell' title=\"{project_name}\">{project_name or '-'}</div>", unsafe_allow_html=True)
+                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id', '-')}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-')}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(status_badge(row.get('rfai_status', '-')), unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{row.get('po_no', '-') or '-'}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{row.get('wcc_number', '-') or '-'}</div>", unsafe_allow_html=True)
 
                 if is_rfai_closed_tab:
                     closed_at = row.get("closed_at", "-")
                     closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
-                    rcols[7].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
-                    with rcols[8]:
+                    rcols[8].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                    with rcols[9]:
                         if st.button("↩️ Reopen", key=f"rfai_reopen_{rid}", use_container_width=True):
                             if reopen_rfai_row(rid):
                                 clear_rfai_cache()
                                 st.rerun()
                 else:
-                    with rcols[7]:
+                    with rcols[8]:
                         if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
                             if close_rfai_row(rid):
                                 clear_rfai_cache()
