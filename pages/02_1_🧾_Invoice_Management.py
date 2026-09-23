@@ -19,17 +19,46 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Invoice Management", page_icon="🧾", layout="wide")
 
+# =========================================================================
+# 🏢 COMPANY CONFIG — Visiontech & Bhagyashree
+# Dono companies SAME Supabase tables use karti hain — data "workspace"
+# column se alag hota hai (VISIONTECH / BHAGYASHREE).
+# Ek baar run karein: add_workspace_column.sql
+# =========================================================================
+COMPANIES = {
+    "vis": {
+        "label": "🏢 VISIONTECH",
+        "workspace": "VISIONTECH",
+        "invoice_table": "invoice_management",
+        "ers_table": "ERSprocess",
+        "invdata_table": "Invoicedata",
+        # ERS Checklist PDF header details
+        "partner_name": "Visiontech Infra Solutions",
+        "user_name": "Pramodkumar Jaju",
+        "department": "Deployment",
+        "email": "vispltower@gmail.com",
+        "contact": "9552273181",
+    },
+    "bhg": {
+        "label": "🏭 BHAGYASHREE",
+        "workspace": "BHAGYASHREE",
+        "invoice_table": "invoice_management",
+        "ers_table": "ERSprocess",
+        "invdata_table": "Invoicedata",
+        # TODO: Bhagyashree ki sahi details yahan bharein
+        "partner_name": "Bhagyashree Enterprises",
+        "user_name": "",
+        "department": "Deployment",
+        "email": "",
+        "contact": "",
+    },
+}
+
 # --- INITIALIZE SESSION STATES ---
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 1
-if 'ers_page' not in st.session_state:
-    st.session_state.ers_page = 1
-if 'invdata_page' not in st.session_state:
-    st.session_state.invdata_page = 1
-if 'bhagya_page' not in st.session_state:
-    st.session_state.bhagya_page = 1
-if 'saitele_page' not in st.session_state:
-    st.session_state.saitele_page = 1
+for _page_key in ["vis_inv_page", "bhg_inv_page", "ers_page", "invdata_page", "bhagya_page",
+                  "saitele_page", "bhg_ers_page", "bhg_invdata_page"]:
+    if _page_key not in st.session_state:
+        st.session_state[_page_key] = 1
 
 # --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
@@ -63,7 +92,51 @@ st.markdown("""
     }
 
     /* =========================================================
-       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
+       COMPANY BAR (top-most level: VISIONTECH / BHAGYASHREE)
+       ========================================================= */
+    .st-key-company_bar div[data-testid="stHorizontalBlock"] {
+        gap: 16px !important;
+    }
+    .st-key-company_bar button {
+        font-size: 1.3rem !important;
+        font-weight: 900 !important;
+        padding: 18px 10px !important;
+        height: auto !important;
+        border-radius: 14px !important;
+        letter-spacing: 2px !important;
+        transition: all 0.25s ease !important;
+    }
+    .st-key-company_bar button[kind="secondary"] {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 2px solid rgba(255, 255, 255, 0.15) !important;
+        box-shadow: none !important;
+    }
+    .st-key-company_bar button[kind="secondary"] p,
+    .st-key-company_bar button[kind="secondary"] span,
+    .st-key-company_bar button[kind="secondary"] div {
+        color: #94a3b8 !important;
+        font-size: 1.3rem !important;
+        font-weight: 900 !important;
+    }
+    .st-key-company_bar button[kind="secondary"]:hover {
+        background: rgba(255, 255, 255, 0.12) !important;
+        transform: translateY(-2px) !important;
+    }
+    .st-key-company_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%) !important;
+        border: none !important;
+        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4) !important;
+    }
+    .st-key-company_bar button[kind="primary"] p,
+    .st-key-company_bar button[kind="primary"] span,
+    .st-key-company_bar button[kind="primary"] div {
+        color: #ffffff !important;
+        font-size: 1.3rem !important;
+        font-weight: 900 !important;
+    }
+
+    /* =========================================================
+       CUSTOM PAGE NAVIGATION BAR (sub-tabs inside a company)
        ========================================================= */
     .st-key-nav_bar div[data-testid="stHorizontalBlock"] {
         gap: 12px !important;
@@ -155,13 +228,7 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
 
-    /* =========================================================
-       GENERIC (unscoped) TABLE-CELL FALLBACK — used anywhere a
-       .tbl-cell/.tbl-head is rendered OUTSIDE a "_table_wrap"
-       container (e.g. inside dialogs), where the scoped rules
-       below would otherwise never match and text stays invisible
-       on the dark background.
-       ========================================================= */
+    /* Generic (unscoped) table-cell fallback — for tables inside dialogs */
     .tbl-cell {
         color: #f1f5f9;
         font-size: 0.86rem;
@@ -174,8 +241,7 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Bold, clearly-legible read-only "display box" used for
-       Site ID / Site Name / Cluster / Project Name etc. */
+    /* Bold, clearly-legible read-only "display box" */
     .display-box-label {
         color: #94a3b8;
         font-size: 0.78rem;
@@ -194,12 +260,7 @@ st.markdown("""
         min-height: 20px;
     }
 
-    /* =========================================================
-       GLOBAL FIX: disabled st.text_input fields (used across every
-       "View Record" / read-only dialog) previously showed near-invisible
-       text on this dark theme. Force bold black text on a light
-       background everywhere a text input is disabled, app-wide.
-       ========================================================= */
+    /* Disabled text inputs: bold black text on light background */
     div[data-testid="stTextInput"] input:disabled,
     div[data-testid="stTextInput"] input[disabled] {
         color: #0f172a !important;
@@ -210,9 +271,7 @@ st.markdown("""
         border: 1px solid rgba(0,0,0,0.08) !important;
     }
 
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS
-       ========================================================= */
+    /* Premium sidebar navigation */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -247,11 +306,7 @@ st.markdown("""
         color: inherit !important;
     }
 
-    /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
-       Applies to ALL table wrappers whose container key ends with "_table_wrap"
-       (invoice_table_wrap, ers_table_wrap, invdata_table_wrap, ...)
-       ========================================================= */
+    /* Horizontal scrolling data tables (all containers whose key ends with "_table_wrap") */
     div[class*="_table_wrap"] {
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.12);
@@ -324,8 +379,8 @@ st.markdown("""
         transform: translateY(-2px) !important;
     }
 
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(1) { padding: 0 10px 0 15px !important; }
-    .st-key-invoice_table_wrap div[data-testid="column"]:nth-child(2) {
+    div[class*="invoice_table_wrap"] div[data-testid="column"]:nth-child(1) { padding: 0 10px 0 15px !important; }
+    div[class*="invoice_table_wrap"] div[data-testid="column"]:nth-child(2) {
         padding: 4px 4px !important;
         border-right: 1px solid rgba(255,255,255,0.06) !important;
     }
@@ -333,23 +388,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. SUPABASE CONNECTION ---
-# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
-# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
-# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
-    # IMPORTANT: this function must not catch its own exceptions — if it
-    # raises, @st.cache_resource does NOT cache anything, so the very next
-    # rerun (or the Retry button below) will attempt to connect again.
-    # Previously the try/except lived *inside* here and returned None on
-    # failure, and that None got cached forever, so one transient failure
-    # (e.g. a paused/sleeping free-tier Supabase project, a brief network
-    # blip) meant the app kept showing the error permanently until it was
-    # fully restarted — even though nothing in secrets.toml had changed.
+    # Must not catch its own exceptions — a failure should not be cached.
     url: str = str(st.secrets["supabase"]["url"]).strip().strip('"').strip("'")
     url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-    # Most common cause of "Invalid URL": the scheme (https://) is missing
-    # from the value pasted into secrets.toml — auto-fix it instead of failing.
     if url and not url.startswith(("http://", "https://")):
         url = "https://" + url
     key: str = str(st.secrets["supabase"]["key"]).strip().strip('"').strip("'")
@@ -378,9 +421,7 @@ except Exception as e:
 
 
 def display_box(label, value):
-    """Small helper: renders a bold, clearly-legible read-only value box
-    (dark bold text on a light background) — used instead of a disabled
-    st.text_input, whose value text was not visible on the dark theme."""
+    """Bold, clearly-legible read-only value box."""
     safe_val = "" if value is None else str(value)
     if safe_val.strip() == "" or safe_val.lower() == "nan":
         safe_val = "-"
@@ -392,13 +433,9 @@ def display_box(label, value):
     """
 
 # =========================================================================
-# ERS PROCESS — FIXED "Indus Towers Invoice Submission Checklist" PDF
-# ⚠️ IMPORTANT: Ye PDF sirf ON-DEMAND generate hoke seedha download hota hai.
-# Isko kabhi bhi Supabase me insert/save/upload NAHI kiya jaata — sirf memory
-# me banta hai aur turant user ko st.download_button se milta hai.
-# Sirf 5 fields row ke data se aate hain (Inward Number, Inward Date, Invoice
-# No., PO No, Invoice Date) — baaki poora checklist (Partner Name, User Name,
-# E-Mail, saare check/cross marks) fixed/static hai jaisa original template me hai.
+# ERS PROCESS — "Indus Towers Invoice Submission Checklist" PDF
+# Sirf ON-DEMAND download — Supabase me kabhi save nahi hota.
+# Partner Name / User Name / E-Mail / Contact ab COMPANIES config se aate hain.
 # =========================================================================
 
 ERS_CHECKLIST_PART1 = [
@@ -472,10 +509,8 @@ def _ers_wrap_text(pdf, text, max_width):
 
 
 def _wrap_code_text(pdf, text, max_width):
-    """Wraps hyphen-separated codes with no spaces (e.g. item codes like
-    '12-C00000-0-01-ZZ-ZZ-013') by also allowing a line break right after
-    each hyphen — plain word-wrap treats such a string as a single
-    unbreakable "word" and lets it overflow the column instead of wrapping."""
+    """Wraps hyphen-separated codes (e.g. '12-C00000-0-01-ZZ-ZZ-013'),
+    allowing a line break after each hyphen."""
     tokens = []
     buf = ""
     for ch in text:
@@ -502,9 +537,7 @@ def _wrap_code_text(pdf, text, max_width):
 
 
 def _ers_find_field(row_dict, candidates):
-    """Case/space-insensitive lookup of a column value from a generic row dict.
-    Tries each candidate name (exact match first), then falls back to any
-    column whose name *contains* one of the candidate words."""
+    """Case/space-insensitive lookup of a column value from a generic row dict."""
     if not row_dict:
         return ""
     cleaned_map = {str(k).strip().lower().replace("_", " "): k for k in row_dict.keys()}
@@ -524,21 +557,20 @@ def _ers_find_field(row_dict, candidates):
     return ""
 
 
-def generate_ers_checklist_pdf(invoice_no, po_no, inv_date):
-    """Builds the fixed Indus Towers invoice-submission-checklist PDF in memory
-    (nothing is written to Supabase). Takes the 3 values directly (confirmed/
-    edited by the user just before generating) instead of guessing column
-    names — the rest of the checklist (names, contact info, all check/cross
-    marks) is a fixed template, identical every time."""
+def generate_ers_checklist_pdf(invoice_no, po_no, inv_date, company_key="vis"):
+    """Builds the fixed Indus Towers invoice-submission-checklist PDF in memory.
+    Partner/user/contact details come from COMPANIES[company_key]."""
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+
+    comp = COMPANIES.get(company_key, COMPANIES["vis"])
 
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(8, 8, 8)
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
 
-    PAGE_W = 194  # usable width (210mm page - 8mm margins each side)
+    PAGE_W = 194
 
     # ---------------- TITLE BAR ----------------
     pdf.set_fill_color(191, 191, 191)
@@ -555,10 +587,10 @@ def generate_ers_checklist_pdf(invoice_no, po_no, inv_date):
 
     header_rows = [
         ("Inward\nNumber-", invoice_no, "Inward Date-", inv_date),
-        ("Partner\nName : -", "Visiontech Infra Solutions", "Invoice No.", invoice_no),
+        ("Partner\nName : -", comp.get("partner_name", ""), "Invoice No.", invoice_no),
         ("PO NO:", po_no, "Invoice Date", inv_date),
-        ("User Name :-", "Pramodkumar Jaju", "Depart.", "Deployment"),
-        ("E-Mail ID : -", "vispltower@gmail.com", "Contact No-", "9552273181"),
+        ("User Name :-", comp.get("user_name", ""), "Depart.", comp.get("department", "")),
+        ("E-Mail ID : -", comp.get("email", ""), "Contact No-", comp.get("contact", "")),
     ]
 
     for lbl1, val1, lbl2, val2 in header_rows:
@@ -576,7 +608,7 @@ def generate_ers_checklist_pdf(invoice_no, po_no, inv_date):
         pdf.set_xy(x_start, y_start + row_h)
 
     # ---------------- CHECKLIST TABLE ----------------
-    col_widths = [10, 68, 16, 24, 24, 22, 30]  # SNo, Particulars, Supply, TSP, IME, EB, Others
+    col_widths = [10, 68, 16, 24, 24, 22, 30]
     headers_row2 = ["S.No.", "Particulars", "Supply\n(Y/N)", "TSP\n(Electrical/\nCivil & others)", "IME/OME/SMS/\nSME", "EB/Liasio\nning", "Others Services\n(Legal/Rent etc.)"]
 
     pdf.set_font("Arial", "B", 8)
@@ -658,8 +690,6 @@ def generate_ers_checklist_pdf(invoice_no, po_no, inv_date):
 
 def _ers_pdf_filename(invoice_no):
     inv_no_for_name = invoice_no or "ERS"
-    # Replace slashes with hyphens (e.g. "VIS/26-27/1373" -> "VIS-26-27-1373")
-    # instead of just stripping them out, then drop anything else unsafe for filenames.
     slashes_replaced = str(inv_no_for_name).replace("/", "-").replace("\\", "-")
     safe_name = "".join(c for c in slashes_replaced if c.isalnum() or c in ("-", "_")) or "ERS_Checklist"
     return f"DOC_{safe_name}.pdf"
@@ -682,16 +712,16 @@ def parse_date_safely(val):
 # =========================================================================
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _fetch_table_data(table_name):
-    """Fetch table data with retries.
-
-    Successful responses are cached, but network failures are raised so an
-    empty/failed response never gets stuck in Streamlit's cache.
-    """
+def _fetch_table_data(table_name, workspace=None):
+    """Fetch table data with retries. Failures are raised (never cached).
+    workspace diya ho to sirf usi workspace ki rows aati hain."""
     last_error = None
     for attempt in range(3):
         try:
-            response = supabase.table(table_name).select("*").execute()
+            query = supabase.table(table_name).select("*")
+            if workspace:
+                query = query.eq("workspace", workspace)
+            response = query.execute()
             return response.data or []
         except Exception as e:
             last_error = e
@@ -703,13 +733,10 @@ def _fetch_table_data(table_name):
     )
 
 
-def get_table_df(table_name):
-    """Fetch a Supabase table into a DataFrame, newest (highest id) first.
-    Cached for 30s so search/pagination/dialogs on the same tab don't
-    re-download the whole table on every rerun — call get_table_df.clear()
-    right before st.rerun() after any insert/update/delete."""
+def get_table_df(table_name, workspace=None):
+    """Fetch a Supabase table into a DataFrame, newest (highest id) first."""
     try:
-        data = _fetch_table_data(table_name)
+        data = _fetch_table_data(table_name, workspace)
     except Exception as e:
         st.error(f"⚠️ Could not load table '{table_name}': {e}")
         data = []
@@ -728,8 +755,6 @@ def get_table_df(table_name):
     return df
 
 
-# Keep all existing get_table_df.clear() calls working. They now clear only
-# successful cached Supabase responses; failed requests are never cached.
 get_table_df.clear = _fetch_table_data.clear
 
 
@@ -754,7 +779,7 @@ def field_widget(col_name, value, key, container):
 
 
 @st.dialog("➕ Add Record", width="large")
-def generic_add_dialog(table_name, columns, prefix):
+def generic_add_dialog(table_name, columns, prefix, workspace=None):
     st.caption(f"Add a new record to {table_name}")
     values = {}
 
@@ -771,6 +796,8 @@ def generic_add_dialog(table_name, columns, prefix):
                 if f:
                     insert_data[f] = v
             if insert_data:
+                if workspace:
+                    insert_data["workspace"] = workspace
                 try:
                     supabase.table(table_name).insert(insert_data).execute()
                     st.success("✅ Record Added!")
@@ -791,6 +818,8 @@ def generic_add_dialog(table_name, columns, prefix):
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Record", type="primary", use_container_width=True, key=f"{prefix}_add_save"):
+        if workspace:
+            values["workspace"] = workspace
         try:
             supabase.table(table_name).insert(values).execute()
             st.success("✅ Record Added!")
@@ -862,12 +891,12 @@ def generic_delete_dialog(table_name, rid, label, prefix):
                 st.error(f"❌ Error: {e}")
 
 
-def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
-    """Renders a full CRUD tab (refresh, add, search, export, paginated table with view/edit/delete)
-    for any Supabase table, auto-detecting whatever columns it has.
-    pdf_button=True adds an extra 📄 button per row (used only for ERS Process)
-    that opens the fixed Indus Towers checklist PDF dialog — this never touches
-    Supabase, it's purely a download generated on click."""
+def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, company_key="vis", workspace=None):
+    """Full CRUD tab for any Supabase table. pdf_button=True adds the ERS
+    checklist PDF download (company details taken from COMPANIES[company_key])."""
+
+    if f"{prefix}_page" not in st.session_state:
+        st.session_state[f"{prefix}_page"] = 1
 
     col_title, col_ref, col_add, col_export = st.columns([3, 1, 1.5, 1.5])
     with col_title:
@@ -877,14 +906,17 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
             get_table_df.clear()
             st.rerun()
 
-    df = get_table_df(table_name)
+    df = get_table_df(table_name, workspace)
+    # 'workspace' column user ko dikhana/edit karna nahi — code khud set karta hai
+    if workspace and 'workspace' in df.columns:
+        df = df.drop(columns=['workspace'])
     known_cols = [c for c in df.columns if c != 'id'] if not df.empty else st.session_state.get(f"{prefix}_columns", [])
     if not df.empty:
         st.session_state[f"{prefix}_columns"] = known_cols
 
     with col_add:
         if st.button("➕ Add Record", use_container_width=True, key=f"{prefix}_add_btn"):
-            generic_add_dialog(table_name, known_cols, prefix)
+            generic_add_dialog(table_name, known_cols, prefix, workspace)
     with col_export:
         if st.button("📥 Export Data", use_container_width=True, key=f"{prefix}_export_btn"):
             st.session_state[f"{prefix}_action"] = "export"
@@ -937,12 +969,8 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
     df_page = df.iloc[start_idx:end_idx].copy()
 
     data_cols = [c for c in df.columns if c != 'id']
-    if pdf_button:
-        col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
-        col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
-    else:
-        col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
-        col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
+    col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
+    col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
 
     wrap_key = f"{prefix}_table_wrap"
     min_width = max(1000, 125 + len(data_cols) * 125)
@@ -985,7 +1013,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
                             guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
                             guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
                             try:
-                                pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date)
+                                pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date, company_key)
                                 st.download_button(
                                     "📥 Download PDF", data=pdf_bytes,
                                     file_name=_ers_pdf_filename(guess_inv), mime="application/pdf",
@@ -1016,24 +1044,19 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False):
 
 
 # =========================================================================
-# BHAGYASHREE INVOICE — Custom PO-based invoice builder
+# BHAGYASHREE INVOICE (Visiontech ke andar) — Custom PO-based invoice builder
+# (Pramodkumar / Radhika Jaju -> Bhagyashree Enterprises)
 # =========================================================================
 
 BHAGYA_WORKSPACE = "BHAGYASHREE"
 BHAGYA_TABLE = "bhagyashree_invoices"
 
-# Dedicated Item Code -> HSN lookup table (see create_and_populate_hsn_table.sql).
-# This is the primary source of truth for HSN codes now — po_working's own
-# "HSN" column (if present) is only used as a fallback when an item code
-# isn't found here.
 HSN_TABLE = "HSN"
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_hsn_map():
-    """Fetch the whole Item Code -> HSN table into a dict. Cached for 60s;
-    call get_hsn_map.clear() after any bulk HSN update so new values show
-    up without waiting for the cache to expire."""
+    """Item Code -> HSN dict (cached 60s)."""
     try:
         res = supabase.table(HSN_TABLE).select("item_code, hsn").execute()
         rows = res.data if res.data else []
@@ -1042,18 +1065,11 @@ def get_hsn_map():
     return {str(r.get("item_code", "")).strip(): str(r.get("hsn", "")).strip() for r in rows if r.get("item_code")}
 
 
-# Fixed discount % applied to the line-items subtotal BEFORE GST, per
-# workspace. "Sai Tele" does not yet have a custom PO-based invoice
-# builder (it uses the generic CRUD tab), so this constant is ready to
-# be wired in if/when a similar builder is added for it.
 WORKSPACE_DISCOUNT_PCT = {
     "BHAGYASHREE": 2.0,
     "SAITELE": 5.0,
 }
 
-# Billing-entity ("Bill From") details — this is whichever company is picked
-# in the "Bill From" dropdown on the Add Invoice dialog; the PDF header uses
-# these details for the seller box (dynamically, per selected company).
 BILL_FROM_DETAILS = {
     "Pramodkumar Jaju": {
         "letterhead_name": "Pramodkumar Jaju",
@@ -1093,8 +1109,7 @@ def bhagya_next_invoice_number(bill_from):
         pass
     return f"{prefix}-{highest + 1:03d}"
 
-# "Bill To" / "Ship To" details, keyed by workspace — Bhagyashree invoices
-# always bill (and ship) to Bhagyashree Enterprises itself.
+
 BILL_TO_DETAILS = {
     BHAGYA_WORKSPACE: {
         "full_name": "Bhagyashree Enterprises",
@@ -1106,9 +1121,7 @@ BILL_TO_DETAILS = {
 
 
 def _po_field(po_dict, candidates):
-    """Case/space-insensitive lookup of a value from a PO-line dict — used to
-    pull an HSN code from po_working if that column exists there under any
-    common naming, without breaking if it's absent (returns "")."""
+    """Case/space-insensitive lookup of a value from a PO-line dict."""
     if not po_dict:
         return ""
     low_map = {str(k).strip().lower().replace("_", " "): k for k in po_dict.keys()}
@@ -1145,8 +1158,7 @@ def _three_digit_words(n):
 
 
 def number_to_words_indian(num):
-    """Converts a non-negative number into Indian-numbering-system words
-    (Crore/Lakh/Thousand), e.g. 654900 -> 'Six Lakh Fifty Four Thousand Nine Hundred'."""
+    """Indian-numbering-system words (Crore/Lakh/Thousand)."""
     num = int(round(num))
     if num == 0:
         return "Zero"
@@ -1171,8 +1183,7 @@ def amount_in_words_inr(amount):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def bhagya_get_site_options():
-    """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced.
-    Cached because this reruns on every widget interaction inside the Add Invoice dialog."""
+    """Sites where workspace = BHAGYASHREE, minus project_ids already invoiced."""
     try:
         site_res = supabase.table("site_data").select("*").eq("workspace", BHAGYA_WORKSPACE).execute()
         sites = site_res.data if site_res.data else []
@@ -1207,14 +1218,7 @@ def bhagya_get_po_lines(site_id):
 
 
 def bhagya_generate_pdf(row_data):
-    """Builds the Bhagyashree tax-invoice PDF entirely in memory (never saved
-    to Supabase — only returned as bytes for an on-demand download button).
-    Layout follows the reference "VIS/26-27/1362" Indus-Towers-style invoice
-    the user supplied, EXCEPT: no IRN/Ack-No box at the top (Bhagyashree
-    invoices are not e-invoices); Bill To AND Ship To are always Bhagyashree
-    Enterprises (the buyer); the seller box on the right is whichever company
-    was picked in "Bill From" (dynamic); and every Rate/Basic/GST figure is
-    already net of the fixed workspace discount (2% for Bhagyashree)."""
+    """Bhagyashree tax-invoice PDF, built in memory for download only."""
     if FPDF is None:
         raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
 
@@ -1242,7 +1246,7 @@ def bhagya_generate_pdf(row_data):
     pdf.set_margins(8, 8, 8)
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
-    PAGE_W = 194  # usable width (A4 210mm - 8mm margins each side)
+    PAGE_W = 194
 
     # ---------------- LETTERHEAD ----------------
     pdf.set_font("Arial", "B", 16)
@@ -1254,7 +1258,7 @@ def bhagya_generate_pdf(row_data):
     pdf.ln(4)
     pdf.set_text_color(0, 0, 0)
 
-    # ---------------- TITLE BAR ("INVOICE", no IRN/Ack-No box) ----------------
+    # ---------------- TITLE BAR ----------------
     pdf.set_fill_color(230, 230, 230)
     pdf.set_draw_color(0, 0, 0)
     pdf.set_line_width(0.3)
@@ -1262,10 +1266,10 @@ def bhagya_generate_pdf(row_data):
     pdf.set_text_color(0, 0, 0)
     pdf.cell(PAGE_W, 8, "INVOICE", border=1, align="C", fill=True, ln=1)
 
-    # ---------------- BILL TO / SHIP TO (left)  |  SELLER (right) ----------------
+    # ---------------- BILL TO / SHIP TO (left) | SELLER (right) ----------------
     col_w = PAGE_W / 2.0
     line_h = 4.2
-    pdf.set_font("Arial", "", 8.5)  # for accurate wrap-width calc below
+    pdf.set_font("Arial", "", 8.5)
 
     left_lines = []
     left_lines.append(("B", f"Bill To : {bt_details.get('full_name', '')}"))
@@ -1343,8 +1347,8 @@ def bhagya_generate_pdf(row_data):
 
     pdf.ln(2)
 
-    # ---------------- LINE ITEMS TABLE (Rate/Basic/GST already discount-adjusted) ----------------
-    widths = [8, 13, 27, 39, 10, 16, 20, 18, 18, 25]  # Line,HSN,ItemCode,Description,Qty,Rate,Basic,CGST,SGST,Total
+    # ---------------- LINE ITEMS TABLE ----------------
+    widths = [8, 13, 27, 39, 10, 16, 20, 18, 18, 25]
     headers_row = ["Line", "HSN", "Item\nCode", "Description", "Qty", "Price",
                    "Basic\nAmount", "CGST\nAmount", "SGST\nAmount", "Total\nAmount"]
 
@@ -1512,10 +1516,6 @@ def bhagya_add_invoice_dialog():
         po_qty = po.get("PO Qty", 0) or 0
         price = po.get("Price", 0) or 0
 
-        # Explicit light text color here (not relying on the scoped
-        # "_table_wrap .tbl-cell" rule, since this table lives inside a
-        # dialog, not a "_table_wrap" container) so values are visible
-        # on the dark dialog background.
         r_cols[0].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{line_no}</div>", unsafe_allow_html=True)
         r_cols[1].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{item_code}</div>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{description}</div>", unsafe_allow_html=True)
@@ -1538,12 +1538,9 @@ def bhagya_add_invoice_dialog():
             "price": price,
             "claim_qty": claim_qty,
             "amount": amount,
-            # Primary source: the dedicated HSN table (Item Code -> HSN);
-            # fallback: an "HSN" column on po_working itself, if present.
             "hsn": hsn_map.get(str(item_code).strip()) or _po_field(po, ["hsn", "hsn code", "hsn/sac"]),
         })
 
-    # --- Discount (fixed per workspace) applied before GST ---
     discount_pct = WORKSPACE_DISCOUNT_PCT.get(BHAGYA_WORKSPACE, 0.0)
     discount_amount = subtotal * (discount_pct / 100.0)
     taxable_amount = subtotal - discount_amount
@@ -1568,7 +1565,6 @@ def bhagya_add_invoice_dialog():
         if subtotal <= 0:
             st.error("⚠️ Kam se kam ek line me Claim Qty > 0 dalein!")
         else:
-            # Save ke bilkul pehle number dobara nikalein, taaki latest series use ho.
             invoice_no = bhagya_next_invoice_number(bill_from)
             payload = {
                 "workspace": BHAGYA_WORKSPACE,
@@ -1672,11 +1668,7 @@ def bhagya_view_invoice_dialog(row_data):
 
 @st.dialog("✏️ Edit Invoice (Bhagyashree)", width="large")
 def bhagya_edit_invoice_dialog(row_data):
-    """Edit an existing Bhagyashree invoice: Bill From / Invoice No / Invoice
-    Date and the Claim Qty per PO line can be changed. Project ID / Site ID
-    stay fixed (the invoice keeps pointing at the same site it was created
-    for) — this keeps editing simple and avoids re-triggering the "already
-    invoiced" project filter used by the Add dialog."""
+    """Edit Bill From / Invoice No / Date and Claim Qty. Project/Site stay fixed."""
     rid = row_data.get("id")
     st.caption(f"Editing Invoice No: {row_data.get('invoice_no','')}")
 
@@ -1824,10 +1816,6 @@ def bhagya_delete_dialog(rid, invoice_no):
                 supabase.table(BHAGYA_TABLE).delete().eq("id", rid).execute()
                 st.success("✅ Deleted Successfully!")
                 get_table_df.clear()
-                # A deleted invoice frees its project_id back up as
-                # selectable in the Add dialog, so the cached site-options
-                # list (which excludes already-invoiced project_ids) needs
-                # to be refreshed too.
                 bhagya_get_site_options.clear()
                 st.rerun()
             except Exception as e:
@@ -1850,9 +1838,6 @@ def bhagya_bulk_hsn_dialog():
             else:
                 df_upload = pd.read_excel(uploaded_file)
 
-            # Flexible, case-insensitive detection of the two needed columns —
-            # Tally exports (and manual sheets) don't always use the exact
-            # same header names.
             cols_lower = {str(c).strip().lower(): c for c in df_upload.columns}
 
             code_col = None
@@ -1991,8 +1976,6 @@ def render_bhagyashree_tab():
             r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
             r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
             r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
-            # "Basic" = taxable amount AFTER the workspace discount has been
-            # cut (matches the "Basic Amount" total that will show on the PDF).
             subtotal_v = row_dict.get('subtotal', 0) or 0
             basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
             r_cols[8].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
@@ -2015,11 +1998,21 @@ def render_bhagyashree_tab():
 
 
 # =========================================================================
-# VIS INVOICE — DIALOGS (unchanged logic from original file)
+# INVOICE MASTER — DIALOGS (ab table_name parameter lete hain, taaki
+# Visiontech aur Bhagyashree dono ke liye same dialog kaam kare)
 # =========================================================================
 
+columns_list = [
+    "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "Total",
+    "project_id", "site_id", "site_name", "po_number", "wcc_number", "receipt_number", "percentage_amount",
+    "Sub_status",
+    "payment_1_amount", "payment_1_date", "payment_2_amount", "payment_2_date", "payment_3_amount", "payment_3_date",
+    "balance", "remark"
+]
+
+
 @st.dialog("📄 Add Invoice Record", width="large")
-def add_invoice_dialog():
+def add_invoice_dialog(table_name, prefix, workspace=None):
     st.caption("Configure invoice details, taxation, and milestone payments")
 
     with st.container():
@@ -2102,18 +2095,20 @@ def add_invoice_dialog():
                 "balance": balance,
                 "remark": remark
             }
+            if workspace:
+                insert_data["workspace"] = workspace
             try:
-                supabase.table("invoice_management").insert(insert_data).execute()
+                supabase.table(table_name).insert(insert_data).execute()
                 st.success("✅ Invoice Added Successfully!")
                 get_table_df.clear()
-                st.session_state.current_page = 1
+                st.session_state[f"{prefix}_inv_page"] = 1
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error Saving: {e}")
 
 
 @st.dialog("✏️ Edit Invoice Record", width="large")
-def edit_invoice_dialog(row_data):
+def edit_invoice_dialog(row_data, table_name):
     st.caption("Update invoice parameters")
 
     with st.container():
@@ -2201,7 +2196,7 @@ def edit_invoice_dialog(row_data):
                 "remark": remark
             }
             try:
-                supabase.table("invoice_management").update(update_data).eq("id", row_data['id']).execute()
+                supabase.table(table_name).update(update_data).eq("id", row_data['id']).execute()
                 st.success("✅ Invoice Updated Successfully!")
                 get_table_df.clear()
                 st.rerun()
@@ -2251,7 +2246,7 @@ def view_invoice_dialog(row_data):
 
 
 @st.dialog("🗑️ Confirm Deletion", width="small")
-def delete_invoice_dialog(rid, inv_num):
+def delete_invoice_dialog(rid, inv_num, table_name):
     st.warning(f"Delete invoice '{inv_num}'? This action cannot be undone.")
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
@@ -2261,7 +2256,7 @@ def delete_invoice_dialog(rid, inv_num):
     with col2:
         if st.button("✅ Confirm", type="primary", use_container_width=True):
             try:
-                supabase.table("invoice_management").delete().eq("id", rid).execute()
+                supabase.table(table_name).delete().eq("id", rid).execute()
                 st.success("✅ Deleted Successfully!")
                 get_table_df.clear()
                 st.rerun()
@@ -2270,9 +2265,9 @@ def delete_invoice_dialog(rid, inv_num):
 
 
 @st.dialog("📤 Bulk Upload Invoices", width="large")
-def bulk_upload_dialog():
+def bulk_upload_dialog(table_name, prefix, workspace=None):
     st.caption("Upload an Excel file to bulk import invoice records.")
-    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key="bulk_inv_file")
+    uploaded_file = st.file_uploader("Choose File", type=["xlsx", "xls", "tsv"], key=f"{prefix}_bulk_inv_file")
 
     if uploaded_file and st.button("🚀 Process & Upload", type="primary", use_container_width=True):
         try:
@@ -2301,88 +2296,53 @@ def bulk_upload_dialog():
                 except:
                     pass
 
+                if workspace:
+                    insert_dict["workspace"] = workspace
+
                 try:
-                    supabase.table("invoice_management").insert(insert_dict).execute()
+                    supabase.table(table_name).insert(insert_dict).execute()
                     added += 1
                 except:
                     pass
             st.success(f"✅ Bulk Upload Complete! {added} records added.")
             get_table_df.clear()
-            st.session_state.current_page = 1
+            st.session_state[f"{prefix}_inv_page"] = 1
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error: {e}")
 
 
-# --- TOP BANNER (shared across all tabs) ---
-st.markdown("""
-    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
-        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🧾 Invoice Management Hub
-        </h1>
-    </div>
-""", unsafe_allow_html=True)
+def render_invoice_master_tab(company_key, prefix, title):
+    """Invoice Master table (VIS Invoice jaisa) — kisi bhi company ke liye.
+    company_key -> COMPANIES se table name leta hai; prefix -> widget keys/page state."""
+    table_name = COMPANIES[company_key]["invoice_table"]
+    workspace = COMPANIES[company_key]["workspace"]
+    page_key = f"{prefix}_inv_page"
+    action_key = f"{prefix}_inv_action"
+    if page_key not in st.session_state:
+        st.session_state[page_key] = 1
 
-# --- TABS ---
-columns_list = [
-    "id", "circle", "invoice_number", "invoice_date", "basic_amount", "cgst", "sgst", "igst", "Total",
-    "project_id", "site_id", "site_name", "po_number", "wcc_number", "receipt_number", "percentage_amount",
-    "Sub_status",
-    "payment_1_amount", "payment_1_date", "payment_2_amount", "payment_2_date", "payment_3_amount", "payment_3_date",
-    "balance", "remark"
-]
-
-# --- NAVIGATION BAR (custom buttons, replaces st.tabs for guaranteed styling) ---
-if 'active_page' not in st.session_state:
-    st.session_state.active_page = "vis"
-
-NAV_PAGES = [
-    ("vis", "📋 VIS Invoice"),
-    ("ers", "⚙️ ERS Process"),
-    ("invdata", "📁 Invoice Data"),
-    ("bhagya", "🏢 Bhagyashree Invoice"),
-    ("saitele", "📡 Sai Tele Invoice"),
-]
-
-with st.container(key="nav_bar"):
-    nav_cols = st.columns(len(NAV_PAGES))
-    for nav_col, (page_id, page_label) in zip(nav_cols, NAV_PAGES):
-        is_active = st.session_state.active_page == page_id
-        with nav_col:
-            if st.button(page_label, key=f"nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
-                st.session_state.active_page = page_id
-                st.rerun()
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# =========================================================================
-# TAB 1 — VIS INVOICE (unchanged, uses "invoice_management" table)
-# =========================================================================
-if st.session_state.active_page == "vis":
-    # --- 4. TOP ACTION BAR ---
+    # --- TOP ACTION BAR ---
     col_title, col_ref, col_add, col_upload, col_export = st.columns([3, 1, 1.5, 1.5, 1.5])
     with col_title:
-        st.markdown("<h2 style='margin:0; color:white;'>📊 Live Invoices Master</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='margin:0; color:white;'>{title}</h2>", unsafe_allow_html=True)
     with col_ref:
-        if st.button("🔄 Refresh", use_container_width=True, key="vis_refresh"):
+        if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_inv_refresh"):
             get_table_df.clear()
             st.rerun()
     with col_add:
-        if st.button("➕ Add Invoice", use_container_width=True, key="vis_add"):
-            add_invoice_dialog()
+        if st.button("➕ Add Invoice", use_container_width=True, key=f"{prefix}_inv_add"):
+            add_invoice_dialog(table_name, prefix, workspace)
     with col_upload:
-        if st.button("📤 Bulk Upload", use_container_width=True, key="vis_bulk"):
-            bulk_upload_dialog()
+        if st.button("📤 Bulk Upload", use_container_width=True, key=f"{prefix}_inv_bulk"):
+            bulk_upload_dialog(table_name, prefix, workspace)
     with col_export:
-        if st.button("📥 Export Data", use_container_width=True, key="vis_export"):
-            st.session_state.action = "export"
+        if st.button("📥 Export Data", use_container_width=True, key=f"{prefix}_inv_export"):
+            st.session_state[action_key] = "export"
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 5. FETCH DATA FROM SUPABASE (cached — see get_table_df above) ---
-    table_name = "invoice_management"
-
-    df = get_table_df(table_name).copy()
+    df = get_table_df(table_name, workspace).copy()
     if not df.empty:
         for col in columns_list:
             if col not in df.columns:
@@ -2394,7 +2354,7 @@ if st.session_state.active_page == "vis":
         df.insert(0, "🎯 Select", False)
 
     # Export Trigger
-    if st.session_state.get('action') == "export":
+    if st.session_state.get(action_key) == "export":
         export_df = df.copy()
         if "🎯 Select" in export_df.columns: export_df = export_df.drop(columns=["🎯 Select"])
         if "id" in export_df.columns: export_df = export_df.drop(columns=["id"])
@@ -2402,29 +2362,29 @@ if st.session_state.active_page == "vis":
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             export_df.to_excel(writer, index=False, sheet_name='Invoices')
-        st.download_button("📊 Download Excel File", data=buffer.getvalue(), file_name="Invoice_Management_Export.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary", key="vis_dl")
-        st.session_state.action = ""
+        st.download_button("📊 Download Excel File", data=buffer.getvalue(), file_name=f"{workspace}_{table_name}_Export.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary", key=f"{prefix}_inv_dl")
+        st.session_state[action_key] = ""
 
     # --- LIVE SEARCH BOX ---
     col_table_title, col_search = st.columns([7, 3])
     with col_table_title:
         st.markdown("##### 🗄️ Database Records")
     with col_search:
-        search_query = st_keyup("Search", placeholder="🔍 Search invoices...", label_visibility="collapsed", key="vis_search")
+        search_query = st_keyup("Search", placeholder="🔍 Search invoices...", label_visibility="collapsed", key=f"{prefix}_inv_search")
 
     if search_query:
         mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
         df = df[mask]
 
-    # --- 6. PAGINATION LOGIC ---
+    # --- PAGINATION LOGIC ---
     rows_per_page = 10
     total_rows = len(df)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
-    if st.session_state.current_page > total_pages: st.session_state.current_page = total_pages
-    elif st.session_state.current_page < 1: st.session_state.current_page = 1
+    if st.session_state[page_key] > total_pages: st.session_state[page_key] = total_pages
+    elif st.session_state[page_key] < 1: st.session_state[page_key] = 1
 
-    start_idx = (st.session_state.current_page - 1) * rows_per_page
+    start_idx = (st.session_state[page_key] - 1) * rows_per_page
     end_idx = start_idx + rows_per_page
     df_page = df.iloc[start_idx:end_idx].copy()
 
@@ -2436,8 +2396,6 @@ if st.session_state.active_page == "vis":
         'balance', 'remark'
     ]
 
-    # Same clean table pattern used by the other invoice tabs.  Wider fields
-    # get more space, while short tax/amount fields stay compact.
     COL_RATIOS = [
         0.38, 0.72, 1.15, 1.35, 1.05, 1.05, 0.82, 0.82, 0.82, 1.05,
         1.35, 1.15, 1.45, 1.25, 1.25, 1.25, 1.00, 1.05,
@@ -2451,20 +2409,19 @@ if st.session_state.active_page == "vis":
         "Pay 1 Amt", "Pay 1 Date", "Pay 2 Amt", "Pay 2 Date", "Pay 3 Amt", "Pay 3 Date", "Balance", "Remark"
     ]
 
-    # VIS has many columns. Give every column enough real width instead of
-    # squeezing the complete table into the browser width.
+    wrap_key = f"{prefix}_invoice_table_wrap"
     vis_table_min_width = 3650
     st.markdown(
         f"""
         <style>
-        .st-key-invoice_table_wrap {{
+        .st-key-{wrap_key} {{
             overflow-x: auto !important;
             overflow-y: auto !important;
             border: 1px solid rgba(148, 163, 184, 0.28) !important;
             border-radius: 10px !important;
             background: rgba(15, 23, 42, 0.28) !important;
         }}
-        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"] {{
+        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"] {{
             min-width: {vis_table_min_width}px !important;
             width: {vis_table_min_width}px !important;
             flex-wrap: nowrap !important;
@@ -2472,7 +2429,7 @@ if st.session_state.active_page == "vis":
             padding: 0 !important;
             gap: 0 !important;
         }}
-        .st-key-invoice_table_wrap div[data-testid="column"] {{
+        .st-key-{wrap_key} div[data-testid="column"] {{
             min-width: 0 !important;
             min-height: 48px !important;
             padding: 8px 10px !important;
@@ -2480,7 +2437,7 @@ if st.session_state.active_page == "vis":
             display: flex !important;
             align-items: center !important;
         }}
-        .st-key-invoice_table_wrap .tbl-head {{
+        .st-key-{wrap_key} .tbl-head {{
             white-space: normal !important;
             line-height: 1.15 !important;
             min-height: 34px !important;
@@ -2492,20 +2449,20 @@ if st.session_state.active_page == "vis":
             letter-spacing: 0.25px !important;
             text-transform: none !important;
         }}
-        .st-key-invoice_table_wrap .tbl-cell:not(.tbl-head) {{
+        .st-key-{wrap_key} .tbl-cell:not(.tbl-head) {{
             color: #e2e8f0 !important;
             font-size: 0.78rem !important;
             line-height: 1.25 !important;
         }}
-        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {{
+        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:has(.tbl-head) {{
             background: linear-gradient(90deg, rgba(59,130,246,0.28), rgba(139,92,246,0.24)) !important;
             border-bottom: 1px solid rgba(148,163,184,0.35) !important;
             min-height: 58px !important;
         }}
-        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):nth-child(even) {{
+        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):nth-child(even) {{
             background: rgba(255,255,255,0.018) !important;
         }}
-        .st-key-invoice_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {{
+        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {{
             background: rgba(59,130,246,0.10) !important;
         }}
         </style>
@@ -2513,7 +2470,7 @@ if st.session_state.active_page == "vis":
         unsafe_allow_html=True
     )
 
-    with st.container(key="invoice_table_wrap", height=560):
+    with st.container(key=wrap_key, height=560):
         if df_page.empty:
             st.info("No invoice records found.")
         else:
@@ -2530,12 +2487,12 @@ if st.session_state.active_page == "vis":
                 rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
                 with rcols[1]:
                     with st.popover("⚙️", use_container_width=True):
-                        if st.button("👁️ Open", key=f"view_inv_{rid}", use_container_width=True):
+                        if st.button("👁️ Open", key=f"{prefix}_view_inv_{rid}", use_container_width=True):
                             view_invoice_dialog(row_dict)
-                        if st.button("✏️ Edit", key=f"edit_inv_{rid}", use_container_width=True):
-                            edit_invoice_dialog(row_dict)
-                        if st.button("🗑️ Delete", key=f"del_inv_{rid}", use_container_width=True):
-                            delete_invoice_dialog(rid, row_dict.get('invoice_number', ''))
+                        if st.button("✏️ Edit", key=f"{prefix}_edit_inv_{rid}", use_container_width=True):
+                            edit_invoice_dialog(row_dict, table_name)
+                        if st.button("🗑️ Delete", key=f"{prefix}_del_inv_{rid}", use_container_width=True):
+                            delete_invoice_dialog(rid, row_dict.get('invoice_number', ''), table_name)
 
                 for idx, k in enumerate(keys_seq, start=2):
                     val = row_dict.get(k, '')
@@ -2550,8 +2507,6 @@ if st.session_state.active_page == "vis":
                         except:
                             val = '-'
 
-                    # Empty database/Pandas values should show as a clean dash,
-                    # never as None / nan / NaT in the invoice table.
                     if val is None or pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'nat', 'none'):
                         display_val = '-'
                     elif isinstance(val, float):
@@ -2567,39 +2522,109 @@ if st.session_state.active_page == "vis":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 7. PAGINATION CONTROLS ---
+    # --- PAGINATION CONTROLS ---
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
     with col_p1:
-        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.current_page == 1), key="vis_prev"):
-            st.session_state.current_page -= 1
+        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state[page_key] == 1), key=f"{prefix}_inv_prev"):
+            st.session_state[page_key] -= 1
             st.rerun()
     with col_p2:
-        st.markdown(f"<div class='page-count'>Page {st.session_state.current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='page-count'>Page {st.session_state[page_key]} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
     with col_p3:
-        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.current_page == total_pages), key="vis_next"):
-            st.session_state.current_page += 1
+        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state[page_key] == total_pages), key=f"{prefix}_inv_next"):
+            st.session_state[page_key] += 1
             st.rerun()
 
-# =========================================================================
-# TAB 2 — ERS PROCESS (Supabase table: "ERSprocess")
-# =========================================================================
-elif st.session_state.active_page == "ers":
-    render_generic_tab(table_name="ERSprocess", prefix="ers", tab_title="ERS Process", icon="⚙️", pdf_button=True)
 
 # =========================================================================
-# TAB 3 — INVOICE DATA (Supabase table: "Invoicedata")
+# TOP BANNER
 # =========================================================================
-elif st.session_state.active_page == "invdata":
-    render_generic_tab(table_name="Invoicedata", prefix="invdata", tab_title="Invoice Data", icon="📁")
+st.markdown("""
+    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            🧾 Invoice Management Hub
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
 
 # =========================================================================
-# TAB 4 — BHAGYASHREE INVOICE (Supabase table: "BhagyashreeInvoice")
+# NAVIGATION — Level 1: Company (VISIONTECH / BHAGYASHREE)
+#              Level 2: Us company ke tabs
 # =========================================================================
-elif st.session_state.active_page == "bhagya":
-    render_bhagyashree_tab()
+NAV_PAGES_BY_COMPANY = {
+    "vis": [
+        ("vis", "📋 VIS Invoice"),
+        ("ers", "⚙️ ERS Process"),
+        ("invdata", "📁 Invoice Data"),
+        ("bhagya", "🏢 Bhagyashree Invoice"),
+        ("saitele", "📡 Sai Tele Invoice"),
+    ],
+    "bhg": [
+        ("bhg_inv", "📋 BE Invoice"),
+        ("bhg_ers", "⚙️ ERS Process"),
+        ("bhg_invdata", "📁 Invoice Data"),
+    ],
+}
+
+if 'active_company' not in st.session_state:
+    st.session_state.active_company = "vis"
+if 'active_pages' not in st.session_state:
+    st.session_state.active_pages = {k: v[0][0] for k, v in NAV_PAGES_BY_COMPANY.items()}
+
+with st.container(key="company_bar"):
+    comp_cols = st.columns(len(COMPANIES))
+    for comp_col, (comp_key, comp_cfg) in zip(comp_cols, COMPANIES.items()):
+        is_active = st.session_state.active_company == comp_key
+        with comp_col:
+            if st.button(comp_cfg["label"], key=f"company_{comp_key}", use_container_width=True,
+                         type=("primary" if is_active else "secondary")):
+                st.session_state.active_company = comp_key
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+active_company = st.session_state.active_company
+company_pages = NAV_PAGES_BY_COMPANY[active_company]
+
+with st.container(key="nav_bar"):
+    nav_cols = st.columns(len(company_pages))
+    for nav_col, (page_id, page_label) in zip(nav_cols, company_pages):
+        is_active = st.session_state.active_pages.get(active_company) == page_id
+        with nav_col:
+            if st.button(page_label, key=f"nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
+                st.session_state.active_pages[active_company] = page_id
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+active_page = st.session_state.active_pages.get(active_company, company_pages[0][0])
 
 # =========================================================================
-# TAB 5 — SAI TELE INVOICE (Supabase table: "SaiTeleInvoice")
+# 🏢 VISIONTECH (bilkul pehle jaisa)
 # =========================================================================
-elif st.session_state.active_page == "saitele":
-    render_generic_tab(table_name="SaiTeleInvoice", prefix="saitele", tab_title="Sai Tele Invoice", icon="📡")
+if active_company == "vis":
+    if active_page == "vis":
+        render_invoice_master_tab("vis", "vis", "📊 Live Invoices Master")
+    elif active_page == "ers":
+        render_generic_tab(table_name=COMPANIES["vis"]["ers_table"], prefix="ers", tab_title="ERS Process",
+                           icon="⚙️", pdf_button=True, company_key="vis", workspace=COMPANIES["vis"]["workspace"])
+    elif active_page == "invdata":
+        render_generic_tab(table_name=COMPANIES["vis"]["invdata_table"], prefix="invdata", tab_title="Invoice Data", icon="📁",
+                           workspace=COMPANIES["vis"]["workspace"])
+    elif active_page == "bhagya":
+        render_bhagyashree_tab()
+    elif active_page == "saitele":
+        render_generic_tab(table_name="SaiTeleInvoice", prefix="saitele", tab_title="Sai Tele Invoice", icon="📡")
+
+# =========================================================================
+# 🏭 BHAGYASHREE (Visiontech jaisa hi — same tables, workspace = BHAGYASHREE)
+# =========================================================================
+elif active_company == "bhg":
+    if active_page == "bhg_inv":
+        render_invoice_master_tab("bhg", "bhg", "📊 Bhagyashree Invoices Master")
+    elif active_page == "bhg_ers":
+        render_generic_tab(table_name=COMPANIES["bhg"]["ers_table"], prefix="bhg_ers", tab_title="ERS Process",
+                           icon="⚙️", pdf_button=True, company_key="bhg", workspace=COMPANIES["bhg"]["workspace"])
+    elif active_page == "bhg_invdata":
+        render_generic_tab(table_name=COMPANIES["bhg"]["invdata_table"], prefix="bhg_invdata", tab_title="Invoice Data", icon="📁",
+                           workspace=COMPANIES["bhg"]["workspace"])
