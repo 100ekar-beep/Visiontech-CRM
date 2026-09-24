@@ -45,12 +45,11 @@ COMPANIES = {
         "invoice_table": "invoice_management",
         "ers_table": "ERSprocess",
         "invdata_table": "Invoicedata",
-        # TODO: Bhagyashree ki sahi details yahan bharein
         "partner_name": "Bhagyashree Enterprises",
-        "user_name": "",
+        "user_name": "Mr. Varpe",
         "department": "Deployment",
-        "email": "",
-        "contact": "",
+        "email": "project@bhagyshrienterprises.com",
+        "contact": "9975522431",
     },
 }
 
