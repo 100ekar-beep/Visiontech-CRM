@@ -59,11 +59,10 @@ for _page_key in ["vis_inv_page", "bhg_inv_page", "ers_page", "invdata_page", "b
     if _page_key not in st.session_state:
         st.session_state[_page_key] = 1
 
-# --- 2. LAVISH CUSTOM CSS ---
+# --- 2. ✨ LAVISH LIGHT THEME CSS (Quotation / Site Data / Solar jaisa) ---
 st.markdown("""
     <style>
-    /* Dark Premium Theme */
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
 
     /* Top Action Buttons */
     div.stButton > button {
@@ -74,15 +73,13 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
     }
-
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
-
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
     div.stButton > button p,
     div.stButton > button span,
     div.stButton > button div {
@@ -90,299 +87,271 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* =========================================================
-       COMPANY BAR (top-most level: VISIONTECH / BHAGYASHREE)
-       ========================================================= */
-    .st-key-company_bar div[data-testid="stHorizontalBlock"] {
-        gap: 16px !important;
-    }
+    /* ================= COMPANY BAR (VISIONTECH / BHAGYASHREE) ================= */
+    .st-key-company_bar div[data-testid="stHorizontalBlock"] { gap: 16px !important; }
     .st-key-company_bar button {
-        font-size: 1.3rem !important;
-        font-weight: 900 !important;
-        padding: 18px 10px !important;
-        height: auto !important;
-        border-radius: 14px !important;
-        letter-spacing: 2px !important;
+        font-size: 1.3rem !important; font-weight: 900 !important; padding: 18px 10px !important;
+        height: auto !important; border-radius: 14px !important; letter-spacing: 2px !important;
         transition: all 0.25s ease !important;
     }
     .st-key-company_bar button[kind="secondary"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 2px solid rgba(255, 255, 255, 0.15) !important;
-        box-shadow: none !important;
+        background: #ffffff !important; border: 2px solid rgba(0,0,0,0.10) !important;
+        box-shadow: 0 2px 6px rgba(15,23,42,0.06) !important;
     }
     .st-key-company_bar button[kind="secondary"] p,
     .st-key-company_bar button[kind="secondary"] span,
-    .st-key-company_bar button[kind="secondary"] div {
-        color: #94a3b8 !important;
-        font-size: 1.3rem !important;
-        font-weight: 900 !important;
-    }
-    .st-key-company_bar button[kind="secondary"]:hover {
-        background: rgba(255, 255, 255, 0.12) !important;
-        transform: translateY(-2px) !important;
-    }
+    .st-key-company_bar button[kind="secondary"] div { color: #64748b !important; font-size: 1.3rem !important; font-weight: 900 !important; }
+    .st-key-company_bar button[kind="secondary"]:hover { background: #f1f5f9 !important; transform: translateY(-2px) !important; }
     .st-key-company_bar button[kind="primary"] {
-        background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%) !important;
-        border: none !important;
+        background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%) !important; border: none !important;
         box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4) !important;
     }
     .st-key-company_bar button[kind="primary"] p,
     .st-key-company_bar button[kind="primary"] span,
-    .st-key-company_bar button[kind="primary"] div {
-        color: #ffffff !important;
-        font-size: 1.3rem !important;
-        font-weight: 900 !important;
-    }
+    .st-key-company_bar button[kind="primary"] div { color: #ffffff !important; font-size: 1.3rem !important; font-weight: 900 !important; }
 
-    /* =========================================================
-       CUSTOM PAGE NAVIGATION BAR (sub-tabs inside a company)
-       ========================================================= */
-    .st-key-nav_bar div[data-testid="stHorizontalBlock"] {
-        gap: 12px !important;
-        flex-wrap: wrap !important;
-    }
+    /* ================= SUB-TAB NAV BAR ================= */
+    .st-key-nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-nav_bar button {
-        font-size: 1.05rem !important;
-        font-weight: 800 !important;
-        padding: 16px 10px !important;
-        height: auto !important;
-        border-radius: 12px !important;
-        transition: all 0.25s ease !important;
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 16px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
         white-space: nowrap !important;
     }
     .st-key-nav_bar button[kind="secondary"] {
-        background: rgba(255, 255, 255, 0.06) !important;
-        color: #cbd5e1 !important;
-        border: 1px solid rgba(255, 255, 255, 0.18) !important;
-        box-shadow: none !important;
+        background: #ffffff !important; border: 1.5px solid rgba(0,0,0,0.12) !important;
+        box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
-    .st-key-nav_bar button[kind="secondary"]:hover {
-        background: rgba(255, 255, 255, 0.16) !important;
-        color: #ffffff !important;
-        transform: translateY(-2px) !important;
-    }
+    .st-key-nav_bar button[kind="secondary"]:hover { background: #eef2ff !important; border-color: #c7d2fe !important; transform: translateY(-2px) !important; }
     .st-key-nav_bar button[kind="secondary"] p,
     .st-key-nav_bar button[kind="secondary"] span,
-    .st-key-nav_bar button[kind="secondary"] div {
-        color: #cbd5e1 !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
-    }
-    .st-key-nav_bar button[kind="secondary"]:hover p,
-    .st-key-nav_bar button[kind="secondary"]:hover span,
-    .st-key-nav_bar button[kind="secondary"]:hover div {
-        color: #ffffff !important;
-    }
+    .st-key-nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; font-size: 1.05rem !important; }
     .st-key-nav_bar button[kind="primary"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; border: none !important;
         box-shadow: 0 6px 16px rgba(139, 92, 246, 0.45) !important;
     }
     .st-key-nav_bar button[kind="primary"] p,
     .st-key-nav_bar button[kind="primary"] span,
-    .st-key-nav_bar button[kind="primary"] div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
-    }
+    .st-key-nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; font-size: 1.05rem !important; }
 
-    /* Modal/Dialog Glassmorphism */
+    /* ================= DIALOGS (light glass) ================= */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
-
-    div[data-testid="stDialog"] h1,
-    div[data-testid="stDialog"] h2,
-    div[data-testid="stDialog"] h3 {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.5px;
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
-    div[data-testid="stDialog"] p {
-        color: #e2e8f0 !important;
-    }
-    div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #ffffff !important;
-    }
+    div[data-testid="stDialog"] p { color: #1e293b !important; }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
 
     .modal-section-title {
-        color: #94a3b8;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 1px;
-        margin-top: 15px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        padding-bottom: 5px;
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+        margin-top: 15px; margin-bottom: 10px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
     }
-
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
     }
 
-    /* Generic (unscoped) table-cell fallback — for tables inside dialogs */
-    .tbl-cell {
-        color: #f1f5f9;
-        font-size: 0.86rem;
-    }
-    .tbl-head {
-        color: #94a3b8;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        text-transform: uppercase;
-    }
+    /* Generic table-cell fallback (for small tables inside dialogs) */
+    .tbl-cell { color: #1e293b; font-size: 0.86rem; }
+    .tbl-head { color: #4338ca; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; }
 
-    /* Bold, clearly-legible read-only "display box" */
-    .display-box-label {
-        color: #94a3b8;
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-    }
+    /* Read-only "display box" */
+    .display-box-label { color: #64748b; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 4px; text-transform: uppercase; }
     .display-box-value {
-        background: #f1f5f9;
-        border: 1px solid rgba(0,0,0,0.08);
-        border-radius: 8px;
-        padding: 10px 12px;
-        color: #0f172a !important;
-        font-weight: 800 !important;
-        font-size: 0.95rem;
-        min-height: 20px;
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px;
+        color: #0f172a !important; font-weight: 800 !important; font-size: 0.95rem; min-height: 20px;
     }
-
-    /* Disabled text inputs: bold black text on light background */
     div[data-testid="stTextInput"] input:disabled,
     div[data-testid="stTextInput"] input[disabled] {
-        color: #0f172a !important;
-        -webkit-text-fill-color: #0f172a !important;
-        opacity: 1 !important;
-        font-weight: 800 !important;
-        background-color: #f1f5f9 !important;
-        border: 1px solid rgba(0,0,0,0.08) !important;
+        color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; opacity: 1 !important;
+        font-weight: 800 !important; background-color: #f1f5f9 !important; border: 1px solid rgba(0,0,0,0.08) !important;
     }
 
-    /* Premium sidebar navigation */
+    /* Sidebar (kept dark, same as other pages) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
     [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important;
+        font-weight: 600 !important; font-size: 1.05rem !important; transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important;
+        align-items: center !important; gap: 12px !important;
     }
     [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        color: #ffffff !important;
+        background: rgba(255, 255, 255, 0.1) !important; transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important; color: #ffffff !important;
     }
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
+        color: #ffffff !important; border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
-    /* Horizontal scrolling data tables (all containers whose key ends with "_table_wrap") */
+    /* ================= SCROLLING TABLE BODIES (every key ending in _table_wrap) ================= */
     div[class*="_table_wrap"] {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 10px;
-        overflow: auto !important;
-        padding: 0px 0 !important;
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    div[class*="_table_wrap"] div[data-testid="stHorizontalBlock"] {
-        min-width: 1200px;
-        align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        padding: 2px 0 !important;
-        gap: 2px !important;
-        flex-wrap: nowrap !important;
+    div[class*="_table_wrap"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    div[class*="_table_wrap"] [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
-    div[class*="_table_wrap"] div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(255,255,255,0.04);
-    }
-    div[class*="_table_wrap"] div[data-testid="column"] {
-        padding: 0 5px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
-    }
-    div[class*="_table_wrap"] div[data-testid="column"]:last-child {
-        border-right: none;
+    div[class*="_table_wrap"] [data-testid="stColumn"], div[class*="_table_wrap"] [data-testid="column"] {
+        padding: 0 10px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
 
-    div[class*="_table_wrap"] .tbl-head {
-        background: transparent;
-        font-size: 0.68rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        color: #94a3b8;
-        text-transform: uppercase;
-        white-space: nowrap !important;
+    /* Sticky header rows */
+    div[class*="st-key-ilhead_"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
     }
-    div[class*="_table_wrap"] .tbl-cell {
-        color: #e2e8f0;
-        font-size: 0.78rem;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        width: 100%;
-    }
-    div[class*="_table_wrap"] .tbl-serial {
-        color: #64748b;
-        font-size: 0.85rem;
-        font-weight: 800;
-    }
+    div[class*="st-key-ilhead_"] [data-testid="stColumn"], div[class*="st-key-ilhead_"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
 
-    div[class*="_table_wrap"] button {
-        height: 28px !important;
-        width: 100% !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-        border-radius: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        box-shadow: none !important;
-        cursor: pointer !important;
+    /* Data rows */
+    div[class*="st-key-ilrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
     }
-    div[class*="_table_wrap"] button:hover {
-        background: #3b82f6 !important;
-        border-color: #60a5fa !important;
-        transform: translateY(-2px) !important;
-    }
+    div[class*="st-key-ilrow_odd"] { background: #fafaff; }
+    div[class*="st-key-ilrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-ilrow_"] p { margin: 0 !important; }
 
-    div[class*="invoice_table_wrap"] div[data-testid="column"]:nth-child(1) { padding: 0 10px 0 15px !important; }
-    div[class*="invoice_table_wrap"] div[data-testid="column"]:nth-child(2) {
-        padding: 4px 4px !important;
-        border-right: 1px solid rgba(255,255,255,0.06) !important;
+    .slux-cell { font-size: .84rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .72rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
     }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .76rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-chip.inv { background: #fdf4ff; border-color: #f5d0fe; color: #a21caf; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .sol-amt { text-align: right; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums; }
+    .sol-amt.zero { color: #cbd5e1; font-weight: 600; }
+    .sol-amt.strong { color: #4f46e5; font-weight: 900; font-size: .9rem; }
+    .sol-amt.paid { color: #059669; font-weight: 900; }
+    .sol-amt.due { color: #dc2626; font-weight: 900; }
+
+    /* Status pills */
+    .status-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-blue   { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-yellow { background: #fef9c3; color: #a16207; border-color: #fde68a; }
+    .status-red    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .status-grey   { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+    /* Single ⚙️ popover button at row start (Site Data jaisa) */
+    div[class*="st-key-ilpop_"] button {
+        width: 40px !important; max-width: 40px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important;
+        box-shadow: none !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-ilpop_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    div[class*="st-key-ilpop_"] button p, div[class*="st-key-ilpop_"] button span { color: #1e293b !important; }
+    div[class*="st-key-ilpop_"] button svg { display: none !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
+    /* Dialog mini-table + totals box (Bhagyashree invoice dialogs) */
+    .dlg-head { color: #4338ca; font-size: 0.74rem; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; }
+    .dlg-cell { color: #0f172a; font-size: 0.86rem; }
+    .dlg-sum {
+        background: linear-gradient(90deg, #f5f3ff, #eef2ff); border: 1px solid #c7d2fe;
+        padding: 14px 20px; border-radius: 12px; margin-top: 15px;
+    }
+    .dlg-sum-row { display: flex; justify-content: space-between; padding: 3px 0; }
+    .dlg-sum-row .l { color: #475569; font-weight: 700; }
+    .dlg-sum-row .v { color: #0f172a; font-weight: 800; }
+    .dlg-sum-row.disc .l, .dlg-sum-row.disc .v { color: #d97706; }
+    .dlg-sum-row.sep { border-top: 1px dashed #c7d2fe; margin-top: 4px; padding-top: 6px; }
+    .dlg-sum-row.final { border-top: 2px solid #c7d2fe; margin-top: 6px; padding-top: 8px; }
+    .dlg-sum-row.final .l, .dlg-sum-row.final .v { color: #4f46e5; font-weight: 900; font-size: 1.1rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -890,6 +859,191 @@ def generic_delete_dialog(table_name, rid, label, prefix):
                 st.error(f"❌ Error: {e}")
 
 
+# =========================================================================
+# ✨ LAVISH TABLE RENDER HELPERS (shared by all tables on this page)
+# =========================================================================
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+
+def _clean(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "nat", "none", "null", "-") else s
+
+
+def _num(v):
+    try:
+        s = _clean(v).replace(",", "")
+        return float(s) if s else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+
+def _pill(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+
+
+def _money(v, style=""):
+    if not _clean(v):
+        return "<div class='slux-cell sol-amt zero'>—</div>"
+    val = _num(v)
+    cls = "zero" if val == 0 and not style else style
+    shown = f"{val:,.2f}".rstrip('0').rstrip('.')
+    return f"<div class='slux-cell sol-amt {cls}'>₹ {shown}</div>"
+
+
+def _date_cell(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    d = parse_date_safely(s[:10])
+    shown = d.strftime("%d %b %Y") if d else s
+    return f"<div class='slux-cell slux-soft' title='{html.escape(s)}'>{html.escape(shown)}</div>"
+
+
+def status_badge(val):
+    v = _clean(val)
+    if not v:
+        return _MUTED
+    vl = v.lower()
+    if vl == "not required":
+        cls = "status-grey"
+    elif "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done", "available", "paid", "received", "cleared"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress", "submitted", "process"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<div class='slux-cell'><span class='status-badge {cls}'>{html.escape(v)}</span></div>"
+
+
+def _auto_cell(col_name, val):
+    """Picks a lavish style automatically from the column name (for generic tables)."""
+    cl = str(col_name).lower()
+    if 'date' in cl:
+        return _date_cell(val)
+    if 'status' in cl:
+        return status_badge(val)
+    if any(k in cl for k in ['amount', 'gst', 'total', 'balance', 'price', 'rate', 'value']) and 'number' not in cl and ' no' not in cl:
+        return _money(val, "strong" if 'total' in cl else "")
+    if 'invoice' in cl and any(k in cl for k in ['number', 'no', 'num']):
+        return _chip(val, "inv")
+    if 'project' in cl and 'name' not in cl:
+        return _chip(val, "proj")
+    if any(k in cl for k in ['number', ' no', '_no', 'site id', 'site_id', 'code']):
+        return _chip(val)
+    if 'circle' in cl or 'cluster' in cl:
+        return _pill(val)
+    if 'name' in cl:
+        return _txt(val, "slux-strong")
+    return _txt(val)
+
+
+def kpi_card(icon, label, value, foot="", accent="linear-gradient(90deg,#6366f1,#8b5cf6)", soft="#eef2ff", value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+
+KPI_INDIGO = ("linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+KPI_GREEN = ("linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5")
+KPI_AMBER = ("linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+KPI_PINK = ("linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
+KPI_RED = ("linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2")
+
+
+def table_title_bar(title, subtitle, badge):
+    st.markdown(
+        '<div class="slux-head-bar">'
+        f'<div class="slux-title">{title}<span>{subtitle}</span></div>'
+        f'<div class="slux-badge">{badge}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def table_header_row(key, ratios, labels, center_idx=(), right_idx=()):
+    with st.container(key=key):
+        h_cols = st.columns(ratios, vertical_alignment="center")
+        for i, (h_col, label) in enumerate(zip(h_cols, labels)):
+            cls = " c" if i in center_idx else (" r" if i in right_idx else "")
+            h_col.markdown(f"<div class='slux-th{cls}' title='{html.escape(str(label))}'>{html.escape(str(label))}</div>", unsafe_allow_html=True)
+
+
+def table_min_width_css(wrap_key, min_width):
+    st.markdown(
+        f"<style>"
+        f".st-key-{wrap_key} [data-testid='stHorizontalBlock'],"
+        f".st-key-{wrap_key} div[class*='st-key-ilhead_'],"
+        f".st-key-{wrap_key} div[class*='st-key-ilrow_'] {{ min-width: {min_width}px !important; }}"
+        f"</style>",
+        unsafe_allow_html=True,
+    )
+
+
+def table_footer(left_html, right_html=""):
+    st.markdown(f'<div class="slux-foot"><div>{left_html}</div><div class="slux-foot-amts">{right_html}</div></div>', unsafe_allow_html=True)
+
+
+def empty_state(msg):
+    st.markdown(f'<div class="slux-empty"><div>🗂️</div>{html.escape(msg)}</div>', unsafe_allow_html=True)
+
+
+def serial_cell(n):
+    return f"<div style='text-align:center;'><span class='slux-num'>{n}</span></div>"
+
+
+def row_key_for(rid, fallback):
+    return rid if (rid is not None and str(rid).strip() not in ("", "nan", "None")) else fallback
+
+
+def pager(page_state_key, total_pages, total_rows, key_prefix, label="Total Records"):
+    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+    with col_p1:
+        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state[page_state_key] == 1), key=f"{key_prefix}_prev"):
+            st.session_state[page_state_key] -= 1
+            st.rerun()
+    with col_p2:
+        st.markdown(f"<div class='page-count'>Page {st.session_state[page_state_key]} of {total_pages} ({label}: {total_rows})</div>", unsafe_allow_html=True)
+    with col_p3:
+        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state[page_state_key] == total_pages), key=f"{key_prefix}_next"):
+            st.session_state[page_state_key] += 1
+            st.rerun()
+
+
 def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, company_key="vis", workspace=None):
     """Full CRUD tab for any Supabase table. pdf_button=True adds the ERS
     checklist PDF download (company details taken from COMPANIES[company_key])."""
@@ -899,7 +1053,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, co
 
     col_title, col_ref, col_add, col_export = st.columns([3, 1, 1.5, 1.5])
     with col_title:
-        st.markdown(f"<h2 style='margin:0; color:white;'>{icon} {tab_title}</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='margin:0; color:#0f172a;'>{icon} {tab_title}</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_refresh"):
             get_table_df.clear()
@@ -941,18 +1095,20 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, co
         st.session_state[f"{prefix}_action"] = ""
 
     if df.empty:
-        st.info(f"No records found in '{table_name}'. Click ➕ Add Record to create the first one.")
+        empty_state(f"No records found in '{table_name}'. Click ➕ Add Record to create the first one.")
         return
 
     col_table_title, col_search = st.columns([7, 3])
     with col_table_title:
-        st.markdown(f"##### 🗄️ {tab_title} Records")
+        st.markdown(f"<h5 style='margin:0; color:#0f172a;'>🗄️ {tab_title} Records</h5>", unsafe_allow_html=True)
     with col_search:
         search_query = st_keyup("Search", placeholder="🔍 Search...", label_visibility="collapsed", key=f"{prefix}_search")
 
     if search_query:
         mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
         df = df[mask]
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     rows_per_page = 10
     total_rows = len(df)
@@ -968,79 +1124,73 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, co
     df_page = df.iloc[start_idx:end_idx].copy()
 
     data_cols = [c for c in df.columns if c != 'id']
-    col_ratios = [0.3, 0.65] + [1.0] * len(data_cols)
-    col_labels = ["#", "Setting"] + [c.replace("_", " ").title() for c in data_cols]
+    col_ratios = [0.55, 0.5] + [1.2] * len(data_cols)
+    col_labels = ["⚙️", "#"] + [c.replace("_", " ").title() for c in data_cols]
 
     wrap_key = f"{prefix}_table_wrap"
-    min_width = max(1000, 125 + len(data_cols) * 125)
-    st.markdown(
-        f"<style>.st-key-{wrap_key} div[data-testid='stHorizontalBlock'] {{ min-width: {min_width}px !important; }}</style>",
-        unsafe_allow_html=True
-    )
+    min_width = max(1000, 140 + len(data_cols) * 150)
+    table_min_width_css(wrap_key, min_width)
+
+    table_title_bar(f"{icon} {tab_title}", "newest first • scroll right for more →" if len(data_cols) > 6 else "newest first", f"{total_rows:,} records")
 
     with st.container(key=wrap_key, height=560):
         if df_page.empty:
-            st.info("No records found.")
+            empty_state("No records found.")
         else:
-            h_cols = st.columns(col_ratios)
-            for h_col, label in zip(h_cols, col_labels):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+            table_header_row(f"ilhead_{prefix}", col_ratios, col_labels, center_idx=(0, 1))
 
             for page_pos, (_, row) in enumerate(df_page.iterrows()):
                 row_dict = row.to_dict()
                 rid = row_dict.get("id")
                 serial_no = start_idx + page_pos + 1
-                rcols = st.columns(col_ratios)
+                rk = row_key_for(rid, f"s{serial_no}")
+                parity = "odd" if serial_no % 2 else "even"
 
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-                with rcols[1]:
-                    label_val = str(row_dict.get(data_cols[0], rid)) if data_cols else str(rid)
-                    with st.popover("⚙️", use_container_width=True):
-                        if st.button("👁️ Open", key=f"{prefix}_view_{rid}", use_container_width=True):
-                            generic_view_dialog(row_dict, df.columns.tolist(), prefix)
-                        if st.button("✏️ Edit", key=f"{prefix}_editbtn_{rid}", use_container_width=True):
-                            generic_edit_dialog(table_name, row_dict, df.columns.tolist(), prefix)
-                        if st.button("🗑️ Delete", key=f"{prefix}_delbtn_{rid}", use_container_width=True):
-                            generic_delete_dialog(table_name, rid, label_val, prefix)
-                        if pdf_button:
-                            guess_inv = _ers_find_field(row_dict, [
-                                "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
-                                "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
-                                "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
-                                "invoice", "ers number", "ers no", "ers_number"
-                            ])
-                            guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
-                            guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
-                            try:
-                                pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date, company_key)
-                                st.download_button(
-                                    "📥 Download PDF", data=pdf_bytes,
-                                    file_name=_ers_pdf_filename(guess_inv), mime="application/pdf",
-                                    key=f"{prefix}_pdfdl_{rid}", use_container_width=True
-                                )
-                            except Exception as e:
-                                st.button("⚠️ PDF Error", key=f"{prefix}_pdferr_{rid}", help=str(e), use_container_width=True, disabled=True)
-                data_start_idx = 2
+                with st.container(key=f"ilrow_{parity}_{prefix}_{rk}"):
+                    rcols = st.columns(col_ratios, vertical_alignment="center")
 
-                for idx, k in enumerate(data_cols, start=data_start_idx):
-                    val = row_dict.get(k, '')
-                    display_val = val if val is not None and str(val).strip() != '' else '-'
-                    rcols[idx].markdown(f"<div class='tbl-cell'>{display_val}</div>", unsafe_allow_html=True)
+                    with rcols[0]:
+                        label_val = str(row_dict.get(data_cols[0], rid)) if data_cols else str(rid)
+                        with st.container(key=f"ilpop_{prefix}_{rk}"):
+                            with st.popover("⚙️"):
+                                if st.button("👁️ Open", key=f"{prefix}_view_{rid}", use_container_width=True):
+                                    generic_view_dialog(row_dict, df.columns.tolist(), prefix)
+                                if st.button("✏️ Edit", key=f"{prefix}_editbtn_{rid}", use_container_width=True):
+                                    generic_edit_dialog(table_name, row_dict, df.columns.tolist(), prefix)
+                                if st.button("🗑️ Delete", key=f"{prefix}_delbtn_{rid}", use_container_width=True):
+                                    generic_delete_dialog(table_name, rid, label_val, prefix)
+                                if pdf_button:
+                                    guess_inv = _ers_find_field(row_dict, [
+                                        "tally invoice number", "tally invoice no", "tally_invoice_number", "tally invoice",
+                                        "invoice_number", "invoice no", "invoiceno", "invoice num", "invoice_no",
+                                        "inv number", "inv no", "invno", "inv_no", "bill number", "bill no",
+                                        "invoice", "ers number", "ers no", "ers_number"
+                                    ])
+                                    guess_po = _ers_find_field(row_dict, ["po_number", "po no", "ponumber", "po", "po num"])
+                                    guess_date = _ers_find_field(row_dict, ["date", "invoice_date", "invoice date"])
+                                    try:
+                                        pdf_bytes = generate_ers_checklist_pdf(guess_inv, guess_po, guess_date, company_key)
+                                        st.download_button(
+                                            "📥 Download PDF", data=pdf_bytes,
+                                            file_name=_ers_pdf_filename(guess_inv), mime="application/pdf",
+                                            key=f"{prefix}_pdfdl_{rid}", use_container_width=True
+                                        )
+                                    except Exception as e:
+                                        st.button("⚠️ PDF Error", key=f"{prefix}_pdferr_{rid}", help=str(e), use_container_width=True, disabled=True)
 
+                    rcols[1].markdown(serial_cell(serial_no), unsafe_allow_html=True)
+                    for idx, k in enumerate(data_cols, start=2):
+                        rcols[idx].markdown(_auto_cell(k, row_dict.get(k, '')), unsafe_allow_html=True)
+
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    table_footer(
+        f'{total_rows:,} record{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small>',
+        f'<span class="slux-foot-badge">Page {st.session_state[f"{prefix}_page"]} of {total_pages}</span>',
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-    with col_p1:
-        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state[f"{prefix}_page"] == 1), key=f"{prefix}_prev"):
-            st.session_state[f"{prefix}_page"] -= 1
-            st.rerun()
-    with col_p2:
-        st.markdown(f"<div class='page-count'>Page {st.session_state[f'{prefix}_page']} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-    with col_p3:
-        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state[f"{prefix}_page"] == total_pages), key=f"{prefix}_next"):
-            st.session_state[f"{prefix}_page"] += 1
-            st.rerun()
-
+    pager(f"{prefix}_page", total_pages, total_rows, prefix)
 
 # =========================================================================
 # BHAGYASHREE INVOICE (Visiontech ke andar) — Custom PO-based invoice builder
@@ -1458,6 +1608,28 @@ def bhagya_generate_pdf(row_data):
         return bytes(pdf_output)
     return pdf_output.encode('latin1')
 
+def _bhagya_summary_html(subtotal, discount_pct, discount_amount, taxable_amount, cgst, sgst, total):
+    """Light-theme totals box used by the Bhagyashree add/edit dialogs."""
+    return f"""
+        <div class="dlg-sum">
+            <div class="dlg-sum-row"><span class="l">Subtotal</span><span class="v">₹ {subtotal:,.0f}</span></div>
+            <div class="dlg-sum-row disc"><span class="l">Discount ({discount_pct:.0f}%)</span><span class="v">- ₹ {discount_amount:,.0f}</span></div>
+            <div class="dlg-sum-row sep"><span class="l">Taxable Amount</span><span class="v">₹ {taxable_amount:,.0f}</span></div>
+            <div class="dlg-sum-row"><span class="l">CGST (9%)</span><span class="v">₹ {cgst:,.0f}</span></div>
+            <div class="dlg-sum-row"><span class="l">SGST (9%)</span><span class="v">₹ {sgst:,.0f}</span></div>
+            <div class="dlg-sum-row final"><span class="l">Final Amount</span><span class="v">₹ {total:,.0f}</span></div>
+        </div>
+    """
+
+
+def _dlg_cell(v, color=None, bold=False):
+    style = ""
+    if color:
+        style += f"color:{color};"
+    if bold:
+        style += "font-weight:800;"
+    return f"<div class='dlg-cell' style='{style}'>{html.escape(str(v))}</div>"
+
 
 @st.dialog("➕ Add New Invoice (Bhagyashree)", width="large")
 def bhagya_add_invoice_dialog():
@@ -1502,7 +1674,7 @@ def bhagya_add_invoice_dialog():
 
     h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
     for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
-        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+        c.markdown(f"<span class='dlg-head'>{label}</span>", unsafe_allow_html=True)
 
     line_items = []
     subtotal = 0.0
@@ -1515,18 +1687,18 @@ def bhagya_add_invoice_dialog():
         po_qty = po.get("PO Qty", 0) or 0
         price = po.get("Price", 0) or 0
 
-        r_cols[0].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{line_no}</div>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{item_code}</div>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{description}</div>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{po_qty}</div>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{price:,.0f}</div>", unsafe_allow_html=True)
+        r_cols[0].markdown(_dlg_cell(line_no), unsafe_allow_html=True)
+        r_cols[1].markdown(_dlg_cell(item_code), unsafe_allow_html=True)
+        r_cols[2].markdown(_dlg_cell(description), unsafe_allow_html=True)
+        r_cols[3].markdown(_dlg_cell(po_qty), unsafe_allow_html=True)
+        r_cols[4].markdown(_dlg_cell(f"{price:,.0f}"), unsafe_allow_html=True)
 
         claim_qty = r_cols[5].number_input(
             "Claim Qty", min_value=0, max_value=int(po_qty) if po_qty else 0, step=1, value=0,
             key=f"bhagya_claim_{line_no}_{item_code}", label_visibility="collapsed"
         )
         amount = claim_qty * price
-        r_cols[6].markdown(f"<div style='color:#3b82f6; font-size:0.86rem; font-weight:800;'>{amount:,.0f}</div>", unsafe_allow_html=True)
+        r_cols[6].markdown(_dlg_cell(f"{amount:,.0f}", "#4f46e5", True), unsafe_allow_html=True)
 
         subtotal += amount
         line_items.append({
@@ -1548,16 +1720,7 @@ def bhagya_add_invoice_dialog():
     sgst = taxable_amount * 0.09
     total = taxable_amount + cgst + sgst
 
-    st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 14px 20px; border-radius: 10px; margin-top:15px;">
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:6px 0 3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">CGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {cgst:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">SGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {sgst:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:8px 0 0 0; border-top:1px solid rgba(255,255,255,0.15); margin-top:6px;"><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">Final Amount</span><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">₹ {total:,.0f}</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(_bhagya_summary_html(subtotal, discount_pct, discount_amount, taxable_amount, cgst, sgst, total), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Save Invoice", type="primary", use_container_width=True, key="bhagya_save_btn"):
@@ -1586,7 +1749,7 @@ def bhagya_add_invoice_dialog():
             }
             try:
                 supabase.table(BHAGYA_TABLE).insert(payload).execute()
-                st.success("✅ Invoice Saved! Neeche table me 🧾 button se PDF download kar sakte hain.")
+                st.success("✅ Invoice Saved! Neeche table me ⚙️ button se PDF download kar sakte hain.")
                 get_table_df.clear()
                 bhagya_get_site_options.clear()
                 st.session_state.bhagya_page = 1
@@ -1620,31 +1783,31 @@ def bhagya_view_invoice_dialog(row_data):
     st.markdown('<div class="modal-section-title">📦 LINE ITEMS</div>', unsafe_allow_html=True)
     h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
     for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
-        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+        c.markdown(f"<span class='dlg-head'>{label}</span>", unsafe_allow_html=True)
     for li in line_items:
         r_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
-        r_cols[0].markdown(f"<span style='color:#f8fafc;'>{li.get('line_number','')}</span>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<span style='color:#f8fafc;'>{li.get('item_code','')}</span>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<span style='color:#f8fafc;'>{li.get('description','')}</span>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<span style='color:#f8fafc;'>{li.get('po_qty','')}</span>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<span style='color:#f8fafc;'>{li.get('price',0):,.0f}</span>", unsafe_allow_html=True)
-        r_cols[5].markdown(f"<span style='color:#f8fafc;'>{li.get('claim_qty','')}</span>", unsafe_allow_html=True)
-        r_cols[6].markdown(f"<span style='color:#4ade80; font-weight:700;'>{li.get('amount',0):,.0f}</span>", unsafe_allow_html=True)
+        r_cols[0].markdown(_dlg_cell(li.get('line_number','')), unsafe_allow_html=True)
+        r_cols[1].markdown(_dlg_cell(li.get('item_code','')), unsafe_allow_html=True)
+        r_cols[2].markdown(_dlg_cell(li.get('description','')), unsafe_allow_html=True)
+        r_cols[3].markdown(_dlg_cell(li.get('po_qty','')), unsafe_allow_html=True)
+        r_cols[4].markdown(_dlg_cell(f"{li.get('price',0):,.0f}"), unsafe_allow_html=True)
+        r_cols[5].markdown(_dlg_cell(li.get('claim_qty','')), unsafe_allow_html=True)
+        r_cols[6].markdown(_dlg_cell(f"{li.get('amount',0):,.0f}", "#059669", True), unsafe_allow_html=True)
 
     subtotal_v = row_data.get('subtotal', 0) or 0
     discount_pct_v = row_data.get('discount_pct', 0) or 0
     discount_amount_v = row_data.get('discount_amount', 0) or 0
     taxable_amount_v = row_data.get('taxable_amount', subtotal_v - discount_amount_v) or 0
+    gst_v = (row_data.get('cgst', 0) or 0) + (row_data.get('sgst', 0) or 0)
+    total_v = row_data.get('total', 0) or 0
 
     st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px;">
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal_v:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct_v:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount_v:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px; padding-top:6px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount_v:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:6px 0 0 0;">
-                <div style="color:#ffffff; font-weight:700;">CGST+SGST: <span style="color:#f59e0b;">₹ {(row_data.get('cgst',0)+row_data.get('sgst',0)):,.0f}</span></div>
-                <div style="color:#ffffff; font-weight:700;">Final: <span style="color:#4ade80;">₹ {row_data.get('total',0):,.0f}</span></div>
-            </div>
+        <div class="dlg-sum">
+            <div class="dlg-sum-row"><span class="l">Subtotal</span><span class="v">₹ {subtotal_v:,.0f}</span></div>
+            <div class="dlg-sum-row disc"><span class="l">Discount ({discount_pct_v:.0f}%)</span><span class="v">- ₹ {discount_amount_v:,.0f}</span></div>
+            <div class="dlg-sum-row sep"><span class="l">Taxable Amount</span><span class="v">₹ {taxable_amount_v:,.0f}</span></div>
+            <div class="dlg-sum-row"><span class="l">CGST + SGST</span><span class="v" style="color:#d97706;">₹ {gst_v:,.0f}</span></div>
+            <div class="dlg-sum-row final"><span class="l">Final Amount</span><span class="v" style="color:#059669;">₹ {total_v:,.0f}</span></div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -1714,7 +1877,7 @@ def bhagya_edit_invoice_dialog(row_data):
 
     h_cols = st.columns([0.8, 1.3, 3.0, 1.0, 1.2, 1.2, 1.4])
     for c, label in zip(h_cols, ["Line", "Item Code", "Description", "PO Qty", "Price", "Claim Qty", "Amount"]):
-        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
+        c.markdown(f"<span class='dlg-head'>{label}</span>", unsafe_allow_html=True)
 
     line_items = []
     subtotal = 0.0
@@ -1727,11 +1890,11 @@ def bhagya_edit_invoice_dialog(row_data):
         po_qty = po.get("PO Qty", 0) or 0
         price = po.get("Price", 0) or 0
 
-        r_cols[0].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{line_no}</div>", unsafe_allow_html=True)
-        r_cols[1].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{item_code}</div>", unsafe_allow_html=True)
-        r_cols[2].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{description}</div>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{po_qty}</div>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<div style='color:#f8fafc; font-size:0.86rem;'>{price:,.0f}</div>", unsafe_allow_html=True)
+        r_cols[0].markdown(_dlg_cell(line_no), unsafe_allow_html=True)
+        r_cols[1].markdown(_dlg_cell(item_code), unsafe_allow_html=True)
+        r_cols[2].markdown(_dlg_cell(description), unsafe_allow_html=True)
+        r_cols[3].markdown(_dlg_cell(po_qty), unsafe_allow_html=True)
+        r_cols[4].markdown(_dlg_cell(f"{price:,.0f}"), unsafe_allow_html=True)
 
         default_qty = int(existing_qty_map.get((line_no, item_code), 0) or 0)
         max_qty = int(po_qty) if po_qty else 0
@@ -1740,7 +1903,7 @@ def bhagya_edit_invoice_dialog(row_data):
             key=f"bhagya_edit_claim_{rid}_{line_no}_{item_code}", label_visibility="collapsed"
         )
         amount = claim_qty * price
-        r_cols[6].markdown(f"<div style='color:#3b82f6; font-size:0.86rem; font-weight:800;'>{amount:,.0f}</div>", unsafe_allow_html=True)
+        r_cols[6].markdown(_dlg_cell(f"{amount:,.0f}", "#4f46e5", True), unsafe_allow_html=True)
 
         subtotal += amount
         line_items.append({
@@ -1761,16 +1924,7 @@ def bhagya_edit_invoice_dialog(row_data):
     sgst = taxable_amount * 0.09
     total = taxable_amount + cgst + sgst
 
-    st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 14px 20px; border-radius: 10px; margin-top:15px;">
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">Subtotal</span><span style="color:#ffffff; font-weight:800;">₹ {subtotal:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#f59e0b; font-weight:700;">Discount ({discount_pct:.0f}%)</span><span style="color:#f59e0b; font-weight:800;">- ₹ {discount_amount:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:6px 0 3px 0; border-top:1px dashed rgba(255,255,255,0.15); margin-top:4px;"><span style="color:#94a3b8; font-weight:700;">Taxable Amount</span><span style="color:#ffffff; font-weight:800;">₹ {taxable_amount:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">CGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {cgst:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:3px 0;"><span style="color:#94a3b8; font-weight:700;">SGST (9%)</span><span style="color:#ffffff; font-weight:800;">₹ {sgst:,.0f}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:8px 0 0 0; border-top:1px solid rgba(255,255,255,0.15); margin-top:6px;"><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">Final Amount</span><span style="color:#3b82f6; font-weight:900; font-size:1.1rem;">₹ {total:,.0f}</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(_bhagya_summary_html(subtotal, discount_pct, discount_amount, taxable_amount, cgst, sgst, total), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Update Invoice", type="primary", use_container_width=True, key=f"bhagya_edit_save_{rid}"):
@@ -1892,7 +2046,7 @@ def bhagya_bulk_hsn_dialog():
 def render_bhagyashree_tab():
     col_title, col_ref, col_hsn, col_add = st.columns([3, 1, 1.6, 1.5])
     with col_title:
-        st.markdown("<h2 style='margin:0; color:white;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='margin:0; color:#0f172a;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key="bhagya_refresh"):
             get_table_df.clear()
@@ -1908,6 +2062,21 @@ def render_bhagyashree_tab():
     st.markdown("<br>", unsafe_allow_html=True)
 
     df = get_table_df(BHAGYA_TABLE)
+
+    # ---- KPI cards ----
+    if not df.empty:
+        k_taxable = sum(_num(v) for v in df["taxable_amount"]) if "taxable_amount" in df.columns else 0.0
+        k_gst = (sum(_num(v) for v in df["cgst"]) if "cgst" in df.columns else 0.0) + (sum(_num(v) for v in df["sgst"]) if "sgst" in df.columns else 0.0)
+        k_total = sum(_num(v) for v in df["total"]) if "total" in df.columns else 0.0
+        st.markdown(
+            '<div class="lux-kpi-grid">'
+            + kpi_card("🧾", "Total Invoices", f"{len(df):,}", "Pramodkumar + Radhika", *KPI_INDIGO)
+            + kpi_card("📦", "Taxable Amount", f"₹ {k_taxable:,.0f}", "After discount", *KPI_AMBER)
+            + kpi_card("🏛️", "GST (CGST + SGST)", f"₹ {k_gst:,.0f}", "18% total", *KPI_PINK)
+            + kpi_card("💰", "Grand Total", f"₹ {k_total:,.0f}", "All invoices", *KPI_GREEN, value_cls="green")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
 
     if not df.empty:
         buffer = io.BytesIO()
@@ -1926,18 +2095,20 @@ def render_bhagyashree_tab():
 
     col_table_title, col_search = st.columns([7, 3])
     with col_table_title:
-        st.markdown("##### 🗄️ Bhagyashree Invoices")
+        st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Bhagyashree Invoices</h5>", unsafe_allow_html=True)
     with col_search:
         search_query = st_keyup("Search", placeholder="🔍 Search...", label_visibility="collapsed", key="bhagya_search")
 
     if df.empty:
-        st.info("Abhi tak koi invoice nahi bani. ➕ Add New Invoice se shuru karein.")
+        empty_state("Abhi tak koi invoice nahi bani. ➕ Add New Invoice se shuru karein.")
         return
 
     view_df = df.copy()
     if search_query:
         mask = view_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
         view_df = view_df[mask]
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     rows_per_page = 10
     total_rows = len(view_df)
@@ -1948,53 +2119,58 @@ def render_bhagyashree_tab():
     end_idx = start_idx + rows_per_page
     page_df = view_df.iloc[start_idx:end_idx]
 
-    b_cols = ["#", "Setting", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
-    b_ratios = [0.3, 0.65, 1.1, 0.9, 1.0, 1.0, 1.0, 1.3, 0.8, 0.8, 0.9]
+    b_cols = ["⚙️", "#", "Invoice No", "Date", "Bill From", "Project ID", "Site ID", "Site Name", "Basic", "GST", "Total"]
+    b_ratios = [0.55, 0.5, 1.2, 1.0, 1.3, 1.3, 1.1, 1.6, 1.0, 1.0, 1.1]
+
+    view_total = sum(_num(v) for v in view_df["total"]) if "total" in view_df.columns else 0.0
+    table_min_width_css("bhagya_table_wrap", 1450)
+    table_title_bar("🏢 Bhagyashree Invoices", "newest first", f"₹ {view_total:,.0f}")
 
     with st.container(key="bhagya_table_wrap", height=520):
-        h_cols = st.columns(b_ratios)
-        for h_col, label in zip(h_cols, b_cols):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+        table_header_row("ilhead_bhagya", b_ratios, b_cols, center_idx=(0, 1), right_idx=(8, 9, 10))
 
         for pos, (_, row) in enumerate(page_df.iterrows()):
             row_dict = row.to_dict()
             rid = row_dict.get("id")
-            r_cols = st.columns(b_ratios)
-            r_cols[0].markdown(f"<div class='tbl-cell tbl-serial'>{start_idx + pos + 1}</div>", unsafe_allow_html=True)
-            with r_cols[1]:
-                with st.popover("⚙️", use_container_width=True):
-                    if st.button("👁️ Open", key=f"bhagya_view_{rid}", use_container_width=True):
-                        bhagya_view_invoice_dialog(row_dict)
-                    if st.button("✏️ Edit", key=f"bhagya_editbtn_{rid}", use_container_width=True):
-                        bhagya_edit_invoice_dialog(row_dict)
-                    if st.button("🗑️ Delete", key=f"bhagya_delbtn_{rid}", use_container_width=True):
-                        bhagya_delete_dialog(rid, row_dict.get('invoice_no', ''))
-            r_cols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_no','-')}</div>", unsafe_allow_html=True)
-            r_cols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('invoice_date','-')}</div>", unsafe_allow_html=True)
-            r_cols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('bill_from','-')}</div>", unsafe_allow_html=True)
-            r_cols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('project_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('site_id','-')}</div>", unsafe_allow_html=True)
-            r_cols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('site_name','-')}</div>", unsafe_allow_html=True)
-            subtotal_v = row_dict.get('subtotal', 0) or 0
-            basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
-            r_cols[8].markdown(f"<div class='tbl-cell'>{basic_v:,.0f}</div>", unsafe_allow_html=True)
-            gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
-            r_cols[9].markdown(f"<div class='tbl-cell'>{gst_total:,.0f}</div>", unsafe_allow_html=True)
-            r_cols[10].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#4ade80;'>{row_dict.get('total',0):,.0f}</div>", unsafe_allow_html=True)
+            serial_no = start_idx + pos + 1
+            rk = row_key_for(rid, f"s{serial_no}")
+            parity = "odd" if serial_no % 2 else "even"
+
+            with st.container(key=f"ilrow_{parity}_bhagya_{rk}"):
+                r_cols = st.columns(b_ratios, vertical_alignment="center")
+                with r_cols[0]:
+                    with st.container(key=f"ilpop_bhagya_{rk}"):
+                        with st.popover("⚙️"):
+                            if st.button("👁️ Open", key=f"bhagya_view_{rid}", use_container_width=True):
+                                bhagya_view_invoice_dialog(row_dict)
+                            if st.button("✏️ Edit", key=f"bhagya_editbtn_{rid}", use_container_width=True):
+                                bhagya_edit_invoice_dialog(row_dict)
+                            if st.button("🗑️ Delete", key=f"bhagya_delbtn_{rid}", use_container_width=True):
+                                bhagya_delete_dialog(rid, row_dict.get('invoice_no', ''))
+                r_cols[1].markdown(serial_cell(serial_no), unsafe_allow_html=True)
+                r_cols[2].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
+                r_cols[3].markdown(_date_cell(row_dict.get('invoice_date')), unsafe_allow_html=True)
+                r_cols[4].markdown(_txt(row_dict.get('bill_from'), "slux-strong"), unsafe_allow_html=True)
+                r_cols[5].markdown(_chip(row_dict.get('project_id'), "proj"), unsafe_allow_html=True)
+                r_cols[6].markdown(_chip(row_dict.get('site_id')), unsafe_allow_html=True)
+                r_cols[7].markdown(_txt(row_dict.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                subtotal_v = row_dict.get('subtotal', 0) or 0
+                basic_v = row_dict.get('taxable_amount', subtotal_v - (row_dict.get('discount_amount', 0) or 0))
+                r_cols[8].markdown(_money(basic_v), unsafe_allow_html=True)
+                gst_total = (row_dict.get('cgst', 0) or 0) + (row_dict.get('sgst', 0) or 0)
+                r_cols[9].markdown(_money(gst_total), unsafe_allow_html=True)
+                r_cols[10].markdown(_money(row_dict.get('total', 0), "paid"), unsafe_allow_html=True)
+
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    table_footer(
+        f'{total_rows:,} invoice{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small>',
+        f'<span>Total: <b style="color:#059669;">₹ {view_total:,.0f}</b></span>'
+        f'<span class="slux-foot-badge">Page {st.session_state.bhagya_page} of {total_pages}</span>',
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
-    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-    with col_p1:
-        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.bhagya_page == 1), key="bhagya_prev"):
-            st.session_state.bhagya_page -= 1
-            st.rerun()
-    with col_p2:
-        st.markdown(f"<div class='page-count'>Page {st.session_state.bhagya_page} of {total_pages} (Total: {total_rows})</div>", unsafe_allow_html=True)
-    with col_p3:
-        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.bhagya_page == total_pages), key="bhagya_next"):
-            st.session_state.bhagya_page += 1
-            st.rerun()
-
+    pager("bhagya_page", total_pages, total_rows, "bhagya", label="Total")
 
 # =========================================================================
 # INVOICE MASTER — DIALOGS (ab table_name parameter lete hain, taaki
@@ -2039,7 +2215,7 @@ def add_invoice_dialog(table_name, prefix, workspace=None):
 
         total = basic_amount + cgst + sgst + igst
         with c13:
-            st.markdown(f"<p style='color:#3b82f6; font-weight:800; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#4f46e5; font-weight:900; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
 
         c14, c15 = st.columns(2)
         with c14: receipt_number = st.text_input("Receipt_number", placeholder="Receipt No")
@@ -2136,7 +2312,7 @@ def edit_invoice_dialog(row_data, table_name):
 
         total = basic_amount + cgst + sgst + igst
         with c13:
-            st.markdown(f"<p style='color:#3b82f6; font-weight:800; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#4f46e5; font-weight:900; margin-top:28px;'>Total: {total:.2f}</p>", unsafe_allow_html=True)
 
         c14, c15 = st.columns(2)
         with c14: receipt_number = st.text_input("Receipt_number", value=str(row_data.get('receipt_number', '')), key="ed_receipt")
@@ -2310,6 +2486,13 @@ def bulk_upload_dialog(table_name, prefix, workspace=None):
         except Exception as e:
             st.error(f"❌ Error: {e}")
 
+def _invoice_total(row_dict):
+    """'Total' column value, or Basic + CGST + SGST + IGST if Total is blank."""
+    t = row_dict.get('Total')
+    if _clean(t):
+        return _num(t)
+    return sum(_num(row_dict.get(k)) for k in ('basic_amount', 'cgst', 'sgst', 'igst'))
+
 
 def render_invoice_master_tab(company_key, prefix, title):
     """Invoice Master table (VIS Invoice jaisa) — kisi bhi company ke liye.
@@ -2324,7 +2507,7 @@ def render_invoice_master_tab(company_key, prefix, title):
     # --- TOP ACTION BAR ---
     col_title, col_ref, col_add, col_upload, col_export = st.columns([3, 1, 1.5, 1.5, 1.5])
     with col_title:
-        st.markdown(f"<h2 style='margin:0; color:white;'>{title}</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='margin:0; color:#0f172a;'>{title}</h2>", unsafe_allow_html=True)
     with col_ref:
         if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_inv_refresh"):
             get_table_df.clear()
@@ -2367,13 +2550,29 @@ def render_invoice_master_tab(company_key, prefix, title):
     # --- LIVE SEARCH BOX ---
     col_table_title, col_search = st.columns([7, 3])
     with col_table_title:
-        st.markdown("##### 🗄️ Database Records")
+        st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Database Records</h5>", unsafe_allow_html=True)
     with col_search:
         search_query = st_keyup("Search", placeholder="🔍 Search invoices...", label_visibility="collapsed", key=f"{prefix}_inv_search")
 
     if search_query:
         mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
         df = df[mask]
+
+    # --- KPI CARDS (search ke hisaab se) ---
+    rows_as_dicts = df.to_dict("records")
+    k_count = len(rows_as_dicts)
+    k_billed = sum(_invoice_total(r) for r in rows_as_dicts)
+    k_received = sum(_num(r.get(c)) for r in rows_as_dicts for c in ("payment_1_amount", "payment_2_amount", "payment_3_amount"))
+    k_balance = sum(_num(r.get("balance")) for r in rows_as_dicts)
+    st.markdown(
+        '<div class="lux-kpi-grid">'
+        + kpi_card("🧾", "Total Invoices", f"{k_count:,}", "Filtered results" if search_query else "All records", *KPI_INDIGO)
+        + kpi_card("💼", "Total Billed", f"₹ {k_billed:,.0f}", "Basic + GST", *KPI_AMBER)
+        + kpi_card("💰", "Payments Received", f"₹ {k_received:,.0f}", "Pay 1 + Pay 2 + Pay 3", *KPI_GREEN, value_cls="green")
+        + kpi_card("⏳", "Balance", f"₹ {k_balance:,.0f}", "Pending collection", *KPI_RED, value_cls="red")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
     # --- PAGINATION LOGIC ---
     rows_per_page = 10
@@ -2396,143 +2595,92 @@ def render_invoice_master_tab(company_key, prefix, title):
     ]
 
     COL_RATIOS = [
-        0.38, 0.72, 1.15, 1.35, 1.05, 1.05, 0.82, 0.82, 0.82, 1.05,
-        1.35, 1.15, 1.45, 1.25, 1.25, 1.25, 1.00, 1.05,
-        1.05, 1.05, 1.05, 1.05, 1.05, 1.05, 1.10, 1.35
+        0.55, 0.5, 1.0, 1.4, 1.1, 1.1, 0.9, 0.9, 0.9, 1.15,
+        1.4, 1.15, 1.5, 1.35, 1.25, 1.2, 1.0, 1.15,
+        1.05, 1.05, 1.05, 1.05, 1.05, 1.05, 1.1, 1.6
     ]
     COL_LABELS = [
-        "#", "Setting",
+        "⚙️", "#",
         "Circle", "Invoice No", "Invoice Date", "Basic Amount", "CGST", "SGST", "IGST", "Total",
         "Project ID", "Site ID", "Site Name", "PO Number", "WCC Number", "Receipt No", "% Amount",
         "Sub Status",
         "Pay 1 Amt", "Pay 1 Date", "Pay 2 Amt", "Pay 2 Date", "Pay 3 Amt", "Pay 3 Date", "Balance", "Remark"
     ]
+    RIGHT_IDX = tuple(i for i, lbl in enumerate(COL_LABELS) if lbl in (
+        "Basic Amount", "CGST", "SGST", "IGST", "Total", "% Amount", "Pay 1 Amt", "Pay 2 Amt", "Pay 3 Amt", "Balance"))
 
     wrap_key = f"{prefix}_invoice_table_wrap"
-    vis_table_min_width = 3650
-    st.markdown(
-        f"""
-        <style>
-        .st-key-{wrap_key} {{
-            overflow-x: auto !important;
-            overflow-y: auto !important;
-            border: 1px solid rgba(148, 163, 184, 0.28) !important;
-            border-radius: 10px !important;
-            background: rgba(15, 23, 42, 0.28) !important;
-        }}
-        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"] {{
-            min-width: {vis_table_min_width}px !important;
-            width: {vis_table_min_width}px !important;
-            flex-wrap: nowrap !important;
-            min-height: 48px !important;
-            padding: 0 !important;
-            gap: 0 !important;
-        }}
-        .st-key-{wrap_key} div[data-testid="column"] {{
-            min-width: 0 !important;
-            min-height: 48px !important;
-            padding: 8px 10px !important;
-            border-right: 1px solid rgba(148, 163, 184, 0.16) !important;
-            display: flex !important;
-            align-items: center !important;
-        }}
-        .st-key-{wrap_key} .tbl-head {{
-            white-space: normal !important;
-            line-height: 1.15 !important;
-            min-height: 34px !important;
-            display: flex !important;
-            align-items: center !important;
-            color: #f8fafc !important;
-            font-size: 0.74rem !important;
-            font-weight: 800 !important;
-            letter-spacing: 0.25px !important;
-            text-transform: none !important;
-        }}
-        .st-key-{wrap_key} .tbl-cell:not(.tbl-head) {{
-            color: #e2e8f0 !important;
-            font-size: 0.78rem !important;
-            line-height: 1.25 !important;
-        }}
-        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:has(.tbl-head) {{
-            background: linear-gradient(90deg, rgba(59,130,246,0.28), rgba(139,92,246,0.24)) !important;
-            border-bottom: 1px solid rgba(148,163,184,0.35) !important;
-            min-height: 58px !important;
-        }}
-        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):nth-child(even) {{
-            background: rgba(255,255,255,0.018) !important;
-        }}
-        .st-key-{wrap_key} div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {{
-            background: rgba(59,130,246,0.10) !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    table_min_width_css(wrap_key, 3700)
+    table_title_bar(f"🧾 {html.escape(title)}", "newest first • scroll right for payments →", f"₹ {k_billed:,.0f}")
 
     with st.container(key=wrap_key, height=560):
         if df_page.empty:
-            st.info("No invoice records found.")
+            empty_state("No invoice records found.")
         else:
-            h_cols = st.columns(COL_RATIOS)
-            for h_col, label in zip(h_cols, COL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{html.escape(str(label))}</div>", unsafe_allow_html=True)
+            table_header_row(f"ilhead_inv_{prefix}", COL_RATIOS, COL_LABELS, center_idx=(0, 1), right_idx=RIGHT_IDX)
 
             for page_pos, (_, row) in enumerate(df_page.iterrows()):
                 row_dict = row.to_dict()
                 rid = row_dict.get("id")
                 serial_no = start_idx + page_pos + 1
-                rcols = st.columns(COL_RATIOS)
+                rk = row_key_for(rid, f"s{serial_no}")
+                parity = "odd" if serial_no % 2 else "even"
 
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-                with rcols[1]:
-                    with st.popover("⚙️", use_container_width=True):
-                        if st.button("👁️ Open", key=f"{prefix}_view_inv_{rid}", use_container_width=True):
-                            view_invoice_dialog(row_dict)
-                        if st.button("✏️ Edit", key=f"{prefix}_edit_inv_{rid}", use_container_width=True):
-                            edit_invoice_dialog(row_dict, table_name)
-                        if st.button("🗑️ Delete", key=f"{prefix}_del_inv_{rid}", use_container_width=True):
-                            delete_invoice_dialog(rid, row_dict.get('invoice_number', ''), table_name)
+                with st.container(key=f"ilrow_{parity}_inv_{prefix}_{rk}"):
+                    rcols = st.columns(COL_RATIOS, vertical_alignment="center")
 
-                for idx, k in enumerate(keys_seq, start=2):
-                    val = row_dict.get(k, '')
+                    with rcols[0]:
+                        with st.container(key=f"ilpop_inv_{prefix}_{rk}"):
+                            with st.popover("⚙️"):
+                                if st.button("👁️ Open", key=f"{prefix}_view_inv_{rid}", use_container_width=True):
+                                    view_invoice_dialog(row_dict)
+                                if st.button("✏️ Edit", key=f"{prefix}_edit_inv_{rid}", use_container_width=True):
+                                    edit_invoice_dialog(row_dict, table_name)
+                                if st.button("🗑️ Delete", key=f"{prefix}_del_inv_{rid}", use_container_width=True):
+                                    delete_invoice_dialog(rid, row_dict.get('invoice_number', ''), table_name)
+                    rcols[1].markdown(serial_cell(serial_no), unsafe_allow_html=True)
 
-                    if k == 'Total' and (val is None or str(val).strip() == '' or str(val).lower() == 'nan'):
-                        try:
-                            b = float(row_dict.get('basic_amount', 0) or 0)
-                            c = float(row_dict.get('cgst', 0) or 0)
-                            s = float(row_dict.get('sgst', 0) or 0)
-                            i = float(row_dict.get('igst', 0) or 0)
-                            val = f"{b + c + s + i:.2f}"
-                        except:
-                            val = '-'
+                    bal = _num(row_dict.get('balance'))
+                    cells = {
+                        'circle': _pill(row_dict.get('circle')),
+                        'invoice_number': _chip(row_dict.get('invoice_number'), "inv"),
+                        'invoice_date': _date_cell(row_dict.get('invoice_date')),
+                        'basic_amount': _money(row_dict.get('basic_amount')),
+                        'cgst': _money(row_dict.get('cgst')),
+                        'sgst': _money(row_dict.get('sgst')),
+                        'igst': _money(row_dict.get('igst')),
+                        'Total': _money(_invoice_total(row_dict), "strong"),
+                        'project_id': _chip(row_dict.get('project_id'), "proj"),
+                        'site_id': _chip(row_dict.get('site_id')),
+                        'site_name': _txt(row_dict.get('site_name'), "slux-strong"),
+                        'po_number': _chip(row_dict.get('po_number')),
+                        'wcc_number': _chip(row_dict.get('wcc_number')),
+                        'receipt_number': _chip(row_dict.get('receipt_number')),
+                        'percentage_amount': _money(row_dict.get('percentage_amount')),
+                        'Sub_status': status_badge(row_dict.get('Sub_status')),
+                        'payment_1_amount': _money(row_dict.get('payment_1_amount'), "paid" if _num(row_dict.get('payment_1_amount')) else ""),
+                        'payment_1_date': _date_cell(row_dict.get('payment_1_date')),
+                        'payment_2_amount': _money(row_dict.get('payment_2_amount'), "paid" if _num(row_dict.get('payment_2_amount')) else ""),
+                        'payment_2_date': _date_cell(row_dict.get('payment_2_date')),
+                        'payment_3_amount': _money(row_dict.get('payment_3_amount'), "paid" if _num(row_dict.get('payment_3_amount')) else ""),
+                        'payment_3_date': _date_cell(row_dict.get('payment_3_date')),
+                        'balance': _money(row_dict.get('balance'), "due" if bal > 0 else ("paid" if _clean(row_dict.get('balance')) else "")),
+                        'remark': _txt(row_dict.get('remark'), "slux-soft"),
+                    }
+                    for idx, k in enumerate(keys_seq, start=2):
+                        rcols[idx].markdown(cells[k], unsafe_allow_html=True)
 
-                    if val is None or pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'nat', 'none'):
-                        display_val = '-'
-                    elif isinstance(val, float):
-                        display_val = f"{val:,.2f}".rstrip('0').rstrip('.')
-                    else:
-                        display_val = str(val)
-
-                    safe_display_val = html.escape(display_val)
-                    rcols[idx].markdown(
-                        f"<div class='tbl-cell' title='{safe_display_val}'>{safe_display_val}</div>",
-                        unsafe_allow_html=True
-                    )
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    table_footer(
+        f'{total_rows:,} invoice{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small>',
+        f'<span>Billed: <b style="color:#4f46e5;">₹ {k_billed:,.0f}</b></span>'
+        f'<span>Received: <b style="color:#059669;">₹ {k_received:,.0f}</b></span>'
+        f'<span>Balance: <b style="color:#dc2626;">₹ {k_balance:,.0f}</b></span>',
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- PAGINATION CONTROLS ---
-    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-    with col_p1:
-        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state[page_key] == 1), key=f"{prefix}_inv_prev"):
-            st.session_state[page_key] -= 1
-            st.rerun()
-    with col_p2:
-        st.markdown(f"<div class='page-count'>Page {st.session_state[page_key]} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-    with col_p3:
-        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state[page_key] == total_pages), key=f"{prefix}_inv_next"):
-            st.session_state[page_key] += 1
-            st.rerun()
+    pager(page_key, total_pages, total_rows, f"{prefix}_inv")
 
 
 # =========================================================================
