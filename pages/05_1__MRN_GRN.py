@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import html
 import datetime
 import random
 from supabase import create_client, Client
@@ -21,14 +22,16 @@ if 'mrn_action' not in st.session_state:
 if 'mrn_items_error_banner' not in st.session_state:
     st.session_state.mrn_items_error_banner = None
 
-# --- 2. LAVISH CUSTOM CSS (Imported from your ecosystem) ---
+# --- 2. ✨ LAVISH LIGHT THEME CSS (Quotation / Site Data / Invoice jaisa) ---
 st.markdown("""
     <style>
-    /* Dark Premium Theme */
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
-    
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+
     /* Primary Action Buttons */
-    button[data-testid="baseButton-primary"] {
+    div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] > button[kind="primary"],
+    button[data-testid="baseButton-primary"], button[data-testid="stBaseButton-primary"],
+    button[data-testid="stBaseButton-primaryFormSubmit"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: white !important;
         border: none !important;
@@ -36,57 +39,56 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15) !important;
     }
-    
+    div.stButton > button[kind="primary"] p, div.stDownloadButton > button[kind="primary"] p,
+    div[data-testid="stFormSubmitButton"] > button p { color: #ffffff !important; font-weight: 800 !important; }
+
     /* Secondary Action Buttons */
-    button[data-testid="baseButton-secondary"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        color: #e2e8f0 !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    div.stButton > button[kind="secondary"],
+    button[data-testid="baseButton-secondary"], button[data-testid="stBaseButton-secondary"] {
+        background: #ffffff !important;
+        color: #334155 !important;
+        border: 1.5px solid #cbd5e1 !important;
         border-radius: 8px !important;
         font-weight: 800 !important;
         padding: 0.5rem 1rem !important;
         transition: all 0.3s ease !important;
+        box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
+    div.stButton > button[kind="secondary"] p { color: #334155 !important; font-weight: 800 !important; }
+    div.stButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.18) !important; }
 
-    button[data-testid="baseButton-primary"]:hover, 
-    button[data-testid="baseButton-secondary"]:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
-    }
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
 
-    /* Pagination Text & Button Font Color Fix */
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
-    div.stButton > button p, div.stButton > button span, div.stButton > button div { color: #ffffff !important; font-weight: 800 !important; }
-    
-    /* Modal/Dialog Glassmorphism */
+    /* Dialogs — light glass */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
-    
     div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
-        color: #ffffff !important; font-weight: 800 !important; letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
     }
-    div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p, div[data-testid="stDialog"] p { color: #e2e8f0 !important; }
-    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #ffffff !important; }
+    div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
+    div[data-testid="stDialog"] p { color: #1e293b !important; }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
 
     .modal-section-title {
-        color: #94a3b8; font-size: 0.85rem; font-weight: 700; letter-spacing: 1px;
-        margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 5px;
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+        margin-top: 15px; margin-bottom: 10px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
     }
-    
-    label p, label[data-testid="stWidgetLabel"] p { color: #ffffff !important; font-weight: 600 !important; letter-spacing: 0.5px; }
+    label p, label[data-testid="stWidgetLabel"] p { color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px; }
 
-    /* Make disabled/read-only input text strictly BLACK and BOLD */
-    div[data-testid="stTextInput"] input:disabled {
-        color: #000000 !important; font-weight: 900 !important; -webkit-text-fill-color: #000000 !important; background: #cbd5e1 !important;
+    /* Read-only inputs: black & bold on light grey */
+    div[data-testid="stTextInput"] input:disabled, div[data-testid="stTextArea"] textarea:disabled {
+        color: #000000 !important; font-weight: 800 !important; -webkit-text-fill-color: #000000 !important; background: #f1f5f9 !important;
     }
 
-    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
+    /* Sidebar (kept dark, same as other pages) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -94,62 +96,155 @@ st.markdown("""
     [data-testid="stSidebarNav"] a {
         padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
         background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        font-size: 1.05rem !important; transition: all 0.3s ease !important;
         display: flex !important; align-items: center !important; gap: 12px !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
     }
-    [data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; }
+    [data-testid="stSidebarNav"] a:hover { background: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; transform: translateX(4px) !important; }
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* FIXED HORIZONTAL SCROLLING DATA TABLE */
-    /* 🟢 MRN "Add New MRN" dialog: each PO line item is rendered in its own
-       st.container(border=True, key=f"mrn_rowcard_{po}_{idx}") box. The
-       keys are different for every row, so instead of one CSS rule per
-       row we match on a shared PREFIX in the class name — Streamlit adds
-       a class like "st-key-mrn_rowcard_<po>_<idx>" to each one, and
-       [class*="..."] matches any class containing that substring. */
+    /* 🟢 MRN "Add New MRN" dialog: each PO line item card (shared key PREFIX) */
     div[class*="st-key-mrn_rowcard_"] {
-        border: 1.5px solid rgba(255, 255, 255, 0.55) !important;
-        border-radius: 8px !important;
+        border: 1.5px solid #c7d2fe !important;
+        border-radius: 10px !important;
+        background: #fafaff !important;
+    }
+    .mrn-dlg-head { color: #4338ca; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.6px; text-transform: uppercase; }
+    .mrn-po-title { color: #4f46e5; font-weight: 800; margin-top: 15px; }
+
+    [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; text-transform: uppercase !important; font-size: 0.8rem !important; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
+    /* ================= SCROLLING TABLE BODY ================= */
     .st-key-site_table_wrap {
-        background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
-        overflow: auto !important; padding: 0px 0 !important;
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 2100px !important; align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding: 6px 0 !important; flex-wrap: nowrap !important;
+    .st-key-site_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-site_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-site_table_wrap div[class*="st-key-mrnhead"],
+    .st-key-site_table_wrap div[class*="st-key-mrnrow_"] { min-width: 2000px !important; }
+    .st-key-site_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
-    .st-key-site_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
-    .st-key-site_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; display: flex; align-items: center; justify-content: flex-start; border-right: 1px solid rgba(255,255,255,0.06);
+    .st-key-site_table_wrap [data-testid="stColumn"], .st-key-site_table_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
-    .st-key-site_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .st-key-site_table_wrap .tbl-head {
-        background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
-        color: #94a3b8; text-transform: uppercase; white-space: nowrap !important;
+
+    /* Sticky header */
+    div[class*="st-key-mrnhead"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
     }
-    .st-key-site_table_wrap .tbl-cell {
-        color: #e2e8f0; font-size: 0.86rem; white-space: nowrap !important;
-        overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
+    div[class*="st-key-mrnhead"] [data-testid="stColumn"], div[class*="st-key-mrnhead"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
+
+    /* Data rows */
+    div[class*="st-key-mrnrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
     }
-    .st-key-site_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
-    
-    /* Action Buttons in Table */
-    .st-key-site_table_wrap button {
-        height: 32px !important; width: 100% !important; padding: 0 !important; min-height: 0 !important;
-        border-radius: 6px !important; display: flex !important; align-items: center !important; justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important; border: 1px solid rgba(255,255,255,0.1) !important;
-        box-shadow: none !important; cursor: pointer !important; font-size: 0.95rem !important; max-width: 34px !important; margin: 0 auto !important;
+    div[class*="st-key-mrnrow_odd"] { background: #fafaff; }
+    div[class*="st-key-mrnrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-mrnrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
     }
-    .st-key-site_table_wrap button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; }
-    
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-site_table_wrap div[data-testid="column"]:nth-child(3) { padding: 4px 4px !important; border-right: none !important; }
-    
-    [data-testid="stDataFrame"] th { background-color: #6366f1 !important; color: white !important; font-weight: 700 !important; text-transform: uppercase !important; font-size: 0.8rem !important; }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-chip.mrn { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .mrn-amt { text-align: right; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums; }
+    .mrn-amt.total { color: #059669; font-weight: 900; font-size: .92rem; }
+    .mrn-rate { display: inline-block; padding: 3px 10px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; color: #b45309; font-weight: 900; font-size: .8rem; }
+    .mrn-team { font-weight: 800; color: #b45309; }
+
+    /* Single ⚙️ action button at row start (Site Data jaisa) */
+    div[class*="st-key-mrnpop_"] button {
+        width: 40px !important; max-width: 40px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important;
+        box-shadow: none !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-mrnpop_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    div[class*="st-key-mrnpop_"] button p, div[class*="st-key-mrnpop_"] button span { color: #1e293b !important; }
+    div[class*="st-key-mrnpop_"] button svg { display: none !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -175,19 +270,24 @@ def init_connection():
 supabase: Client = init_connection()
 
 # --- HELPER FUNCTIONS ---
+# FIX: pehle ye cached functions workspace ko ANDAR se padhte the, isliye cache
+# har workspace ke liye ek hi hota tha — workspace badalne par 30-60 sec tak
+# PURANI company ka data dikh sakta tha. Ab workspace cache key ka hissa hai.
 @st.cache_data(ttl=30, show_spinner=False)
-def fetch_mrn_data():
+def _fetch_mrn_data_cached(ws):
     try:
-        ws = st.session_state.get('active_workspace', 'VISPL')
         res = supabase.table("mrn_data").select("*").eq("workspace", ws).order("id", desc=True).execute()
         return pd.DataFrame(res.data) if res.data else pd.DataFrame()
     except:
         return pd.DataFrame()
 
+def fetch_mrn_data():
+    return _fetch_mrn_data_cached(st.session_state.get('active_workspace', 'VISPL'))
+fetch_mrn_data.clear = _fetch_mrn_data_cached.clear
+
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_project_ids():
+def _fetch_project_ids_cached(ws):
     try:
-        ws = st.session_state.get('active_workspace', 'VISPL')
         res = supabase.table("site_data").select("*").eq("workspace", ws).limit(100000).execute()
         if res.data:
             pids = [str(x["Project ID"]).strip() for x in res.data if x.get("Project ID") and str(x.get("Project ID")).strip() != "" and str(x.get("Project ID")).strip().lower() != "nan"]
@@ -196,16 +296,22 @@ def fetch_project_ids():
         st.error(f"Error fetching Project IDs: {e}")
     return ["Select Project ID"]
 
+def fetch_project_ids():
+    return _fetch_project_ids_cached(st.session_state.get('active_workspace', 'VISPL'))
+fetch_project_ids.clear = _fetch_project_ids_cached.clear
+
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_project_details(proj_id):
+def _fetch_project_details_cached(proj_id, ws):
     try:
-        ws = st.session_state.get('active_workspace', 'VISPL')
         res = supabase.table("site_data").select("*").eq("Project ID", proj_id).eq("workspace", ws).execute()
         if res.data:
             return res.data[0]
     except:
         pass
     return {}
+
+def fetch_project_details(proj_id):
+    return _fetch_project_details_cached(proj_id, st.session_state.get('active_workspace', 'VISPL'))
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_team_percentage(team_name):
@@ -484,7 +590,9 @@ def edit_mrn_dialog(row_data):
     
     c4, c5, c6 = st.columns(3)
     with c4: st.text_input("TEAM NAME", value=row_data.get("Team Name", ""), disabled=True)
-    with c5: st.text_input("BASIC AMOUNT", value=f"₹ {row_data.get('Basic Amount', 0):,.2f}", disabled=True)
+    with c5:
+        _basic_v = pd.to_numeric(row_data.get('Basic Amount', 0), errors='coerce')
+        st.text_input("BASIC AMOUNT", value=f"₹ {(0 if pd.isna(_basic_v) else _basic_v):,.2f}", disabled=True)
     with c6:
         st.text_input("TEAM RATE %", value=f"{row_data.get('Team Percent', 100)} %", disabled=True)
 
@@ -666,38 +774,16 @@ def add_mrn_dialog():
     grand_basic_total = 0.0
     all_po_dfs = {}
     
-    # ---> 🟢 REWRITE: manual per-row rendering instead of st.data_editor. <---
-    # Two reasons:
-    #  1) st.data_editor inside an st.dialog is known (across several
-    #     Streamlit versions) to sometimes silently close the whole dialog
-    #     the moment a cell is edited — no error shown, the popup just
-    #     vanishes and all progress is lost. Plain widgets (number_input)
-    #     inside a dialog don't have this problem.
-    #  2) st.data_editor / st.dataframe have no supported way to colour a
-    #     SPECIFIC row conditionally (Styler-based row highlighting isn't
-    #     supported inside an editable grid). Rendering each row manually
-    #     with st.columns + st.markdown lets us bold+green any row the
-    #     user has put a Qty against, live, as they type.
-    # A nice side effect: since each Qty box is a normal st.number_input
-    # with a stable key, Streamlit remembers its value across reruns on
-    # its own — no more manual qty_store/session_state bookkeeping needed.
+    # ---> 🟢 Manual per-row rendering instead of st.data_editor (dialog stability +
+    # per-row highlight). Each Qty box is a normal st.number_input with a stable key. <---
     ROW_RATIOS = [0.6, 1.1, 2.6, 0.7, 0.7, 0.9, 0.9, 1.0, 1.0]
     ROW_LABELS = ["LINE", "ITEM CODE", "DESCRIPTION", "PO QTY", "WCC QTY", "AVAIL QTY", "USER QTY", "PRICE", "TOTAL"]
 
-    # ---> 🟢 FIX: every Qty box typed into was causing a FULL script rerun
-    # (Streamlit's normal behavior for any widget outside a form). With many
-    # rows across multiple POs, that meant dozens of reruns while filling
-    # in an MRN — and on this particular deployment, those repeated reruns
-    # were what made the dialog unstable/close. Wrapping all the Qty inputs
-    # in one st.form stops Streamlit from rerunning on every keystroke —
-    # NOTHING happens until the "Apply Quantities" button below is clicked,
-    # which then causes exactly ONE rerun with every entered value applied
-    # together. Trade-off: the bold/green highlight and running totals only
-    # refresh at that point, not live per keystroke — but that's the
-    # correct trade for stability here. <---
+    # ---> 🟢 All Qty inputs are inside one st.form, so the page reruns only once
+    # when "Apply Quantities" is clicked (not on every keystroke). <---
     with st.form(key="mrn_qty_form", border=False):
         for po in selected_pos:
-            st.markdown(f"<p style='color:#3b82f6; font-weight:700; margin-top:15px;'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p class='mrn-po-title'>🛒 Processing PO: {po}</p>", unsafe_allow_html=True)
             
             df_po = preview_po_dfs.get(po)
             if df_po is None:
@@ -729,26 +815,17 @@ def add_mrn_dialog():
 
             h_cols = st.columns(ROW_RATIOS)
             for h_col, label in zip(h_cols, ROW_LABELS):
-                h_col.markdown(
-                    f"<div style='color:#94a3b8; font-weight:800; font-size:0.72rem; letter-spacing:0.6px; text-transform:uppercase;'>{label}</div>",
-                    unsafe_allow_html=True
-                )
+                h_col.markdown(f"<div class='mrn-dlg-head'>{label}</div>", unsafe_allow_html=True)
 
             row_qtys = []
             for idx, item_row in df_display.iterrows():
                 qty_key = f"mrn_row_qty_{po}_{idx}"
                 qty_box_key = f"mrn_qtybox_{po}_{idx}"
 
-                # 🟢 Read the CURRENT value before creating the widget — this
-                # reflects the value from the LAST form submission (since
-                # widgets inside a form don't update session_state until
-                # submit), used to decide the highlight for this render.
+                # Read the value from the LAST form submission to decide the highlight.
                 pre_qty = float(st.session_state.get(qty_key, 0.0) or 0.0)
                 is_filled = pre_qty > 0
 
-                # Scoped CSS for just this one Qty box: green border/background
-                # stays as a "filled" indicator, but the digits themselves are
-                # now black, bold, and centered for readability.
                 if is_filled:
                     st.markdown(f"""
                         <style>
@@ -762,14 +839,7 @@ def add_mrn_dialog():
                         </style>
                     """, unsafe_allow_html=True)
 
-                # 🟢 Each item now sits inside its OWN bordered box (one visual
-                # "card" per row) — before this, a long description wrapped
-                # across 5-6 lines and visually blended into the next item with
-                # no clear boundary. The border makes every row's boundary
-                # obvious no matter how long the text is. Given a `key`, so
-                # we can target it with CSS and make the border clearly
-                # visible (bright white) instead of Streamlit's default
-                # faint grey.
+                # Each item sits inside its OWN bordered card (clear row boundary).
                 row_card_key = f"mrn_rowcard_{po}_{idx}"
                 with st.container(border=True, key=row_card_key):
                     rcols = st.columns(ROW_RATIOS)
@@ -782,22 +852,10 @@ def add_mrn_dialog():
                             )
                     row_qtys.append(float(current_qty))
 
-                    # 🟢 Bold + green as soon as a Qty is entered for this row.
+                    # Bold + green as soon as a Qty is entered for this row.
                     is_filled = current_qty > 0
-                    color_style = "color:#22c55e; font-weight:800;" if is_filled else "color:#e2e8f0; font-weight:400;"
-                    # Short columns (line no, item code, qty numbers, price,
-                    # total) stay on a single line — they're always short.
+                    color_style = "color:#15803d; font-weight:800;" if is_filled else "color:#1e293b; font-weight:500;"
                     single_line_style = "white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; " + color_style
-                    # 🟢 FIX: Description now WRAPS onto multiple lines
-                    # instead of being cut off with "…" after a few
-                    # characters — the full (up to 60-word) text is visible,
-                    # not just whatever fits on one line.
-                    # 🟢 FIX: word-count alone doesn't control how much
-                    # SPACE the text takes once it wraps — a 34-word
-                    # description can still wrap to 6 lines in a narrow
-                    # column. This CSS line-clamp caps the description to
-                    # exactly 2 visible lines no matter how many words it
-                    # has, with "…" added automatically by the browser.
                     wrap_style = (
                         "display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; "
                         "overflow:hidden; white-space:normal; overflow-wrap:break-word; word-break:break-word; "
@@ -806,16 +864,12 @@ def add_mrn_dialog():
 
                     line_total = float(current_qty) * float(item_row["Adjusted Price"])
 
-                    # 🟢 FIX: switched to character-count truncation (like
-                    # Excel's =LEFT(text, 80)) instead of word-count — takes
-                    # exactly the first 80 characters (letters + spaces
-                    # counted one by one), not the first 80 words.
                     full_desc = str(item_row["Item Description"])
                     desc_display = full_desc[:80] + ("…" if len(full_desc) > 80 else "")
 
                     rcols[0].markdown(f"<div style='{single_line_style}'>{item_row['PO Line No']}</div>", unsafe_allow_html=True)
                     rcols[1].markdown(f"<div style='{single_line_style}'>{item_row['Item Code']}</div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div style='{wrap_style}' title=\"{full_desc}\">{desc_display}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div style='{wrap_style}' title=\"{html.escape(full_desc)}\">{html.escape(desc_display)}</div>", unsafe_allow_html=True)
                     rcols[3].markdown(f"<div style='{single_line_style}'>{item_row['PO Qty']:.2f}</div>", unsafe_allow_html=True)
                     rcols[4].markdown(f"<div style='{single_line_style}'>{item_row['WCC Qty']:.2f}</div>", unsafe_allow_html=True)
                     rcols[5].markdown(f"<div style='{single_line_style}'>{item_row['Available Qty']:.2f}</div>", unsafe_allow_html=True)
@@ -931,11 +985,19 @@ def add_mrn_dialog():
     
     final_amount = grand_basic_total
     
-    c_b1, c_b3 = st.columns([6, 4])
-    with c_b1:
-        st.markdown(f"<h4 style='color:#94a3b8; font-size:1.1rem;'>Basic Amount:<br><span style='color:#fff;'>₹ {grand_basic_total:,.2f}</span></h4>", unsafe_allow_html=True)
-    with c_b3:
-        st.markdown(f"<h3 style='color:#3b82f6; font-size:1.4rem;'>Grand Total:<br>₹ {final_amount:,.2f}</h3>", unsafe_allow_html=True)
+    st.markdown(f"""
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;
+                    background:linear-gradient(90deg,#f5f3ff,#eef2ff); border:1px solid #c7d2fe; border-radius:14px; padding:16px 22px;">
+            <div>
+                <div style="color:#64748b; font-weight:800; font-size:.75rem; letter-spacing:1px; text-transform:uppercase;">Basic Amount</div>
+                <div style="color:#0f172a; font-weight:900; font-size:1.3rem;">₹ {grand_basic_total:,.2f}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="color:#64748b; font-weight:800; font-size:.75rem; letter-spacing:1px; text-transform:uppercase;">Grand Total</div>
+                <div style="color:#4f46e5; font-weight:900; font-size:1.6rem;">₹ {final_amount:,.2f}</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -1162,7 +1224,7 @@ if st.session_state.get('mrn_items_error_banner'):
 # --- 6. TOP ACTION BAR ---
 col_title, col_ref, col_add, col_export = st.columns([4, 1, 2, 2])
 with col_title:
-    st.markdown("<h2 style='margin:0; color:white;'>📦 MRN / GRN Desk</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>📦 MRN / GRN Desk</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         get_unlimited_po_working.clear()
@@ -1188,6 +1250,7 @@ columns_list = [
 ]
 
 if not df_mrn.empty:
+    df_mrn = df_mrn.copy()
     if 'id' in df_mrn.columns:
         df_mrn['id_num'] = pd.to_numeric(df_mrn['id'], errors='coerce')
         df_mrn = df_mrn.sort_values(by='id_num', ascending=False).drop(columns=['id_num']).reset_index(drop=True)
@@ -1202,10 +1265,10 @@ if st.session_state.get('mrn_action') == "export":
     export_dialog(df_mrn)
     st.session_state.mrn_action = "" 
 
-# --- 8. LAVISH UNIVERSAL SEARCH BOX ---
+# --- 8. SEARCH BOX ---
 col_table_title, col_search = st.columns([7, 3])
 with col_table_title:
-    st.markdown("##### 🗄️ Generated MRN Records")
+    st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Generated MRN Records</h5>", unsafe_allow_html=True)
 with col_search:
     search_query = st_keyup(
         "Search",
@@ -1218,6 +1281,42 @@ with col_search:
 if search_query and not df_mrn.empty:
     mask = df_mrn.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df_mrn = df_mrn[mask]
+
+# Search badalne par page 1 par wapas
+if st.session_state.get("mrn_last_search") != search_query:
+    st.session_state.mrn_last_search = search_query
+    st.session_state.mrn_current_page = 1
+
+# --- KPI CARDS (search ke hisaab se) ---
+def _num(v):
+    n = pd.to_numeric(v, errors='coerce')
+    return 0.0 if pd.isna(n) else float(n)
+
+k_count = len(df_mrn)
+k_total = sum(_num(v) for v in df_mrn["Total Amount"]) if k_count else 0.0
+k_teams = df_mrn["Team Name"].astype(str).str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA}).dropna().nunique() if k_count else 0
+_today = datetime.date.today()
+_dates = pd.to_datetime(df_mrn["Date"], format="%d-%m-%Y", errors="coerce") if k_count else pd.Series([], dtype="datetime64[ns]")
+_this_month_mask = (_dates.dt.year == _today.year) & (_dates.dt.month == _today.month) if k_count else pd.Series([], dtype=bool)
+k_month_count = int(_this_month_mask.sum()) if k_count else 0
+k_month_amt = sum(_num(v) for v in df_mrn.loc[_this_month_mask.values, "Total Amount"]) if k_count else 0.0
+
+def _kpi(icon, label, value, foot, accent, soft, value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+st.markdown(
+    '<div class="lux-kpi-grid">'
+    + _kpi("📦", "Total MRNs", f"{k_count:,}", "Filtered results" if search_query else "All records", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+    + _kpi("💰", "Total MRN Amount", f"₹ {k_total:,.0f}", "Sent to Team Billing", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5", "green")
+    + _kpi("👷", "Teams", f"{k_teams:,}", "Unique teams", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+    + _kpi("🗓️", "This Month", f"{k_month_count:,}", f"₹ {k_month_amt:,.0f}", "linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
+    + '</div>',
+    unsafe_allow_html=True,
+)
 
 # --- 9. PAGINATION LOGIC (10 lines per page) ---
 rows_per_page = 10
@@ -1234,54 +1333,123 @@ end_idx = start_idx + rows_per_page
 
 df_page = df_mrn.iloc[start_idx:end_idx].copy()
 
-# --- 10. MRN DATA TABLE ---
-COL_RATIOS = [0.3, 0.4, 0.4, 1.2, 1.5, 1.2, 1.2, 1.5, 1.0, 1.0, 1.0, 0.8, 1.8, 1.0]
-COL_LABELS = ["#", "✏️", "🗑️", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "RATE %", "DESCRIPTION", "DATE"]
+# --- LAVISH CELL HELPERS ---
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
 
-with st.container(key="site_table_wrap", height=560):
-    if df_page.empty:
-        st.info("No MRN records found. Click '+ Add New MRN' to create one.")
-    else:
-        h_cols = st.columns(COL_RATIOS)
-        for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+def _clean(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none", "null", "-") else s
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+def _pill(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+
+def _date_cell(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    d = pd.to_datetime(s, format="%d-%m-%Y", errors="coerce")
+    shown = d.strftime("%d %b %Y") if pd.notna(d) else s
+    return f"<div class='slux-cell slux-soft' title='{html.escape(s)}'>{html.escape(shown)}</div>"
+
+# --- 10. ✨ LAVISH MRN TABLE — single ⚙️ button at row start ---
+COL_RATIOS = [0.55, 0.5, 1.3, 1.5, 1.3, 1.1, 1.6, 1.0, 1.1, 1.1, 0.8, 1.9, 1.1]
+COL_LABELS = ["⚙️", "#", "MRN NUMBER", "TEAM NAME", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC", "TOTAL", "RATE %", "DESCRIPTION", "DATE"]
+
+if df_page.empty:
+    st.markdown(
+        '<div class="slux-empty"><div>🗂️</div>'
+        + ("No MRN records match your search." if search_query else "No MRN records found. Click ➕ Add New MRN to create one.")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<div class="slux-head-bar">'
+        '<div class="slux-title">📦 MRN Register<span>newest first • scroll right for more →</span></div>'
+        f'<div class="slux-badge">₹ {k_total:,.0f}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.container(key="site_table_wrap", height=560):
+        with st.container(key="mrnhead"):
+            h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
+            for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
+                cls = " c" if i in (0, 1, 10) else (" r" if i in (8, 9) else "")
+                h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
 
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             serial_no = start_idx + page_pos + 1
             rid = row_dict.get("id")
             mrn_no = row_dict.get('MRN Number', '')
+            rk = rid if _clean(rid) else f"s{serial_no}"
+            parity = "odd" if serial_no % 2 else "even"
 
-            rcols = st.columns(COL_RATIOS)
-            
-            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-            
-            with rcols[1]:
-                if st.button("✏️", key=f"edit_{rid}", help="Edit MRN Date & View Details", use_container_width=True):
-                    edit_mrn_dialog(row_dict)
-                    
-            with rcols[2]:
-                if st.button("🗑️", key=f"del_{rid}", help="Delete MRN & Auto-Bill", use_container_width=True):
-                    delete_mrn_dialog(rid, mrn_no)
-                    
-            rcols[3].markdown(f"<div class='tbl-cell' style='color:#3b82f6; font-weight:bold;'>{mrn_no or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Team Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            
-            basic = pd.to_numeric(row_dict.get('Basic Amount', 0), errors='coerce')
-            tot = pd.to_numeric(row_dict.get('Total Amount', 0), errors='coerce')
-            
-            rcols[9].markdown(f"<div class='tbl-cell'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell' style='color:#10b981; font-weight:bold;'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
+            with st.container(key=f"mrnrow_{parity}_{rk}"):
+                rcols = st.columns(COL_RATIOS, vertical_alignment="center")
 
-            team_pct = pd.to_numeric(row_dict.get('Team Percent', ''), errors='coerce')
-            team_pct_display = f"{team_pct:g}%" if pd.notna(team_pct) else "-"
-            rcols[11].markdown(f"<div class='tbl-cell' style='color:#f59e0b; font-weight:bold;'>{team_pct_display}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(f"<div class='tbl-cell' title='{row_dict.get('Description','') or ''}'>{row_dict.get('Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('Date','') or '-'}</div>", unsafe_allow_html=True)
+                with rcols[0]:
+                    with st.container(key=f"mrnpop_{rk}"):
+                        with st.popover("⚙️"):
+                            if st.button("✏️ Edit Date / View Items", key=f"edit_{rid}", use_container_width=True):
+                                edit_mrn_dialog(row_dict)
+                            if st.button("🗑️ Delete MRN & Auto-Bill", key=f"del_{rid}", use_container_width=True):
+                                delete_mrn_dialog(rid, mrn_no)
+
+                basic = _num(row_dict.get('Basic Amount', 0))
+                tot = _num(row_dict.get('Total Amount', 0))
+                team_pct = pd.to_numeric(row_dict.get('Team Percent', ''), errors='coerce')
+                team_pct_display = f"{team_pct:g}%" if pd.notna(team_pct) else "—"
+                team_nm = _clean(row_dict.get('Team Name'))
+
+                rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                rcols[2].markdown(_chip(mrn_no, "mrn"), unsafe_allow_html=True)
+                rcols[3].markdown(f"<div class='slux-cell' title='{html.escape(team_nm)}'><span class='mrn-team'>👷 {html.escape(team_nm)}</span></div>" if team_nm else _MUTED, unsafe_allow_html=True)
+                rcols[4].markdown(_chip(row_dict.get('Project ID'), "proj"), unsafe_allow_html=True)
+                rcols[5].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                rcols[6].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                rcols[7].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
+                rcols[8].markdown(f"<div class='slux-cell mrn-amt'>₹ {basic:,.2f}</div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='slux-cell mrn-amt total'>₹ {tot:,.2f}</div>", unsafe_allow_html=True)
+                rcols[10].markdown(f"<div style='text-align:center;'><span class='mrn-rate'>{team_pct_display}</span></div>", unsafe_allow_html=True)
+                rcols[11].markdown(_txt(row_dict.get('Description'), "slux-soft"), unsafe_allow_html=True)
+                rcols[12].markdown(_date_cell(row_dict.get('Date')), unsafe_allow_html=True)
+
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    st.markdown(
+        '<div class="slux-foot">'
+        f'<div>{total_rows:,} MRN{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
+        f'<div class="slux-foot-amts"><span>Total: <b style="color:#059669;">₹ {k_total:,.2f}</b></span>'
+        f'<span class="slux-foot-badge">Page {st.session_state.mrn_current_page} of {total_pages}</span></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
