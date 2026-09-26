@@ -59,7 +59,7 @@ if 'site_active_company' not in st.session_state:
     st.session_state.site_active_company = "VISPL"
 st.session_state['active_workspace'] = SITE_COMPANY_WORKSPACE_MAP.get(st.session_state.site_active_company, "VISPL")
 
-# --- 2. CSS (nav bar + table look, matching Site Data page) ---
+# --- 2. CSS (✨ LAVISH — Quotation / Site Data / Solar / Invoice jaisa) ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
@@ -100,7 +100,7 @@ st.markdown("""
         color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
     }
 
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #334155; margin-top: 10px; }
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
 
     /* =========================================================
        PREMIUM SIDEBAR NAVIGATION (same theme as Site Data page,
@@ -110,7 +110,6 @@ st.markdown("""
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
-
     [data-testid="stSidebarNav"] a {
         padding: 0.85rem 1.2rem !important;
         margin: 0.5rem 1rem !important;
@@ -125,24 +124,19 @@ st.markdown("""
         align-items: center !important;
         gap: 12px !important;
     }
-
     [data-testid="stSidebarNav"] a:hover {
         background: rgba(255, 255, 255, 0.1) !important;
         transform: translateX(4px) !important;
         border-color: rgba(255, 255, 255, 0.2) !important;
         color: #ffffff !important;
     }
-
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: #ffffff !important;
         border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
-    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
     /* Company Nav Bar */
     .st-key-jms_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
@@ -173,60 +167,139 @@ st.markdown("""
     .st-key-jms_company_nav_bar button[kind="primary"] span,
     .st-key-jms_company_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
 
-    /* Table wrap */
-    .st-key-jms_table_wrap {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.15);
-        border-radius: 10px;
-        overflow: auto !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
     }
-    .st-key-jms_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1250px !important;
-        align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.12) !important;
-        padding: 8px 0 !important;
-        flex-wrap: nowrap !important;
-        background: #ffffff !important;
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
     }
-    .st-key-jms_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {
-        background: #eef2ff !important;
-        border-bottom: 2px solid rgba(79,70,229,0.35) !important;
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 2 !important;
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+    .lux-progress { height: 6px; background: #e2e8f0; border-radius: 999px; margin-top: 8px; overflow: hidden; }
+    .lux-progress > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #10b981, #3b82f6); }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
     }
-    .st-key-jms_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {
-        background: #f8fafc !important;
-    }
-    .st-key-jms_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.08);
-    }
-    .st-key-jms_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .st-key-jms_table_wrap .tbl-head {
-        background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
-        color: #312e81; text-transform: uppercase; white-space: nowrap !important;
-    }
-    .st-key-jms_table_wrap .tbl-cell {
-        color: #0f172a; font-size: 0.86rem; white-space: nowrap !important;
-        overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
-    }
-    .st-key-jms_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
-    .st-key-jms_table_wrap button {
-        height: 34px !important; padding: 0 10px !important; min-height: 0 !important;
-        border-radius: 6px !important; box-shadow: none !important;
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
-    .status-badge {
-        display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem;
-        font-weight: 800; letter-spacing: 0.4px; white-space: nowrap !important; text-align: center;
+    /* ================= SCROLLING TABLE BODY ================= */
+    .st-key-jms_table_wrap {
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    .status-green { background: rgba(34,197,94,0.15);  color: #15803d; }
-    .status-grey  { background: rgba(148,163,184,0.18); color: #334155; }
+    .st-key-jms_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-jms_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-jms_table_wrap div[class*="st-key-jmshead"],
+    .st-key-jms_table_wrap div[class*="st-key-jmsrow_"] { min-width: 1250px !important; }
+    .st-key-jms_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
+    }
+    .st-key-jms_table_wrap [data-testid="stColumn"], .st-key-jms_table_wrap [data-testid="column"] {
+        padding: 0 10px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
+    }
+
+    /* Sticky header */
+    div[class*="st-key-jmshead"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
+    }
+    div[class*="st-key-jmshead"] [data-testid="stColumn"], div[class*="st-key-jmshead"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+
+    /* Data rows */
+    div[class*="st-key-jmsrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-jmsrow_odd"] { background: #fafaff; }
+    div[class*="st-key-jmsrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-jmsrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+
+    /* Status pills */
+    .status-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-green { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-grey  { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+    /* Inline row buttons: 🧾 Create (green) / ✏️ Edit (blue) / ⬇️ PDF (purple) */
+    div[class*="st-key-jmscreate_"] button, div[class*="st-key-jmsedit_"] button, div[class*="st-key-jmsrowdl_"] button {
+        width: 38px !important; max-width: 38px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        box-shadow: none !important; font-size: 1rem !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-jmscreate_"] button { background: rgba(16,185,129,0.15) !important; border: 1px solid rgba(16,185,129,0.35) !important; }
+    div[class*="st-key-jmscreate_"] button:hover { background: #10b981 !important; border-color: #34d399 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(16,185,129,.6) !important; }
+    div[class*="st-key-jmsedit_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-jmsedit_"] button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important; }
+    div[class*="st-key-jmsrowdl_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; }
+    div[class*="st-key-jmsrowdl_"] button:hover { background: #a855f7 !important; border-color: #c084fc !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(168,85,247,.6) !important; }
+    div[class*="st-key-jmsrowdl_"] button p, div[class*="st-key-jmsrowdl_"] button span { color: #1e293b !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -949,13 +1022,51 @@ else:
 if st.session_state.get("jmspage_open_row") is not None:
     jms_dialog(st.session_state.jmspage_open_row)
 
-# --- SEARCH ---
-search_query = st_keyup("Search", placeholder="🔍 Search by Site Name / Project ID / Site ID / Cluster / PO No...", label_visibility="collapsed")
+# --- KPI CARDS (whole workspace) ---
+kpi_total = len(df)
+kpi_created = int(df["id"].astype(str).isin(jms_drafts_map.keys()).sum()) if not df.empty else 0
+kpi_pending = max(kpi_total - kpi_created, 0)
+kpi_pct = (kpi_created / kpi_total * 100) if kpi_total else 0.0
+
+def _kpi(icon, label, value, foot, accent, soft, value_cls="", extra=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div>{extra}</div>'
+    )
+
+st.markdown(
+    '<div class="lux-kpi-grid">'
+    + _kpi("🏗️", "Total Sites", f"{kpi_total:,}", "In this company", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+    + _kpi("✅", "JMS Created", f"{kpi_created:,}", "Saved drafts", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5", "green")
+    + _kpi("⭕", "JMS Pending", f"{kpi_pending:,}", "Not created yet", "linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2", "red")
+    + _kpi("📈", "Completion", f"{kpi_pct:.0f}%", f"{kpi_created} of {kpi_total} sites", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb",
+           extra=f'<div class="lux-progress"><div style="width:{min(kpi_pct, 100):.1f}%;"></div></div>')
+    + '</div>',
+    unsafe_allow_html=True,
+)
+
+# --- SEARCH + STATUS FILTER ---
+col_search, col_filter = st.columns([7, 2.2])
+with col_search:
+    search_query = st_keyup("Search", placeholder="🔍 Search by Site Name / Project ID / Site ID / Cluster / PO No...", label_visibility="collapsed")
+with col_filter:
+    status_filter = st.selectbox("JMS Status", ["All Sites", "✅ Created", "⭕ Not Created"], key="jms_status_filter", label_visibility="collapsed")
+
 if search_query:
     mask = df[columns_needed].astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
+if status_filter != "All Sites" and not df.empty:
+    created_mask = df["id"].astype(str).isin(jms_drafts_map.keys())
+    df = df[created_mask] if status_filter == "✅ Created" else df[~created_mask]
 
-st.markdown("<br>", unsafe_allow_html=True)
+# Filter/search badalne par page 1 par wapas
+_filter_sig = f"{search_query}|{status_filter}"
+if st.session_state.get("jms_last_filter_sig") != _filter_sig:
+    st.session_state.jms_last_filter_sig = _filter_sig
+    st.session_state.jmspage_current_page = 1
+
+st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
 # --- PAGINATION ---
 rows_per_page = 15
@@ -970,65 +1081,121 @@ start_idx = (st.session_state.jmspage_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx].copy()
 
-# --- TABLE ---
-COL_RATIOS = [0.4, 1.4, 1.1, 1.1, 1.1, 1.2, 1.1, 1.1, 1.2]
-COL_LABELS = ["#", "SITE NAME", "PROJECT ID", "SITE ID", "CLUSTER", "PO NO.", "JMS STATUS", "ACTION", "DOWNLOAD"]
+
+# --- LAVISH CELL HELPERS ---
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+def _txt(v, extra_cls=""):
+    s = _clean_text(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean_text(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+def _pill(v):
+    s = _clean_text(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+
+
+# --- ✨ LAVISH TABLE ---
+# Action buttons row ki shuruaat me: [🧾 Create / ✏️ Edit] [⬇️ PDF]
+COL_RATIOS = [0.55, 0.55, 0.5, 1.6, 1.2, 1.1, 1.0, 1.3, 1.1]
+COL_LABELS = ["JMS", "PDF", "#", "SITE NAME", "PROJECT ID", "SITE ID", "CLUSTER", "PO NO.", "JMS STATUS"]
 
 if df_page.empty:
-    st.info("No records found.")
+    st.markdown(
+        '<div class="slux-empty"><div>🗂️</div>'
+        + ("No records match your search / filter." if (search_query or status_filter != "All Sites") else "No records found.")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 else:
+    st.markdown(
+        '<div class="slux-head-bar">'
+        '<div class="slux-title">🧾 JMS Register<span>newest first</span></div>'
+        f'<div class="slux-badge">✅ {kpi_created:,} / {kpi_total:,} created</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
     with st.container(key="jms_table_wrap", height=560):
-        h_cols = st.columns(COL_RATIOS)
-        for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+        with st.container(key="jmshead"):
+            h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
+            for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
+                cls = " c" if i < 3 else ""
+                h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
 
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             rid = row_dict.get("id")
             serial_no = start_idx + page_pos + 1
             has_jms = str(rid) in jms_drafts_map
+            parity = "odd" if serial_no % 2 else "even"
 
-            rcols = st.columns(COL_RATIOS)
-            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-            rcols[1].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('PO No.','') or '-'}</div>", unsafe_allow_html=True)
+            with st.container(key=f"jmsrow_{parity}_{rid}"):
+                rcols = st.columns(COL_RATIOS, vertical_alignment="center")
 
-            if has_jms:
-                rcols[6].markdown("<span class='status-badge status-green'>✅ Created</span>", unsafe_allow_html=True)
-            else:
-                rcols[6].markdown("<span class='status-badge status-grey'>⭕ Not Created</span>", unsafe_allow_html=True)
+                with rcols[0]:
+                    if has_jms:
+                        clicked = st.button("✏️", key=f"jmsedit_{rid}", help="Edit JMS")
+                    else:
+                        clicked = st.button("🧾", key=f"jmscreate_{rid}", help="Create JMS")
+                    if clicked:
+                        st.session_state.jmspage_open_row = row_dict
+                        st.query_params["jms_ctx"] = "open"
+                        st.rerun()
 
-            with rcols[7]:
-                btn_label = "✏️ Edit JMS" if has_jms else "🧾 Create JMS"
-                if st.button(btn_label, key=f"jmsrowbtn_{rid}", use_container_width=True):
-                    st.session_state.jmspage_open_row = row_dict
-                    st.query_params["jms_ctx"] = "open"
-                    st.rerun()
+                with rcols[1]:
+                    if has_jms:
+                        draft = jms_drafts_map[str(rid)]
+                        draft_circle = _clean_text(draft.get("circle")) or "Maharashtra"
+                        draft_lines = draft.get("line_items") or []
+                        updated_at = _clean_text(draft.get("updated_at"))
+                        try:
+                            pdf_bytes = _cached_jms_pdf_bytes(
+                                active_ws, str(rid), updated_at,
+                                json.dumps(row_dict, default=str), draft_circle,
+                                json.dumps(draft_lines, default=str),
+                            )
+                            safe_site = _clean_text(row_dict.get("Site ID")) or "Site"
+                            st.download_button(
+                                "⬇️", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
+                                mime="application/pdf", key=f"jmsrowdl_{rid}", help="Download JMS PDF",
+                            )
+                        except Exception:
+                            st.caption("PDF error")
+                    else:
+                        st.markdown("<div style='text-align:center;'><span class='slux-muted'>—</span></div>", unsafe_allow_html=True)
 
-            with rcols[8]:
+                rcols[2].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                rcols[3].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                rcols[4].markdown(_chip(row_dict.get('Project ID'), "proj"), unsafe_allow_html=True)
+                rcols[5].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                rcols[6].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
+                rcols[7].markdown(_chip(row_dict.get('PO No.')), unsafe_allow_html=True)
                 if has_jms:
-                    draft = jms_drafts_map[str(rid)]
-                    draft_circle = _clean_text(draft.get("circle")) or "Maharashtra"
-                    draft_lines = draft.get("line_items") or []
-                    updated_at = _clean_text(draft.get("updated_at"))
-                    try:
-                        pdf_bytes = _cached_jms_pdf_bytes(
-                            active_ws, str(rid), updated_at,
-                            json.dumps(row_dict, default=str), draft_circle,
-                            json.dumps(draft_lines, default=str),
-                        )
-                        safe_site = _clean_text(row_dict.get("Site ID")) or "Site"
-                        st.download_button(
-                            "⬇️ PDF", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
-                            mime="application/pdf", key=f"jmsrowdl_{rid}", use_container_width=True,
-                        )
-                    except Exception:
-                        st.caption("PDF error")
+                    rcols[8].markdown("<span class='status-badge status-green'>✅ Created</span>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<div class='tbl-cell' style='color:#94a3b8;'>-</div>", unsafe_allow_html=True)
+                    rcols[8].markdown("<span class='status-badge status-grey'>⭕ Not Created</span>", unsafe_allow_html=True)
+
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    st.markdown(
+        '<div class="slux-foot">'
+        f'<div>{total_rows:,} site{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
+        f'<div class="slux-foot-amts"><span class="slux-foot-badge">Page {st.session_state.jmspage_current_page} of {total_pages}</span></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
