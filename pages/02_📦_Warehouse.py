@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import html
 import requests # <--- NEW: Added requests for WhatsApp API
 import smtplib  # <--- NEW: For Email Sending
 from email.mime.text import MIMEText
@@ -16,16 +17,15 @@ st.set_page_config(page_title="Warehouse Hub", page_icon="📦", layout="wide")
 if 'wh_mat_count' not in st.session_state:
     st.session_state.wh_mat_count = 1
 
-# --- NEW: MOBILE VIEW TOGGLE STATE ---
+# --- MOBILE VIEW TOGGLE STATE ---
 if 'wh_view_mode' not in st.session_state:
     st.session_state.wh_view_mode = "table"
 
-# --- 2. LAVISH CUSTOM CSS ---
+# --- 2. ✨ LAVISH LIGHT THEME CSS (Quotation / Site Data / Invoice jaisa) ---
 st.markdown("""
     <style>
-    /* Dark Premium Theme */
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
-    
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+
     /* Top Action Buttons */
     div.stButton > button {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
@@ -35,286 +35,228 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
     }
-
-    /* Pagination Text & Button Font Color Fix */
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
-    
-    div.stButton > button p, 
-    div.stButton > button span, 
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
+    div.stButton > button p,
+    div.stButton > button span,
     div.stButton > button div {
         color: #ffffff !important;
         font-weight: 800 !important;
     }
-    
-    /* Modal/Dialog Glassmorphism */
+
+    /* Dialogs — light glass */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
-    
-    /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
-    div[data-testid="stDialog"] h1, 
-    div[data-testid="stDialog"] h2, 
-    div[data-testid="stDialog"] h3 {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.5px;
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
-    div[data-testid="stDialog"] p {
-        color: #e2e8f0 !important; 
-    }
-    div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #ffffff !important; 
-    }
+    div[data-testid="stDialog"] p { color: #1e293b !important; }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
 
     .modal-section-title {
-        color: #94a3b8;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 1px;
-        margin-top: 15px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        padding-bottom: 5px;
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+        margin-top: 15px; margin-bottom: 10px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
     }
-    
-    /* FIX FOR FIELD LABELS COLOR (Make them bright white) */
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
     }
-
-    /* Make disabled/read-only input text inside Warehouse Site Info strictly BLACK and BOLD */
     div[data-testid="stTextInput"] input:disabled {
-        color: #000000 !important;
-        font-weight: 700 !important;
-        -webkit-text-fill-color: #000000 !important;
+        color: #000000 !important; font-weight: 700 !important; -webkit-text-fill-color: #000000 !important;
     }
 
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS
-       ========================================================= */
-    
-    /* Sidebar Background */
+    /* Sidebar (kept dark, same as other pages) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
-    
-    /* Individual Sidebar Links / Buttons */
     [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important;
+        font-weight: 600 !important; font-size: 1.05rem !important; transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important;
+        align-items: center !important; gap: 12px !important;
     }
-
-    /* Hover Effect for Sidebar Links */
     [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        color: #ffffff !important;
+        background: rgba(255, 255, 255, 0.1) !important; transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important; color: #ffffff !important;
     }
-
-    /* Active/Selected Page Button */
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
+        color: #ffffff !important; border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-    
-    /* Clean up the default Streamlit styling overrides */
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
-    /* =========================================================
-       FIXED: HORIZONTAL SCROLLING DATA TABLE WITH PERFECT SPACING
-       ========================================================= */
+    /* ================= SCROLLING TABLE BODY ================= */
     .st-key-wh_table_wrap {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 10px;
-        overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
-        padding: 0px 0 !important;
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    /* Force inner rows to be extremely wide so they NEVER squish or overlap */
-    .st-key-wh_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 3500px !important; /* MAGIC FIX FOR HORIZONTAL SCROLL */
-        align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        padding: 6px 0 !important;
-        flex-wrap: nowrap !important;
+    .st-key-wh_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-wh_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-wh_table_wrap div[class*="st-key-whhead"],
+    .st-key-wh_table_wrap div[class*="st-key-whrow_"] { min-width: 3000px !important; }
+    .st-key-wh_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
-    .st-key-wh_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(255,255,255,0.04);
-    }
-    /* Cell padding and border */
-    .st-key-wh_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; /* Proper spacing */
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
-    }
-    .st-key-wh_table_wrap div[data-testid="column"]:last-child {
-        border-right: none;
-    }
-    
-    .st-key-wh_table_wrap .tbl-head {
-        background: transparent;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        color: #94a3b8;
-        text-transform: uppercase;
-        white-space: nowrap !important;
-    }
-    /* Strict nowrap with ellipsis to prevent column bleeding */
-    .st-key-wh_table_wrap .tbl-cell {
-        color: #e2e8f0;
-        font-size: 0.86rem;
-        white-space: normal !important;
-        word-break: break-word !important;
-        line-height: 1.4;
-        width: 100%;
-    }
-    .st-key-wh_table_wrap .tbl-serial {
-        color: #64748b;
-        font-size: 0.85rem;
-        font-weight: 800;
+    .st-key-wh_table_wrap [data-testid="stColumn"], .st-key-wh_table_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
 
-    /* Fixed native Action Buttons strictly constrained to their columns */
-    .st-key-wh_table_wrap button {
-        height: 32px !important;
-        width: 100% !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-        border-radius: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        box-shadow: none !important;
-        pointer-events: auto !important; /* Force clickability */
-        cursor: pointer !important;
+    /* Sticky header */
+    div[class*="st-key-whhead"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
     }
-    .st-key-wh_table_wrap button:hover {
-        background: #3b82f6 !important;
-        border-color: #60a5fa !important;
-        transform: translateY(-2px) !important;
+    div[class*="st-key-whhead"] [data-testid="stColumn"], div[class*="st-key-whhead"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
+
+    /* Data rows */
+    div[class*="st-key-whrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-whrow_odd"] { background: #fafaff; }
+    div[class*="st-key-whrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-whrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-chip.item { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .slux-qty {
+        display: inline-block; min-width: 38px; text-align: center; padding: 4px 10px; border-radius: 8px;
+        background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; font-weight: 900; font-size: .85rem;
     }
 
-    /* -------------------------------------------------------------
-       FIXED FORCE LEFT BUTTON CSS: Action Columns (2, 3, 4)
-       ------------------------------------------------------------- */
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(1) {
-        padding: 0 10px 0 15px !important;
-    }
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head,
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(4) .tbl-head {
-        color: #94a3b8; 
-    }
-    /* Remove borders and padding between action button columns to merge them visually */
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(2),
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(3) {
-        padding: 4px 4px !important;
-        border-right: none !important;
-    }
-    .st-key-wh_table_wrap div[data-testid="column"]:nth-child(4) {
-        padding: 4px 15px 4px 4px !important;
-        border-right: 1px solid rgba(255,255,255,0.06) !important;
-    }
-
-    /* Round, color-coded, compact action icon buttons */
-    .st-key-wh_table_wrap div[class*="st-key-vbtn_"] button,
-    .st-key-wh_table_wrap div[class*="st-key-ebtn_"] button,
-    .st-key-wh_table_wrap div[class*="st-key-dbtn_"] button {
-        width: 100% !important; 
-        max-width: 34px !important;
-        height: 32px !important;
-        padding: 0 !important;
-        border-radius: 6px !important;
-        font-size: 0.95rem !important;
-        margin: 0 auto !important;
-    }
-    div[class*="st-key-vbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
-    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
-    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
-    
-    /* Status badge pill */
+    /* Status pills */
     .status-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.4px;
-        white-space: normal;
-        word-break: break-word;
-        text-align: center;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
     }
-    .status-green  { background: rgba(34,197,94,0.18);  color: #4ade80; }
-    .status-blue   { background: rgba(59,130,246,0.18); color: #60a5fa; }
-    .status-yellow { background: rgba(234,179,8,0.18);  color: #facc15; }
-    .status-red    { background: rgba(239,68,68,0.18);  color: #f87171; }
-    .status-grey   { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-blue   { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-yellow { background: #fef9c3; color: #a16207; border-color: #fde68a; }
+    .status-red    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .status-grey   { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
 
-    /* =========================================================
-       NEW: MOBILE-FRIENDLY CARD VIEW
-       ========================================================= */
-    .wh-card {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
+    /* Single ⚙️ action button at row start (Site Data jaisa) */
+    div[class*="st-key-whpop_"] button {
+        width: 40px !important; max-width: 40px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important;
+        box-shadow: none !important; transition: all .2s ease !important;
     }
-    .wh-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
-    .wh-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
-    .wh-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    div[class*="st-key-whpop_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    div[class*="st-key-whpop_"] button p, div[class*="st-key-whpop_"] button span { color: #1e293b !important; }
+    div[class*="st-key-whpop_"] button svg { display: none !important; }
+    .st-key-wh_del_yes button { background: linear-gradient(90deg, #ef4444, #dc2626) !important; box-shadow: 0 4px 10px -2px rgba(239,68,68,.5) !important; }
+    .st-key-wh_del_no button { background: #f1f5f9 !important; box-shadow: none !important; }
+    .st-key-wh_del_no button p { color: #334155 !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
+    /* ================= MOBILE CARD VIEW (light) ================= */
+    .wh-card-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
+    .wh-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .wh-card-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; gap: 10px; }
     .wh-card-row:last-child { border-bottom: none; }
-    .wh-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
-    .wh-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+    .wh-card-label { color: #64748b; font-weight: 700; white-space: nowrap; text-transform: uppercase; font-size: .75rem; }
+    .wh-card-value { color: #0f172a; font-weight: 600; text-align: right; }
 
-    /* =========================================================
-       NEW: ITEM CODE LIVE-SEARCH MATCH CAPTION
-       ========================================================= */
-    .item-match-count {
-        color: #60a5fa;
-        font-size: 0.78rem;
-        font-weight: 700;
-        margin: 2px 0 4px 0;
-    }
-    .item-no-match {
-        color: #f87171;
-        font-size: 0.78rem;
-        font-weight: 700;
-        margin: 2px 0 4px 0;
-    }
+    /* ================= ITEM CODE LIVE-SEARCH MATCH CAPTION ================= */
+    .item-match-count { color: #4338ca; font-size: 0.78rem; font-weight: 700; margin: 2px 0 4px 0; }
+    .item-no-match { color: #dc2626; font-size: 0.78rem; font-weight: 700; margin: 2px 0 4px 0; }
+    .wh-item-label { color: #334155; font-size: 0.85rem; margin-top: 15px; margin-bottom: 5px; font-weight: 800; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -572,7 +514,7 @@ def add_warehouse_material_dialog():
         
         for i in range(st.session_state.wh_mat_count):
             if i > 0:
-                st.markdown(f"<p style='color:#cbd5e1; font-size:0.85rem; margin-top:15px; margin-bottom:5px; font-weight:700;'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p class='wh-item-label'>➕ Transaction Item {i+1}</p>", unsafe_allow_html=True)
             
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             with mc1:
@@ -839,7 +781,7 @@ def edit_warehouse_material_dialog(row_data):
                 except Exception as e:
                     st.error(f"❌ Error Updating Material: {e}")
 
-# --- 3.7 NEW: VIEW RECORD DIALOG FUNCTION (READ-ONLY) ---
+# --- 3.7 VIEW RECORD DIALOG FUNCTION (READ-ONLY) ---
 @st.dialog("👁️ View Warehouse Material", width="large")
 def view_record_dialog(row_data):
     st.caption("Read-only preview of transaction items and asset movements")
@@ -871,6 +813,32 @@ def view_record_dialog(row_data):
     if st.button("Close", use_container_width=True):
         st.rerun()
 
+# --- 3.8 DELETE CONFIRMATION DIALOG (replaces the old inline confirm row) ---
+@st.dialog("🗑️ Delete Warehouse Material")
+def delete_confirm_dialog(row_data):
+    rid = row_data.get("id")
+    st.markdown(
+        f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
+<div style="font-weight:900;color:#991b1b;font-size:1rem;">{html.escape(str(row_data.get('Item Code','') or '-'))}</div>
+<div style="color:#7f1d1d;font-size:.85rem;margin-top:4px;">{html.escape(str(row_data.get('Project ID','') or '-'))} • {html.escape(str(row_data.get('Site Name','') or '-'))}</div>
+</div>
+<p style="color:#475569;">Ye record permanently delete ho jayega. Kya aap sure hain?</p>""",
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", key="wh_del_no", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("Yes, Delete", key="wh_del_yes", type="primary", use_container_width=True):
+            try:
+                supabase.table("warehouse_data").delete().eq("id", rid).execute()
+                st.success("✅ Record Successfully Deleted!")
+                clear_warehouse_caches()
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Deleting Record: {e}")
+
 # --- 3.9 EXPORT DIALOG FUNCTION ---
 @st.dialog("📥 Export Data", width="large")
 def export_dialog(df_export):
@@ -898,7 +866,7 @@ def export_dialog(df_export):
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_ref, col_add, col_export = st.columns([4, 1, 2, 2])
 with col_title:
-    st.markdown("<h2 style='margin:0; color:white;'>📦 Warehouse Material Hub</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>📦 Warehouse Material Hub</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         clear_warehouse_caches()
@@ -944,6 +912,11 @@ if data:
                 break
         if not matched:
             df[col] = ""
+    # Newest first (highest id on top)
+    if "id" in df.columns:
+        _idn = pd.to_numeric(df["id"], errors="coerce")
+        if _idn.notna().any():
+            df = df.assign(_idn=_idn.fillna(-1)).sort_values("_idn", ascending=False).drop(columns=["_idn"]).reset_index(drop=True)
 else:
     df = pd.DataFrame(columns=columns_list)
 
@@ -957,10 +930,10 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 5.5 LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+# --- 5.5 SEARCH BOX + VIEW MODE TOGGLE ---
 col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
-    st.markdown("##### 🗄️ Live Warehouse Records")
+    st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Live Warehouse Records</h5>", unsafe_allow_html=True)
 with col_search:
     search_query = st.text_input("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
 with col_viewtoggle:
@@ -972,6 +945,100 @@ with col_viewtoggle:
 if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
+
+
+# --- LAVISH CELL HELPERS ---
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+def _clean(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "nat", "none", "null", "-") else s
+
+def _num(v):
+    try:
+        s = _clean(v).replace(",", "")
+        return float(s) if s else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+def _pill(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+
+def _qty(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    n = _num(s)
+    shown = str(int(n)) if float(n).is_integer() else f"{n:g}"
+    return f"<div class='slux-cell' style='text-align:center;'><span class='slux-qty'>{shown}</span></div>"
+
+def status_badge(val):
+    v = _clean(val)
+    if not v:
+        return _MUTED
+    vl = v.lower()
+    if "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done", "received", "delivered", "dispatched"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress", "transit"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<div class='slux-cell'><span class='status-badge {cls}'>{html.escape(v)}</span></div>"
+
+
+# --- KPI CARDS (search ke hisaab se) ---
+k_records = len(df)
+k_projects = df["Project ID"].map(_clean).replace("", pd.NA).dropna().nunique() if not df.empty else 0
+k_qty = sum(_num(v) for v in df["Indus Qty"]) if not df.empty else 0.0
+k_stn_pending = int(df["STN Status"].astype(str).str.lower().str.contains("pending|required", regex=True, na=False).sum()) if not df.empty else 0
+
+def _kpi(icon, label, value, foot, accent, soft, value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+k_qty_txt = f"{int(k_qty):,}" if float(k_qty).is_integer() else f"{k_qty:,.2f}"
+st.markdown(
+    '<div class="lux-kpi-grid">'
+    + _kpi("📦", "Material Lines", f"{k_records:,}", "Filtered results" if search_query else "All records", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+    + _kpi("🏗️", "Projects", f"{k_projects:,}", "Unique Project IDs", "linear-gradient(90deg,#3b82f6,#06b6d4)", "#eff6ff")
+    + _kpi("🔢", "Total Indus Qty", k_qty_txt, "Sum of all lines", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5")
+    + _kpi("⏳", "STN Pending / Required", f"{k_stn_pending:,}", "Needs STN action", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb", "red" if k_stn_pending else "")
+    + '</div>',
+    unsafe_allow_html=True,
+)
 
 # --- 6. PAGINATION LOGIC (10 lines per page) ---
 if 'wh_current_page' not in st.session_state:
@@ -989,55 +1056,20 @@ elif st.session_state.wh_current_page < 1:
 start_idx = (st.session_state.wh_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 7. NEW: PROPER BORDERED TABLE WITH ALL COLUMNS & FIXED BUTTONS (or mobile cards) ---
+# --- 7. ✨ LAVISH TABLE (or mobile cards) ---
 df_page = df.iloc[start_idx:end_idx].copy()
 
-def status_badge(val):
-    v = str(val).strip()
-    if not v or v.lower() in ("nan", "none", "-"):
-        return "<span class='tbl-cell'>-</span>"
-    vl = v.lower()
-    if "not" in vl and ("received" in vl or "available" in vl):
-        cls = "status-red"
-    elif any(k in vl for k in ["completed", "approved", "done"]):
-        cls = "status-green"
-    elif any(k in vl for k in ["hold", "progress"]):
-        cls = "status-blue"
-    elif any(k in vl for k in ["pending", "awaiting", "required"]):
-        cls = "status-yellow"
-    elif any(k in vl for k in ["cancel", "reject"]):
-        cls = "status-red"
-    else:
-        cls = "status-grey"
-    return f"<span class='status-badge {cls}'>{v}</span>"
-
-def render_delete_confirm(rid, row_dict, key_prefix=""):
-    """Shared inline delete confirmation block, used by both table and card view."""
-    if st.session_state.get(f"confirm_del_{rid}"):
-        wc1, wc2, wc3 = st.columns([6, 1, 1])
-        with wc1:
-            st.warning(f"Delete record '{row_dict.get('Item Code','')}' / '{row_dict.get('Project ID','')}'? This cannot be undone.")
-        with wc2:
-            if st.button("✅ Confirm", key=f"{key_prefix}confirm_yes_{rid}", use_container_width=True):
-                try:
-                    supabase.table(table_name).delete().eq("id", rid).execute()
-                    st.session_state[f"confirm_del_{rid}"] = False
-                    st.success("✅ Record Successfully Deleted!")
-                    clear_warehouse_caches()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Deleting Record: {e}")
-        with wc3:
-            if st.button("❌ Cancel", key=f"{key_prefix}confirm_no_{rid}", use_container_width=True):
-                st.session_state[f"confirm_del_{rid}"] = False
-                st.rerun()
-
 if df_page.empty:
-    st.info("No records found.")
+    st.markdown(
+        '<div class="slux-empty"><div>🗂️</div>'
+        + ("No records match your search." if search_query else "No warehouse records yet. Click ➕ Add New Material to create one.")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
 elif st.session_state.wh_view_mode == "cards":
     # ---------------------------------------------------------------
-    # NEW: MOBILE-FRIENDLY CARD VIEW - one card per record, no horizontal scroll
+    # MOBILE-FRIENDLY CARD VIEW - one card per record, no horizontal scroll
     # ---------------------------------------------------------------
     for page_pos, (_, row) in enumerate(df_page.iterrows()):
         row_dict = row.to_dict()
@@ -1046,20 +1078,20 @@ elif st.session_state.wh_view_mode == "cards":
 
         with st.container(border=True):
             st.markdown(f"""
-                <div class="wh-card-title">#{serial_no} — {row_dict.get('Item Code','') or '-'}</div>
-                <div class="wh-card-sub">{row_dict.get('Project ID','') or '-'} • {row_dict.get('Site ID','') or '-'}</div>
-                <div class="wh-card-row"><span class="wh-card-label">Site Name</span><span class="wh-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Cluster</span><span class="wh-card-value">{row_dict.get('Cluster','') or '-'}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Team</span><span class="wh-card-value">{row_dict.get('Team','') or '-'}</span></div>
+                <div class="wh-card-title">#{serial_no} — {html.escape(_clean(row_dict.get('Item Code')) or '-')}</div>
+                <div class="wh-card-sub">{html.escape(_clean(row_dict.get('Project ID')) or '-')} • {html.escape(_clean(row_dict.get('Site ID')) or '-')}</div>
+                <div class="wh-card-row"><span class="wh-card-label">Site Name</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Site Name')) or '-')}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Cluster</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Cluster')) or '-')}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Team</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Team')) or '-')}</span></div>
                 <div class="wh-card-row"><span class="wh-card-label">SRN Status</span><span class="wh-card-value">{status_badge(row_dict.get('SRN Status',''))}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Transaction Type</span><span class="wh-card-value">{row_dict.get('Transaction Type','') or '-'}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">BOQ Number</span><span class="wh-card-value">{row_dict.get('BOQ Number','') or '-'}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Item Description</span><span class="wh-card-value">{row_dict.get('Item Description','') or '-'}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Indus Qty</span><span class="wh-card-value">{row_dict.get('Indus Qty','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Transaction Type</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Transaction Type')) or '-')}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">BOQ Number</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('BOQ Number')) or '-')}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Item Description</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Item Description')) or '-')}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Indus Qty</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Indus Qty')) or '-')}</span></div>
                 <div class="wh-card-row"><span class="wh-card-label">Material Status</span><span class="wh-card-value">{status_badge(row_dict.get('Material Status',''))}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Dispatch Date</span><span class="wh-card-value">{row_dict.get('Dispatch Date','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Dispatch Date</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Dispatch Date')) or '-')}</span></div>
                 <div class="wh-card-row"><span class="wh-card-label">STN Status</span><span class="wh-card-value">{status_badge(row_dict.get('STN Status',''))}</span></div>
-                <div class="wh-card-row"><span class="wh-card-label">Remark</span><span class="wh-card-value">{row_dict.get('Remark','') or '-'}</span></div>
+                <div class="wh-card-row"><span class="wh-card-label">Remark</span><span class="wh-card-value">{html.escape(_clean(row_dict.get('Remark')) or '-')}</span></div>
             """, unsafe_allow_html=True)
 
             bc1, bc2, bc3 = st.columns(3)
@@ -1071,77 +1103,91 @@ elif st.session_state.wh_view_mode == "cards":
                     edit_warehouse_material_dialog(row_dict)
             with bc3:
                 if st.button("🗑️ Delete", key=f"card_del_{rid}", use_container_width=True):
-                    st.session_state[f"confirm_del_{rid}"] = True
-
-            render_delete_confirm(rid, row_dict, key_prefix="card_")
+                    delete_confirm_dialog(row_dict)
 
 else:
     # ---------------------------------------------------------------
-    # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+    # ✨ LAVISH DESKTOP TABLE VIEW — single ⚙️ button at row start
     # ---------------------------------------------------------------
-    # Exact 19 columns ratios: Total 19 cols (1 Sr No + 3 Buttons + 15 Data)
     COL_RATIOS = [
-        0.3, 0.35, 0.35, 0.35,       # 0-3 (Sr No, Actions: View, Edit, Delete)
-        1.2, 1.0, 1.5, 1.0, 1.0,     # 4-8
-        1.0, 1.2, 1.0, 1.0, 1.5,     # 9-13
-        0.8, 1.2, 1.2, 1.0, 1.5      # 14-18
+        0.55, 0.5,                   # ⚙️, #
+        1.3, 1.1, 1.6, 1.0, 1.1,     # Project ID, Site ID, Site Name, Cluster, Team
+        1.1, 1.3, 1.1, 1.3,          # SRN Status, Transaction Type, BOQ Number, Item Code
+        2.2, 0.8, 1.3, 1.1,          # Item Description, Indus Qty, Material Status, Dispatch Date
+        1.1, 1.6                     # STN Status, Remark
     ]
-
     COL_LABELS = [
-        "#", "👁️", "✏️", "🗑️", 
-        "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM", 
-        "SRN STATUS", "TRANSACTION TYPE", "BOQ NUMBER", "ITEM CODE", 
-        "ITEM DESCRIPTION", "INDUS QTY", "MATERIAL STATUS", "DISPATCH DATE", 
+        "⚙️", "#",
+        "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM",
+        "SRN STATUS", "TRANSACTION TYPE", "BOQ NUMBER", "ITEM CODE",
+        "ITEM DESCRIPTION", "INDUS QTY", "MATERIAL STATUS", "DISPATCH DATE",
         "STN STATUS", "REMARK"
     ]
 
+    st.markdown(
+        '<div class="slux-head-bar">'
+        '<div class="slux-title">📦 Warehouse Register<span>newest first • scroll right for more →</span></div>'
+        f'<div class="slux-badge">Qty {k_qty_txt}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
     with st.container(key="wh_table_wrap", height=560):
-        # --- HEADER ROW ---
-        h_cols = st.columns(COL_RATIOS)
-        for h_col, label in zip(h_cols, COL_LABELS):
-            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
+        # --- HEADER ROW (sticky) ---
+        with st.container(key="whhead"):
+            h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
+            for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
+                cls = " c" if i in (0, 1, 12) else ""
+                h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
 
         # --- DATA ROWS ---
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             rid = row_dict.get("id")
             serial_no = start_idx + page_pos + 1
+            rk = rid if _clean(rid) else f"s{serial_no}"
+            parity = "odd" if serial_no % 2 else "even"
 
-            rcols = st.columns(COL_RATIOS)
+            with st.container(key=f"whrow_{parity}_{rk}"):
+                rcols = st.columns(COL_RATIOS, vertical_alignment="center")
 
-            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+                with rcols[0]:
+                    with st.container(key=f"whpop_{rk}"):
+                        with st.popover("⚙️"):
+                            if st.button("👁️ View", key=f"view_{rid}", use_container_width=True):
+                                view_record_dialog(row_dict)
+                            if st.button("✏️ Edit", key=f"edit_{rid}", use_container_width=True):
+                                edit_warehouse_material_dialog(row_dict)
+                            if st.button("🗑️ Delete", key=f"del_{rid}", use_container_width=True):
+                                delete_confirm_dialog(row_dict)
 
-            with rcols[1]:
-                with st.container(key=f"vbtn_{rid}"):
-                    if st.button("👁️", key=f"view_{rid}", help="View", use_container_width=True):
-                        view_record_dialog(row_dict)
-            with rcols[2]:
-                with st.container(key=f"ebtn_{rid}"):
-                    if st.button("✏️", key=f"edit_{rid}", help="Edit", use_container_width=True):
-                        edit_warehouse_material_dialog(row_dict)
-            with rcols[3]:
-                with st.container(key=f"dbtn_{rid}"):
-                    if st.button("🗑️", key=f"del_{rid}", help="Delete", use_container_width=True):
-                        st.session_state[f"confirm_del_{rid}"] = True
+                rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                rcols[2].markdown(_chip(row_dict.get('Project ID'), "proj"), unsafe_allow_html=True)
+                rcols[3].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                rcols[4].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                rcols[5].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
+                rcols[6].markdown(_txt(row_dict.get('Team'), "slux-strong"), unsafe_allow_html=True)
+                rcols[7].markdown(status_badge(row_dict.get('SRN Status')), unsafe_allow_html=True)
+                rcols[8].markdown(_txt(row_dict.get('Transaction Type'), "slux-soft"), unsafe_allow_html=True)
+                rcols[9].markdown(_chip(row_dict.get('BOQ Number')), unsafe_allow_html=True)
+                rcols[10].markdown(_chip(row_dict.get('Item Code'), "item"), unsafe_allow_html=True)
+                rcols[11].markdown(_txt(row_dict.get('Item Description')), unsafe_allow_html=True)
+                rcols[12].markdown(_qty(row_dict.get('Indus Qty')), unsafe_allow_html=True)
+                rcols[13].markdown(status_badge(row_dict.get('Material Status')), unsafe_allow_html=True)
+                rcols[14].markdown(_txt(row_dict.get('Dispatch Date'), "slux-soft"), unsafe_allow_html=True)
+                rcols[15].markdown(status_badge(row_dict.get('STN Status')), unsafe_allow_html=True)
+                rcols[16].markdown(_txt(row_dict.get('Remark'), "slux-soft"), unsafe_allow_html=True)
 
-            rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Team','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[9].markdown(status_badge(row_dict.get('SRN Status', '')), unsafe_allow_html=True)
-            rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('Transaction Type','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[11].markdown(f"<div class='tbl-cell'>{row_dict.get('BOQ Number','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[12].markdown(f"<div class='tbl-cell'>{row_dict.get('Item Code','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[13].markdown(f"<div class='tbl-cell'>{row_dict.get('Item Description','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[14].markdown(f"<div class='tbl-cell'>{row_dict.get('Indus Qty','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[15].markdown(status_badge(row_dict.get('Material Status', '')), unsafe_allow_html=True)
-            rcols[16].markdown(f"<div class='tbl-cell'>{row_dict.get('Dispatch Date','') or '-'}</div>", unsafe_allow_html=True)
-            rcols[17].markdown(status_badge(row_dict.get('STN Status', '')), unsafe_allow_html=True)
-            rcols[18].markdown(f"<div class='tbl-cell'>{row_dict.get('Remark','') or '-'}</div>", unsafe_allow_html=True)
-
-            # Inline delete confirmation
-            render_delete_confirm(rid, row_dict, key_prefix="")
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    st.markdown(
+        '<div class="slux-foot">'
+        f'<div>{total_rows:,} material line{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
+        f'<div class="slux-foot-amts"><span>Total Qty: <b style="color:#047857;">{k_qty_txt}</b></span>'
+        f'<span class="slux-foot-badge">Page {st.session_state.wh_current_page} of {total_pages}</span></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
