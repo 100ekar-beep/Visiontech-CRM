@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import html
 import requests
 import urllib.parse
 from supabase import create_client, Client
@@ -16,7 +17,7 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="PO Working", page_icon="🧾", layout="wide")
 
-# --- NEW: MOBILE VIEW TOGGLE STATE ---
+# --- MOBILE VIEW TOGGLE STATE ---
 if 'po_view_mode' not in st.session_state:
     st.session_state.po_view_mode = "table"
 
@@ -37,14 +38,14 @@ if 'po_active_company' not in st.session_state:
 # so switching tabs is the only thing needed — no separate per-company login required.
 st.session_state['active_workspace'] = PO_COMPANY_WORKSPACE_MAP.get(st.session_state.po_active_company, "VISPL")
 
-# --- 2. LAVISH CUSTOM CSS ---
+# --- 2. ✨ LAVISH LIGHT THEME CSS (Quotation / Site Data / Invoice jaisa) ---
 st.markdown("""
     <style>
-    /* Dark Premium Theme */
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
-    
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+
     /* Primary Action Buttons */
-    button[data-testid="baseButton-primary"] {
+    div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"],
+    button[data-testid="baseButton-primary"], button[data-testid="stBaseButton-primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
         color: white !important;
         border: none !important;
@@ -52,285 +53,228 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15) !important;
     }
-    
-    /* Secondary Action Buttons (Like Cancel) */
-    button[data-testid="baseButton-secondary"] {
-        background: rgba(255, 255, 255, 0.05) !important;
-        color: #e2e8f0 !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    div.stButton > button[kind="primary"] p, div.stDownloadButton > button[kind="primary"] p { color: #ffffff !important; font-weight: 800 !important; }
+
+    /* Secondary Action Buttons (Refresh / Export / Cancel etc.) */
+    div.stButton > button[kind="secondary"],
+    button[data-testid="baseButton-secondary"], button[data-testid="stBaseButton-secondary"] {
+        background: #ffffff !important;
+        color: #334155 !important;
+        border: 1.5px solid #cbd5e1 !important;
         border-radius: 8px !important;
         font-weight: 800 !important;
         padding: 0.5rem 1rem !important;
         transition: all 0.3s ease !important;
+        box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
+    div.stButton > button[kind="secondary"] p { color: #334155 !important; font-weight: 800 !important; }
+    div.stButton > button:hover { transform: translateY(-2px) !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.18) !important; }
 
-    button[data-testid="baseButton-primary"]:hover, 
-    button[data-testid="baseButton-secondary"]:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
-    }
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
 
-    /* Pagination Text & Button Font Color Fix */
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
-    
-    /* Modal/Dialog Glassmorphism */
+    /* Dialogs — light glass */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
-    
-    /* FIX FOR DIALOG TITLE AND CAPTION COLOR */
-    div[data-testid="stDialog"] h1, 
-    div[data-testid="stDialog"] h2, 
-    div[data-testid="stDialog"] h3 {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.5px;
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p,
-    div[data-testid="stDialog"] p {
-        color: #e2e8f0 !important; 
-    }
-    div[data-testid="stDialog"] button[kind="icon"] svg {
-        fill: #ffffff !important; 
-    }
+    div[data-testid="stDialog"] p { color: #1e293b !important; }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
 
     .modal-section-title {
-        color: #94a3b8;
-        font-size: 0.85rem;
-        font-weight: 700;
-        letter-spacing: 1px;
-        margin-top: 15px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        padding-bottom: 5px;
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+        margin-top: 15px; margin-bottom: 10px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
     }
-    
-    /* FIX FOR FIELD LABELS COLOR */
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
     }
 
-    /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
+    /* Sidebar (kept dark, same as other pages) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
     [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important;
+        font-weight: 600 !important; font-size: 1.05rem !important; transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important;
+        align-items: center !important; gap: 12px !important;
     }
     [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        color: #ffffff !important;
+        background: rgba(255, 255, 255, 0.1) !important; transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important; color: #ffffff !important;
     }
     [data-testid="stSidebarNav"] a[aria-current="page"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
+        color: #ffffff !important; border-color: transparent !important;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
-    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* KPI PILLS FOR POPUP HEADER */
-    .kpi-pill-container {
-        display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;
-    }
+    /* KPI PILLS FOR POPUP HEADER (light) */
+    .kpi-pill-container { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
     .kpi-pill {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: #cbd5e1;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        background: #f8fafc; border: 1px solid #e2e8f0;
+        padding: 8px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 700; color: #64748b;
+        display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(15,23,42,0.05);
     }
-    .kpi-pill span {
-        color: #60a5fa;
-        font-weight: 800;
-        letter-spacing: 0.5px;
+    .kpi-pill span { color: #4338ca; font-weight: 900; letter-spacing: 0.5px; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #d97706; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
-    /* =========================================================
-        FIXED: HORIZONTAL SCROLLING DATA TABLE WITH REDUCED SPACING (40% LESS)
-        ========================================================= */
+    /* ================= SCROLLING TABLE BODY ================= */
     .st-key-po_table_wrap {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 10px;
-        overflow: auto !important; /* Enables both Horizontal & Vertical Scroll */
-        padding: 0px 0 !important;
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    /* Adjusted width to exactly 40% less (1800px -> 1080px) */
-    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1260px !important; 
-        align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        padding: 6px 0 !important;
-        flex-wrap: nowrap !important;
+    .st-key-po_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-po_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-po_table_wrap div[class*="st-key-pohead"],
+    .st-key-po_table_wrap div[class*="st-key-porow_"] { min-width: 1260px !important; }
+    .st-key-po_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
-    .st-key-po_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(255,255,255,0.04);
-    }
-    /* Cell padding and border */
-    .st-key-po_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; 
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
-    }
-    .st-key-po_table_wrap div[data-testid="column"]:last-child {
-        border-right: none;
-    }
-    
-    .st-key-po_table_wrap .tbl-head {
-        background: transparent;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        color: #94a3b8;
-        text-transform: uppercase;
-        white-space: nowrap !important;
-    }
-    /* Strict nowrap with ellipsis to prevent column bleeding */
-    .st-key-po_table_wrap .tbl-cell {
-        color: #e2e8f0;
-        font-size: 0.86rem;
-        white-space: normal !important;
-        word-break: break-word !important;
-        line-height: 1.4;
-        width: 100%;
-    }
-    .st-key-po_table_wrap .tbl-serial {
-        color: #64748b;
-        font-size: 0.85rem;
-        font-weight: 800;
+    .st-key-po_table_wrap [data-testid="stColumn"], .st-key-po_table_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
 
-    /* Fixed native Action Buttons strictly constrained to their columns */
-    .st-key-po_table_wrap button {
-        height: 32px !important;
-        width: 100% !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-        border-radius: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: rgba(255,255,255,0.05) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        box-shadow: none !important;
-        pointer-events: auto !important; 
-        cursor: pointer !important;
+    /* Sticky header */
+    div[class*="st-key-pohead"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
     }
-    .st-key-po_table_wrap button:hover {
-        background: #3b82f6 !important;
-        border-color: #60a5fa !important;
-        transform: translateY(-2px) !important;
-    }
+    div[class*="st-key-pohead"] [data-testid="stColumn"], div[class*="st-key-pohead"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
 
-    /* ACTION COLUMNS MERGING & ALIGNMENT */
-    .st-key-po_table_wrap div[data-testid="column"]:nth-child(1) {
-        padding: 0 10px 0 15px !important;
+    /* Data rows */
+    div[class*="st-key-porow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
     }
-    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) .tbl-head,
-    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) .tbl-head {
-        color: #94a3b8; 
-    }
-    .st-key-po_table_wrap div[data-testid="column"]:nth-child(2) {
-        padding: 4px 4px !important;
-        border-right: none !important;
-    }
-    .st-key-po_table_wrap div[data-testid="column"]:nth-child(3) {
-        padding: 4px 15px 4px 4px !important;
-        border-right: 1px solid rgba(255,255,255,0.06) !important;
-    }
+    div[class*="st-key-porow_odd"] { background: #fafaff; }
+    div[class*="st-key-porow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-porow_"] p { margin: 0 !important; }
 
-    /* Round, color-coded, compact action icon buttons */
-    .st-key-po_table_wrap div[class*="st-key-ebtn_"] button,
-    .st-key-po_table_wrap div[class*="st-key-dbtn_"] button {
-        width: 100% !important; 
-        max-width: 34px !important;
-        height: 32px !important;
-        padding: 0 !important;
-        border-radius: 6px !important;
-        font-size: 0.95rem !important;
-        margin: 0 auto !important;
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
     }
-    div[class*="st-key-ebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
-    div[class*="st-key-dbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
-    
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-chip.po { background: #fdf4ff; border-color: #f5d0fe; color: #a21caf; }
+    .po-amt { text-align: right; font-weight: 900; color: #4f46e5; font-variant-numeric: tabular-nums; }
+    .po-lines { display: inline-block; min-width: 30px; text-align: center; padding: 3px 10px; border-radius: 8px;
+                background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; font-weight: 900; font-size: .82rem; }
+
     /* STATUS BADGES FOR SITE AVAILABILITY */
-    .status-badge-green {
-        background: rgba(16, 185, 129, 0.15);
-        border: 1px solid rgba(16, 185, 129, 0.4);
-        color: #34d399;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        display: inline-block;
-        text-align: center;
-        letter-spacing: 0.5px;
+    .status-badge-green, .status-badge-orange {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
     }
-    .status-badge-orange {
-        background: rgba(245, 158, 11, 0.15);
-        border: 1px solid rgba(245, 158, 11, 0.4);
-        color: #fbbf24;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        display: inline-block;
-        text-align: center;
-        letter-spacing: 0.5px;
-    }
+    .status-badge-green { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-badge-orange { background: #ffedd5; color: #c2410c; border-color: #fed7aa; }
 
-    /* =========================================================
-       NEW: MOBILE-FRIENDLY CARD VIEW
-       ========================================================= */
-    .po-card {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
+    /* Single ⚙️ action button at row start (Site Data jaisa) */
+    div[class*="st-key-popop_"] button {
+        width: 40px !important; max-width: 40px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important;
+        box-shadow: none !important; transition: all .2s ease !important;
     }
-    .po-card-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
-    .po-card-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
-    .po-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    div[class*="st-key-popop_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    div[class*="st-key-popop_"] button p, div[class*="st-key-popop_"] button span { color: #1e293b !important; }
+    div[class*="st-key-popop_"] button svg { display: none !important; }
+    .st-key-po_del_yes button { background: linear-gradient(90deg, #ef4444, #dc2626) !important; border: none !important; }
+    .st-key-po_del_yes button p { color: #ffffff !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
+    /* ================= MOBILE CARD VIEW (light) ================= */
+    .po-card-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
+    .po-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .po-card-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; gap: 10px; }
     .po-card-row:last-child { border-bottom: none; }
-    .po-card-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
-    .po-card-value { color: #e2e8f0; font-weight: 600; text-align: right; }
+    .po-card-label { color: #64748b; font-weight: 700; white-space: nowrap; text-transform: uppercase; font-size: .75rem; }
+    .po-card-value { color: #0f172a; font-weight: 600; text-align: right; }
 
-    /* =========================================================
-       MULTI-COMPANY NAV BAR (VISPL / Bhagyashree / Sai Tele)
-       ========================================================= */
+    /* ================= MULTI-COMPANY NAV BAR (VISPL / Bhagyashree / Sai Tele) ================= */
     .st-key-po_company_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-po_company_nav_bar button {
         font-size: 1.05rem !important; font-weight: 800 !important; padding: 14px 10px !important;
@@ -338,19 +282,16 @@ st.markdown("""
         white-space: nowrap !important;
     }
     .st-key-po_company_nav_bar button[kind="secondary"] {
-        background: rgba(255,255,255,0.04) !important; color: #cbd5e1 !important;
-        border: 1.5px solid rgba(255,255,255,0.12) !important; box-shadow: none !important;
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
     .st-key-po_company_nav_bar button[kind="secondary"]:hover {
-        background: rgba(255,255,255,0.1) !important; color: #ffffff !important;
-        border-color: rgba(255,255,255,0.25) !important; transform: translateY(-2px) !important;
+        background: #f1f5f9 !important; color: #0f172a !important;
+        border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
     }
     .st-key-po_company_nav_bar button[kind="secondary"] p,
     .st-key-po_company_nav_bar button[kind="secondary"] span,
-    .st-key-po_company_nav_bar button[kind="secondary"] div { color: #cbd5e1 !important; font-weight: 800 !important; }
-    .st-key-po_company_nav_bar button[kind="secondary"]:hover p,
-    .st-key-po_company_nav_bar button[kind="secondary"]:hover span,
-    .st-key-po_company_nav_bar button[kind="secondary"]:hover div { color: #ffffff !important; }
+    .st-key-po_company_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
     .st-key-po_company_nav_bar button[kind="primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
         border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
@@ -613,10 +554,10 @@ if 'id' not in st.session_state.po_working_df.columns:
 # --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
 @st.dialog("📄 Upload PO (Notepad)")
 def po_upload_dialog():
-    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.85rem; font-weight:800; color:#334155; margin-bottom:5px; margin-top:5px;'>PO NUMBER <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
     po_number_input = st.text_input("PO NUMBER", label_visibility="collapsed", placeholder="Enter PO Number...")
     
-    st.markdown("<p style='font-size:0.85rem; font-weight:700; color:#cbd5e1; margin-bottom:5px; margin-top:15px;'>PO DOCUMENT (TXT/CSV/TSV/EXCEL) <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:0.85rem; font-weight:800; color:#334155; margin-bottom:5px; margin-top:15px;'>PO DOCUMENT (TXT/CSV/TSV/EXCEL) <span style='color:#ef4444;'>*</span></p>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("PO DOCUMENT", label_visibility="collapsed", type=["tsv", "csv", "txt", "xlsx"], key="po_upload_file")
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -929,9 +870,9 @@ def view_po_details_dialog(row_data):
             <div class="kpi-pill">CLUSTER: <span>{cluster_val}</span></div>
             <div class="kpi-pill">RFAI: <span>{rfai_val}</span></div>
             <div class="kpi-pill">SRN: <span>{srn_val}</span></div>
-            <div class="kpi-pill" style="border-color: #ef4444;">KM: <span style="color: #ef4444;">{km_val}</span></div>
-            <div class="kpi-pill" style="background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);">
-                <span style="color: #0f172a !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
+            <div class="kpi-pill" style="border-color: #fecaca; background:#fef2f2;">KM: <span style="color: #dc2626;">{km_val}</span></div>
+            <div class="kpi-pill" style="background: linear-gradient(90deg, #6366f1, #8b5cf6); border: none; box-shadow: 0 6px 14px -4px rgba(99,102,241,.6);">
+                <span style="color: #ffffff !important; font-weight: 900; letter-spacing: 1px; font-size: 0.95rem;">PROJECT AMOUNT : ₹ {project_total_amount:,}</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -1190,10 +1131,54 @@ def view_po_details_dialog(row_data):
             st.success("✅ PO Lines Submitted Successfully to DB!")
             st.rerun()
 
+
+# --- 4.6 DELETE PO CONFIRMATION DIALOG (replaces the old inline confirm row) ---
+@st.dialog("🗑️ Delete PO")
+def delete_po_dialog(row_data):
+    po_num = str(row_data.get("PO Number", "")).strip()
+    proj_val = str(row_data.get("Project Name", "")).strip()
+    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    line_count = 0
+    try:
+        _dfw = st.session_state.po_working_df
+        line_count = int(((_dfw['PO Number'].astype(str).str.strip() == po_num) &
+                          (_dfw['Project Name'].astype(str).str.strip() == proj_val)).sum())
+    except Exception:
+        pass
+
+    st.markdown(
+        f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
+<div style="font-weight:900;color:#991b1b;font-size:1rem;">PO {html.escape(po_num or '-')}</div>
+<div style="color:#7f1d1d;font-size:.85rem;margin-top:4px;">Project ID: {html.escape(proj_val or '-')} • Site: {html.escape(str(row_data.get('Site ID','') or '-'))} • {line_count} line(s)</div>
+</div>
+<p style="color:#475569;">Is PO + Project ID ki saari line items permanently delete ho jayengi. Kya aap sure hain?</p>""",
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", key="po_del_no", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("Yes, Delete", key="po_del_yes", type="primary", use_container_width=True):
+            try:
+                # FIX: pehle sirf "PO Number" se delete hota tha — isse same PO Number wali
+                # DOOSRI company (workspace) aur doosre Project IDs ki lines bhi delete ho jaati thi.
+                # Ab sirf isi workspace + isi PO + isi Project ID ki lines delete hoti hain.
+                q = supabase.table("po_working").delete().eq("PO Number", po_num).eq("workspace", active_ws)
+                if proj_val:
+                    q = q.eq("Project Name", proj_val)
+                q.execute()
+                if 'po_working_df' in st.session_state:
+                    del st.session_state['po_working_df']
+                st.success(f"✅ PO {po_num} Deleted Successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error Deleting Record: {e}")
+
 # --- 5. TOP ACTION BAR ---
 col_title, col_ref, col_upload, col_export = st.columns([4, 1, 2, 2])
 with col_title:
-    st.markdown("<h2 style='margin:0; color:white;'>🧾 PO Working Hub</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>🧾 PO Working Hub</h2>", unsafe_allow_html=True)
 with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         if 'po_working_df' in st.session_state:
@@ -1241,10 +1226,10 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = "" 
 
-# --- 6. LAVISH UNIVERSAL SEARCH BOX + VIEW MODE TOGGLE ---
+# --- 6. SEARCH BOX + VIEW MODE TOGGLE ---
 col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
-    st.markdown("##### 🗄️ Uploaded PO Summary")
+    st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Uploaded PO Summary</h5>", unsafe_allow_html=True)
 with col_search:
     if HAS_KEYUP:
         search_query = st_keyup("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed", debounce=300)
@@ -1274,12 +1259,76 @@ if search_query:
     mask = search_df.apply(lambda x: x.str.contains(search_query, case=False, na=False, regex=False)).any(axis=1)
     df = df[mask]
 
-# --- CREATE UNIQUE PO SUMMARY LIST ---
+# --- CREATE UNIQUE PO SUMMARY LIST (+ line count & PO value per PO/Project) ---
+SUMMARY_KEYS = ['Project Name', 'Site ID', 'Site Name', 'PO Number']
 if not df.empty:
-    summary_df = df[['Project Name', 'Site ID', 'Site Name', 'PO Number']].drop_duplicates().reset_index(drop=True)
+    _calc = df.copy()
+    for _c in SUMMARY_KEYS:
+        if _c not in _calc.columns:
+            _calc[_c] = ""
+        _calc[_c] = _calc[_c].fillna("").astype(str)
+    _calc['_value'] = (pd.to_numeric(_calc.get('PO Qty', 0), errors='coerce').fillna(0)
+                       * pd.to_numeric(_calc.get('Price', 0), errors='coerce').fillna(0))
+    summary_df = (_calc.groupby(SUMMARY_KEYS, sort=False)
+                  .agg(_lines=('_value', 'size'), _po_value=('_value', 'sum'))
+                  .reset_index())
     summary_df = summary_df.iloc[::-1].reset_index(drop=True)
 else:
-    summary_df = pd.DataFrame(columns=["Project Name", "Site ID", "Site Name", "PO Number"])
+    summary_df = pd.DataFrame(columns=SUMMARY_KEYS + ['_lines', '_po_value'])
+
+# --- SITE AVAILABILITY LOOKUP (cached) ---
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+available_sites = set()
+available_projects = set()
+project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
+for item in fetch_site_data_lookup_cached(active_ws):
+    sid_val = str(item.get("Site ID", "")).strip()
+    pid_val = str(item.get("Project ID", "")).strip()
+    pname_val = str(item.get("Project Name", "")).strip()
+    if sid_val:
+        available_sites.add(sid_val)
+    if pid_val:
+        available_projects.add(pid_val)
+        if pname_val:
+            project_name_lookup[pid_val] = pname_val
+            project_name_lookup[pid_val.upper()] = pname_val
+    if pname_val:
+        available_projects.add(pname_val)
+
+def _is_available(site_id_val, proj_name_val):
+    return bool((site_id_val and site_id_val in available_sites) or (proj_name_val and proj_name_val in available_projects))
+
+if not summary_df.empty:
+    summary_df['_avail'] = [
+        _is_available(str(s).strip(), str(p).strip())
+        for s, p in zip(summary_df['Site ID'], summary_df['Project Name'])
+    ]
+else:
+    summary_df['_avail'] = []
+
+# --- KPI CARDS (search ke hisaab se) ---
+k_entries = len(summary_df)
+k_unique_po = summary_df['PO Number'].replace("", pd.NA).dropna().nunique() if k_entries else 0
+k_avail = int(summary_df['_avail'].sum()) if k_entries else 0
+k_not_avail = k_entries - k_avail
+k_value = float(summary_df['_po_value'].sum()) if k_entries else 0.0
+
+def _kpi(icon, label, value, foot, accent, soft, value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+st.markdown(
+    '<div class="lux-kpi-grid">'
+    + _kpi("🧾", "PO Entries", f"{k_entries:,}", f"{k_unique_po:,} unique PO numbers", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+    + _kpi("💰", "Total PO Value", f"₹ {k_value:,.0f}", "PO Qty × Price", "linear-gradient(90deg,#3b82f6,#06b6d4)", "#eff6ff")
+    + _kpi("🟢", "Site Available", f"{k_avail:,}", "Found in Site Data", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5", "green")
+    + _kpi("🟠", "Site Not Available", f"{k_not_avail:,}", "Add these in Site Data", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb", "red" if k_not_avail else "")
+    + '</div>',
+    unsafe_allow_html=True,
+)
 
 # --- 7. PAGINATION LOGIC ---
 if 'po_current_page' not in st.session_state:
@@ -1297,159 +1346,146 @@ elif st.session_state.po_current_page < 1:
 start_idx = (st.session_state.po_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
-# --- 8. SUMMARY DATA TABLE (or mobile cards) ---
+# --- 8. ✨ LAVISH SUMMARY TABLE (or mobile cards) ---
 df_page = summary_df.iloc[start_idx:end_idx].copy()
 
-def render_po_delete_confirm(safe_po_key, po_num, key_prefix=""):
-    """Shared inline delete confirmation block, used by both table and card view."""
-    if st.session_state.get(f"confirm_del_{safe_po_key}"):
-        wc1, wc2, wc3 = st.columns([6, 1, 1])
-        with wc1:
-            st.warning(f"Delete PO '{po_num}'? This will remove all associated items.")
-        with wc2:
-            if st.button("✅ Confirm", key=f"{key_prefix}confirm_yes_{safe_po_key}", use_container_width=True):
-                try:
-                    supabase.table("po_working").delete().eq("PO Number", po_num).execute()
-                    if 'po_working_df' in st.session_state:
-                        del st.session_state['po_working_df']
-                    st.session_state[f"confirm_del_{safe_po_key}"] = False
-                    st.success(f"✅ PO {po_num} Deleted Successfully!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Deleting Record: {e}")
-        with wc3:
-            if st.button("❌ Cancel", key=f"{key_prefix}confirm_no_{safe_po_key}", use_container_width=True):
-                st.session_state[f"confirm_del_{safe_po_key}"] = False
-                st.rerun()
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+def _clean(v):
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none", "null", "-") else s
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+def _status_html(avail):
+    return ("<span class='status-badge-green'>🟢 Available</span>" if avail
+            else "<span class='status-badge-orange'>🟠 Not Available</span>")
 
 if df_page.empty:
-    st.info("No PO records found.")
+    st.markdown(
+        '<div class="slux-empty"><div>🗂️</div>'
+        + ("No PO records match your search." if search_query else "No PO records found. Click 📤 PO Upload Notepad to add one.")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+
+elif st.session_state.po_view_mode == "cards":
+    # ---------------------------------------------------------------
+    # MOBILE-FRIENDLY CARD VIEW - one card per PO record
+    # ---------------------------------------------------------------
+    for page_pos, (_, row) in enumerate(df_page.iterrows()):
+        row_dict = row.to_dict()
+        po_num = str(row_dict.get('PO Number', '')).strip()
+        proj_name_val = str(row_dict.get('Project Name', '')).strip()
+        serial_no = start_idx + page_pos + 1
+        safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}"
+        resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.upper(), "-")
+
+        with st.container(border=True):
+            st.markdown(f"""
+                <div class="po-card-title">#{serial_no} — PO {html.escape(po_num or '-')}</div>
+                <div class="po-card-sub">{html.escape(proj_name_val or '-')}</div>
+                <div class="po-card-row"><span class="po-card-label">Project Name</span><span class="po-card-value">{html.escape(resolved_proj_name)}</span></div>
+                <div class="po-card-row"><span class="po-card-label">Site Status</span><span class="po-card-value">{_status_html(row_dict.get('_avail'))}</span></div>
+                <div class="po-card-row"><span class="po-card-label">Site ID</span><span class="po-card-value">{html.escape(_clean(row_dict.get('Site ID')) or '-')}</span></div>
+                <div class="po-card-row"><span class="po-card-label">Site Name</span><span class="po-card-value">{html.escape(_clean(row_dict.get('Site Name')) or '-')}</span></div>
+                <div class="po-card-row"><span class="po-card-label">Lines</span><span class="po-card-value">{int(row_dict.get('_lines') or 0)}</span></div>
+                <div class="po-card-row"><span class="po-card-label">PO Value</span><span class="po-card-value" style="color:#4f46e5;font-weight:900;">₹ {float(row_dict.get('_po_value') or 0):,.0f}</span></div>
+            """, unsafe_allow_html=True)
+
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                if st.button("✏️ Edit", key=f"card_edit_{safe_po_key}", use_container_width=True):
+                    view_po_details_dialog(row_dict)
+            with bc2:
+                if st.button("🗑️ Delete", key=f"card_del_{safe_po_key}", use_container_width=True):
+                    delete_po_dialog(row_dict)
+
 else:
-    # Pre-fetch site data availability matching both Site ID and Project Name/ID flexibly
-    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    # ---------------------------------------------------------------
+    # ✨ LAVISH DESKTOP TABLE VIEW — single ⚙️ button at row start
+    # ---------------------------------------------------------------
+    COL_RATIOS = [0.55, 0.5, 1.5, 1.5, 1.3, 1.1, 1.8, 1.3, 0.7, 1.2]
+    COL_LABELS = ["⚙️", "#", "PROJECT ID", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER", "LINES", "PO VALUE"]
 
-    # Clean lists for query
-    site_ids_on_page = [str(x).strip() for x in df_page['Site ID'].unique() if str(x).strip() and str(x).strip() != '-']
-    project_names_on_page = [str(x).strip() for x in df_page['Project Name'].unique() if str(x).strip() and str(x).strip() != '-']
+    st.markdown(
+        '<div class="slux-head-bar">'
+        '<div class="slux-title">🧾 PO Register<span>newest first</span></div>'
+        f'<div class="slux-badge">₹ {k_value:,.0f}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-    available_sites = set()
-    available_projects = set()
-    project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
+    with st.container(key="po_table_wrap", height=560):
+        # Header (sticky)
+        with st.container(key="pohead"):
+            h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
+            for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
+                cls = " c" if i in (0, 1, 8) else (" r" if i == 9 else "")
+                h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
 
-    all_site_rows = fetch_site_data_lookup_cached(active_ws)
-    for item in all_site_rows:
-        sid_val = str(item.get("Site ID", "")).strip()
-        pid_val = str(item.get("Project ID", "")).strip()
-        pname_val = str(item.get("Project Name", "")).strip()
-        if sid_val:
-            available_sites.add(sid_val)
-        if pid_val:
-            available_projects.add(pid_val)
-            norm_key = pid_val.upper()
-            if pname_val:
-                project_name_lookup[pid_val] = pname_val
-                project_name_lookup[norm_key] = pname_val
-        if pname_val:
-            available_projects.add(pname_val)
-
-    if st.session_state.po_view_mode == "cards":
-        # ---------------------------------------------------------------
-        # NEW: MOBILE-FRIENDLY CARD VIEW - one card per PO record
-        # ---------------------------------------------------------------
+        # Rows
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
             po_num = str(row_dict.get('PO Number', '')).strip()
-            site_id_val = str(row_dict.get('Site ID', '')).strip()
             proj_name_val = str(row_dict.get('Project Name', '')).strip()
+            resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.upper(), "")
 
             serial_no = start_idx + page_pos + 1
             safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}"
+            row_css_key = "".join(ch for ch in safe_po_key if ch.isalnum() or ch in "_-") or f"r{serial_no}"
+            parity = "odd" if serial_no % 2 else "even"
 
-            is_site_avail = site_id_val and site_id_val in available_sites
-            is_proj_avail = proj_name_val and proj_name_val in available_projects
-            resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
+            with st.container(key=f"porow_{parity}_{row_css_key}"):
+                rcols = st.columns(COL_RATIOS, vertical_alignment="center")
 
-            if is_site_avail or is_proj_avail:
-                status_html = "<span class='status-badge-green'>🟢 Available</span>"
-            else:
-                status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
+                with rcols[0]:
+                    with st.container(key=f"popop_{row_css_key}"):
+                        with st.popover("⚙️"):
+                            if st.button("✏️ Edit Details", key=f"edit_{safe_po_key}", use_container_width=True):
+                                view_po_details_dialog(row_dict)
+                            if st.button("🗑️ Delete PO", key=f"del_{safe_po_key}", use_container_width=True):
+                                delete_po_dialog(row_dict)
 
-            with st.container(border=True):
-                st.markdown(f"""
-                    <div class="po-card-title">#{serial_no} — PO {row_dict.get('PO Number','') or '-'}</div>
-                    <div class="po-card-sub">{row_dict.get('Project Name','') or '-'}</div>
-                    <div class="po-card-row"><span class="po-card-label">Project Name</span><span class="po-card-value">{resolved_proj_name}</span></div>
-                    <div class="po-card-row"><span class="po-card-label">Site Status</span><span class="po-card-value">{status_html}</span></div>
-                    <div class="po-card-row"><span class="po-card-label">Site ID</span><span class="po-card-value">{row_dict.get('Site ID','') or '-'}</span></div>
-                    <div class="po-card-row"><span class="po-card-label">Site Name</span><span class="po-card-value">{row_dict.get('Site Name','') or '-'}</span></div>
-                """, unsafe_allow_html=True)
+                rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                rcols[2].markdown(_chip(proj_name_val, "proj"), unsafe_allow_html=True)
+                rcols[3].markdown(_txt(resolved_proj_name, "slux-strong"), unsafe_allow_html=True)
+                rcols[4].markdown(_status_html(row_dict.get('_avail')), unsafe_allow_html=True)
+                rcols[5].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                rcols[6].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                rcols[7].markdown(_chip(po_num, "po"), unsafe_allow_html=True)
+                rcols[8].markdown(f"<div style='text-align:center;'><span class='po-lines'>{int(row_dict.get('_lines') or 0)}</span></div>", unsafe_allow_html=True)
+                rcols[9].markdown(f"<div class='slux-cell po-amt'>₹ {float(row_dict.get('_po_value') or 0):,.0f}</div>", unsafe_allow_html=True)
 
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    if st.button("✏️ Edit", key=f"card_edit_{safe_po_key}", use_container_width=True):
-                        view_po_details_dialog(row_dict)
-                with bc2:
-                    if st.button("🗑️ Delete", key=f"card_del_{safe_po_key}", use_container_width=True):
-                        st.session_state[f"confirm_del_{safe_po_key}"] = True
-
-                render_po_delete_confirm(safe_po_key, po_num, key_prefix="card_")
-
-    else:
-        # ---------------------------------------------------------------
-        # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
-        # ---------------------------------------------------------------
-        # Total 9 cols (Sr No + 2 Buttons + 6 Data -> Project ID, Project Name, Status Badge, Site ID, Site Name, PO Number)
-        COL_RATIOS = [0.3, 0.35, 0.35, 1.6, 1.6, 1.3, 1.2, 1.8, 1.2] 
-        COL_LABELS = ["#", "✏️", "🗑️", "PROJECT ID", "PROJECT NAME", "SITE STATUS", "SITE ID", "SITE NAME", "PO NUMBER"]
-
-        with st.container(key="po_table_wrap", height=560):
-            # Header
-            h_cols = st.columns(COL_RATIOS)
-            for h_col, label in zip(h_cols, COL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label if label else '&nbsp;'}</div>", unsafe_allow_html=True)
-
-            # Rows
-            for page_pos, (_, row) in enumerate(df_page.iterrows()):
-                row_dict = row.to_dict()
-                po_num = str(row_dict.get('PO Number', '')).strip()
-                site_id_val = str(row_dict.get('Site ID', '')).strip()
-                proj_name_val = str(row_dict.get('Project Name', '')).strip()
-                resolved_proj_name = project_name_lookup.get(proj_name_val) or project_name_lookup.get(proj_name_val.strip().upper(), "-")
-                
-                serial_no = start_idx + page_pos + 1
-                safe_po_key = f"{urllib.parse.quote(po_num)}_{serial_no}" 
-                
-                # Determine Site Status based on presence in ANY matched set
-                is_site_avail = site_id_val and site_id_val in available_sites
-                is_proj_avail = proj_name_val and proj_name_val in available_projects
-                
-                if is_site_avail or is_proj_avail:
-                    status_html = "<span class='status-badge-green'>🟢 Available</span>"
-                else:
-                    status_html = "<span class='status-badge-orange'>🟠 Not Available</span>"
-                
-                rcols = st.columns(COL_RATIOS)
-                
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-                
-                with rcols[1]:
-                    with st.container(key=f"ebtn_{safe_po_key}"):
-                        if st.button("✏️", key=f"edit_{safe_po_key}", help="Edit Details", use_container_width=True):
-                            view_po_details_dialog(row_dict)
-                with rcols[2]:
-                    with st.container(key=f"dbtn_{safe_po_key}"):
-                        if st.button("🗑️", key=f"del_{safe_po_key}", help="Delete", use_container_width=True):
-                            st.session_state[f"confirm_del_{safe_po_key}"] = True
-                            
-                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Project Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{resolved_proj_name}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{status_html}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('PO Number','') or '-'}</div>", unsafe_allow_html=True)
-
-                # Inline delete confirmation
-                render_po_delete_confirm(safe_po_key, po_num, key_prefix="")
+    shown_from = start_idx + 1 if total_rows else 0
+    shown_to = min(end_idx, total_rows)
+    st.markdown(
+        '<div class="slux-foot">'
+        f'<div>{total_rows:,} PO entr{"ies" if total_rows != 1 else "y"}<small>Showing {shown_from}–{shown_to}</small></div>'
+        f'<div class="slux-foot-amts"><span>Total PO Value: <b style="color:#4f46e5;">₹ {k_value:,.0f}</b></span>'
+        f'<span class="slux-foot-badge">Page {st.session_state.po_current_page} of {total_pages}</span></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
