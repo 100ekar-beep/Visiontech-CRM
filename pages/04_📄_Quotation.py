@@ -256,6 +256,54 @@ st.markdown("""
         text-transform: uppercase; color: #4338ca; display: flex; align-items: center; gap: 8px;
     }
     .lux-action-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, #c7d2fe, transparent); }
+    /* ================= ROW-WISE TABLE (inline Edit / Delete) ================= */
+    .st-key-lux_thead {
+        background: #eef2ff; border-left: 1px solid #e0e7ff; border-right: 1px solid #e0e7ff;
+        border-bottom: 2px solid #c7d2fe; padding: 12px 14px;
+    }
+    .st-key-lux_thead p {
+        margin: 0 !important; color: #3730a3; font-size: .7rem !important; font-weight: 800;
+        letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap;
+    }
+    .st-key-lux_tbody {
+        background: #ffffff; border-left: 1px solid #e0e7ff; border-right: 1px solid #e0e7ff;
+    }
+    .st-key-lux_tbody [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    div[class*="st-key-luxrow_"] {
+        padding: 8px 14px; border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-luxrow_odd"] { background: #fafaff; }
+    div[class*="st-key-luxrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-luxrow_"] p { margin: 0 !important; font-size: .88rem; color: #1e293b; }
+    div[class*="st-key-luxrow_"] [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
+
+    /* Inline icon buttons */
+    div[class*="st-key-qedit_"] button, div[class*="st-key-qdel_"] button {
+        width: 36px !important; height: 36px !important; min-height: 36px !important;
+        padding: 0 !important; border-radius: 10px !important; box-shadow: none !important;
+        font-size: 1rem !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-qedit_"] button { background: #eef2ff !important; border: 1px solid #c7d2fe !important; }
+    div[class*="st-key-qedit_"] button:hover { background: #6366f1 !important; border-color: #6366f1 !important; transform: translateY(-2px) scale(1.06) !important; box-shadow: 0 6px 14px -4px rgba(99,102,241,.6) !important; }
+    div[class*="st-key-qdel_"] button { background: #fef2f2 !important; border: 1px solid #fecaca !important; }
+    div[class*="st-key-qdel_"] button:hover { background: #ef4444 !important; border-color: #ef4444 !important; transform: translateY(-2px) scale(1.06) !important; box-shadow: 0 6px 14px -4px rgba(239,68,68,.6) !important; }
+
+    /* Table footer */
+    .lux-tfoot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .lux-tfoot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .78rem; }
+    .lux-tfoot .lux-tfoot-amt { font-size: 1.1rem; color: #4f46e5; letter-spacing: 0; }
+    .lux-table-head { border-radius: 18px 18px 0 0; }
+
+    /* Pager + delete dialog */
+    .lux-pager-info { text-align: center; font-weight: 800; color: #4338ca; font-size: .85rem; padding-top: 8px; }
+    .st-key-del_yes button { background: linear-gradient(90deg, #ef4444, #dc2626) !important; box-shadow: 0 4px 10px -2px rgba(239,68,68,.5) !important; }
+    .st-key-del_cancel button { background: #f1f5f9 !important; color: #334155 !important; box-shadow: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -788,6 +836,26 @@ def _delete_quotation(q_name):
     except Exception as e:
         st.error(f"Error deleting: {e}")
 
+@st.dialog("🗑️ Delete Quotation")
+def confirm_delete_dialog(row_dict):
+    q_name = row_dict.get("Quotation Name", "")
+    st.markdown(
+        f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
+<div style="font-weight:900;color:#991b1b;font-size:1rem;">{html.escape(str(q_name))}</div>
+<div style="color:#7f1d1d;font-size:.85rem;margin-top:4px;">{html.escape(str(row_dict.get("Project ID", "")))} • {html.escape(str(row_dict.get("Site Name", "")))} • {_amt(row_dict.get("Quotation Amount"))}</div>
+</div>
+<p style="color:#475569;">Ye quotation aur uske saare items permanently delete ho jayenge. Kya aap sure hain?</p>""",
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", key="del_cancel", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("Yes, Delete", key="del_yes", type="primary", use_container_width=True):
+            _delete_quotation(q_name)
+
+
 
 # ---------------- KPI STRIP (dono views me dikhega) ----------------
 amounts = pd.to_numeric(df_display["Quotation Amount"], errors="coerce").fillna(0)
@@ -850,96 +918,107 @@ if st.session_state.quo_view_mode == "cards":
 
 else:
     # ---------------------------------------------------------------
-    # LAVISH DESKTOP TABLE VIEW
+    # LAVISH DESKTOP TABLE VIEW — inline ✏️ Edit / 🗑️ Delete per row
     # ---------------------------------------------------------------
-    rows_html = []
-    for pos, (_, r) in enumerate(df_display.iterrows(), start=1):
-        d = pd.to_datetime(r.get("Date"), errors="coerce")
-        date_html = (
-            f'<div class="lux-date">{d.strftime("%d %b %Y")}<small>{d.strftime("%A")}</small></div>'
-            if pd.notna(d) else _esc(r.get("Date"))
-        )
-        pid = str(r.get("Project ID") or "").strip()
-        sid = str(r.get("Site ID") or "").strip()
-        clu = str(r.get("Cluster") or "").strip()
-        pid_html = f'<span class="lux-chip proj">{html.escape(pid)}</span>' if pid and pid != "nan" else _esc("")
-        sid_html = f'<span class="lux-chip">{html.escape(sid)}</span>' if sid and sid != "nan" else _esc("")
-        clu_html = f'<span class="lux-pill">{html.escape(clu)}</span>' if clu and clu != "nan" else _esc("")
-        rows_html.append(
-            "<tr>"
-            f'<td class="c"><span class="lux-num">{pos}</span></td>'
-            f"<td>{date_html}</td>"
-            f"<td>{pid_html}</td>"
-            f"<td>{sid_html}</td>"
-            f'<td class="lux-site">{_esc(r.get("Site Name"))}</td>'
-            f"<td>{clu_html}</td>"
-            f'<td class="lux-proj">{_esc(r.get("Project Name"))}</td>'
-            f'<td class="r lux-amt">{_amt(r.get("Quotation Amount"))}</td>'
-            "</tr>"
-        )
+    PAGE_SIZE = 25
 
-    if rows_html:
-        body_html = "".join(rows_html)
-        foot_html = (
-            "<tfoot><tr>"
-            f'<td colspan="7">Grand Total of {total_count:,} quotation{"s" if total_count != 1 else ""}</td>'
-            f'<td class="r">₹ {total_value:,}</td>'
-            "</tr></tfoot>"
-        )
-    else:
-        body_html = (
-            '<tr><td colspan="8"><div class="lux-empty"><div>🗂️</div>'
-            f'{"No quotations match your search." if search_q else "No quotation records yet. Click ➕ Add Record to create one."}'
-            "</div></td></tr>"
-        )
-        foot_html = ""
+    # Search badalne par page 1 par wapas jao
+    if st.session_state.get("quo_last_search") != search_q:
+        st.session_state.quo_last_search = search_q
+        st.session_state.quo_page = 1
+    total_pages = max(1, -(-len(df_display) // PAGE_SIZE))
+    page = min(max(1, st.session_state.get("quo_page", 1)), total_pages)
+    start = (page - 1) * PAGE_SIZE
+    df_page = df_display.iloc[start:start + PAGE_SIZE]
 
-    table_html = (
-        '<div class="lux-table-wrap">'
+    # Column ratios: Edit | Delete | # | Date | Project ID | Site Code | Site Name | Cluster | Project | Grand Total
+    COLS = [0.55, 0.55, 0.6, 1.3, 1.7, 1.4, 2.3, 1.3, 1.5, 1.3]
+
+    # ---- Table title bar ----
+    st.markdown(
         '<div class="lux-table-head">'
         '<div class="lux-table-title">📑 Quotation Register<span>newest first</span></div>'
         f'<div class="lux-table-badge">₹ {total_value:,}</div>'
-        "</div>"
-        '<div class="lux-scroll"><table class="lux-table">'
-        "<thead><tr>"
-        '<th class="c">#</th><th>Date</th><th>Project ID</th><th>Site Code</th>'
-        '<th>Site Name</th><th>Cluster</th><th>Project</th><th class="r">Grand Total</th>'
-        "</tr></thead>"
-        f"<tbody>{body_html}</tbody>{foot_html}"
-        "</table></div></div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
-    st.markdown(table_html, unsafe_allow_html=True)
 
-    # ---------------- ACTION BAR ----------------
-    if not df_display.empty:
-        st.markdown('<div class="lux-action-title">⚡ Quick Actions</div>', unsafe_allow_html=True)
+    # ---- Column headers ----
+    with st.container(key="lux_thead"):
+        hc = st.columns(COLS, vertical_alignment="center")
+        for col, label in zip(hc, ["Edit", "Del", "#", "Date", "Project ID", "Site Code",
+                                    "Site Name", "Cluster", "Project", "Grand Total"]):
+            align = "right" if label == "Grand Total" else ("center" if label in ("Edit", "Del", "#") else "left")
+            col.markdown(f'<p style="text-align:{align};">{label}</p>', unsafe_allow_html=True)
 
-        def _fmt_option(i):
-            r = df_display.iloc[i]
-            return (
-                f"#{i + 1}  •  {r.get('Project ID', '') or '-'}  •  "
-                f"{r.get('Site Name', '') or '-'}  •  {_amt(r.get('Quotation Amount'))}"
+    # ---- Rows ----
+    body_kwargs = {"height": 560} if len(df_page) > 8 else {}
+    with st.container(key="lux_tbody", border=False, **body_kwargs):
+        if df_page.empty:
+            st.markdown(
+                '<div class="lux-empty"><div>🗂️</div>'
+                f'{"No quotations match your search." if search_q else "No quotation records yet. Click ➕ Add Record to create one."}'
+                "</div>",
+                unsafe_allow_html=True,
             )
+        for pos, (_, r) in enumerate(df_page.iterrows(), start=start + 1):
+            row_dict = r.to_dict()
+            rid = row_dict.get("id")
+            rid = pos if rid is None or (isinstance(rid, float) and pd.isna(rid)) else rid
+            q_name = row_dict.get("Quotation Name", "")
 
-        col_sel, col_act1, col_act2 = st.columns([6, 2, 2], vertical_alignment="bottom")
-        with col_sel:
-            sel_i = st.selectbox(
-                "SELECT QUOTATION",
-                options=list(range(len(df_display))),
-                format_func=_fmt_option,
-                index=None,
-                placeholder="Choose a quotation to view, edit or delete...",
+            d = pd.to_datetime(row_dict.get("Date"), errors="coerce")
+            date_html = (
+                f'<div class="lux-date">{d.strftime("%d %b %Y")}<small>{d.strftime("%A")}</small></div>'
+                if pd.notna(d) else _esc(row_dict.get("Date"))
             )
+            pid = str(row_dict.get("Project ID") or "").strip()
+            sid = str(row_dict.get("Site ID") or "").strip()
+            clu = str(row_dict.get("Cluster") or "").strip()
+            pid_html = f'<span class="lux-chip proj">{html.escape(pid)}</span>' if pid and pid != "nan" else _esc("")
+            sid_html = f'<span class="lux-chip">{html.escape(sid)}</span>' if sid and sid != "nan" else _esc("")
+            clu_html = f'<span class="lux-pill">{html.escape(clu)}</span>' if clu and clu != "nan" else _esc("")
 
-        actual_data = df_display.iloc[sel_i].to_dict() if sel_i is not None else None
+            parity = "odd" if pos % 2 else "even"
+            with st.container(key=f"luxrow_{parity}_{rid}"):
+                c = st.columns(COLS, vertical_alignment="center")
+                with c[0]:
+                    if st.button("✏️", key=f"qedit_{rid}", help="View / Edit"):
+                        quotation_dialog(row_dict)
+                with c[1]:
+                    if st.button("🗑️", key=f"qdel_{rid}", help="Delete"):
+                        confirm_delete_dialog(row_dict)
+                c[2].markdown(f'<p style="text-align:center;"><span class="lux-num">{pos}</span></p>', unsafe_allow_html=True)
+                c[3].markdown(date_html, unsafe_allow_html=True)
+                c[4].markdown(f"<p>{pid_html}</p>", unsafe_allow_html=True)
+                c[5].markdown(f"<p>{sid_html}</p>", unsafe_allow_html=True)
+                c[6].markdown(f'<p class="lux-site">{_esc(row_dict.get("Site Name"))}</p>', unsafe_allow_html=True)
+                c[7].markdown(f"<p>{clu_html}</p>", unsafe_allow_html=True)
+                c[8].markdown(f'<p class="lux-proj">{_esc(row_dict.get("Project Name"))}</p>', unsafe_allow_html=True)
+                c[9].markdown(f'<p class="lux-amt" style="text-align:right;">{_amt(row_dict.get("Quotation Amount"))}</p>', unsafe_allow_html=True)
 
-        with col_act1:
-            if st.button("👁️ View / Edit", type="primary", use_container_width=True, disabled=actual_data is None):
-                quotation_dialog(actual_data)
-        with col_act2:
-            with st.popover("🗑️ Delete", use_container_width=True, disabled=actual_data is None):
-                if actual_data is not None:
-                    q_name = actual_data.get("Quotation Name", "")
-                    st.warning(f"Permanently delete **{q_name}** and all its items?")
-                    if st.button("Yes, delete", key="lux_confirm_delete", type="primary", use_container_width=True):
-                        _delete_quotation(q_name)
+    # ---- Footer ----
+    shown_to = min(start + PAGE_SIZE, len(df_display))
+    st.markdown(
+        '<div class="lux-tfoot">'
+        f'<div>Grand Total of {total_count:,} quotation{"s" if total_count != 1 else ""}'
+        f'<small>Showing {start + 1 if total_count else 0}–{shown_to} of {total_count}</small></div>'
+        f'<div class="lux-tfoot-amt">₹ {total_value:,}</div>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ---- Pager ----
+    if total_pages > 1:
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        _, p_prev, p_info, p_next, _ = st.columns([4, 1.2, 1.6, 1.2, 4], vertical_alignment="center")
+        with p_prev:
+            if st.button("◀ Prev", key="quo_prev", use_container_width=True, disabled=page <= 1):
+                st.session_state.quo_page = page - 1
+                st.rerun()
+        with p_info:
+            st.markdown(f'<div class="lux-pager-info">Page {page} of {total_pages}</div>', unsafe_allow_html=True)
+        with p_next:
+            if st.button("Next ▶", key="quo_next", use_container_width=True, disabled=page >= total_pages):
+                st.session_state.quo_page = page + 1
+                st.rerun()
