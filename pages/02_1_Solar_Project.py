@@ -4,6 +4,7 @@ import math
 import io
 import datetime
 import os
+from html import escape
 from collections import defaultdict
 from supabase import create_client, Client
 from st_keyup import st_keyup
@@ -24,7 +25,7 @@ if 'solar_current_page' not in st.session_state:
 if 'solar_active_page' not in st.session_state:
     st.session_state.solar_active_page = "sites"
 
-# --- NEW: MOBILE VIEW TOGGLE STATES (one per tab, independent of each other) ---
+# --- MOBILE VIEW TOGGLE STATES (one per tab, independent of each other) ---
 if 'solar_sites_view' not in st.session_state:
     st.session_state.solar_sites_view = "table"
 if 'solar_ledger_view' not in st.session_state:
@@ -32,10 +33,10 @@ if 'solar_ledger_view' not in st.session_state:
 if 'solar_payments_view' not in st.session_state:
     st.session_state.solar_payments_view = "table"
 
-# --- 2. CSS (premium dark theme) ---
+# --- 2. CSS (✨ LAVISH LIGHT THEME — Quotation / Site Data jaisa) ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
 
     div.stButton > button {
         background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%);
@@ -45,42 +46,45 @@ st.markdown("""
         font-weight: 800 !important;
         padding: 0.5rem 1rem;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
     }
-    .page-count { text-align: center; font-size: 1.1rem; font-weight: 600; color: #cbd5e1; margin-top: 10px; }
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
     div.stButton > button p, div.stButton > button span, div.stButton > button div {
         color: #ffffff !important; font-weight: 800 !important;
     }
 
+    /* Dialogs — light glass */
     div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 0, 0, 0.08);
         border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
     div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
-        color: #ffffff !important; font-weight: 800 !important; letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
     }
     div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p, div[data-testid="stDialog"] p {
-        color: #e2e8f0 !important;
+        color: #1e293b !important;
     }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
     .modal-section-title {
-        color: #94a3b8; font-size: 0.85rem; font-weight: 700; letter-spacing: 1px;
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
         margin-top: 15px; margin-bottom: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 5px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
     }
     label p, label[data-testid="stWidgetLabel"] p {
-        color: #ffffff !important; font-weight: 600 !important; letter-spacing: 0.5px;
+        color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
     }
     div[data-testid="stTextInput"] input:disabled {
         color: #000000 !important; font-weight: 700 !important; -webkit-text-fill-color: #000000 !important;
     }
 
-    /* Sidebar */
+    /* Sidebar (kept dark, same as other pages) */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -103,156 +107,213 @@ st.markdown("""
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* =========================================================
-       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
-       ========================================================= */
-    .st-key-solar_nav_bar div[data-testid="stHorizontalBlock"] {
-        gap: 12px !important;
-        flex-wrap: wrap !important;
-    }
+    /* ================= PAGE NAVIGATION BAR (Sites / Ledger / Payments) ================= */
+    .st-key-solar_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-solar_nav_bar button {
-        font-size: 1.05rem !important;
-        font-weight: 800 !important;
-        padding: 16px 10px !important;
-        height: auto !important;
-        border-radius: 12px !important;
-        transition: all 0.25s ease !important;
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 16px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
         white-space: nowrap !important;
     }
     .st-key-solar_nav_bar button[kind="secondary"] {
-        background: linear-gradient(135deg, rgba(245,158,11,0.16) 0%, rgba(236,72,153,0.16) 100%) !important;
-        color: #cbd5e1 !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.18) !important;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.25) !important;
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
     .st-key-solar_nav_bar button[kind="secondary"]:hover {
-        background: linear-gradient(135deg, rgba(245,158,11,0.32) 0%, rgba(236,72,153,0.32) 100%) !important;
-        color: #ffffff !important;
-        border-color: rgba(255,255,255,0.35) !important;
-        transform: translateY(-2px) !important;
+        background: #fff7ed !important; border-color: #fdba74 !important; transform: translateY(-2px) !important;
     }
     .st-key-solar_nav_bar button[kind="secondary"] p,
     .st-key-solar_nav_bar button[kind="secondary"] span,
-    .st-key-solar_nav_bar button[kind="secondary"] div {
-        color: #cbd5e1 !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
-    }
-    .st-key-solar_nav_bar button[kind="secondary"]:hover p,
-    .st-key-solar_nav_bar button[kind="secondary"]:hover span,
-    .st-key-solar_nav_bar button[kind="secondary"]:hover div {
-        color: #ffffff !important;
-    }
+    .st-key-solar_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; font-size: 1.05rem !important; }
     .st-key-solar_nav_bar button[kind="primary"] {
-        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 6px 18px rgba(245, 158, 11, 0.5) !important;
+        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 6px 18px rgba(245, 158, 11, 0.45) !important;
     }
     .st-key-solar_nav_bar button[kind="primary"] p,
     .st-key-solar_nav_bar button[kind="primary"] span,
-    .st-key-solar_nav_bar button[kind="primary"] div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
+    .st-key-solar_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; font-size: 1.05rem !important; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
-    /* Summary cards */
-    .solar-card {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        padding: 16px 18px;
-        text-align: center;
-    }
-    .solar-card .label { color: #94a3b8; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; }
-    .solar-card .value { color: #ffffff; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
-    .solar-card .value-green { color: #4ade80; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
-    .solar-card .value-red { color: #f87171; font-size: 1.5rem; font-weight: 900; margin-top: 6px; }
-
-    /* Generic table wraps (sites / ledger / payments / site-ledger all reuse this) */
+    /* ================= SCROLLING TABLE BODIES (all 4 tables) ================= */
     .st-key-solar_table_wrap, .st-key-ledger_table_wrap, .st-key-payments_table_wrap, .st-key-site_ledger_table_wrap {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 10px;
-        overflow: auto !important;
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
     }
-    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-site_ledger_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1900px !important;
-        align-items: center !important;
-        border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-        padding: 6px 0 !important;
-        flex-wrap: nowrap !important;
+    .st-key-solar_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-ledger_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-payments_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-site_ledger_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-solar_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-payments_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-site_ledger_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
-    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"] { min-width: 1500px !important; }
-    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"] { min-width: 1200px !important; }
-    .st-key-solar_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-payments_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-site_ledger_table_wrap div[data-testid="stHorizontalBlock"]:hover { background: rgba(255,255,255,0.04); }
-    .st-key-solar_table_wrap div[data-testid="column"],
-    .st-key-ledger_table_wrap div[data-testid="column"],
-    .st-key-payments_table_wrap div[data-testid="column"],
-    .st-key-site_ledger_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important; display: flex; align-items: center; justify-content: flex-start;
-        border-right: 1px solid rgba(255,255,255,0.06);
-    }
-    .st-key-solar_table_wrap div[data-testid="column"]:last-child,
-    .st-key-ledger_table_wrap div[data-testid="column"]:last-child,
-    .st-key-payments_table_wrap div[data-testid="column"]:last-child,
-    .st-key-site_ledger_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .tbl-head {
-        background: transparent; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.8px;
-        color: #94a3b8; text-transform: uppercase; white-space: nowrap !important;
-    }
-    .tbl-cell {
-        color: #e2e8f0; font-size: 0.86rem; white-space: nowrap !important;
-        overflow: hidden !important; text-overflow: ellipsis !important; width: 100%;
-    }
-    .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
-    .tbl-cell.team-name { font-weight: 800; color: #f59e0b; }
-    .tbl-cell.paid-amt { color: #4ade80; font-weight: 800; }
-    .tbl-cell.pending-amt { color: #f87171; font-weight: 800; }
+    .st-key-solar_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-solar_table_wrap div[class*="st-key-solhead_"], .st-key-solar_table_wrap div[class*="st-key-solrow_"],
+    .st-key-site_ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-site_ledger_table_wrap div[class*="st-key-solhead_"], .st-key-site_ledger_table_wrap div[class*="st-key-solrow_"] { min-width: 1900px !important; }
+    .st-key-ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-ledger_table_wrap div[class*="st-key-solhead_"], .st-key-ledger_table_wrap div[class*="st-key-solrow_"] { min-width: 1100px !important; }
+    .st-key-payments_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-payments_table_wrap div[class*="st-key-solhead_"], .st-key-payments_table_wrap div[class*="st-key-solrow_"] { min-width: 1000px !important; }
 
-    .st-key-solar_table_wrap button, .st-key-ledger_table_wrap button, .st-key-payments_table_wrap button {
-        height: 32px !important; width: 100% !important; max-width: 40px !important; padding: 0 !important;
-        min-height: 0 !important; border-radius: 6px !important; display: flex !important;
-        align-items: center !important; justify-content: center !important;
-        background: rgba(245,158,11,0.15) !important; border: 1px solid rgba(245,158,11,0.35) !important;
-        margin: 0 auto !important; box-shadow: none !important; cursor: pointer !important;
-    }
-    .st-key-solar_table_wrap button:hover, .st-key-ledger_table_wrap button:hover, .st-key-payments_table_wrap button:hover {
-        background: #f59e0b !important; border-color: #fbbf24 !important; transform: translateY(-2px) !important;
-    }
-    .st-key-payments_table_wrap div[class*="st-key-delpay_"] button {
-        background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.35) !important;
-    }
-    .st-key-payments_table_wrap div[class*="st-key-delpay_"] button:hover {
-        background: #ef4444 !important; border-color: #f87171 !important;
+    .st-key-solar_table_wrap [data-testid="stColumn"], .st-key-solar_table_wrap [data-testid="column"],
+    .st-key-ledger_table_wrap [data-testid="stColumn"], .st-key-ledger_table_wrap [data-testid="column"],
+    .st-key-payments_table_wrap [data-testid="stColumn"], .st-key-payments_table_wrap [data-testid="column"],
+    .st-key-site_ledger_table_wrap [data-testid="stColumn"], .st-key-site_ledger_table_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
 
-    /* =========================================================
-       NEW: MOBILE-FRIENDLY CARD VIEW (Solar Sites / Ledger / Payments)
-       ========================================================= */
-    .solar-mcard {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-bottom: 12px;
+    /* Sticky header rows */
+    div[class*="st-key-solhead_"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
     }
-    .solar-mcard-title { font-size: 1.05rem; font-weight: 800; color: #ffffff; margin-bottom: 2px; }
-    .solar-mcard-sub { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; }
-    .solar-mcard-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 0.85rem; gap: 10px; }
+    div[class*="st-key-solhead_"] [data-testid="stColumn"], div[class*="st-key-solhead_"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
+
+    /* Data rows */
+    div[class*="st-key-solrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-solrow_odd"] { background: #fafaff; }
+    div[class*="st-key-solrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-solrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .sol-team { font-weight: 800; color: #b45309; }
+    .sol-mini {
+        display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+        font-size: .64rem; font-weight: 800; letter-spacing: .4px; vertical-align: middle;
+    }
+    .sol-mini.done { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .sol-mini.pend { background: #fef9c3; color: #a16207; border: 1px solid #fde68a; }
+    .sol-amt { text-align: right; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums; }
+    .sol-amt.zero { color: #cbd5e1; font-weight: 600; }
+    .sol-amt.strong { color: #4f46e5; font-weight: 900; font-size: .92rem; }
+    .sol-amt.amber { color: #d97706; font-weight: 900; font-size: .92rem; }
+    .sol-amt.paid { color: #059669; font-weight: 900; }
+    .sol-amt.due { color: #dc2626; font-weight: 900; }
+
+    /* Status pills */
+    .status-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-blue   { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-yellow { background: #fef9c3; color: #a16207; border-color: #fde68a; }
+    .status-red    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .status-grey   { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+    /* Inline row buttons */
+    div[class*="st-key-solar_mgr_"] button, div[class*="st-key-ledger_view_"] button, div[class*="st-key-delpay_"] button {
+        width: 38px !important; max-width: 38px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        box-shadow: none !important; font-size: 1rem !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-solar_mgr_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-solar_mgr_"] button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important; }
+    div[class*="st-key-ledger_view_"] button { background: rgba(99,102,241,0.15) !important; border: 1px solid rgba(99,102,241,0.3) !important; }
+    div[class*="st-key-ledger_view_"] button:hover { background: #6366f1 !important; border-color: #818cf8 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(99,102,241,.6) !important; }
+    div[class*="st-key-delpay_"] button { background: rgba(239,68,68,0.12) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    div[class*="st-key-delpay_"] button:hover { background: #ef4444 !important; border-color: #f87171 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(239,68,68,.6) !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
+    /* ================= MOBILE CARD VIEW (light) ================= */
+    .solar-mcard-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
+    .solar-mcard-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .solar-mcard-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; gap: 10px; }
     .solar-mcard-row:last-child { border-bottom: none; }
-    .solar-mcard-label { color: #94a3b8; font-weight: 600; white-space: nowrap; }
-    .solar-mcard-value { color: #e2e8f0; font-weight: 600; text-align: right; }
-    .solar-mcard-value.paid { color: #4ade80; font-weight: 800; }
-    .solar-mcard-value.pending { color: #f87171; font-weight: 800; }
-    .solar-mcard-value.amber { color: #f59e0b; font-weight: 800; }
+    .solar-mcard-label { color: #64748b; font-weight: 700; white-space: nowrap; text-transform: uppercase; font-size: .75rem; }
+    .solar-mcard-value { color: #0f172a; font-weight: 600; text-align: right; }
+    .solar-mcard-value.paid { color: #059669; font-weight: 800; }
+    .solar-mcard-value.pending { color: #dc2626; font-weight: 800; }
+    .solar-mcard-value.amber { color: #d97706; font-weight: 800; }
+
+    /* Detail dialog mini tables */
+    .sol-dlg-head { color: #4338ca; font-size: .72rem; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+    .sol-dlg-cell { color: #1e293b; font-size: .88rem; }
+    .sol-dlg-muted { color: #64748b; font-size: .85rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -295,12 +356,105 @@ def num(v):
     except Exception:
         return 0.0
 
-# --- NEW: SMALL HELPER TO RENDER THE "TABLE / MOBILE" TOGGLE BUTTON ---
+# --- SMALL HELPER TO RENDER THE "TABLE / MOBILE" TOGGLE BUTTON ---
 def render_view_toggle(state_key, button_key):
     toggle_label = "📱 Mobile View" if st.session_state[state_key] == "table" else "🖥️ Table View"
     if st.button(toggle_label, use_container_width=True, key=button_key):
         st.session_state[state_key] = "cards" if st.session_state[state_key] == "table" else "table"
         st.rerun()
+
+# ================================================================
+# --- ✨ LAVISH TABLE RENDER HELPERS ---
+# ================================================================
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+def _clean(v):
+    s = str(v if v is not None else "").strip()
+    return "" if s.lower() in ("nan", "none", "null", "-") else s
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell {extra_cls}' title='{escape(s)}'>{escape(s)}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-chip {extra_cls}'>{escape(s)}</span></div>"
+
+def _pill(v):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{escape(s)}</span></div>"
+
+def _money(v, style=""):
+    val = num(v)
+    cls = "zero" if val == 0 and not style else style
+    return f"<div class='slux-cell sol-amt {cls}'>₹ {val:,.0f}</div>"
+
+def _team_cell(name, status):
+    n = _clean(name)
+    if not n:
+        return _MUTED
+    mini = "<span class='sol-mini done'>✓ DONE</span>" if status == "Completed" else "<span class='sol-mini pend'>⏳ PENDING</span>"
+    return f"<div class='slux-cell' title='{escape(n)}'><span class='sol-team'>{escape(n)}</span>{mini}</div>"
+
+def status_badge(val):
+    v = _clean(val)
+    if not v:
+        return _MUTED
+    vl = v.lower()
+    if vl == "not required":
+        cls = "status-grey"
+    elif "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done", "available"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<div class='slux-cell'><span class='status-badge {cls}'>{escape(v)}</span></div>"
+
+def kpi_card(icon, label, value, foot="", accent="linear-gradient(90deg,#6366f1,#8b5cf6)", soft="#eef2ff", value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+KPI_INDIGO = ("linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+KPI_GREEN = ("linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5")
+KPI_AMBER = ("linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+KPI_PINK = ("linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
+KPI_BLUE = ("linear-gradient(90deg,#3b82f6,#06b6d4)", "#eff6ff")
+KPI_RED = ("linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2")
+
+def table_title_bar(title, subtitle, badge):
+    st.markdown(
+        '<div class="slux-head-bar">'
+        f'<div class="slux-title">{title}<span>{subtitle}</span></div>'
+        f'<div class="slux-badge">{badge}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+def table_header_row(key, ratios, labels, center_idx=(), right_idx=()):
+    with st.container(key=key):
+        h_cols = st.columns(ratios, vertical_alignment="center")
+        for i, (h_col, label) in enumerate(zip(h_cols, labels)):
+            cls = " c" if i in center_idx else (" r" if i in right_idx else "")
+            h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
+
+def empty_state(msg):
+    st.markdown(f'<div class="slux-empty"><div>🗂️</div>{escape(msg)}</div>', unsafe_allow_html=True)
 
 # --- 4. MANAGE TEAMS DIALOG (amount-only, no payment status) ---
 @st.dialog("⚙️ Manage Solar Teams & Charges", width="large")
@@ -428,33 +582,33 @@ def view_team_detail_dialog(team_name, entries, payments):
     h1, h2, h3, h4, h5, h6, h7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
     for c, label in zip([h1, h2, h3, h4, h5, h6, h7],
                          ["SITE ID", "PROJECT ID", "ROLE", "STATUS", "CHARGE (₹)", "APPROVAL (₹)", "APPROVAL REMARK"]):
-        c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
-    st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08); margin:6px 0;'>", unsafe_allow_html=True)
+        c.markdown(f"<span class='sol-dlg-head'>{label}</span>", unsafe_allow_html=True)
+    st.markdown("<hr style='border:none; border-top:2px solid #e0e7ff; margin:6px 0;'>", unsafe_allow_html=True)
     for e in entries:
         c1, c2, c3, c4, c5, c6, c7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
-        c1.markdown(f"<span style='color:#e2e8f0;'>{e['site_id']}</span>", unsafe_allow_html=True)
-        c2.markdown(f"<span style='color:#e2e8f0;'>{e['project_id']}</span>", unsafe_allow_html=True)
-        c3.markdown(f"<span style='color:#e2e8f0;'>{e['role']}</span>", unsafe_allow_html=True)
-        status_color = "#4ade80" if e.get('status') == "Completed" else "#facc15"
-        c4.markdown(f"<span style='color:{status_color}; font-weight:700;'>{e.get('status','Pending')}</span>", unsafe_allow_html=True)
-        c5.markdown(f"<span style='color:#e2e8f0;'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
-        c6.markdown(f"<span style='color:#e2e8f0;'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
-        c7.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{e['approval_remark'] or '-'}</span>", unsafe_allow_html=True)
+        c1.markdown(f"<span class='slux-chip'>{escape(str(e['site_id']))}</span>", unsafe_allow_html=True)
+        c2.markdown(f"<span class='slux-chip proj'>{escape(str(e['project_id']))}</span>", unsafe_allow_html=True)
+        c3.markdown(f"<span class='sol-dlg-cell'>{e['role']}</span>", unsafe_allow_html=True)
+        status_cls = "status-green" if e.get('status') == "Completed" else "status-yellow"
+        c4.markdown(f"<span class='status-badge {status_cls}'>{e.get('status','Pending')}</span>", unsafe_allow_html=True)
+        c5.markdown(f"<span class='sol-dlg-cell'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
+        c6.markdown(f"<span class='sol-dlg-cell'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
+        c7.markdown(f"<span class='sol-dlg-muted'>{escape(str(e['approval_remark'] or '-'))}</span>", unsafe_allow_html=True)
     st.caption("💡 Sirf 'Completed' status wale kaam ka amount Total Billed / Balance mein count hota hai.")
 
     st.markdown('<div class="modal-section-title">💰 PAYMENTS RECEIVED</div>', unsafe_allow_html=True)
     if payments:
         p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
         for c, label in zip([p1, p2, p3, p4, p5], ["DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK"]):
-            c.markdown(f"<b style='color:#94a3b8; font-size:0.78rem;'>{label}</b>", unsafe_allow_html=True)
-        st.markdown("<hr style='border:1px solid rgba(255,255,255,0.08); margin:6px 0;'>", unsafe_allow_html=True)
+            c.markdown(f"<span class='sol-dlg-head'>{label}</span>", unsafe_allow_html=True)
+        st.markdown("<hr style='border:none; border-top:2px solid #e0e7ff; margin:6px 0;'>", unsafe_allow_html=True)
         for p in payments:
             p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
-            p1.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_date','')}</span>", unsafe_allow_html=True)
-            p2.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_from','')}</span>", unsafe_allow_html=True)
-            p3.markdown(f"<span style='color:#e2e8f0;'>{p.get('pay_type','')}</span>", unsafe_allow_html=True)
-            p4.markdown(f"<span style='color:#4ade80; font-weight:700;'>{num(p.get('amount')):,.0f}</span>", unsafe_allow_html=True)
-            p5.markdown(f"<span style='color:#94a3b8; font-size:0.85rem;'>{p.get('remark','') or '-'}</span>", unsafe_allow_html=True)
+            p1.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_date','')))}</span>", unsafe_allow_html=True)
+            p2.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_from','')))}</span>", unsafe_allow_html=True)
+            p3.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_type','')))}</span>", unsafe_allow_html=True)
+            p4.markdown(f"<span style='color:#059669; font-weight:800;'>{num(p.get('amount')):,.0f}</span>", unsafe_allow_html=True)
+            p5.markdown(f"<span class='sol-dlg-muted'>{escape(str(p.get('remark','') or '-'))}</span>", unsafe_allow_html=True)
     else:
         st.info("Is team ko abhi tak koi payment nahi kiya gaya.")
 
@@ -463,10 +617,10 @@ def view_team_detail_dialog(team_name, entries, payments):
     total_paid = sum(num(p.get('amount')) for p in payments)
     balance = total_billed - total_paid
     st.markdown(f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 12px 18px; border-radius: 8px; margin-top:15px; display:flex; justify-content:space-between;">
-            <div style="color:#ffffff; font-weight:700;">Total Billed: <span style="color:#3b82f6;">₹ {total_billed:,.0f}</span></div>
-            <div style="color:#ffffff; font-weight:700;">Total Paid: <span style="color:#4ade80;">₹ {total_paid:,.0f}</span></div>
-            <div style="color:#ffffff; font-weight:700;">Balance: <span style="color:{'#f87171' if balance>0 else '#4ade80'};">₹ {balance:,.0f}</span></div>
+        <div style="background: linear-gradient(90deg, #f5f3ff, #eef2ff); border: 1px solid #c7d2fe; padding: 14px 20px; border-radius: 12px; margin-top:15px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div style="color:#312e81; font-weight:800;">Total Billed: <span style="color:#4f46e5;">₹ {total_billed:,.0f}</span></div>
+            <div style="color:#312e81; font-weight:800;">Total Paid: <span style="color:#059669;">₹ {total_paid:,.0f}</span></div>
+            <div style="color:#312e81; font-weight:800;">Balance: <span style="color:{'#dc2626' if balance>0 else '#059669'};">₹ {balance:,.0f}</span></div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -701,19 +855,20 @@ if st.session_state.solar_active_page == "sites":
         for a in alloc_data
     )
 
-    s1, s2, s3, s4, s5 = st.columns(5)
-    with s1: st.markdown(f'<div class="solar-card"><div class="label">Total Solar Sites</div><div class="value">{total_sites}</div></div>', unsafe_allow_html=True)
-    with s2: st.markdown(f'<div class="solar-card"><div class="label">Civil Charges (₹)</div><div class="value">{civil_total:,.0f}</div></div>', unsafe_allow_html=True)
-    with s3: st.markdown(f'<div class="solar-card"><div class="label">Electrical Charges (₹)</div><div class="value">{electrical_total:,.0f}</div></div>', unsafe_allow_html=True)
-    with s4: st.markdown(f'<div class="solar-card"><div class="label">Transport Charges (₹)</div><div class="value">{transport_total:,.0f}</div></div>', unsafe_allow_html=True)
-    with s5: st.markdown(f'<div class="solar-card"><div class="label">Total Extra Approval (₹)</div><div class="value">{approval_total:,.0f}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="lux-kpi-grid">'
+        + kpi_card("☀️", "Total Solar Sites", f"{total_sites:,}", "Project Name = Solar", *KPI_INDIGO)
+        + kpi_card("🧱", "Civil Charges", f"₹ {civil_total:,.0f}", "All civil teams", *KPI_AMBER)
+        + kpi_card("⚡", "Electrical Charges", f"₹ {electrical_total:,.0f}", "All electrical teams", *KPI_BLUE)
+        + kpi_card("🚚", "Transport Charges", f"₹ {transport_total:,.0f}", "All transporters", *KPI_GREEN)
+        + kpi_card("📝", "Total Extra Approval", f"₹ {approval_total:,.0f}", "Across all teams", *KPI_PINK)
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- UPDATED: added a 4th column for the Mobile/Table toggle button ---
     col_title, col_search, col_export, col_toggle = st.columns([4, 2.5, 1.3, 1.5])
     with col_title:
-        st.markdown("##### 🗄️ Solar Project Sites")
+        st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Solar Project Sites</h5>", unsafe_allow_html=True)
     with col_search:
         search_query = st_keyup("Search", placeholder="🔍 Search solar sites...", label_visibility="collapsed", key="solar_search")
     with col_export:
@@ -767,6 +922,8 @@ if st.session_state.solar_active_page == "sites":
             key="solar_export_dl"
         )
 
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
     rows_per_page = 10
     total_rows = len(df_view)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
@@ -781,11 +938,11 @@ if st.session_state.solar_active_page == "sites":
     df_page = df_view.iloc[start_idx:end_idx].copy()
 
     if df_page.empty:
-        st.info("Koi Solar site nahi mili. Site Data Hub mein 'Project Name' = Solar select karke site add karein.")
+        empty_state("Koi Solar site nahi mili. Site Data Hub mein 'Project Name' = Solar select karke site add karein.")
 
     elif st.session_state.solar_sites_view == "cards":
         # ---------------------------------------------------------------
-        # NEW: MOBILE CARD VIEW - Solar Sites
+        # MOBILE CARD VIEW - Solar Sites
         # ---------------------------------------------------------------
         for page_pos, (_, row) in enumerate(df_page.iterrows()):
             row_dict = row.to_dict()
@@ -823,25 +980,33 @@ if st.session_state.solar_active_page == "sites":
 
     else:
         # ---------------------------------------------------------------
-        # DESKTOP WIDE TABLE VIEW (unchanged spreadsheet-style, horizontal scroll)
+        # ✨ LAVISH DESKTOP TABLE VIEW
         # ---------------------------------------------------------------
-        COL_RATIOS = [0.5, 0.4, 1.1, 1.4, 1.0, 1.1, 0.9,
-                      1.1, 0.8, 1.1, 0.8, 1.1, 0.8,
+        COL_RATIOS = [0.5, 0.45, 1.1, 1.5, 1.0, 1.2, 1.0,
+                      1.6, 0.9, 1.6, 0.9, 1.6, 0.9,
                       1.1, 1.1]
         COL_LABELS = ["⚙️", "#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
                       "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
-                      "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)"]
+                      "TOTAL CHARGE", "TOTAL APPROVAL"]
+
+        # Total charge of ALL filtered sites (for badge + footer)
+        view_total_charge = 0.0
+        for _pid in df_view["Project ID"].astype(str) if "Project ID" in df_view.columns else []:
+            _a = alloc_map.get(_pid, {})
+            view_total_charge += num(_a.get("civil_charge_amount")) + num(_a.get("electrical_charge_amount")) + num(_a.get("transport_charge_amount"))
+
+        table_title_bar("☀️ Solar Site Register", "newest first • scroll right for more →", f"₹ {view_total_charge:,.0f}")
 
         with st.container(key="solar_table_wrap", height=560):
-            h_cols = st.columns(COL_RATIOS)
-            for h_col, label in zip(h_cols, COL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+            table_header_row("solhead_sites", COL_RATIOS, COL_LABELS, center_idx=(0, 1), right_idx=(8, 10, 12, 13, 14))
 
             for page_pos, (_, row) in enumerate(df_page.iterrows()):
                 row_dict = row.to_dict()
                 proj_id = str(row_dict.get("Project ID", ""))
                 alloc = alloc_map.get(proj_id, {})
                 serial_no = start_idx + page_pos + 1
+                rid = row_dict.get("id")
+                row_key = rid if (rid is not None and str(rid).strip() not in ("", "nan", "None")) else f"s{serial_no}"
 
                 civil_charge = num(alloc.get("civil_charge_amount"))
                 electrical_charge = num(alloc.get("electrical_charge_amount"))
@@ -854,28 +1019,37 @@ if st.session_state.solar_active_page == "sites":
                     num(alloc.get("transport_extra_approval_amount"))
                 )
 
-                def status_tag(prefix):
-                    s = alloc.get(f"{prefix}_status", "Pending")
-                    return " ✅" if s == "Completed" else (" ⏳" if alloc.get(f"{prefix}_team_name") else "")
+                parity = "odd" if serial_no % 2 else "even"
+                with st.container(key=f"solrow_{parity}_site_{row_key}"):
+                    rcols = st.columns(COL_RATIOS, vertical_alignment="center")
+                    with rcols[0]:
+                        if st.button("⚙️", key=f"solar_mgr_{row_key}", help="Manage Teams"):
+                            manage_solar_teams_dialog(row_dict, alloc)
+                    rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                    rcols[2].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                    rcols[3].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                    rcols[4].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
+                    rcols[5].markdown(_chip(proj_id, "proj"), unsafe_allow_html=True)
+                    rcols[6].markdown(status_badge(row_dict.get('Site Status')), unsafe_allow_html=True)
+                    rcols[7].markdown(_team_cell(alloc.get('civil_team_name'), alloc.get('civil_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[8].markdown(_money(civil_charge), unsafe_allow_html=True)
+                    rcols[9].markdown(_team_cell(alloc.get('electrical_team_name'), alloc.get('electrical_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[10].markdown(_money(electrical_charge), unsafe_allow_html=True)
+                    rcols[11].markdown(_team_cell(alloc.get('transport_team_name'), alloc.get('transport_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[12].markdown(_money(transport_charge), unsafe_allow_html=True)
+                    rcols[13].markdown(_money(total_charge, "strong"), unsafe_allow_html=True)
+                    rcols[14].markdown(_money(total_approval), unsafe_allow_html=True)
 
-                rcols = st.columns(COL_RATIOS)
-                with rcols[0]:
-                    if st.button("⚙️", key=f"solar_mgr_{row_dict.get('id')}", help="Manage Teams", use_container_width=True):
-                        manage_solar_teams_dialog(row_dict, alloc)
-                rcols[1].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{proj_id or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Status','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{(alloc.get('civil_team_name','') or '-')}{status_tag('civil')}</div>", unsafe_allow_html=True)
-                rcols[8].markdown(f"<div class='tbl-cell'>{civil_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[9].markdown(f"<div class='tbl-cell'>{(alloc.get('electrical_team_name','') or '-')}{status_tag('electrical')}</div>", unsafe_allow_html=True)
-                rcols[10].markdown(f"<div class='tbl-cell'>{electrical_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[11].markdown(f"<div class='tbl-cell'>{(alloc.get('transport_team_name','') or '-')}{status_tag('transport')}</div>", unsafe_allow_html=True)
-                rcols[12].markdown(f"<div class='tbl-cell'>{transport_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[13].markdown(f"<div class='tbl-cell'>{total_charge:,.0f}</div>", unsafe_allow_html=True)
-                rcols[14].markdown(f"<div class='tbl-cell'>{total_approval:,.0f}</div>", unsafe_allow_html=True)
+        shown_from = start_idx + 1 if total_rows else 0
+        shown_to = min(end_idx, total_rows)
+        st.markdown(
+            '<div class="slux-foot">'
+            f'<div>Total {total_rows:,} solar site{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
+            f'<div class="slux-foot-amts"><span>Total Charge: <b style="color:#4f46e5;">₹ {view_total_charge:,.0f}</b></span>'
+            f'<span class="slux-foot-badge">Page {st.session_state.solar_current_page} of {total_pages}</span></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -928,18 +1102,19 @@ elif st.session_state.solar_active_page == "ledger":
         grand_paid = sum(r["Total Paid (₹)"] for r in ledger_rows)
         grand_balance = sum(r["Balance (₹)"] for r in ledger_rows)
 
-        s1, s2, s3, s4 = st.columns(4)
-        with s1: st.markdown(f'<div class="solar-card"><div class="label">Total Teams</div><div class="value">{len(ledger_rows)}</div></div>', unsafe_allow_html=True)
-        with s2: st.markdown(f'<div class="solar-card"><div class="label">Total Billed (₹)</div><div class="value">{grand_billed:,.0f}</div></div>', unsafe_allow_html=True)
-        with s3: st.markdown(f'<div class="solar-card"><div class="label">Total Paid (₹)</div><div class="value-green">{grand_paid:,.0f}</div></div>', unsafe_allow_html=True)
-        with s4: st.markdown(f'<div class="solar-card"><div class="label">Total Balance (₹)</div><div class="value-red">{grand_balance:,.0f}</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="lux-kpi-grid">'
+            + kpi_card("👷", "Total Teams", f"{len(ledger_rows):,}", "Civil + Electrical + Transport", *KPI_INDIGO)
+            + kpi_card("🧾", "Total Billed", f"₹ {grand_billed:,.0f}", "Completed work only", *KPI_AMBER)
+            + kpi_card("💰", "Total Paid", f"₹ {grand_paid:,.0f}", "All payments", *KPI_GREEN, value_cls="green")
+            + kpi_card("⏳", "Total Balance", f"₹ {grand_balance:,.0f}", "Billed − Paid", *KPI_RED, value_cls="red")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- UPDATED: added toggle button next to search ---
         col_title, col_search, col_toggle = st.columns([4.5, 3, 1.5])
         with col_title:
-            st.markdown("##### 🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)")
+            st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)</h5>", unsafe_allow_html=True)
         with col_search:
             ledger_search = st_keyup("Search", placeholder="🔍 Search team...", label_visibility="collapsed", key="ledger_search")
         with col_toggle:
@@ -949,12 +1124,14 @@ elif st.session_state.solar_active_page == "ledger":
         if ledger_search:
             display_rows = [r for r in ledger_rows if ledger_search.lower() in r["Team Name"].lower()]
 
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
         if not display_rows:
-            st.info("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
+            empty_state("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
 
         elif st.session_state.solar_ledger_view == "cards":
             # ---------------------------------------------------------------
-            # NEW: MOBILE CARD VIEW - Team Ledger (Team Wise)
+            # MOBILE CARD VIEW - Team Ledger (Team Wise)
             # ---------------------------------------------------------------
             for r in display_rows:
                 with st.container(border=True):
@@ -971,32 +1148,46 @@ elif st.session_state.solar_active_page == "ledger":
                         view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
 
         else:
-            LCOL_RATIOS = [1.8, 1.0, 1.2, 1.2, 1.2, 1.2, 1.2, 0.7]
-            LCOL_LABELS = ["TEAM NAME", "SITES", "CHARGE (₹)", "APPROVAL (₹)", "TOTAL BILLED (₹)", "PAID (₹)", "BALANCE (₹)", "👁️"]
+            LCOL_RATIOS = [0.55, 0.5, 2.0, 0.8, 1.2, 1.2, 1.3, 1.2, 1.3]
+            LCOL_LABELS = ["👁️", "#", "TEAM NAME", "SITES", "CHARGE", "APPROVAL", "TOTAL BILLED", "PAID", "BALANCE"]
+
+            table_title_bar("🧾 Team Ledger", "highest balance first", f"Balance ₹ {grand_balance:,.0f}")
 
             with st.container(key="ledger_table_wrap", height=520):
-                h_cols = st.columns(LCOL_RATIOS)
-                for h_col, label in zip(h_cols, LCOL_LABELS):
-                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                table_header_row("solhead_ledger", LCOL_RATIOS, LCOL_LABELS, center_idx=(0, 1, 3), right_idx=(4, 5, 6, 7, 8))
 
-                for r in display_rows:
-                    rcols = st.columns(LCOL_RATIOS)
-                    rcols[0].markdown(f"<div class='tbl-cell team-name'>{r['Team Name']}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div class='tbl-cell'>{r['Sites Worked']}</div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div class='tbl-cell'>{r['Total Charge (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div class='tbl-cell'>{r['Total Approval (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[4].markdown(f"<div class='tbl-cell'>{r['Total Billed (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[5].markdown(f"<div class='tbl-cell paid-amt'>{r['Total Paid (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[6].markdown(f"<div class='tbl-cell pending-amt'>{r['Balance (₹)']:,.0f}</div>", unsafe_allow_html=True)
-                    with rcols[7]:
-                        if st.button("👁️", key=f"ledger_view_{r['Team Name']}", help="View Detail", use_container_width=True):
-                            view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+                for idx, r in enumerate(display_rows, start=1):
+                    parity = "odd" if idx % 2 else "even"
+                    with st.container(key=f"solrow_{parity}_ledger_{idx}"):
+                        rcols = st.columns(LCOL_RATIOS, vertical_alignment="center")
+                        with rcols[0]:
+                            if st.button("👁️", key=f"ledger_view_{r['Team Name']}", help="View Detail"):
+                                view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+                        rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                        rcols[2].markdown(f"<div class='slux-cell'><span class='sol-team'>👷 {escape(r['Team Name'])}</span></div>", unsafe_allow_html=True)
+                        rcols[3].markdown(f"<div style='text-align:center;'><span class='slux-pill'>{r['Sites Worked']}</span></div>", unsafe_allow_html=True)
+                        rcols[4].markdown(_money(r['Total Charge (₹)']), unsafe_allow_html=True)
+                        rcols[5].markdown(_money(r['Total Approval (₹)']), unsafe_allow_html=True)
+                        rcols[6].markdown(_money(r['Total Billed (₹)'], "strong"), unsafe_allow_html=True)
+                        rcols[7].markdown(_money(r['Total Paid (₹)'], "paid"), unsafe_allow_html=True)
+                        rcols[8].markdown(_money(r['Balance (₹)'], "due" if r['Balance (₹)'] > 0 else "paid"), unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="slux-foot">'
+                f'<div>{len(display_rows):,} team{"s" if len(display_rows) != 1 else ""}</div>'
+                '<div class="slux-foot-amts">'
+                f'<span>Billed: <b style="color:#4f46e5;">₹ {grand_billed:,.0f}</b></span>'
+                f'<span>Paid: <b style="color:#059669;">₹ {grand_paid:,.0f}</b></span>'
+                f'<span>Balance: <b style="color:#dc2626;">₹ {grand_balance:,.0f}</b></span>'
+                '</div></div>',
+                unsafe_allow_html=True,
+            )
 
     else:
-        # ---- SITE WISE VIEW (lavish custom table, same style as other tabs) ----
+        # ---- SITE WISE VIEW ----
         col_title2, col_search2, col_toggle2 = st.columns([4.5, 3, 1.5])
         with col_title2:
-            st.markdown("##### 🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)")
+            st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)</h5>", unsafe_allow_html=True)
         with col_search2:
             site_search = st_keyup("Search", placeholder="🔍 Search site...", label_visibility="collapsed", key="site_ledger_search")
         with col_toggle2:
@@ -1039,6 +1230,9 @@ elif st.session_state.solar_active_page == "ledger":
                 "Total Charge": total_charge,
                 "Total Approval": total_approval,
                 "Grand Total": total_charge + total_approval,
+                "_civil": (a.get("civil_team_name", ""), civil_status),
+                "_electrical": (a.get("electrical_team_name", ""), electrical_status),
+                "_transport": (a.get("transport_team_name", ""), transport_status),
             })
 
         st.caption("💡 Sirf ✅ Completed status wale kaam ka amount yahan count hota hai. ⏳ = Pending (abhi count nahi hoga).")
@@ -1046,15 +1240,15 @@ elif st.session_state.solar_active_page == "ledger":
         if site_search:
             site_rows = [
                 sr for sr in site_rows
-                if site_search.lower() in " ".join(str(v) for v in sr.values()).lower()
+                if site_search.lower() in " ".join(str(v) for k, v in sr.items() if not k.startswith("_")).lower()
             ]
 
         if not site_rows:
-            st.info("Koi Solar site data nahi mila.")
+            empty_state("Koi Solar site data nahi mila.")
 
         elif st.session_state.solar_ledger_view == "cards":
             # ---------------------------------------------------------------
-            # NEW: MOBILE CARD VIEW - Team Ledger (Site Wise)
+            # MOBILE CARD VIEW - Team Ledger (Site Wise)
             # ---------------------------------------------------------------
             for idx, sr in enumerate(site_rows, start=1):
                 with st.container(border=True):
@@ -1070,38 +1264,49 @@ elif st.session_state.solar_active_page == "ledger":
                     """, unsafe_allow_html=True)
 
         else:
-            SCOL_RATIOS = [0.4, 1.1, 1.4, 0.9, 1.1, 1.1, 0.8, 1.1, 0.8, 1.1, 0.8, 1.1, 1.1, 1.1]
+            SCOL_RATIOS = [0.45, 1.1, 1.5, 1.0, 1.2, 1.6, 0.9, 1.6, 0.9, 1.6, 0.9, 1.1, 1.1, 1.1]
             SCOL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID",
                            "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
-                           "TOTAL CHARGE (₹)", "TOTAL APPROVAL (₹)", "GRAND TOTAL (₹)"]
+                           "TOTAL CHARGE", "TOTAL APPROVAL", "GRAND TOTAL"]
+
+            site_grand_total = sum(sr["Grand Total"] for sr in site_rows)
+            table_title_bar("📍 Site-wise Ledger", "completed work only • scroll right →", f"₹ {site_grand_total:,.0f}")
 
             with st.container(key="site_ledger_table_wrap", height=560):
-                h_cols = st.columns(SCOL_RATIOS)
-                for h_col, label in zip(h_cols, SCOL_LABELS):
-                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                table_header_row("solhead_siteledger", SCOL_RATIOS, SCOL_LABELS, center_idx=(0,), right_idx=(6, 8, 10, 11, 12, 13))
 
                 for idx, sr in enumerate(site_rows, start=1):
-                    rcols = st.columns(SCOL_RATIOS)
-                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{idx}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div class='tbl-cell'>{sr['Site ID']}</div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div class='tbl-cell'>{sr['Site Name']}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div class='tbl-cell'>{sr['Cluster']}</div>", unsafe_allow_html=True)
-                    rcols[4].markdown(f"<div class='tbl-cell'>{sr['Project ID']}</div>", unsafe_allow_html=True)
-                    rcols[5].markdown(f"<div class='tbl-cell'>{sr['Civil Team']}</div>", unsafe_allow_html=True)
-                    rcols[6].markdown(f"<div class='tbl-cell'>{sr['Civil Amt']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[7].markdown(f"<div class='tbl-cell'>{sr['Electrical Team']}</div>", unsafe_allow_html=True)
-                    rcols[8].markdown(f"<div class='tbl-cell'>{sr['Electrical Amt']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[9].markdown(f"<div class='tbl-cell'>{sr['Transport Team']}</div>", unsafe_allow_html=True)
-                    rcols[10].markdown(f"<div class='tbl-cell'>{sr['Transport Amt']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[11].markdown(f"<div class='tbl-cell'>{sr['Total Charge']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[12].markdown(f"<div class='tbl-cell'>{sr['Total Approval']:,.0f}</div>", unsafe_allow_html=True)
-                    rcols[13].markdown(f"<div class='tbl-cell' style='font-weight:800; color:#f59e0b;'>{sr['Grand Total']:,.0f}</div>", unsafe_allow_html=True)
+                    parity = "odd" if idx % 2 else "even"
+                    with st.container(key=f"solrow_{parity}_siteledger_{idx}"):
+                        rcols = st.columns(SCOL_RATIOS, vertical_alignment="center")
+                        rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                        rcols[1].markdown(_chip(sr['Site ID']), unsafe_allow_html=True)
+                        rcols[2].markdown(_txt(sr['Site Name'], "slux-strong"), unsafe_allow_html=True)
+                        rcols[3].markdown(_pill(sr['Cluster']), unsafe_allow_html=True)
+                        rcols[4].markdown(_chip(sr['Project ID'], "proj"), unsafe_allow_html=True)
+                        rcols[5].markdown(_team_cell(*sr['_civil']), unsafe_allow_html=True)
+                        rcols[6].markdown(_money(sr['Civil Amt']), unsafe_allow_html=True)
+                        rcols[7].markdown(_team_cell(*sr['_electrical']), unsafe_allow_html=True)
+                        rcols[8].markdown(_money(sr['Electrical Amt']), unsafe_allow_html=True)
+                        rcols[9].markdown(_team_cell(*sr['_transport']), unsafe_allow_html=True)
+                        rcols[10].markdown(_money(sr['Transport Amt']), unsafe_allow_html=True)
+                        rcols[11].markdown(_money(sr['Total Charge']), unsafe_allow_html=True)
+                        rcols[12].markdown(_money(sr['Total Approval']), unsafe_allow_html=True)
+                        rcols[13].markdown(_money(sr['Grand Total'], "amber"), unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="slux-foot">'
+                f'<div>{len(site_rows):,} solar site{"s" if len(site_rows) != 1 else ""}</div>'
+                f'<div class="slux-foot-amts"><span>Grand Total: <b style="color:#d97706;">₹ {site_grand_total:,.0f}</b></span></div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
 # ================================================================
 # PAGE 3: PAYMENTS
 # ================================================================
 elif st.session_state.solar_active_page == "payments":
-    st.markdown("##### 💳 Solar Team Payment Entry")
+    st.markdown("<h5 style='margin:0 0 10px 0; color:#0f172a;'>💳 Solar Team Payment Entry</h5>", unsafe_allow_html=True)
 
     if not solar_team_names:
         st.info("Abhi tak koi team Solar site pe allocate nahi hui. Pehle 'Solar Sites' tab se ⚙️ Manage Teams se team allocate karein, phir yahan payment kar sakte ho.")
@@ -1174,9 +1379,8 @@ elif st.session_state.solar_active_page == "payments":
                             st.error(f"❌ Error saving payment: {e}")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("##### 🗄️ Solar Payment History")
+    st.markdown("<h5 style='margin:0 0 10px 0; color:#0f172a;'>🗄️ Solar Payment History</h5>", unsafe_allow_html=True)
 
-    # --- UPDATED: added toggle button next to search ---
     pcol_search, pcol_export, pcol_toggle = st.columns([5.5, 2, 2])
     with pcol_search:
         payment_search = st_keyup("Search", placeholder="🔍 Search payments...", label_visibility="collapsed", key="solar_payment_search")
@@ -1206,12 +1410,14 @@ elif st.session_state.solar_active_page == "payments":
             key="solar_payment_export_dl"
         )
 
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
     if pdf_view.empty:
-        st.info("Abhi tak koi Solar payment record nahi hai.")
+        empty_state("Abhi tak koi Solar payment record nahi hai.")
 
     elif st.session_state.solar_payments_view == "cards":
         # ---------------------------------------------------------------
-        # NEW: MOBILE CARD VIEW - Payment History
+        # MOBILE CARD VIEW - Payment History
         # ---------------------------------------------------------------
         for _, prow in pdf_view.iterrows():
             pd_dict = prow.to_dict()
@@ -1237,32 +1443,47 @@ elif st.session_state.solar_active_page == "payments":
                         st.error(f"❌ Error deleting: {e}")
 
     else:
-        PCOL_RATIOS = [1.6, 1.2, 1.2, 1.2, 1.2, 2.4, 0.7]
-        PCOL_LABELS = ["TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK", "🗑️"]
+        PCOL_RATIOS = [0.55, 0.5, 1.7, 1.2, 1.1, 1.0, 1.2, 2.4]
+        PCOL_LABELS = ["🗑️", "#", "TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT", "REMARK"]
+
+        pay_total = sum(num(v) for v in pdf_view["amount"]) if "amount" in pdf_view.columns else 0.0
+        table_title_bar("💳 Payment History", "newest first", f"₹ {pay_total:,.0f}")
 
         with st.container(key="payments_table_wrap", height=420):
-            h_cols = st.columns(PCOL_RATIOS)
-            for h_col, label in zip(h_cols, PCOL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+            table_header_row("solhead_payments", PCOL_RATIOS, PCOL_LABELS, center_idx=(0, 1), right_idx=(6,))
 
-            for _, prow in pdf_view.iterrows():
+            for idx, (_, prow) in enumerate(pdf_view.iterrows(), start=1):
                 pd_dict = prow.to_dict()
-                rcols = st.columns(PCOL_RATIOS)
-                rcols[0].markdown(f"<div class='tbl-cell team-name'>{pd_dict.get('team_name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_date','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_from','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{pd_dict.get('pay_type','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell paid-amt'>{num(pd_dict.get('amount')):,.0f}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{pd_dict.get('remark','') or '-'}</div>", unsafe_allow_html=True)
-                with rcols[6]:
-                    if st.button("🗑️", key=f"delpay_{pd_dict.get('id')}", help="Delete", use_container_width=True):
-                        try:
-                            supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
-                            b_id = pd_dict.get("billing_payment_id")
-                            if b_id:
-                                supabase.table("billing_payments").delete().eq("id", b_id).execute()
-                            st.success("✅ Payment Deleted!")
-                            fetch_solar_data_cached.clear()
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error deleting: {e}")
+                pid = pd_dict.get("id")
+                row_key = pid if (pid is not None and str(pid).strip() not in ("", "nan", "None")) else f"p{idx}"
+                parity = "odd" if idx % 2 else "even"
+                with st.container(key=f"solrow_{parity}_pay_{row_key}"):
+                    rcols = st.columns(PCOL_RATIOS, vertical_alignment="center")
+                    with rcols[0]:
+                        if st.button("🗑️", key=f"delpay_{row_key}", help="Delete"):
+                            try:
+                                supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
+                                b_id = pd_dict.get("billing_payment_id")
+                                if b_id:
+                                    supabase.table("billing_payments").delete().eq("id", b_id).execute()
+                                st.success("✅ Payment Deleted!")
+                                fetch_solar_data_cached.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error deleting: {e}")
+                    rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                    team_nm = _clean(pd_dict.get('team_name'))
+                    rcols[2].markdown(f"<div class='slux-cell'><span class='sol-team'>👷 {escape(team_nm)}</span></div>" if team_nm else _MUTED, unsafe_allow_html=True)
+                    rcols[3].markdown(_txt(pd_dict.get('pay_date'), "slux-soft"), unsafe_allow_html=True)
+                    rcols[4].markdown(_pill(pd_dict.get('pay_from')), unsafe_allow_html=True)
+                    rcols[5].markdown(_chip(pd_dict.get('pay_type')), unsafe_allow_html=True)
+                    rcols[6].markdown(_money(pd_dict.get('amount'), "paid"), unsafe_allow_html=True)
+                    rcols[7].markdown(_txt(pd_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
+
+        st.markdown(
+            '<div class="slux-foot">'
+            f'<div>{len(pdf_view):,} payment{"s" if len(pdf_view) != 1 else ""}</div>'
+            f'<div class="slux-foot-amts"><span>Total Paid: <b style="color:#059669;">₹ {pay_total:,.0f}</b></span></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
