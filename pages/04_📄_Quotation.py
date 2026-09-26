@@ -277,16 +277,22 @@ st.markdown("""
     div[class*="st-key-luxrow_"] p { margin: 0 !important; font-size: .88rem; color: #1e293b; }
     div[class*="st-key-luxrow_"] [data-testid="stHorizontalBlock"] { gap: .6rem !important; }
 
-    /* Inline icon buttons */
-    div[class*="st-key-qedit_"] button, div[class*="st-key-qdel_"] button {
-        width: 36px !important; height: 36px !important; min-height: 36px !important;
-        padding: 0 !important; border-radius: 10px !important; box-shadow: none !important;
-        font-size: 1rem !important; transition: all .2s ease !important;
+    /* Single inline Manage button (same idea as Site Data ⚙️ button) */
+    div[class*="st-key-qmgr_"] button {
+        width: 38px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important;
+        box-shadow: none !important; font-size: 1rem !important; transition: all .2s ease !important;
     }
-    div[class*="st-key-qedit_"] button { background: #eef2ff !important; border: 1px solid #c7d2fe !important; }
-    div[class*="st-key-qedit_"] button:hover { background: #6366f1 !important; border-color: #6366f1 !important; transform: translateY(-2px) scale(1.06) !important; box-shadow: 0 6px 14px -4px rgba(99,102,241,.6) !important; }
-    div[class*="st-key-qdel_"] button { background: #fef2f2 !important; border: 1px solid #fecaca !important; }
-    div[class*="st-key-qdel_"] button:hover { background: #ef4444 !important; border-color: #ef4444 !important; transform: translateY(-2px) scale(1.06) !important; box-shadow: 0 6px 14px -4px rgba(239,68,68,.6) !important; }
+    div[class*="st-key-qmgr_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    /* Danger-zone delete button inside the Manage dialog */
+    div[class*="st-key-quo_del_now_"] button {
+        background: linear-gradient(90deg, #ef4444, #dc2626) !important;
+        box-shadow: 0 4px 10px -2px rgba(239,68,68,.5) !important;
+    }
 
     /* Table footer */
     .lux-tfoot {
@@ -462,7 +468,7 @@ template_names = [t["Template Name"] for t in templates_data]
 st.session_state.quotations_df = fetch_quotations()
 
 # --- 6. DIALOG FOR ADD/VIEW QUOTATION ---
-@st.dialog("📄 Update Quotation", width="large")
+@st.dialog("⚙️ Manage Quotation (View / Edit / Delete)", width="large")
 def quotation_dialog(quotation_data=None):
     st.caption("Details and items for project estimation")
     
@@ -700,6 +706,34 @@ def quotation_dialog(quotation_data=None):
             except Exception as e:
                 st.error(f"Database Error: {e}")
 
+    # ---------------------------------------------------------------
+    # --- DANGER ZONE: DELETE THIS QUOTATION (only for existing records)
+    # ---------------------------------------------------------------
+    if not is_new:
+        del_name = quotation_data.get("Quotation Name", "")
+        del_key = quotation_data.get("id", del_name)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("""
+            <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
+                <div style="color:#dc2626; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
+            </div>
+        """, unsafe_allow_html=True)
+        confirm_del = st.checkbox(
+            "Main is quotation ko permanently DELETE karna chahta hoon (is action ko undo nahi kiya ja sakta)",
+            key=f"quo_del_confirm_{del_key}"
+        )
+        if confirm_del:
+            if st.button("🗑️ Delete This Quotation Permanently", key=f"quo_del_now_{del_key}", use_container_width=True):
+                try:
+                    supabase.table("quotations").delete().eq("Quotation Name", del_name).execute()
+                    supabase.table("quotation_items").delete().eq("Quotation Name", del_name).execute()
+                    fetch_quotations_cached.clear()
+                    st.session_state.quotations_df = fetch_quotations()
+                    st.toast(f"✅ Deleted {del_name}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error Deleting Quotation: {e}")
+
 # --- 7. TOP HEADER & FILTERS ---
 col_head1, col_head2, col_head3, col_head4, col_head5 = st.columns([3.5, 1.8, 1.6, 1.6, 1.6])
 with col_head1:
@@ -836,25 +870,6 @@ def _delete_quotation(q_name):
     except Exception as e:
         st.error(f"Error deleting: {e}")
 
-@st.dialog("🗑️ Delete Quotation")
-def confirm_delete_dialog(row_dict):
-    q_name = row_dict.get("Quotation Name", "")
-    st.markdown(
-        f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
-<div style="font-weight:900;color:#991b1b;font-size:1rem;">{html.escape(str(q_name))}</div>
-<div style="color:#7f1d1d;font-size:.85rem;margin-top:4px;">{html.escape(str(row_dict.get("Project ID", "")))} • {html.escape(str(row_dict.get("Site Name", "")))} • {_amt(row_dict.get("Quotation Amount"))}</div>
-</div>
-<p style="color:#475569;">Ye quotation aur uske saare items permanently delete ho jayenge. Kya aap sure hain?</p>""",
-        unsafe_allow_html=True,
-    )
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Cancel", key="del_cancel", use_container_width=True):
-            st.rerun()
-    with c2:
-        if st.button("Yes, Delete", key="del_yes", type="primary", use_container_width=True):
-            _delete_quotation(q_name)
-
 
 
 # ---------------- KPI STRIP (dono views me dikhega) ----------------
@@ -906,15 +921,8 @@ if st.session_state.quo_view_mode == "cards":
                     f'<div class="quo-card-row"><span class="quo-card-label">Grand Total</span><span class="quo-card-value amount">{_amt(row_dict.get("Quotation Amount"))}</span></div>',
                     unsafe_allow_html=True,
                 )
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    if st.button("👁️ View / Edit", key=f"card_quo_view_{q_name}_{pos}", use_container_width=True):
-                        quotation_dialog(row_dict)
-                with bc2:
-                    with st.popover("🗑️ Delete", use_container_width=True):
-                        st.warning(f"Delete **{q_name}**?")
-                        if st.button("Yes, delete", key=f"card_quo_del_{q_name}_{pos}", type="primary", use_container_width=True):
-                            _delete_quotation(q_name)
+                if st.button("⚙️ Manage", key=f"card_quo_mgr_{q_name}_{pos}", use_container_width=True):
+                    quotation_dialog(row_dict)
 
 else:
     # ---------------------------------------------------------------
@@ -931,8 +939,8 @@ else:
     start = (page - 1) * PAGE_SIZE
     df_page = df_display.iloc[start:start + PAGE_SIZE]
 
-    # Column ratios: Edit | Delete | # | Date | Project ID | Site Code | Site Name | Cluster | Project | Grand Total
-    COLS = [0.55, 0.55, 0.6, 1.3, 1.7, 1.4, 2.3, 1.3, 1.5, 1.3]
+    # Column ratios: Manage | # | Date | Project ID | Site Code | Site Name | Cluster | Project | Grand Total
+    COLS = [0.6, 0.6, 1.3, 1.7, 1.4, 2.3, 1.3, 1.5, 1.3]
 
     # ---- Table title bar ----
     st.markdown(
@@ -946,9 +954,9 @@ else:
     # ---- Column headers ----
     with st.container(key="lux_thead"):
         hc = st.columns(COLS, vertical_alignment="center")
-        for col, label in zip(hc, ["Edit", "Del", "#", "Date", "Project ID", "Site Code",
+        for col, label in zip(hc, ["⚙️", "#", "Date", "Project ID", "Site Code",
                                     "Site Name", "Cluster", "Project", "Grand Total"]):
-            align = "right" if label == "Grand Total" else ("center" if label in ("Edit", "Del", "#") else "left")
+            align = "right" if label == "Grand Total" else ("center" if label in ("⚙️", "#") else "left")
             col.markdown(f'<p style="text-align:{align};">{label}</p>', unsafe_allow_html=True)
 
     # ---- Rows ----
@@ -983,19 +991,16 @@ else:
             with st.container(key=f"luxrow_{parity}_{rid}"):
                 c = st.columns(COLS, vertical_alignment="center")
                 with c[0]:
-                    if st.button("✏️", key=f"qedit_{rid}", help="View / Edit"):
+                    if st.button("⚙️", key=f"qmgr_{rid}", help="Manage (View / Edit / Delete)"):
                         quotation_dialog(row_dict)
-                with c[1]:
-                    if st.button("🗑️", key=f"qdel_{rid}", help="Delete"):
-                        confirm_delete_dialog(row_dict)
-                c[2].markdown(f'<p style="text-align:center;"><span class="lux-num">{pos}</span></p>', unsafe_allow_html=True)
-                c[3].markdown(date_html, unsafe_allow_html=True)
-                c[4].markdown(f"<p>{pid_html}</p>", unsafe_allow_html=True)
-                c[5].markdown(f"<p>{sid_html}</p>", unsafe_allow_html=True)
-                c[6].markdown(f'<p class="lux-site">{_esc(row_dict.get("Site Name"))}</p>', unsafe_allow_html=True)
-                c[7].markdown(f"<p>{clu_html}</p>", unsafe_allow_html=True)
-                c[8].markdown(f'<p class="lux-proj">{_esc(row_dict.get("Project Name"))}</p>', unsafe_allow_html=True)
-                c[9].markdown(f'<p class="lux-amt" style="text-align:right;">{_amt(row_dict.get("Quotation Amount"))}</p>', unsafe_allow_html=True)
+                c[1].markdown(f'<p style="text-align:center;"><span class="lux-num">{pos}</span></p>', unsafe_allow_html=True)
+                c[2].markdown(date_html, unsafe_allow_html=True)
+                c[3].markdown(f"<p>{pid_html}</p>", unsafe_allow_html=True)
+                c[4].markdown(f"<p>{sid_html}</p>", unsafe_allow_html=True)
+                c[5].markdown(f'<p class="lux-site">{_esc(row_dict.get("Site Name"))}</p>', unsafe_allow_html=True)
+                c[6].markdown(f"<p>{clu_html}</p>", unsafe_allow_html=True)
+                c[7].markdown(f'<p class="lux-proj">{_esc(row_dict.get("Project Name"))}</p>', unsafe_allow_html=True)
+                c[8].markdown(f'<p class="lux-amt" style="text-align:right;">{_amt(row_dict.get("Quotation Amount"))}</p>', unsafe_allow_html=True)
 
     # ---- Footer ----
     shown_to = min(start + PAGE_SIZE, len(df_display))
