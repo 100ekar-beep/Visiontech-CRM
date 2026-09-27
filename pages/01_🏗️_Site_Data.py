@@ -13,6 +13,10 @@ from botocore.client import Config
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
 import smtplib  # <--- NEW: For Email Sending
+import hashlib
+import re
+import time
+from zoneinfo import ZoneInfo
 import json
 from html import escape
 from email.mime.text import MIMEText
@@ -21,6 +25,8 @@ from supabase import create_client, Client
 from st_keyup import st_keyup # <--- NEW: For Live Search without Enter
 from datetime import datetime, timedelta # <--- Added for parsing existing date strings
 from reportlab.lib import colors
+from reportlab.lib.colors import HexColor
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -561,6 +567,21 @@ st.markdown("""
         color: #64748b;
         border: 1px solid rgba(148, 163, 184, 0.3);
     }
+
+    /* Upload se pehle wali list + ✕ buttons (DG Project page jaisa) */
+    .att-stage-head { font-size: .78rem; font-weight: 800; color: #475569; margin: 10px 0 4px; }
+    .att-stage-name { font-size: .78rem; font-weight: 600; color: #0f172a; word-break: break-all; line-height: 1.25; }
+    .att-stage-name small { display: block; color: #64748b; font-weight: 600; }
+    .att-file-link { font-size: .8rem; word-break: break-all; margin: 2px 0; }
+    .att-file-link a { color: #4338ca !important; font-weight: 600; text-decoration: none; }
+    div[class*="st-key-att_rm_"] button {
+        background: #fee2e2 !important; border: 1px solid #fecaca !important; box-shadow: none !important;
+        width: 30px !important; height: 30px !important; min-height: 30px !important; padding: 0 !important; border-radius: 50% !important;
+    }
+    div[class*="st-key-att_rm_"] button p { color: #b91c1c !important; font-weight: 900 !important; }
+    div[class*="st-key-att_rm_"] button:hover { background: #ef4444 !important; }
+    div[class*="st-key-att_rm_"] button:hover p { color: #fff !important; }
+    div[data-testid="stDialog"] [data-testid="stPopover"] button { padding: 2px 8px !important; min-height: 30px !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -601,40 +622,153 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# -------------------------------------------------------------
-# --- CLOUDFLARE R2 CONNECTION (for Photos / JMS / Commissioning Report uploads) ---
-# R2 is S3-API-compatible, so the standard boto3 's3' client works — we just
-# point it at Cloudflare's endpoint instead of AWS. Files are uploaded here
-# and their public download URL is saved as a comma-separated list in the
-# corresponding site_data column ("Photos Files", "JMS Files", etc.).
-# -------------------------------------------------------------
-@st.cache_resource
-def init_r2_connection():
-    try:
-        r2_cfg = st.secrets["r2"]
-        return boto3.client(
-            "s3",
-            endpoint_url=f"https://{r2_cfg['account_id']}.r2.cloudflarestorage.com",
-            aws_access_key_id=r2_cfg["access_key_id"],
-            aws_secret_access_key=r2_cfg["secret_access_key"],
-            config=Config(signature_version="s3v4"),
-            region_name="auto",
-        )
-    except Exception as e:
-        st.error(f"🚨 R2 connection error: {e}")
-        return None
+# =============================================================
+# FILE STORAGE + PHOTO->PDF + COVER PAGE  (DG Project page jaisa hi)
+# Files Cloudflare R2 pe jaati hain; R2 settings na milein to Cloudinary pe.
+# =============================================================
+COMPANY_FULL_NAMES = {
+    "VISPL": "VISIONTECH INFRA SOLUTIONS",
+    "Bhagyashree": "BHAGYASHREE",
+    "Sai Tele": "SAI TELE SERVICES",
+}
+IMAGE_EXT = (".jpg", ".jpeg", ".png")
 
-r2_client = init_r2_connection()
-R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
-R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
+
+# -------------------------------------------------------------
+# R2 settings: Streamlit secrets me kahin bhi ho, dhoondh lo
+#   [r2] / [R2] / [cloudflare] section, ya top-level R2_BUCKET_NAME jaise keys,
+#   ya environment variables (R2_BUCKET_NAME, R2_PUBLIC_URL, ...)
+# -------------------------------------------------------------
+_R2_FIELDS = {
+    "account_id": ("account_id", "accountid", "cf_account_id"),
+    "access_key_id": ("access_key_id", "access_key", "aws_access_key_id", "key_id"),
+    "secret_access_key": ("secret_access_key", "secret_key", "aws_secret_access_key"),
+    "bucket_name": ("bucket_name", "bucket"),
+    "public_url": ("public_url", "public_base_url", "public_domain", "custom_domain", "dev_url"),
+    "endpoint_url": ("endpoint_url", "endpoint", "s3_endpoint", "s3_api"),
+}
+
+
+def _flatten_secrets(obj, prefix=""):
+    out = {}
+    try:
+        for k in obj.keys():
+            v = obj[k]
+            path = f"{prefix}{k}"
+            if hasattr(v, "keys"):
+                out.update(_flatten_secrets(v, path + "."))
+            else:
+                out[path] = v
+    except Exception:
+        pass
+    return out
+
+
+def load_r2_config():
+    flat = _flatten_secrets(st.secrets)
+    cfg = {}
+    for field, names in _R2_FIELDS.items():
+        wanted = set(names) | {f"r2_{n}" for n in names} | {f"cloudflare_{n}" for n in names}
+        best = None
+        for path, val in flat.items():
+            low = path.lower()
+            if path.split(".")[-1].lower() not in wanted or not str(val).strip():
+                continue
+            score = 2 if ("r2" in low or "cloudflare" in low) else 1
+            if best is None or score > best[0]:
+                best = (score, str(val).strip())
+        cfg[field] = best[1] if best else os.environ.get(f"R2_{field.upper()}", "").strip()
+    return cfg, sorted(flat.keys())
+
+
+@st.cache_resource
+def site_make_r2_client(endpoint, access_key, secret_key):
+    return boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key,
+                        aws_secret_access_key=secret_key, config=Config(signature_version="s3v4"),
+                        region_name="auto")
+
+
+R2_CFG, SECRET_NAMES = load_r2_config()
+R2_BUCKET = R2_CFG["bucket_name"]
+R2_PUBLIC_URL = R2_CFG["public_url"].rstrip("/")
+_r2_endpoint = R2_CFG["endpoint_url"] or (
+    f"https://{R2_CFG['account_id']}.r2.cloudflarestorage.com" if R2_CFG["account_id"] else "")
+
+_missing = [name for name, ok in [
+    ("account_id (ya endpoint_url)", _r2_endpoint), ("access_key_id", R2_CFG["access_key_id"]),
+    ("secret_access_key", R2_CFG["secret_access_key"]), ("bucket_name", R2_BUCKET),
+    ("public_url (https://...)", R2_PUBLIC_URL.startswith("http")),
+] if not ok]
+
+r2_client = None
+R2_PROBLEM = ""
+if _missing:
+    R2_PROBLEM = ("Cloudflare R2 settings Streamlit secrets me nahi mili: " + ", ".join(_missing)
+                  + ". Secrets me abhi sirf ye keys hain: " + (", ".join(SECRET_NAMES) or "(kuch nahi)"))
+else:
+    try:
+        r2_client = site_make_r2_client(_r2_endpoint, R2_CFG["access_key_id"], R2_CFG["secret_access_key"])
+    except Exception as e:
+        R2_PROBLEM = f"R2 connection error: {e}"
+
+
+# -------------------------------------------------------------
+# BACKUP STORAGE: Cloudinary (secrets me [cloudinary] pehle se hai).
+# R2 settings na milein to files Cloudinary pe jaayengi, taaki upload ruke nahi.
+# -------------------------------------------------------------
+CLD = {k: "" for k in ("cloud_name", "api_key", "api_secret")}
+for _path, _val in _flatten_secrets(st.secrets).items():
+    _leaf = _path.split(".")[-1].lower()
+    if "cloudinary" in _path.lower() and _leaf in CLD and str(_val).strip():
+        CLD[_leaf] = str(_val).strip()
+CLOUDINARY_OK = all(CLD.values())
+USE_R2 = not R2_PROBLEM and r2_client is not None
+STORAGE_NAME = "Cloudflare R2" if USE_R2 else ("Cloudinary" if CLOUDINARY_OK else "")
+
+
+def _cld_sign(params):
+    to_sign = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    return hashlib.sha1((to_sign + CLD["api_secret"]).encode("utf-8")).hexdigest()
+
+
+def cloudinary_upload(data, ext, key_no_ext, content_type):
+    # Photos "image" type me; PDF "raw" type me (free account pe PDF link block nahi hota)
+    rtype = "image" if ext in ("jpg", "jpeg", "png") else "raw"
+    public_id = f"dg/{key_no_ext}" + (f".{ext}" if rtype == "raw" else "")
+    params = {"public_id": public_id, "timestamp": int(time.time())}
+    params["signature"] = _cld_sign(params)
+    params["api_key"] = CLD["api_key"]
+    r = requests.post(f"https://api.cloudinary.com/v1_1/{CLD['cloud_name']}/{rtype}/upload",
+                      data=params, files={"file": (public_id.rsplit("/", 1)[-1], data, content_type)}, timeout=180)
+    if not r.ok:
+        try:
+            msg = r.json().get("error", {}).get("message", r.text)
+        except Exception:
+            msg = r.text
+        raise RuntimeError(f"Cloudinary upload error: {msg}")
+    return r.json()["secure_url"]
+
+
+def cloudinary_delete(url):
+    m = re.search(r"/(image|raw|video)/upload/(?:v\d+/)?(.+)$", url)
+    if not m:
+        return
+    rtype, pid = m.group(1), m.group(2)
+    if rtype == "image":
+        pid = pid.rsplit(".", 1)[0]
+    params = {"public_id": pid, "timestamp": int(time.time())}
+    params["signature"] = _cld_sign(params)
+    params["api_key"] = CLD["api_key"]
+    try:
+        requests.post(f"https://api.cloudinary.com/v1_1/{CLD['cloud_name']}/{rtype}/destroy", data=params, timeout=60)
+    except Exception:
+        pass
 
 
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
-    """Resize + re-compress a photo before upload. A typical 4-5MB phone photo
-    usually comes down to 200-400KB this way, with barely any visible quality loss."""
     try:
         img = Image.open(uploaded_file)
-        img = ImageOps.exif_transpose(img)  # fix phone photo rotation
+        img = ImageOps.exif_transpose(img)
         if img.mode in ("RGBA", "P", "LA"):
             img = img.convert("RGB")
         img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
@@ -643,104 +777,255 @@ def _compress_image(uploaded_file, max_dimension=1600, quality=50):
         buf.seek(0)
         return buf, "image/jpeg", "jpg"
     except Exception:
-        # If compression fails for any reason, upload the original rather than blocking the user
         uploaded_file.seek(0)
-        orig_ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "jpg"
-        return uploaded_file, (uploaded_file.type or "image/jpeg"), orig_ext
+        ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "jpg"
+        return uploaded_file, (uploaded_file.type or "image/jpeg"), ext
 
 
 def _compress_pdf_bytes(raw_bytes):
-    """Best-effort PDF compression, in order of how much it saves:
-    1) Ghostscript (if installed on the server via packages.txt) — big savings,
-       especially for scanned/image-heavy PDFs.
-    2) pypdf content-stream compression — modest but always safe fallback.
-    3) If both fail or don't shrink the file, the original bytes are kept.
-    """
-    # --- Try Ghostscript first ---
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_in:
             tmp_in.write(raw_bytes)
             tmp_in_path = tmp_in.name
         tmp_out_path = tmp_in_path.replace(".pdf", "_out.pdf")
-        subprocess.run(
-            [
-                "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
-                "-dPDFSETTINGS=/ebook", "-dNOPAUSE", "-dBATCH", "-dQUIET",
-                f"-sOutputFile={tmp_out_path}", tmp_in_path,
-            ],
-            check=True, timeout=60,
-        )
+        subprocess.run(["gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4", "-dPDFSETTINGS=/ebook",
+                        "-dNOPAUSE", "-dBATCH", "-dQUIET", f"-sOutputFile={tmp_out_path}", tmp_in_path],
+                       check=True, timeout=60)
         with open(tmp_out_path, "rb") as f:
-            gs_compressed = f.read()
+            gs_out = f.read()
         os.unlink(tmp_in_path)
         os.unlink(tmp_out_path)
-        if gs_compressed and len(gs_compressed) < len(raw_bytes):
-            return gs_compressed
+        if gs_out and len(gs_out) < len(raw_bytes):
+            return gs_out
     except Exception:
-        pass  # Ghostscript not installed or failed — fall through to pypdf
-
-    # --- Fallback: pypdf content-stream compression (modest, but safe) ---
+        pass
     try:
         reader = PdfReader(io.BytesIO(raw_bytes))
         writer = PdfWriter()
         for page in reader.pages:
             writer.add_page(page)
-        # compress_content_streams() only works once the page belongs to a PdfWriter,
-        # so this must run AFTER add_page(), not before.
         for page in writer.pages:
             try:
                 page.compress_content_streams()
             except Exception:
                 pass
-        out_buf = io.BytesIO()
-        writer.write(out_buf)
-        pypdf_compressed = out_buf.getvalue()
-        if pypdf_compressed and len(pypdf_compressed) < len(raw_bytes):
-            return pypdf_compressed
+        out = io.BytesIO()
+        writer.write(out)
+        if len(out.getvalue()) < len(raw_bytes):
+            return out.getvalue()
     except Exception:
         pass
+    return raw_bytes
 
-    return raw_bytes  # nothing worked better — upload as-is rather than fail
+
+def put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag):
+    """Bytes upload karo: R2 (Site Data page jaisa), R2 na ho to Cloudinary.
+    Naam: ProjectID_SiteID_Tag_xxxxxx.ext"""
+    if not USE_R2 and not CLOUDINARY_OK:
+        raise RuntimeError(R2_PROBLEM or "Koi bhi file storage (R2 / Cloudinary) configured nahi hai.")
+
+    def _safe(v, fb):
+        return "".join(c for c in str(v) if c.isalnum() or c in ("-", "_")) or fb
+
+    key_no_ext = f"{folder}/{_safe(project_id, 'proj')}_{_safe(site_id, 'site')}_{_safe(field_tag, 'file')}_{uuid.uuid4().hex[:6]}"
+    if not USE_R2:
+        return cloudinary_upload(data, ext, key_no_ext, content_type)
+    object_key = f"{key_no_ext}.{ext}"
+    r2_client.upload_fileobj(io.BytesIO(data), R2_BUCKET, object_key, ExtraArgs={"ContentType": content_type})
+    return f"{R2_PUBLIC_URL}/{object_key}"
 
 
 def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
-    """Compresses (if image/PDF) then uploads one Streamlit UploadedFile to R2,
-    returning its public download URL. Filename format: ProjectID_SiteID_FieldTag_xxxx.ext
-    (e.g. OM-RESPS-0580588_IN-3279057_Photo_a1b2c3.jpg)."""
-    if r2_client is None:
-        raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
-
-    orig_name = uploaded_file.name
-    ext = orig_name.split(".")[-1].lower() if "." in orig_name else "bin"
-
+    """Ek file compress karke upload. Returns (url, uploaded_size_bytes)."""
+    ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "bin"
     if ext in ("jpg", "jpeg", "png"):
         file_obj, content_type, ext = _compress_image(uploaded_file)
+        data = file_obj.read()
     elif ext == "pdf":
         uploaded_file.seek(0)
-        raw_bytes = uploaded_file.read()
-        compressed_bytes = _compress_pdf_bytes(raw_bytes)
-        file_obj = io.BytesIO(compressed_bytes)
+        data = _compress_pdf_bytes(uploaded_file.read())
         content_type = "application/pdf"
     else:
         uploaded_file.seek(0)
-        file_obj = uploaded_file
+        data = uploaded_file.read()
         content_type = uploaded_file.type or "application/octet-stream"
+    return put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag), len(data)
 
-    def _safe(v, fallback):
-        cleaned = "".join(c for c in str(v) if c.isalnum() or c in ("-", "_"))
-        return cleaned or fallback
 
-    safe_proj = _safe(project_id, "proj")
-    safe_site = _safe(site_id, "site")
-    safe_field = _safe(field_tag, "file")
-    object_key = f"{folder}/{safe_proj}_{safe_site}_{safe_field}_{uuid.uuid4().hex[:6]}.{ext}"
-    r2_client.upload_fileobj(
-        file_obj,
-        R2_BUCKET,
-        object_key,
-        ExtraArgs={"ContentType": content_type},
-    )
-    return f"{R2_PUBLIC_URL}/{object_key}"
+def _fit_text(text, font, max_size, min_size, max_width):
+    """Text ko width me fit karo: pehle font chhota, phir bhi na aaye to '...'"""
+    text = str(text or "-")
+    size = max_size
+    while size > min_size and stringWidth(text, font, size) > max_width:
+        size -= 1
+    if stringWidth(text, font, size) > max_width:
+        while len(text) > 1 and stringWidth(text + "...", font, size) > max_width:
+            text = text[:-1]
+        text = text.rstrip() + "..."
+    return text, size
+
+
+def _gradient_round_rect(pdf, x, y, w, h, r, c1, c2):
+    pdf.saveState()
+    path = pdf.beginPath()
+    path.roundRect(x, y, w, h, r)
+    pdf.clipPath(path, stroke=0, fill=0)
+    pdf.linearGradient(x, y, x + w, y, (HexColor(c1), HexColor(c2)), extend=True)
+    pdf.restoreState()
+
+
+def draw_cover_page(pdf, info):
+    """Colorful cover page: Company, SITE PHOTOS, Site Name, Site ID, Project Name."""
+    W, H = A4
+    pdf.setPageSize(A4)
+
+    # --- Background: deep indigo -> violet gradient ---
+    pdf.saveState()
+    bg = pdf.beginPath()
+    bg.rect(0, 0, W, H)
+    pdf.clipPath(bg, stroke=0, fill=0)
+    pdf.linearGradient(0, H, W, 0, (HexColor("#1e1b4b"), HexColor("#3730a3"), HexColor("#6d28d9")), extend=True)
+    pdf.restoreState()
+
+    # --- Soft colourful glow circles ---
+    for cx, cy, rad, col, alpha in [
+        (W - 40, H - 60, 190, "#ec4899", 0.35), (30, 150, 170, "#f59e0b", 0.28),
+        (60, H - 330, 90, "#06b6d4", 0.30), (W - 90, 260, 70, "#22c55e", 0.22),
+    ]:
+        pdf.setFillColor(HexColor(col), alpha=alpha)
+        pdf.circle(cx, cy, rad, stroke=0, fill=1)
+
+    # --- Top: company name ---
+    pdf.setFillColor(HexColor("#c7d2fe"))
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawCentredString(W / 2, H - 78, "S I T E   D O C U M E N T A T I O N")
+    comp, size = _fit_text(info.get("company"), "Helvetica-Bold", 26, 14, W - 90)
+    pdf.setFillColor(HexColor("#ffffff"))
+    pdf.setFont("Helvetica-Bold", size)
+    pdf.drawCentredString(W / 2, H - 112, comp)
+    _gradient_round_rect(pdf, W / 2 - 70, H - 132, 140, 5, 2.5, "#f59e0b", "#ec4899")
+
+    # --- Big title ---
+    title = info.get("title", "SITE PHOTOS")
+    pdf.setFont("Helvetica-Bold", 54)
+    pdf.setFillColor(HexColor("#000000"), alpha=0.25)
+    pdf.drawCentredString(W / 2 + 3, H - 213, title)
+    pdf.setFillColor(HexColor("#ffffff"), alpha=1)
+    pdf.drawCentredString(W / 2, H - 210, title)
+
+    # --- Chip: document type + photo count ---
+    n = info.get("count", 0)
+    count_txt = f"{n} PHOTO{'S' if n != 1 else ''}"
+    label = str(info.get("doc_label", "")).strip()
+    chip = (count_txt if label.lower() in ("", "photo", "photos") else f"{label}  •  {count_txt}").upper()
+    pdf.setFont("Helvetica-Bold", 12)
+    chip_w = stringWidth(chip, "Helvetica-Bold", 12) + 44
+    _gradient_round_rect(pdf, W / 2 - chip_w / 2, H - 266, chip_w, 30, 15, "#f59e0b", "#ec4899")
+    pdf.setFillColor(HexColor("#ffffff"))
+    pdf.drawCentredString(W / 2, H - 255, chip)
+
+    # --- White info card: 5 colourful rows ---
+    cx, cw2 = 48, W - 96
+    rows = [
+        ("SITE NAME", info.get("site_name"), "#ec4899", "#fdf2f8"),
+        ("SITE ID", info.get("site_id"), "#06b6d4", "#ecfeff"),
+        ("PROJECT NAME", info.get("project_name"), "#f59e0b", "#fffbeb"),
+        ("PROJECT ID", info.get("project_id"), "#22c55e", "#f0fdf4"),
+        ("CLUSTER", info.get("cluster"), "#8b5cf6", "#f5f3ff"),
+    ]
+    row_h, pad = 72, 22
+    box_h = row_h - 12
+    card_h = pad * 2 + row_h * len(rows) - 12
+    card_top = H - 300
+    card_y = card_top - card_h
+    pdf.setFillColor(HexColor("#0f0a2e"), alpha=0.35)
+    pdf.roundRect(cx + 6, card_y - 8, cw2, card_h, 22, stroke=0, fill=1)
+    pdf.setFillColor(HexColor("#ffffff"), alpha=1)
+    pdf.roundRect(cx, card_y, cw2, card_h, 22, stroke=0, fill=1)
+    _gradient_round_rect(pdf, cx + 22, card_top - 6, cw2 - 44, 6, 3, "#6366f1", "#ec4899")
+
+    for i, (label, value, accent, soft) in enumerate(rows):
+        ry = card_top - pad - i * row_h - box_h
+        pdf.setFillColor(HexColor(soft))
+        pdf.roundRect(cx + 20, ry, cw2 - 40, box_h, 14, stroke=0, fill=1)
+        pdf.setFillColor(HexColor(accent))
+        pdf.roundRect(cx + 20, ry, 9, box_h, 4.5, stroke=0, fill=1)
+        pdf.circle(cx + 56, ry + box_h / 2, 14, stroke=0, fill=1)
+        pdf.setFillColor(HexColor("#ffffff"))
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawCentredString(cx + 56, ry + box_h / 2 - 4.5, str(i + 1))
+        pdf.setFillColor(HexColor(accent))
+        pdf.setFont("Helvetica-Bold", 9.5)
+        pdf.drawString(cx + 84, ry + box_h - 19, f"{label}  :-")
+        val, vsize = _fit_text(value or "-", "Helvetica-Bold", 20, 11, cw2 - 124)
+        pdf.setFillColor(HexColor("#0f172a"))
+        pdf.setFont("Helvetica-Bold", vsize)
+        pdf.drawString(cx + 84, ry + 12, val)
+
+    # --- Footer ---
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    pdf.setFillColor(HexColor("#c7d2fe"))
+    pdf.setFont("Helvetica", 10)
+    pdf.drawCentredString(W / 2, 52, f"Generated on {now:%d %b %Y, %I:%M %p}")
+    _gradient_round_rect(pdf, 0, 0, W, 10, 0, "#06b6d4", "#ec4899")
+    pdf.showPage()
+
+
+def images_to_pdf_bytes(image_files, cover=None):
+    """Kai photos -> ek PDF. Pehle page pe colorful cover (Company / Site Photos / Site details),
+    phir har photo ek page. Photos pehle compress hoti hain (1600px, JPEG q50),
+    phir A4 page pe fit hoti hain. Landscape photo = landscape page."""
+    out = io.BytesIO()
+    pdf = canvas.Canvas(out, pagesize=A4)
+    if cover:
+        draw_cover_page(pdf, {**cover, "count": len(image_files)})
+    for uf in image_files:
+        uf.seek(0)
+        img_buf, _, _ = _compress_image(uf)
+        reader = ImageReader(img_buf)
+        iw, ih = reader.getSize()
+        page_w, page_h = (A4[1], A4[0]) if iw > ih else A4
+        pdf.setPageSize((page_w, page_h))
+        margin = 18
+        scale = min((page_w - 2 * margin) / iw, (page_h - 2 * margin) / ih)
+        w, h = iw * scale, ih * scale
+        pdf.drawImage(reader, (page_w - w) / 2, (page_h - h) / 2, width=w, height=h)
+        pdf.showPage()
+    pdf.save()
+    return out.getvalue()
+
+
+def fmt_size(n):
+    return f"{n / 1024 / 1024:.1f} MB" if n >= 1024 * 1024 else f"{max(n, 1) / 1024:.0f} KB"
+
+
+def delete_from_r2(url):
+    if "res.cloudinary.com" in url:
+        if CLOUDINARY_OK:
+            cloudinary_delete(url)
+        return
+    if r2_client is None or not R2_PUBLIC_URL or not url.startswith(R2_PUBLIC_URL + "/"):
+        return
+    try:
+        r2_client.delete_object(Bucket=R2_BUCKET, Key=url[len(R2_PUBLIC_URL) + 1:])
+    except Exception:
+        pass
+
+
+
+
+class StagedFile(io.BytesIO):
+    """Chuni hui (abhi upload nahi hui) file — UploadedFile jaisa hi behave karti hai."""
+    def __init__(self, data, name, mime):
+        super().__init__(data)
+        self.name, self.size, self.type = name, len(data), mime
+
+
+
+
+def _att_clean(v):
+    t = str(v if v is not None else "").strip()
+    return "" if t.lower() in ("nan", "none", "null", "-") else t
 
 
 def build_zip_from_urls(urls):
@@ -1568,13 +1853,22 @@ def edit_record_dialog(row_data):
         jms_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
         comm_report_opts_fixed = ["Select", "Available", "Pending", "Not Required"]
         with c12a:
-            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(row_data.get('Photos'), photos_opts), key=f"ed_photos_{rid}")
+            _ov = st.session_state.pop(f"attach_status_override_photos_{rid}", None)
+            if _ov:
+                st.session_state.pop(f"ed_photos_{rid}", None)
+            photos_status = st.selectbox("PHOTOS", photos_opts, index=get_idx(_ov or row_data.get('Photos'), photos_opts), key=f"ed_photos_{rid}")
         with c12b:
             audit_status = st.selectbox("AUDIT", audit_opts_fixed, index=get_idx(row_data.get('Audit'), audit_opts_fixed), key=f"ed_audit_{rid}")
         with c12c:
-            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(row_data.get('JMS'), jms_opts_fixed), key=f"ed_jms_{rid}")
+            _ov = st.session_state.pop(f"attach_status_override_jms_{rid}", None)
+            if _ov:
+                st.session_state.pop(f"ed_jms_{rid}", None)
+            jms_status = st.selectbox("JMS", jms_opts_fixed, index=get_idx(_ov or row_data.get('JMS'), jms_opts_fixed), key=f"ed_jms_{rid}")
         with c12d:
-            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(row_data.get('Commissioning Report'), comm_report_opts_fixed), key=f"ed_comm_report_{rid}")
+            _ov = st.session_state.pop(f"attach_status_override_comm_report_{rid}", None)
+            if _ov:
+                st.session_state.pop(f"ed_comm_report_{rid}", None)
+            comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(_ov or row_data.get('Commissioning Report'), comm_report_opts_fixed), key=f"ed_comm_report_{rid}")
 
         c13, c14, c15 = st.columns(3)
         with c13:
@@ -1702,119 +1996,220 @@ def edit_record_dialog(row_data):
         proj_id_for_files = row_data.get('Project ID', 'proj')
         site_id_for_files = row_data.get('Site ID', 'site')
 
+        _att_msg = st.session_state.pop(f"attach_msg_{rid}", None)
+        if _att_msg:
+            st.success(_att_msg)
+        if not STORAGE_NAME:
+            st.warning("⚠️ File upload abhi nahi chalega. " + R2_PROBLEM)
+        elif not USE_R2:
+            st.info("ℹ️ R2 secrets nahi mile, isliye files abhi **Cloudinary** pe save ho rahi hain.")
+
         def _render_attachment_field(config, att_col):
             col_name, key_prefix, field_label, icon, allowed_ext, css_key = config
+            ss = st.session_state
             state_key = f"attach_{key_prefix}_{rid}"
-            processed_key = f"attach_processed_{key_prefix}_{rid}"
-
-            if state_key not in st.session_state:
-                st.session_state[state_key] = _parse_file_list(row_data.get(col_name, ""))
-            if processed_key not in st.session_state:
-                st.session_state[processed_key] = set()
-
+            stage_key = f"attach_stage_{key_prefix}_{rid}"
+            ver_key = f"attach_upver_{key_prefix}_{rid}"
+            pdf_key = f"attach_topdf_{key_prefix}_{rid}"
+            if state_key not in ss:
+                ss[state_key] = _parse_file_list(row_data.get(col_name, ""))
+            if stage_key not in ss:
+                ss[stage_key] = []
+            if ver_key not in ss:
+                ss[ver_key] = 0
+            if pdf_key not in ss:
+                ss[pdf_key] = True
             is_photos_field = (key_prefix == "photos")
-            files_here = st.session_state[state_key]
+            status_col = STATUS_COL_MAP.get(key_prefix)
+            files_here = ss[state_key]
+            staged = ss[stage_key]
             is_available = len(files_here) > 0
 
             with att_col:
                 count_suffix = f" ({len(files_here)}/{MAX_PHOTOS})" if is_photos_field else (f" ({len(files_here)})" if files_here else "")
                 st.markdown(f"<p style='text-align:center; font-weight:800; color:#334155; font-size:0.85rem; margin-bottom:4px;'>{icon} {field_label}{count_suffix}</p>", unsafe_allow_html=True)
 
-                # Lavish-styled dropzone IS the upload button — pick a file and it
-                # uploads immediately, no separate reveal/confirm click needed.
+                make_pdf = st.toggle("Photos ko 1 PDF banao", key=pdf_key,
+                                     help="On: jitni photos ek saath upload karoge, sab milkar ek PDF banegi (pehla page cover + har photo ek page).")
+
+                # --- 1) File chuno -> pehle "taiyar" list me aati hai (abhi upload nahi) ---
                 with st.container(key=css_key):
                     picked_files = st.file_uploader(
-                        f"Upload {field_label}", type=allowed_ext, accept_multiple_files=True,
-                        key=f"uploader_{key_prefix}_{rid}", label_visibility="collapsed"
+                        f"Upload {field_label}", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True,
+                        key=f"uploader_{key_prefix}_{rid}_{ss[ver_key]}", label_visibility="collapsed"
                     )
-
                 if picked_files:
-                    unprocessed = [
-                        uf for uf in picked_files
-                        if (uf.name, uf.size) not in st.session_state[processed_key]
-                    ]
-                    if unprocessed:
-                        files_to_upload = unprocessed
-                        if is_photos_field:
-                            remaining_slots = MAX_PHOTOS - len(files_here)
-                            if remaining_slots <= 0:
-                                st.error(f"❌ Photos already {MAX_PHOTOS}/{MAX_PHOTOS} pe hai. Purani kuch hatao pehle.")
-                                files_to_upload = []
-                            elif len(unprocessed) > remaining_slots:
-                                st.warning(f"⚠️ Sirf {remaining_slots} naye add ho payenge (max {MAX_PHOTOS}) — baaki {len(unprocessed) - remaining_slots} skip kiye gaye.")
-                                files_to_upload = unprocessed[:remaining_slots]
+                    for u in picked_files:
+                        staged.append({"id": uuid.uuid4().hex[:8], "name": u.name,
+                                       "type": u.type or "application/octet-stream", "data": u.getvalue()})
+                    ss[ver_key] += 1
+                    st.rerun(scope="fragment")
 
-                        if files_to_upload:
-                            try:
-                                newly_uploaded_urls = []
-                                for uf in files_to_upload:
-                                    file_url = upload_file_to_r2(
-                                        uf, key_prefix, proj_id_for_files, site_id_for_files,
-                                        FILE_NAME_TAGS[key_prefix]
-                                    )
-                                    newly_uploaded_urls.append(file_url)
-                                    st.session_state[processed_key].add((uf.name, uf.size))
-                                st.session_state[state_key].extend(newly_uploaded_urls)
-                                update_payload = {col_name: ", ".join(st.session_state[state_key])}
-                                status_col = STATUS_COL_MAP.get(key_prefix)
+                # --- 2) Taiyar list: har file ke saath ✕ ---
+                if staged:
+                    total = sum(len(x["data"]) for x in staged)
+                    st.markdown(f"<div class='att-stage-head'>Upload ke liye taiyar: {len(staged)} file(s) · {fmt_size(total)}</div>", unsafe_allow_html=True)
+                    for item in list(staged):
+                        c1, c2, c3 = st.columns([1.1, 3.4, 0.9], vertical_alignment="center")
+                        if item["name"].lower().endswith(IMAGE_EXT):
+                            c1.image(item["data"], width=46)
+                        else:
+                            c1.markdown("<div style='font-size:1.6rem;text-align:center'>📄</div>", unsafe_allow_html=True)
+                        c2.markdown(f"<div class='att-stage-name'>{escape(item['name'])}<small>{fmt_size(len(item['data']))}</small></div>", unsafe_allow_html=True)
+                        if c3.button("✕", key=f"att_rm_{key_prefix}_{rid}_{item['id']}", help="Is file ko hatao"):
+                            ss[stage_key] = [x for x in staged if x["id"] != item["id"]]
+                            st.rerun(scope="fragment")
+
+                    b1, b2 = st.columns([1.6, 1])
+                    do_upload = b1.button(f"⬆️ Upload ({len(staged)})", key=f"att_doup_{key_prefix}_{rid}", type="primary", use_container_width=True)
+                    if b2.button("Sab hatao", key=f"att_clr_{key_prefix}_{rid}", use_container_width=True):
+                        ss[stage_key] = []
+                        st.rerun(scope="fragment")
+
+                    if do_upload:
+                        if is_photos_field and not make_pdf and len(files_here) + len(staged) > MAX_PHOTOS:
+                            st.error(f"❌ Max {MAX_PHOTOS} photos. Abhi {len(files_here)} hain. Kuch ✕ se hatao ya 'Photos ko 1 PDF banao' On karo.")
+                        else:
+                            images = [x for x in staged if x["name"].lower().endswith(IMAGE_EXT)] if make_pdf else []
+                            singles = [x for x in staged if x not in images]
+                            uploaded, done_ids, errors = [], set(), []
+                            orig_size, final_size = 0, 0
+                            with st.spinner("Compress + upload ho raha hai..."):
+                                if images:
+                                    try:
+                                        cover = {
+                                            "company": COMPANY_FULL_NAMES.get(st.session_state.get("site_active_company", "VISPL"),
+                                                                              st.session_state.get("site_active_company", "")),
+                                            "title": "SITE PHOTOS",
+                                            "doc_label": field_label,
+                                            "site_name": _att_clean(row_data.get("Site Name")),
+                                            "site_id": _att_clean(row_data.get("Site ID")),
+                                            "project_name": _att_clean(row_data.get("Project Name")),
+                                            "project_id": _att_clean(row_data.get("Project ID")),
+                                            "cluster": _att_clean(row_data.get("Cluster")),
+                                        }
+                                        pdf_bytes = images_to_pdf_bytes(
+                                            [StagedFile(x["data"], x["name"], x["type"]) for x in images], cover=cover)
+                                        uploaded.append(put_bytes_to_r2(pdf_bytes, "application/pdf", "pdf", key_prefix,
+                                                                        proj_id_for_files, site_id_for_files, FILE_NAME_TAGS[key_prefix]))
+                                        orig_size += sum(len(x["data"]) for x in images)
+                                        final_size += len(pdf_bytes)
+                                        done_ids.update(x["id"] for x in images)
+                                    except Exception as e:
+                                        errors.append(f"Photos se PDF nahi bani: {e}")
+                                for x in singles:
+                                    try:
+                                        url, size = upload_file_to_r2(StagedFile(x["data"], x["name"], x["type"]), key_prefix,
+                                                                      proj_id_for_files, site_id_for_files, FILE_NAME_TAGS[key_prefix])
+                                        uploaded.append(url)
+                                        orig_size += len(x["data"])
+                                        final_size += size
+                                        done_ids.add(x["id"])
+                                    except Exception as e:
+                                        errors.append(f"{x['name']}: {e}")
+                            for e in errors:
+                                st.error(f"❌ Upload fail: {e}".replace("$", "\\$"))
+                            if uploaded:
+                                new_list = files_here + uploaded
+                                payload = {col_name: ", ".join(new_list)}
                                 if status_col:
-                                    update_payload[status_col] = "Available"
-                                supabase.table("site_data").update(update_payload).eq("id", rid).execute()
-                                clear_site_data_cache()
-                                status_note = f" '{status_col}' status auto-set to Available (dialog dobara kholne par upar dikhega)." if status_col else ""
-                                st.success(f"✅ {len(newly_uploaded_urls)} file(s) uploaded!{status_note}")
-                                files_here = st.session_state[state_key]
-                                is_available = len(files_here) > 0
-                            except Exception as e:
-                                st.error(f"❌ Upload failed: {e}")
+                                    payload[status_col] = "Available"
+                                try:
+                                    supabase.table("site_data").update(payload).eq("id", rid).execute()
+                                    clear_site_data_cache()
+                                    ss[state_key] = new_list
+                                    ss[stage_key] = [x for x in staged if x["id"] not in done_ids]
+                                    if status_col:
+                                        ss[f"attach_status_override_{key_prefix}_{rid}"] = "Available"
+                                    ss[f"attach_msg_{rid}"] = (f"✅ {field_label}: {len(uploaded)} file(s) upload hui "
+                                                               f"({fmt_size(orig_size)} → {fmt_size(final_size)})"
+                                                               + (f", '{status_col}' = Available." if status_col else "."))
+                                    if not errors:
+                                        st.rerun(scope="fragment")
+                                except Exception as e:
+                                    st.error(f"❌ site_data update nahi hua: {e}")
 
                 if is_available:
                     st.markdown("<div class='attach-status attach-status-available'>✅ Available</div>", unsafe_allow_html=True)
-                else:
+                elif not staged:
                     st.markdown("<div class='attach-status attach-status-missing'>⭕ Not Available</div>", unsafe_allow_html=True)
 
-                # One-click download for everything in this field. A single file
-                # downloads directly; multiple files get zipped together first so
-                # one click/one save-dialog gets the user all of them at once.
+                # --- 3) Upload ho chuki files: har file ke saath ✕ (confirm ke baad delete) ---
                 if is_available:
+                    st.markdown("<div class='att-stage-head'>Upload ho chuki files</div>", unsafe_allow_html=True)
+                    for url in files_here:
+                        name = url.rsplit("/", 1)[-1]
+                        f_icon = "📄" if name.lower().endswith(".pdf") else "🖼️"
+                        fc1, fc2 = st.columns([4.4, 1], vertical_alignment="center")
+                        fc1.markdown(f"<div class='att-file-link'>{f_icon} <a href='{escape(url)}' target='_blank'>{escape(name)}</a></div>", unsafe_allow_html=True)
+                        with fc2.popover("✕"):
+                            st.write("Ye file delete karein?")
+                            if st.button("Haan, delete", key=f"att_x_{key_prefix}_{rid}_{name}", type="primary"):
+                                remaining = [u for u in files_here if u != url]
+                                payload = {col_name: ", ".join(remaining)}
+                                if status_col and not remaining:
+                                    payload[status_col] = "Pending"
+                                try:
+                                    supabase.table("site_data").update(payload).eq("id", rid).execute()
+                                    delete_from_r2(url)
+                                    clear_site_data_cache()
+                                    ss[state_key] = remaining
+                                    if status_col and not remaining:
+                                        ss[f"attach_status_override_{key_prefix}_{rid}"] = "Pending"
+                                    ss[f"attach_msg_{rid}"] = f"🗑️ {name} delete ho gayi."
+                                    st.rerun(scope="fragment")
+                                except Exception as e:
+                                    st.error(f"❌ Delete nahi hua: {e}")
+
+                    # --- Download: seedha Downloads folder me (1 file) / .zip (multiple) ---
                     with st.container(key=f"attach_lav_download_{key_prefix}"):
+                        safe_proj_dl = "".join(c for c in str(proj_id_for_files) if c.isalnum() or c in ("-", "_")) or "proj"
+                        safe_site_dl = "".join(c for c in str(site_id_for_files) if c.isalnum() or c in ("-", "_")) or "site"
                         if len(files_here) == 1:
-                            st.link_button(f"⬇️  Download {field_label}", files_here[0], use_container_width=True)
+                            one = files_here[0]
+                            one_name = one.rsplit("/", 1)[-1] or f"{FILE_NAME_TAGS[key_prefix]}.pdf"
+                            dl_key, dl_src = f"attach_dl_{key_prefix}_{rid}", f"attach_dlsrc_{key_prefix}_{rid}"
+                            if ss.get(dl_src) != one:
+                                try:
+                                    with st.spinner(f"{field_label} download ke liye taiyar ho raha hai..."):
+                                        resp = requests.get(one, timeout=60)
+                                        resp.raise_for_status()
+                                        ss[dl_key], ss[dl_src] = resp.content, one
+                                except Exception:
+                                    ss.pop(dl_key, None)
+                            if ss.get(dl_key):
+                                ext = one_name.rsplit(".", 1)[-1].lower() if "." in one_name else ""
+                                mime = {"pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                                        "png": "image/png"}.get(ext, "application/octet-stream")
+                                st.download_button(f"⬇️  Download {field_label}", data=ss[dl_key], file_name=one_name,
+                                                   mime=mime, key=f"btn_dl1_{key_prefix}_{rid}", use_container_width=True)
+                            else:
+                                st.link_button(f"⬇️  Download {field_label}", one, use_container_width=True)
                         else:
                             zip_ready_key = f"attach_zip_ready_{key_prefix}_{rid}"
                             zip_source_key = f"attach_zip_source_{key_prefix}_{rid}"
                             current_files_tuple = tuple(files_here)
-
-                            # Zip is (re)built silently whenever the file list changes —
-                            # e.g. right after a new upload, or the first time this dialog
-                            # opens for this record — so the button below is always
-                            # instantly clickable with no separate "prepare" step for the user.
-                            if st.session_state.get(zip_source_key) != current_files_tuple:
+                            if ss.get(zip_source_key) != current_files_tuple:
                                 with st.spinner(f"{field_label} download ke liye taiyar ho raha hai..."):
-                                    st.session_state[zip_ready_key] = build_zip_from_urls(files_here)
-                                    st.session_state[zip_source_key] = current_files_tuple
-
-                            safe_proj_dl = "".join(c for c in str(proj_id_for_files) if c.isalnum() or c in ("-", "_")) or "proj"
-                            safe_site_dl = "".join(c for c in str(site_id_for_files) if c.isalnum() or c in ("-", "_")) or "site"
+                                    ss[zip_ready_key] = build_zip_from_urls(files_here)
+                                    ss[zip_source_key] = current_files_tuple
                             st.download_button(
                                 f"⬇️  Download {field_label} ({len(files_here)} files, .zip)",
-                                data=st.session_state[zip_ready_key],
+                                data=ss[zip_ready_key],
                                 file_name=f"{safe_proj_dl}_{safe_site_dl}_{FILE_NAME_TAGS[key_prefix]}.zip",
                                 mime="application/zip",
                                 key=f"btn_zipdl_{key_prefix}_{rid}",
                                 use_container_width=True,
-                                )
+                            )
 
-        attach_cols_row1 = st.columns(3)
-        for config, att_col in zip(attach_field_configs_row1, attach_cols_row1):
-            _render_attachment_field(config, att_col)
+        # Sab attachments 3-3 ke grid me (DG Project jaisa kushada layout)
+        _all_attach = attach_field_configs_row1 + attach_field_configs_row2
+        for _i in range(0, len(_all_attach), 3):
+            _att_cols = st.columns(3)
+            for config, att_col in zip(_all_attach[_i:_i + 3], _att_cols):
+                _render_attachment_field(config, att_col)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        attach_cols_row2 = st.columns(4)
-        for config, att_col in zip(attach_field_configs_row2, attach_cols_row2):
-            _render_attachment_field(config, att_col)
-            
         st.markdown("<br>", unsafe_allow_html=True)
 
         col_btn1, col_btn2 = st.columns([8, 2])
