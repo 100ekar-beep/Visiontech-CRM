@@ -153,6 +153,17 @@ div[class*="st-key-dgdl_"] button, div[class*="st-key-dgdl_"] a {
 div[class*="st-key-dgdl_"] a, div[class*="st-key-dgdl_"] a p, div[class*="st-key-dgdl_"] button p { color: #fff !important; font-weight: 800 !important; }
 .dg-doc-title { text-align: center; font-weight: 800; color: #334155; font-size: 0.9rem; margin-bottom: 4px; }
 .dg-file-link { font-size: 0.8rem; word-break: break-all; margin: 2px 0; }
+.dg-stage-head { font-size: .78rem; font-weight: 800; color: #475569; margin: 10px 0 4px; }
+.dg-stage-name { font-size: .78rem; font-weight: 600; color: #0f172a; word-break: break-all; line-height: 1.25; }
+.dg-stage-name small { display: block; color: #64748b; font-weight: 600; }
+div[class*="st-key-dg_rm_"] button {
+    background: #fee2e2 !important; border: 1px solid #fecaca !important; box-shadow: none !important;
+    width: 30px !important; height: 30px !important; min-height: 30px !important; padding: 0 !important; border-radius: 50% !important;
+}
+div[class*="st-key-dg_rm_"] button p { color: #b91c1c !important; font-weight: 900 !important; }
+div[class*="st-key-dg_rm_"] button:hover { background: #ef4444 !important; }
+div[class*="st-key-dg_rm_"] button:hover p { color: #fff !important; }
+div[data-testid="stDialog"] [data-testid="stPopover"] button { padding: 2px 8px !important; min-height: 30px !important; }
 .dg-file-link a { color: #4338ca !important; font-weight: 600; text-decoration: none; }
 
 /* KPI strip */
@@ -326,8 +337,28 @@ def init_r2_connection():
 
 
 r2_client = init_r2_connection()
-R2_BUCKET = st.secrets.get("r2", {}).get("bucket_name", "")
-R2_PUBLIC_URL = st.secrets.get("r2", {}).get("public_url", "").rstrip("/")
+def _r2_setting(*names):
+    """[r2] secrets se value lo — key ka naam thoda alag ho (bucket / BUCKET_NAME) to bhi mil jaye."""
+    try:
+        cfg = st.secrets["r2"]
+    except Exception:
+        return ""
+    lower = {str(k).lower(): k for k in cfg.keys()}
+    for n in names:
+        if n.lower() in lower and cfg[lower[n.lower()]]:
+            return str(cfg[lower[n.lower()]]).strip()
+    return ""
+
+
+def _r2_key_names():
+    try:
+        return ", ".join(str(k) for k in st.secrets["r2"].keys()) or "(khali)"
+    except Exception:
+        return "[r2] section hi nahi mila"
+
+
+R2_BUCKET = _r2_setting("bucket_name", "bucket", "r2_bucket", "r2_bucket_name")
+R2_PUBLIC_URL = _r2_setting("public_url", "public_base_url", "r2_public_url", "public_domain", "custom_domain").rstrip("/")
 
 
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
@@ -387,6 +418,11 @@ def put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_
     """Bytes ko R2 me daalo. Naam: ProjectID_SiteID_Tag_xxxxxx.ext (Site Data page jaisa)."""
     if r2_client is None:
         raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
+    if not R2_BUCKET:
+        raise RuntimeError(f"Streamlit secrets ke [r2] me bucket name nahi mila. [r2] me ye keys hain: {_r2_key_names()}")
+    if not R2_PUBLIC_URL.startswith("http"):
+        raise RuntimeError(f"Streamlit secrets ke [r2] me public_url nahi mila (https://... hona chahiye). "
+                           f"[r2] me ye keys hain: {_r2_key_names()}")
 
     def _safe(v, fb):
         return "".join(c for c in str(v) if c.isalnum() or c in ("-", "_")) or fb
@@ -580,88 +616,150 @@ def reset_dialog_state(rid):
 
 
 # ============================== MANAGE DIALOG ==============================
+class StagedFile(io.BytesIO):
+    """Chuni hui (abhi upload nahi hui) file — UploadedFile jaisa hi behave karti hai."""
+    def __init__(self, data, name, mime):
+        super().__init__(data)
+        self.name, self.size, self.type = name, len(data), mime
+
+
+def _remove_uploaded(rec, doc, url):
+    ss = st.session_state
+    rid, f = rec["id"], doc["folder"]
+    files_key, st_key = f"dg_files_{f}_{rid}", f"dg_st_{f}_{rid}"
+    remaining = [u for u in ss[files_key] if u != url]
+    payload = {doc["files"]: ", ".join(remaining)}
+    if not remaining and ss[st_key] == "Available":
+        payload[doc["status"]] = "Pending"
+    update_site(rid, payload)
+    delete_from_r2(url)
+    ss[files_key] = remaining
+    if doc["status"] in payload:
+        ss[st_key] = "Pending"
+
+
 def _render_doc(rec, doc):
     ss = st.session_state
     rid, f = rec["id"], doc["folder"]
-    files_key, proc_key, st_key = f"dg_files_{f}_{rid}", f"dg_proc_{f}_{rid}", f"dg_st_{f}_{rid}"
+    files_key, st_key = f"dg_files_{f}_{rid}", f"dg_st_{f}_{rid}"
+    stage_key, ver_key = f"dg_stage_{f}_{rid}", f"dg_upver_{f}_{rid}"
     if files_key not in ss:
         ss[files_key] = parse_files(rec.get(doc["files"]))
-    if proc_key not in ss:
-        ss[proc_key] = set()
     if st_key not in ss:
         ss[st_key] = effective_status(rec.get(doc["status"]), ss[files_key])
-    files = ss[files_key]
+    if stage_key not in ss:
+        ss[stage_key] = []
+    if ver_key not in ss:
+        ss[ver_key] = 0
+    files, staged = ss[files_key], ss[stage_key]
 
     count = f" ({len(files)}/{MAX_PHOTOS})" if f == "photos" else (f" ({len(files)})" if files else "")
     st.markdown(f"<div class='dg-doc-title'>{doc['icon']} {doc['label']}{count}</div>", unsafe_allow_html=True)
 
-    # --- Upload: file chunte hi upload ---
     pdf_key = f"dg_topdf_{f}_{rid}"
     if pdf_key not in ss:
         ss[pdf_key] = doc["to_pdf"]
     make_pdf = st.toggle("Photos ko 1 PDF banao", key=pdf_key,
-                         help="On: jitni photos ek saath chunoge, sab milkar ek PDF banegi (har photo ek page).")
+                         help="On: jitni photos ek saath upload karoge, sab milkar ek PDF banegi (har photo ek page).")
+
+    # --- 1) File chuno -> pehle "taiyar" list me aati hai (abhi upload nahi) ---
     with st.container(key=doc["css"]):
         picked = st.file_uploader(f"Upload {doc['label']}", type=ALLOWED_EXT, accept_multiple_files=True,
-                                  key=f"dg_up_{f}_{rid}", label_visibility="collapsed")
-    new_files = [u for u in (picked or []) if (u.name, u.size) not in ss[proc_key]]
-    if new_files:
-        if f == "photos" and not make_pdf:
-            slots = MAX_PHOTOS - len(files)
-            if slots <= 0:
-                st.error(f"Photos pehle se {MAX_PHOTOS}/{MAX_PHOTOS} hain. Pehle kuch delete karein.")
-                new_files = []
-            elif len(new_files) > slots:
-                st.warning(f"Sirf {slots} photo add hongi (max {MAX_PHOTOS}).")
-                for extra in new_files[slots:]:
-                    ss[proc_key].add((extra.name, extra.size))
-                new_files = new_files[:slots]
-        uploaded, errors = [], []
-        orig_size, final_size = 0, 0
-        pid, sid = rec.get("Project ID"), rec.get("Site ID")
-        images = [u for u in new_files if u.name.lower().endswith(IMAGE_EXT)]
-        singles = [u for u in new_files if u not in images] if (make_pdf and images) else new_files
-        with st.spinner("Compress + upload ho raha hai..."):
-            if make_pdf and images:
-                try:
-                    pdf_bytes = images_to_pdf_bytes(images)
-                    uploaded.append(put_bytes_to_r2(pdf_bytes, "application/pdf", "pdf", f, pid, sid, doc["tag"]))
-                    orig_size += sum(u.size for u in images)
-                    final_size += len(pdf_bytes)
-                    for u in images:
-                        ss[proc_key].add((u.name, u.size))
-                except Exception as e:
-                    errors.append(f"Photos se PDF nahi bani: {e}")
-            for uf in singles:
-                try:
-                    url, size = upload_file_to_r2(uf, f, pid, sid, doc["tag"])
-                    uploaded.append(url)
-                    orig_size += uf.size
-                    final_size += size
-                    ss[proc_key].add((uf.name, uf.size))
-                except Exception as e:
-                    errors.append(f"{uf.name}: {e}")
-        for e in errors:
-            st.error(f"Upload fail: {e}")
-        if uploaded:
-            new_list = files + uploaded
-            try:
-                update_site(rid, {doc["files"]: ", ".join(new_list), doc["status"]: "Available"})
-                ss[files_key] = new_list
-                ss[st_key] = "Available"
-                ss[f"dg_msg_{rid}"] = (f"✅ {doc['label']}: {len(uploaded)} file(s) upload hui "
-                                       f"({fmt_size(orig_size)} → {fmt_size(final_size)}), status Available.")
-                st.rerun(scope="fragment")
-            except Exception as e:
-                st.error(f"site_data update nahi hua: {e}")
+                                  key=f"dg_up_{f}_{rid}_{ss[ver_key]}", label_visibility="collapsed")
+    if picked:
+        for u in picked:
+            staged.append({"id": uuid.uuid4().hex[:8], "name": u.name,
+                           "type": u.type or "application/octet-stream", "data": u.getvalue()})
+        ss[ver_key] += 1          # uploader khali karo
+        st.rerun(scope="fragment")
 
-    # --- Files list + download + delete ---
+    # --- 2) Taiyar list: har file ke saath ✕ ---
+    if staged:
+        total = sum(len(x["data"]) for x in staged)
+        st.markdown(f"<div class='dg-stage-head'>Upload ke liye taiyar: {len(staged)} file(s) · {fmt_size(total)}</div>",
+                    unsafe_allow_html=True)
+        for item in list(staged):
+            c1, c2, c3 = st.columns([1.1, 3.4, 0.9], vertical_alignment="center")
+            if item["name"].lower().endswith(IMAGE_EXT):
+                c1.image(item["data"], width=46)
+            else:
+                c1.markdown("<div style='font-size:1.6rem;text-align:center'>📄</div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='dg-stage-name'>{escape(item['name'])}<small>{fmt_size(len(item['data']))}</small></div>",
+                        unsafe_allow_html=True)
+            if c3.button("✕", key=f"dg_rm_{f}_{rid}_{item['id']}", help="Is file ko hatao"):
+                ss[stage_key] = [x for x in staged if x["id"] != item["id"]]
+                st.rerun(scope="fragment")
+
+        b1, b2 = st.columns([1.6, 1])
+        do_upload = b1.button(f"⬆️ Upload ({len(staged)})", key=f"dg_doup_{f}_{rid}", type="primary",
+                              use_container_width=True)
+        if b2.button("Sab hatao", key=f"dg_clr_{f}_{rid}", use_container_width=True):
+            ss[stage_key] = []
+            st.rerun(scope="fragment")
+
+        if do_upload:
+            if f == "photos" and not make_pdf and len(files) + len(staged) > MAX_PHOTOS:
+                st.error(f"Max {MAX_PHOTOS} photos. Abhi {len(files)} hain, sirf {MAX_PHOTOS - len(files)} aur add ho sakti hain. "
+                         f"Kuch ✕ se hatao ya 'Photos ko 1 PDF banao' On karo.")
+            else:
+                pid, sid = rec.get("Project ID"), rec.get("Site ID")
+                images = [x for x in staged if x["name"].lower().endswith(IMAGE_EXT)] if make_pdf else []
+                singles = [x for x in staged if x not in images]
+                uploaded, done_ids, errors = [], set(), []
+                orig_size, final_size = 0, 0
+                with st.spinner("Compress + upload ho raha hai..."):
+                    if images:
+                        try:
+                            pdf_bytes = images_to_pdf_bytes([StagedFile(x["data"], x["name"], x["type"]) for x in images])
+                            uploaded.append(put_bytes_to_r2(pdf_bytes, "application/pdf", "pdf", f, pid, sid, doc["tag"]))
+                            orig_size += sum(len(x["data"]) for x in images)
+                            final_size += len(pdf_bytes)
+                            done_ids.update(x["id"] for x in images)
+                        except Exception as e:
+                            errors.append(f"Photos se PDF nahi bani: {e}")
+                    for x in singles:
+                        try:
+                            url, size = upload_file_to_r2(StagedFile(x["data"], x["name"], x["type"]), f, pid, sid, doc["tag"])
+                            uploaded.append(url)
+                            orig_size += len(x["data"])
+                            final_size += size
+                            done_ids.add(x["id"])
+                        except Exception as e:
+                            errors.append(f"{x['name']}: {e}")
+                for e in errors:
+                    st.error(f"Upload fail: {e}".replace("$", "\\$"))
+                if uploaded:
+                    new_list = files + uploaded
+                    try:
+                        update_site(rid, {doc["files"]: ", ".join(new_list), doc["status"]: "Available"})
+                        ss[files_key] = new_list
+                        ss[st_key] = "Available"
+                        ss[stage_key] = [x for x in staged if x["id"] not in done_ids]   # fail wali list me rahengi
+                        ss[f"dg_msg_{rid}"] = (f"✅ {doc['label']}: {len(uploaded)} file(s) upload hui "
+                                               f"({fmt_size(orig_size)} → {fmt_size(final_size)}), status Available.")
+                        if not errors:
+                            st.rerun(scope="fragment")
+                    except Exception as e:
+                        st.error(f"site_data update nahi hua: {e}")
+
+    # --- 3) Upload ho chuki files: har file ke saath ✕ (confirm ke baad delete) ---
     if files:
+        st.markdown("<div class='dg-stage-head'>Upload ho chuki files</div>", unsafe_allow_html=True)
         for url in files:
             name = url.rsplit("/", 1)[-1]
             icon = "📄" if name.lower().endswith(".pdf") else "🖼️"
-            st.markdown(f"<div class='dg-file-link'>{icon} <a href='{escape(url)}' target='_blank'>{escape(name)}</a></div>",
+            c1, c2 = st.columns([4.4, 1], vertical_alignment="center")
+            c1.markdown(f"<div class='dg-file-link'>{icon} <a href='{escape(url)}' target='_blank'>{escape(name)}</a></div>",
                         unsafe_allow_html=True)
+            with c2.popover("✕"):
+                st.write("Ye file delete karein?")
+                if st.button("Haan, delete", key=f"dg_x_{f}_{rid}_{name}", type="primary"):
+                    try:
+                        _remove_uploaded(rec, doc, url)
+                        ss[f"dg_msg_{rid}"] = f"🗑️ {name} delete ho gayi."
+                        st.rerun(scope="fragment")
+                    except Exception as e:
+                        st.error(f"Delete nahi hua: {e}")
 
         with st.container(key=f"dgdl_{f}"):
             if len(files) == 1:
@@ -676,27 +774,7 @@ def _render_doc(rec, doc):
                     f"⬇️ Download {doc['label']} ({len(files)}, .zip)", data=ss[zip_key],
                     file_name=f"{_clean(rec.get('Project ID')) or 'proj'}_{_clean(rec.get('Site ID')) or 'site'}_{doc['tag']}.zip",
                     mime="application/zip", key=f"dg_zipbtn_{f}_{rid}", use_container_width=True)
-
-        with st.popover("🗑️ File delete karein", use_container_width=True):
-            names = {u.rsplit("/", 1)[-1]: u for u in files}
-            to_del = st.selectbox("File chunein", list(names), key=f"dg_delsel_{f}_{rid}")
-            if st.button("Delete", key=f"dg_delbtn_{f}_{rid}", type="primary"):
-                url = names[to_del]
-                remaining = [u for u in files if u != url]
-                payload = {doc["files"]: ", ".join(remaining)}
-                if not remaining and ss[st_key] == "Available":
-                    payload[doc["status"]] = "Pending"
-                try:
-                    update_site(rid, payload)
-                    delete_from_r2(url)
-                    ss[files_key] = remaining
-                    if doc["status"] in payload:
-                        ss[st_key] = "Pending"
-                    ss[f"dg_msg_{rid}"] = f"🗑️ {to_del} delete ho gayi."
-                    st.rerun(scope="fragment")
-                except Exception as e:
-                    st.error(f"Delete nahi hua: {e}")
-    else:
+    elif not staged:
         st.caption("Abhi koi file nahi hai.")
 
     opts = STATUS_OPTS if ss[st_key] in STATUS_OPTS else [ss[st_key]] + STATUS_OPTS
