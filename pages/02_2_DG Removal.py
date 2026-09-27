@@ -5,8 +5,11 @@ DG Project page (Site Data page jaisa hi look & table)
 - Files Cloudflare R2 me upload hoti hain (Site Data page jaisa hi), URL site_data ke "<X> Files" column me
   => Site Data page aur ye page hamesha same data dikhate hain
 """
+import hashlib
 import io
 import math
+import re
+import time
 import os
 import subprocess
 import tempfile
@@ -407,6 +410,59 @@ else:
         R2_PROBLEM = f"R2 connection error: {e}"
 
 
+# -------------------------------------------------------------
+# BACKUP STORAGE: Cloudinary (secrets me [cloudinary] pehle se hai).
+# R2 settings na milein to files Cloudinary pe jaayengi, taaki upload ruke nahi.
+# -------------------------------------------------------------
+CLD = {k: "" for k in ("cloud_name", "api_key", "api_secret")}
+for _path, _val in _flatten_secrets(st.secrets).items():
+    _leaf = _path.split(".")[-1].lower()
+    if "cloudinary" in _path.lower() and _leaf in CLD and str(_val).strip():
+        CLD[_leaf] = str(_val).strip()
+CLOUDINARY_OK = all(CLD.values())
+USE_R2 = not R2_PROBLEM and r2_client is not None
+STORAGE_NAME = "Cloudflare R2" if USE_R2 else ("Cloudinary" if CLOUDINARY_OK else "")
+
+
+def _cld_sign(params):
+    to_sign = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    return hashlib.sha1((to_sign + CLD["api_secret"]).encode("utf-8")).hexdigest()
+
+
+def cloudinary_upload(data, ext, key_no_ext, content_type):
+    # Photos "image" type me; PDF "raw" type me (free account pe PDF link block nahi hota)
+    rtype = "image" if ext in ("jpg", "jpeg", "png") else "raw"
+    public_id = f"dg/{key_no_ext}" + (f".{ext}" if rtype == "raw" else "")
+    params = {"public_id": public_id, "timestamp": int(time.time())}
+    params["signature"] = _cld_sign(params)
+    params["api_key"] = CLD["api_key"]
+    r = requests.post(f"https://api.cloudinary.com/v1_1/{CLD['cloud_name']}/{rtype}/upload",
+                      data=params, files={"file": (public_id.rsplit("/", 1)[-1], data, content_type)}, timeout=180)
+    if not r.ok:
+        try:
+            msg = r.json().get("error", {}).get("message", r.text)
+        except Exception:
+            msg = r.text
+        raise RuntimeError(f"Cloudinary upload error: {msg}")
+    return r.json()["secure_url"]
+
+
+def cloudinary_delete(url):
+    m = re.search(r"/(image|raw|video)/upload/(?:v\d+/)?(.+)$", url)
+    if not m:
+        return
+    rtype, pid = m.group(1), m.group(2)
+    if rtype == "image":
+        pid = pid.rsplit(".", 1)[0]
+    params = {"public_id": pid, "timestamp": int(time.time())}
+    params["signature"] = _cld_sign(params)
+    params["api_key"] = CLD["api_key"]
+    try:
+        requests.post(f"https://api.cloudinary.com/v1_1/{CLD['cloud_name']}/{rtype}/destroy", data=params, timeout=60)
+    except Exception:
+        pass
+
+
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
     try:
         img = Image.open(uploaded_file)
@@ -461,14 +517,18 @@ def _compress_pdf_bytes(raw_bytes):
 
 
 def put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag):
-    """Bytes ko R2 me daalo. Naam: ProjectID_SiteID_Tag_xxxxxx.ext (Site Data page jaisa)."""
-    if R2_PROBLEM or r2_client is None:
-        raise RuntimeError(R2_PROBLEM or "R2 client nahi bana.")
+    """Bytes upload karo: R2 (Site Data page jaisa), R2 na ho to Cloudinary.
+    Naam: ProjectID_SiteID_Tag_xxxxxx.ext"""
+    if not USE_R2 and not CLOUDINARY_OK:
+        raise RuntimeError(R2_PROBLEM or "Koi bhi file storage (R2 / Cloudinary) configured nahi hai.")
 
     def _safe(v, fb):
         return "".join(c for c in str(v) if c.isalnum() or c in ("-", "_")) or fb
 
-    object_key = f"{folder}/{_safe(project_id, 'proj')}_{_safe(site_id, 'site')}_{_safe(field_tag, 'file')}_{uuid.uuid4().hex[:6]}.{ext}"
+    key_no_ext = f"{folder}/{_safe(project_id, 'proj')}_{_safe(site_id, 'site')}_{_safe(field_tag, 'file')}_{uuid.uuid4().hex[:6]}"
+    if not USE_R2:
+        return cloudinary_upload(data, ext, key_no_ext, content_type)
+    object_key = f"{key_no_ext}.{ext}"
     r2_client.upload_fileobj(io.BytesIO(data), R2_BUCKET, object_key, ExtraArgs={"ContentType": content_type})
     return f"{R2_PUBLIC_URL}/{object_key}"
 
@@ -640,6 +700,10 @@ def fmt_size(n):
 
 
 def delete_from_r2(url):
+    if "res.cloudinary.com" in url:
+        if CLOUDINARY_OK:
+            cloudinary_delete(url)
+        return
     if r2_client is None or not R2_PUBLIC_URL or not url.startswith(R2_PUBLIC_URL + "/"):
         return
     try:
@@ -963,9 +1027,12 @@ def dg_site_dialog(rec):
     ss = st.session_state
     rid = rec["id"]
     st.caption("SRC, DC, E-Way, Photo aur POD upload karein, status aur remark update karein  ·  "
-               "Page version: v7 (PDF cover page)")
-    if R2_PROBLEM:
+               "Page version: v8 (cover page + Cloudinary backup)")
+    if not STORAGE_NAME:
         st.warning("⚠️ File upload abhi nahi chalega. " + R2_PROBLEM)
+    elif not USE_R2:
+        st.info("ℹ️ R2 secrets nahi mile, isliye files abhi **Cloudinary** pe save ho rahi hain. "
+                "Streamlit Secrets me [r2] add karte hi apne aap R2 pe jaane lagengi.")
 
     st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
     info_cols = st.columns(5)
