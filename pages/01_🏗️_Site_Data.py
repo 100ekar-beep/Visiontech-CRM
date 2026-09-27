@@ -1960,8 +1960,15 @@ def edit_record_dialog(row_data):
                     st.success("✅ Record Successfully Deleted!")
                     clear_site_data_cache()
                     st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Deleting Record: {e}")
+                                except Exception as e:
+                    st.error(f"❌ Error Updating Data: {e}")
+
+        # Team app me site delete band
+        if st.session_state.get("team_authed"):
+            return
+
+        # ---------------------------------------------------------------
+        # --- DANGER ZONE: DELETE THIS RECORD (merged from separate button)
 
 # --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
 @st.dialog("📦 Warehouse Material Tracking", width="large")
