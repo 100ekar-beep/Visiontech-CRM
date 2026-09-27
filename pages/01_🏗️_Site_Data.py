@@ -32,6 +32,9 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Site Data Hub", page_icon="🏗️", layout="wide")
 
+# --- TEAM MODE: team_app.py se login hua ho to True (tab site DELETE ka option nahi dikhega) ---
+IS_TEAM_USER = bool(st.session_state.get("team_authed"))
+
 # --- INITIALIZE SESSION STATES ---
 if 'po_count' not in st.session_state:
     st.session_state.po_count = 1
@@ -1941,31 +1944,29 @@ def edit_record_dialog(row_data):
                     st.error(f"❌ Error Updating Data: {e}")
 
         # ---------------------------------------------------------------
-        # --- DANGER ZONE: DELETE THIS RECORD (merged from separate button)
+        # --- DANGER ZONE: DELETE THIS RECORD — SIRF ADMIN (main app) KE LIYE
+        # Team app (team_app.py) se login hua ho to ye poora section dikhta hi nahi.
         # ---------------------------------------------------------------
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
-            <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
-                <div style="color:#dc2626; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
-            </div>
-        """, unsafe_allow_html=True)
-        confirm_del = st.checkbox(
-            "Main is record ko permanently DELETE karna chahta hoon (is action ko undo nahi kiya ja sakta)",
-            key=f"del_confirm_{row_data['id']}"
-        )
-        if confirm_del:
-            if st.button("🗑️ Delete This Record Permanently", key=f"del_now_{row_data['id']}", type="secondary", use_container_width=True):
-                try:
-                    supabase.table("site_data").delete().eq("id", row_data['id']).execute()
-                    st.success("✅ Record Successfully Deleted!")
-                    clear_site_data_cache()
-                    st.rerun()
-                                except Exception as e:
-                    st.error(f"❌ Error Updating Data: {e}")
-
-                # Team app me site delete band
-        if st.session_state.get("team_authed"):
-            return
+        if not IS_TEAM_USER:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("""
+                <div style="border-top: 1px dashed rgba(239,68,68,0.4); margin-top: 10px; padding-top: 15px;">
+                    <div style="color:#dc2626; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase;">⚠️ Danger Zone</div>
+                </div>
+            """, unsafe_allow_html=True)
+            confirm_del = st.checkbox(
+                "Main is record ko permanently DELETE karna chahta hoon (is action ko undo nahi kiya ja sakta)",
+                key=f"del_confirm_{row_data['id']}"
+            )
+            if confirm_del:
+                if st.button("🗑️ Delete This Record Permanently", key=f"del_now_{row_data['id']}", type="secondary", use_container_width=True):
+                    try:
+                        supabase.table("site_data").delete().eq("id", row_data['id']).execute()
+                        st.success("✅ Record Successfully Deleted!")
+                        clear_site_data_cache()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error Deleting Record: {e}")
 
 
 # --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
@@ -2625,13 +2626,14 @@ with col_upload:
     if st.button("📤 Bulk Upload", use_container_width=True):
         bulk_upload_dialog() 
 with col_update:
-    notifications_enabled = st.session_state.get('site_active_company') in ("VISPL", "Bhagyashree")
+    # Team app me Notifications page diya hi nahi hai, isliye wahan ye button band rahega
+    notifications_enabled = (st.session_state.get('site_active_company') in ("VISPL", "Bhagyashree")) and not IS_TEAM_USER
     if st.button(
         "🔔 Notifications",
         type="primary",
         use_container_width=True,
         disabled=not notifications_enabled,
-        help=None if notifications_enabled else "Notifications abhi Sai Tele ke liye configured nahi hain.",
+        help=None if notifications_enabled else "Notifications yahan available nahi hain.",
     ):
         st.session_state['notification_workspace'] = st.session_state.get('active_workspace', 'VISPL')
         st.session_state['notification_company'] = st.session_state.get('site_active_company', 'VISPL')
@@ -3118,7 +3120,7 @@ else:
                 rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
 
                 with rcols[1]:
-                    if st.button("⚙️", key=f"mgrbtn_{row_key}", help="Manage (View/Edit/Delete)"):
+                    if st.button("⚙️", key=f"mgrbtn_{row_key}", help="Manage (View/Edit)" if IS_TEAM_USER else "Manage (View/Edit/Delete)"):
                         if 'edit_po_count' in st.session_state:
                             del st.session_state['edit_po_count']
                         edit_record_dialog(row_dict)
