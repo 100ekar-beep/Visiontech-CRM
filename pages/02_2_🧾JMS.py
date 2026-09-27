@@ -17,6 +17,47 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="JMS - Joint Measurement Sheet", page_icon="🧾", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-jmshead"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-jmshead"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-jmshead"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-jmshead"] [data-testid="stColumn"], .stApp div[class*="st-key-jmshead"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-jmshead"] .slux-th, .stApp div[class*="st-key-jmshead"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # --- SESSION STATE ---
 if 'jmspage_open_row' not in st.session_state:
     st.session_state.jmspage_open_row = None
@@ -1069,7 +1110,7 @@ if st.session_state.get("jms_last_filter_sig") != _filter_sig:
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
 # --- PAGINATION ---
-rows_per_page = 15
+rows_per_page = rows_per_page_picker("jms_rows_per_page", "jmspage_current_page")
 total_rows = len(df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 if st.session_state.jmspage_current_page > total_pages:
@@ -1127,7 +1168,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    with st.container(key="jms_table_wrap", height=560):
+    with st.container(key="jms_table_wrap"):
         with st.container(key="jmshead"):
             h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
             for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
