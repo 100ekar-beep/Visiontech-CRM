@@ -63,8 +63,21 @@ NEW_COLS = ["SRC Status", "DC Status", "EWAY Status", "POD Status", "POD Files",
 # --- MULTI-COMPANY TAB SETUP (Site Data page ke saath synced) ---
 SITE_COMPANIES = [("VISPL", "VISPL"), ("Bhagyashree", "Bhagyashree"), ("Sai Tele", "Sai Tele")]
 SITE_COMPANY_WORKSPACE_MAP = {"VISPL": "VISPL", "Bhagyashree": "BHAGYASHREE", "Sai Tele": "SAI TELE SERVICES"}
+def _dg_secret(name):
+    """[dg] section (sirf team wali alag app me rakhna hai): password, company"""
+    try:
+        return str(st.secrets.get("dg", {}).get(name, "") or "").strip()
+    except Exception:
+        return ""
+
+
+DG_TEAM_PASSWORD = _dg_secret("password")
+DG_LOCKED_COMPANY = _dg_secret("company") if _dg_secret("company") in SITE_COMPANY_WORKSPACE_MAP else ""
+
 if "site_active_company" not in st.session_state:
     st.session_state.site_active_company = "VISPL"
+if DG_LOCKED_COMPANY:
+    st.session_state.site_active_company = DG_LOCKED_COMPANY
 st.session_state["active_workspace"] = SITE_COMPANY_WORKSPACE_MAP.get(st.session_state.site_active_company, "VISPL")
 
 if "dg_view_mode" not in st.session_state:
@@ -299,19 +312,40 @@ div[class*="st-key-sluxrow_"] p { margin: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- MULTI-COMPANY NAV BAR ---
-with st.container(key="site_company_nav_bar"):
-    for nav_col, (company_id, company_label) in zip(st.columns(len(SITE_COMPANIES)), SITE_COMPANIES):
-        with nav_col:
-            is_active = st.session_state.site_active_company == company_id
-            if st.button(company_label, key=f"dg_nav_{company_id}", use_container_width=True,
-                         type=("primary" if is_active else "secondary")):
-                st.session_state.site_active_company = company_id
-                st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[company_id]
-                st.session_state.dg_current_page = 1
-                st.rerun()
+# --- TEAM LOGIN (sirf tab jab secrets me [dg] password ho) ---
+if DG_TEAM_PASSWORD and not st.session_state.get("dg_authed"):
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        st.markdown(
+            "<div style='background:linear-gradient(100deg,#1e1b4b,#4338ca,#7c3aed);border-radius:18px;"
+            "padding:28px 24px;text-align:center;margin-top:60px;box-shadow:0 20px 40px -18px rgba(30,27,75,.6);'>"
+            "<div style='font-size:2.4rem'>⚡</div>"
+            "<div style='color:#fff;font-weight:900;font-size:1.6rem;letter-spacing:1px'>DG Project</div>"
+            "<div style='color:#c7d2fe;font-weight:600;margin-top:4px'>Login karke aage badhein</div></div>",
+            unsafe_allow_html=True)
+        with st.form("dg_login"):
+            pwd = st.text_input("PASSWORD", type="password")
+            if st.form_submit_button("🔓 Login", use_container_width=True):
+                if pwd == DG_TEAM_PASSWORD:
+                    st.session_state.dg_authed = True
+                    st.rerun()
+                st.error("Password galat hai.")
+    st.stop()
 
-st.markdown("<br>", unsafe_allow_html=True)
+# --- MULTI-COMPANY NAV BAR (company lock ho to nahi dikhega) ---
+if not DG_LOCKED_COMPANY:
+    with st.container(key="site_company_nav_bar"):
+        for nav_col, (company_id, company_label) in zip(st.columns(len(SITE_COMPANIES)), SITE_COMPANIES):
+            with nav_col:
+                is_active = st.session_state.site_active_company == company_id
+                if st.button(company_label, key=f"dg_nav_{company_id}", use_container_width=True,
+                             type=("primary" if is_active else "secondary")):
+                    st.session_state.site_active_company = company_id
+                    st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[company_id]
+                    st.session_state.dg_current_page = 1
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
 
 # ============================== 3. CONNECTIONS (Site Data page jaisa hi) ==============================
