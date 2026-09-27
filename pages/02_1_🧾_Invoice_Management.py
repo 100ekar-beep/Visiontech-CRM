@@ -19,6 +19,47 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Invoice Management", page_icon="🧾", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-ilhead_"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-ilhead_"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-ilhead_"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-ilhead_"] [data-testid="stColumn"], .stApp div[class*="st-key-ilhead_"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-ilhead_"] .slux-th, .stApp div[class*="st-key-ilhead_"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # =========================================================================
 # 🏢 COMPANY CONFIG — Visiontech & Bhagyashree
 # Dono companies SAME Supabase tables use karti hain — data "workspace"
@@ -1110,7 +1151,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, co
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    rows_per_page = 10
+    rows_per_page = rows_per_page_picker(f"{prefix}_rows_per_page", f"{prefix}_page")
     total_rows = len(df)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
@@ -1133,7 +1174,7 @@ def render_generic_tab(table_name, prefix, tab_title, icon, pdf_button=False, co
 
     table_title_bar(f"{icon} {tab_title}", "newest first • scroll right for more →" if len(data_cols) > 6 else "newest first", f"{total_rows:,} records")
 
-    with st.container(key=wrap_key, height=560):
+    with st.container(key=wrap_key):
         if df_page.empty:
             empty_state("No records found.")
         else:
@@ -2110,7 +2151,7 @@ def render_bhagyashree_tab():
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    rows_per_page = 10
+    rows_per_page = rows_per_page_picker("bhagya_rows_per_page", "bhagya_page")
     total_rows = len(view_df)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
     if st.session_state.bhagya_page > total_pages: st.session_state.bhagya_page = total_pages
@@ -2126,7 +2167,7 @@ def render_bhagyashree_tab():
     table_min_width_css("bhagya_table_wrap", 1450)
     table_title_bar("🏢 Bhagyashree Invoices", "newest first", f"₹ {view_total:,.0f}")
 
-    with st.container(key="bhagya_table_wrap", height=520):
+    with st.container(key="bhagya_table_wrap"):
         table_header_row("ilhead_bhagya", b_ratios, b_cols, center_idx=(0, 1), right_idx=(8, 9, 10))
 
         for pos, (_, row) in enumerate(page_df.iterrows()):
@@ -2575,7 +2616,7 @@ def render_invoice_master_tab(company_key, prefix, title):
     )
 
     # --- PAGINATION LOGIC ---
-    rows_per_page = 10
+    rows_per_page = rows_per_page_picker(f"{prefix}_inv_rows_per_page", page_key)
     total_rows = len(df)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
@@ -2613,7 +2654,7 @@ def render_invoice_master_tab(company_key, prefix, title):
     table_min_width_css(wrap_key, 3700)
     table_title_bar(f"🧾 {html.escape(title)}", "newest first • scroll right for payments →", f"₹ {k_billed:,.0f}")
 
-    with st.container(key=wrap_key, height=560):
+    with st.container(key=wrap_key):
         if df_page.empty:
             empty_state("No invoice records found.")
         else:
