@@ -18,6 +18,47 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Solar Project Hub", page_icon="☀️", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-solhead_"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-solhead_"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-solhead_"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-solhead_"] [data-testid="stColumn"], .stApp div[class*="st-key-solhead_"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-solhead_"] .slux-th, .stApp div[class*="st-key-solhead_"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # --- INIT SESSION STATE ---
 if 'solar_current_page' not in st.session_state:
     st.session_state.solar_current_page = 1
@@ -924,7 +965,7 @@ if st.session_state.solar_active_page == "sites":
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    rows_per_page = 10
+    rows_per_page = rows_per_page_picker("solar_rows_per_page", "solar_current_page")
     total_rows = len(df_view)
     total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
@@ -997,7 +1038,7 @@ if st.session_state.solar_active_page == "sites":
 
         table_title_bar("☀️ Solar Site Register", "newest first • scroll right for more →", f"₹ {view_total_charge:,.0f}")
 
-        with st.container(key="solar_table_wrap", height=560):
+        with st.container(key="solar_table_wrap"):
             table_header_row("solhead_sites", COL_RATIOS, COL_LABELS, center_idx=(0, 1), right_idx=(8, 10, 12, 13, 14))
 
             for page_pos, (_, row) in enumerate(df_page.iterrows()):
@@ -1153,7 +1194,7 @@ elif st.session_state.solar_active_page == "ledger":
 
             table_title_bar("🧾 Team Ledger", "highest balance first", f"Balance ₹ {grand_balance:,.0f}")
 
-            with st.container(key="ledger_table_wrap", height=520):
+            with st.container(key="ledger_table_wrap"):
                 table_header_row("solhead_ledger", LCOL_RATIOS, LCOL_LABELS, center_idx=(0, 1, 3), right_idx=(4, 5, 6, 7, 8))
 
                 for idx, r in enumerate(display_rows, start=1):
@@ -1272,7 +1313,7 @@ elif st.session_state.solar_active_page == "ledger":
             site_grand_total = sum(sr["Grand Total"] for sr in site_rows)
             table_title_bar("📍 Site-wise Ledger", "completed work only • scroll right →", f"₹ {site_grand_total:,.0f}")
 
-            with st.container(key="site_ledger_table_wrap", height=560):
+            with st.container(key="site_ledger_table_wrap"):
                 table_header_row("solhead_siteledger", SCOL_RATIOS, SCOL_LABELS, center_idx=(0,), right_idx=(6, 8, 10, 11, 12, 13))
 
                 for idx, sr in enumerate(site_rows, start=1):
@@ -1449,7 +1490,7 @@ elif st.session_state.solar_active_page == "payments":
         pay_total = sum(num(v) for v in pdf_view["amount"]) if "amount" in pdf_view.columns else 0.0
         table_title_bar("💳 Payment History", "newest first", f"₹ {pay_total:,.0f}")
 
-        with st.container(key="payments_table_wrap", height=420):
+        with st.container(key="payments_table_wrap"):
             table_header_row("solhead_payments", PCOL_RATIOS, PCOL_LABELS, center_idx=(0, 1), right_idx=(6,))
 
             for idx, (_, prow) in enumerate(pdf_view.iterrows(), start=1):
