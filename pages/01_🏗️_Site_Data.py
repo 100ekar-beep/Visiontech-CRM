@@ -1963,8 +1963,9 @@ def edit_record_dialog(row_data):
                                 except Exception as e:
                     st.error(f"❌ Error Updating Data: {e}")
 
-        # Team app me site delete band
+                # Team app me site delete band
         if st.session_state.get("team_authed"):
+            return
 
 
 # --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
