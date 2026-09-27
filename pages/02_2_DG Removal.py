@@ -21,7 +21,11 @@ import streamlit as st
 from botocore.client import Config
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from st_keyup import st_keyup
@@ -35,6 +39,12 @@ PROJECT_MATCH = "DG Removal"          # Project Name me ye text ho to site yaha 
 STATUS_OPTS = ["Pending", "Available", "Not Required"]
 ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png"]
 MAX_PHOTOS = 15
+# PDF cover page pe company ka poora naam (yahan badal sakte hain)
+COMPANY_FULL_NAMES = {
+    "VISPL": "VISIONTECH INFRA SOLUTIONS PVT. LTD.",
+    "Bhagyashree": "BHAGYASHREE",
+    "Sai Tele": "SAI TELE SERVICES",
+}
 IMAGE_EXT = (".jpg", ".jpeg", ".png")
 REMARK_COL = "Remark"
 
@@ -480,11 +490,135 @@ def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
     return put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag), len(data)
 
 
-def images_to_pdf_bytes(image_files):
-    """Kai photos -> ek PDF (har photo ek page). Photos pehle compress hoti hain
-    (1600px, JPEG q50), phir A4 page pe fit hoti hain. Landscape photo = landscape page."""
+def _fit_text(text, font, max_size, min_size, max_width):
+    """Text ko width me fit karo: pehle font chhota, phir bhi na aaye to '...'"""
+    text = str(text or "-")
+    size = max_size
+    while size > min_size and stringWidth(text, font, size) > max_width:
+        size -= 1
+    if stringWidth(text, font, size) > max_width:
+        while len(text) > 1 and stringWidth(text + "...", font, size) > max_width:
+            text = text[:-1]
+        text = text.rstrip() + "..."
+    return text, size
+
+
+def _gradient_round_rect(pdf, x, y, w, h, r, c1, c2):
+    pdf.saveState()
+    path = pdf.beginPath()
+    path.roundRect(x, y, w, h, r)
+    pdf.clipPath(path, stroke=0, fill=0)
+    pdf.linearGradient(x, y, x + w, y, (HexColor(c1), HexColor(c2)), extend=True)
+    pdf.restoreState()
+
+
+def draw_cover_page(pdf, info):
+    """Colorful cover page: Company, SITE PHOTOS, Site Name, Site ID, Project Name."""
+    W, H = A4
+    pdf.setPageSize(A4)
+
+    # --- Background: deep indigo -> violet gradient ---
+    pdf.saveState()
+    bg = pdf.beginPath()
+    bg.rect(0, 0, W, H)
+    pdf.clipPath(bg, stroke=0, fill=0)
+    pdf.linearGradient(0, H, W, 0, (HexColor("#1e1b4b"), HexColor("#3730a3"), HexColor("#6d28d9")), extend=True)
+    pdf.restoreState()
+
+    # --- Soft colourful glow circles ---
+    for cx, cy, rad, col, alpha in [
+        (W - 40, H - 60, 190, "#ec4899", 0.35), (30, 150, 170, "#f59e0b", 0.28),
+        (60, H - 330, 90, "#06b6d4", 0.30), (W - 90, 260, 70, "#22c55e", 0.22),
+    ]:
+        pdf.setFillColor(HexColor(col), alpha=alpha)
+        pdf.circle(cx, cy, rad, stroke=0, fill=1)
+
+    # --- Top: company name ---
+    pdf.setFillColor(HexColor("#c7d2fe"))
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawCentredString(W / 2, H - 78, "S I T E   D O C U M E N T A T I O N")
+    comp, size = _fit_text(info.get("company"), "Helvetica-Bold", 26, 14, W - 90)
+    pdf.setFillColor(HexColor("#ffffff"))
+    pdf.setFont("Helvetica-Bold", size)
+    pdf.drawCentredString(W / 2, H - 112, comp)
+    _gradient_round_rect(pdf, W / 2 - 70, H - 132, 140, 5, 2.5, "#f59e0b", "#ec4899")
+
+    # --- Big title ---
+    pdf.setFillColor(HexColor("#000000"), alpha=0.25)
+    pdf.setFont("Helvetica-Bold", 56)
+    pdf.drawCentredString(W / 2 + 3, H - 243, info.get("title", "SITE PHOTOS"))
+    pdf.setFillColor(HexColor("#ffffff"), alpha=1)
+    pdf.drawCentredString(W / 2, H - 240, info.get("title", "SITE PHOTOS"))
+
+    # --- Chip: document type + photo count ---
+    chip = f"{info.get('doc_label', '')}  •  {info.get('count', 0)} PHOTO{'S' if info.get('count', 0) != 1 else ''}".upper()
+    pdf.setFont("Helvetica-Bold", 12)
+    cw = stringWidth(chip, "Helvetica-Bold", 12) + 44
+    _gradient_round_rect(pdf, W / 2 - cw / 2, H - 298, cw, 30, 15, "#f59e0b", "#ec4899")
+    pdf.setFillColor(HexColor("#ffffff"))
+    pdf.drawCentredString(W / 2, H - 287, chip)
+
+    # --- White info card with shadow ---
+    cx, cw2 = 48, W - 96
+    rows = [
+        ("SITE NAME", info.get("site_name"), "#ec4899", "#fdf2f8"),
+        ("SITE ID", info.get("site_id"), "#06b6d4", "#ecfeff"),
+        ("PROJECT NAME", info.get("project_name"), "#f59e0b", "#fffbeb"),
+    ]
+    row_h, pad = 78, 26
+    card_h = pad * 2 + row_h * len(rows)
+    card_top = H - 350
+    card_y = card_top - card_h
+    pdf.setFillColor(HexColor("#0f0a2e"), alpha=0.35)
+    pdf.roundRect(cx + 6, card_y - 8, cw2, card_h, 22, stroke=0, fill=1)
+    pdf.setFillColor(HexColor("#ffffff"), alpha=1)
+    pdf.roundRect(cx, card_y, cw2, card_h, 22, stroke=0, fill=1)
+    _gradient_round_rect(pdf, cx + 22, card_top - 6, cw2 - 44, 6, 3, "#6366f1", "#ec4899")
+
+    for i, (label, value, accent, soft) in enumerate(rows):
+        ry = card_top - pad - (i + 1) * row_h + 8
+        pdf.setFillColor(HexColor(soft))
+        pdf.roundRect(cx + 20, ry, cw2 - 40, row_h - 14, 14, stroke=0, fill=1)
+        pdf.setFillColor(HexColor(accent))
+        pdf.roundRect(cx + 20, ry, 9, row_h - 14, 4.5, stroke=0, fill=1)
+        pdf.circle(cx + 56, ry + (row_h - 14) / 2, 14, stroke=0, fill=1)
+        pdf.setFillColor(HexColor("#ffffff"))
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawCentredString(cx + 56, ry + (row_h - 14) / 2 - 4.5, str(i + 1))
+        pdf.setFillColor(HexColor(accent))
+        pdf.setFont("Helvetica-Bold", 9.5)
+        pdf.drawString(cx + 84, ry + row_h - 36, f"{label}  :-")
+        val, vsize = _fit_text(value or "-", "Helvetica-Bold", 21, 11, cw2 - 124)
+        pdf.setFillColor(HexColor("#0f172a"))
+        pdf.setFont("Helvetica-Bold", vsize)
+        pdf.drawString(cx + 84, ry + 14, val)
+
+    # --- Extra details strip ---
+    extra = f"Project ID: {info.get('project_id') or '-'}     |     Cluster: {info.get('cluster') or '-'}"
+    extra, esize = _fit_text(extra, "Helvetica-Bold", 11, 8, W - 120)
+    pdf.setFillColor(HexColor("#ffffff"), alpha=0.12)
+    pdf.roundRect(48, card_y - 70, W - 96, 34, 17, stroke=0, fill=1)
+    pdf.setFillColor(HexColor("#e0e7ff"), alpha=1)
+    pdf.setFont("Helvetica-Bold", esize)
+    pdf.drawCentredString(W / 2, card_y - 58, extra)
+
+    # --- Footer ---
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    pdf.setFillColor(HexColor("#c7d2fe"))
+    pdf.setFont("Helvetica", 10)
+    pdf.drawCentredString(W / 2, 52, f"Generated on {now:%d %b %Y, %I:%M %p}")
+    _gradient_round_rect(pdf, 0, 0, W, 10, 0, "#06b6d4", "#ec4899")
+    pdf.showPage()
+
+
+def images_to_pdf_bytes(image_files, cover=None):
+    """Kai photos -> ek PDF. Pehle page pe colorful cover (Company / Site Photos / Site details),
+    phir har photo ek page. Photos pehle compress hoti hain (1600px, JPEG q50),
+    phir A4 page pe fit hoti hain. Landscape photo = landscape page."""
     out = io.BytesIO()
     pdf = canvas.Canvas(out, pagesize=A4)
+    if cover:
+        draw_cover_page(pdf, {**cover, "count": len(image_files)})
     for uf in image_files:
         uf.seek(0)
         img_buf, _, _ = _compress_image(uf)
@@ -741,7 +875,19 @@ def _render_doc(rec, doc):
                 with st.spinner("Compress + upload ho raha hai..."):
                     if images:
                         try:
-                            pdf_bytes = images_to_pdf_bytes([StagedFile(x["data"], x["name"], x["type"]) for x in images])
+                            cover = {
+                                "company": COMPANY_FULL_NAMES.get(st.session_state.get("site_active_company", "VISPL"),
+                                                                  st.session_state.get("site_active_company", "")),
+                                "title": "SITE PHOTOS",
+                                "doc_label": doc["label"],
+                                "site_name": _clean(rec.get("Site Name")),
+                                "site_id": _clean(rec.get("Site ID")),
+                                "project_name": _clean(rec.get("Project Name")),
+                                "project_id": _clean(rec.get("Project ID")),
+                                "cluster": _clean(rec.get("Cluster")),
+                            }
+                            pdf_bytes = images_to_pdf_bytes(
+                                [StagedFile(x["data"], x["name"], x["type"]) for x in images], cover=cover)
                             uploaded.append(put_bytes_to_r2(pdf_bytes, "application/pdf", "pdf", f, pid, sid, doc["tag"]))
                             orig_size += sum(len(x["data"]) for x in images)
                             final_size += len(pdf_bytes)
