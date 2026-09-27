@@ -1002,7 +1002,26 @@ def _render_doc(rec, doc):
 
         with st.container(key=f"dgdl_{f}"):
             if len(files) == 1:
-                st.link_button(f"⬇️ Download {doc['label']}", files[0], use_container_width=True)
+                # Seedha Downloads folder me aaye (browser tab me na khule): file ke bytes laake download_button
+                one = files[0]
+                one_name = one.rsplit("/", 1)[-1] or f"{doc['tag']}.pdf"
+                dl_key, dl_src = f"dg_dl_{f}_{rid}", f"dg_dlsrc_{f}_{rid}"
+                if ss.get(dl_src) != one:
+                    try:
+                        with st.spinner(f"{doc['label']} download ke liye taiyar ho raha hai..."):
+                            resp = requests.get(one, timeout=60)
+                            resp.raise_for_status()
+                            ss[dl_key], ss[dl_src] = resp.content, one
+                    except Exception:
+                        ss.pop(dl_key, None)
+                if ss.get(dl_key):
+                    ext = one_name.rsplit(".", 1)[-1].lower() if "." in one_name else ""
+                    mime = {"pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                            "png": "image/png"}.get(ext, "application/octet-stream")
+                    st.download_button(f"⬇️ Download {doc['label']}", data=ss[dl_key], file_name=one_name,
+                                       mime=mime, key=f"dg_dlbtn_{f}_{rid}", use_container_width=True)
+                else:
+                    st.link_button(f"⬇️ Download {doc['label']}", one, use_container_width=True)
             else:
                 zip_key, src_key = f"dg_zip_{f}_{rid}", f"dg_zipsrc_{f}_{rid}"
                 if ss.get(src_key) != tuple(files):
