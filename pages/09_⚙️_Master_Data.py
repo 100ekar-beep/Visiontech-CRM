@@ -8,6 +8,47 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Master Data Settings", page_icon="⚙️", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-msthead"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-msthead"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-msthead"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-msthead"] [data-testid="stColumn"], .stApp div[class*="st-key-msthead"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-msthead"] .slux-th, .stApp div[class*="st-key-msthead"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # --- 2. ✨ LAVISH CUSTOM CSS ---
 st.markdown("""
 <style>
@@ -723,7 +764,7 @@ with tab_records:
                 )
 
                 # --- Pagination (25 rows / page — Item Code me hazaaron rows ho sakti hain) ---
-                rows_per_page = 25
+                rows_per_page = rows_per_page_picker("mst_rows_per_page", "mst_page")
                 total_pages = max(1, math.ceil(result_count / rows_per_page))
                 st.session_state.mst_page = min(max(1, st.session_state.mst_page), total_pages)
                 start_idx = (st.session_state.mst_page - 1) * rows_per_page
@@ -740,7 +781,7 @@ with tab_records:
                 )
 
                 table_kwargs = {"height": 560} if len(df_page) > 10 else {}
-                with st.container(key="mst_table_wrap", **table_kwargs):
+                with st.container(key="mst_table_wrap"):
                     with st.container(key="msthead"):
                         h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
                         for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
