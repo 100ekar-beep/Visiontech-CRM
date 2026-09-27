@@ -1,18 +1,44 @@
 """
-TEAM APP (alag Streamlit app ki main file)
-- Ek hi login, uske baad sirf yahan list kiye gaye pages dikhte hain
-- Baaki pages (pages/ folder ke) team ko nahi dikhenge
+TEAM APP (alag Streamlit app ki main file)  —  Streamlit Cloud pe Main file path = team_app.py
 
-Streamlit Cloud pe team wali app ka "Main file path" = team_app.py
-Secrets me:  [dg]  password = "..."
+- Ek hi login ([dg] password), uske baad sirf DG Project + Site Data page dikhte hain
+- Team: dekh sakti hai, status edit, file upload kar sakti hai
+- Team: koi bhi SITE DELETE nahi kar sakti (Site Data page ka "Danger Zone / Delete" is app me band hai)
+- Main CRM app (app.py) pe iska koi asar nahi — wahan Admin pehle jaisa delete kar sakta hai
 """
 import streamlit as st
 
-# ---- Team ko kaun kaun se pages dikhane hain (file ka naam GitHub jaisa hi likhein) ----
+# ---- Team ko kaun kaun se pages dikhane hain ----
 TEAM_PAGES = [
     ("pages/02_2_DG Removal.py", "DG Project", "⚡"),
     ("pages/01_🏗️_Site_Data.py", "Site Data", "🏗️"),
 ]
+
+
+# ------------------------------------------------------------------
+# SITE DELETE BAND (sirf is team app me)
+# Site Data page me delete ke liye pehle ek checkbox (key "del_confirm_<id>") tick karna padta hai,
+# tabhi "Delete This Record Permanently" button aata hai. Is app me wo checkbox kabhi banega hi nahi,
+# isliye delete button bhi kabhi nahi aayega. "Danger Zone" heading bhi chhupa di hai.
+# Ye server pe hota hai (sirf CSS se chhupana nahi), isliye team ise kisi tarah chalu nahi kar sakti.
+# ------------------------------------------------------------------
+if not getattr(st, "_team_delete_guard", False):
+    _orig_checkbox = st.checkbox
+    _orig_markdown = st.markdown
+
+    def _team_checkbox(label, *args, **kwargs):
+        if str(kwargs.get("key", "")).startswith("del_confirm_"):
+            return False                      # delete confirm kabhi tick nahi hoga
+        return _orig_checkbox(label, *args, **kwargs)
+
+    def _team_markdown(body, *args, **kwargs):
+        if isinstance(body, str) and "Danger Zone" in body:
+            return None                       # "Danger Zone" heading mat dikhao
+        return _orig_markdown(body, *args, **kwargs)
+
+    st.checkbox = _team_checkbox
+    st.markdown = _team_markdown
+    st._team_delete_guard = True
 
 
 def _team_password():
