@@ -2721,11 +2721,13 @@ if st.session_state.get('action') == "export":
     export_dialog(df)
     st.session_state.action = ""
 
-# --- 6. PAGINATION LOGIC (10 lines per page) ---
+# --- 6. PAGINATION LOGIC (default 100 lines per page, changeable below the table) ---
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 1
+if 'site_rows_per_page' not in st.session_state:
+    st.session_state.site_rows_per_page = 100
 
-rows_per_page = 10
+rows_per_page = int(st.session_state.site_rows_per_page)
 total_rows = len(df)
 total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
@@ -2781,8 +2783,11 @@ st.markdown("""
     }
 
     /* ================= SCROLLING TABLE BODY ================= */
+    /* FIX (sticky header): table box khud hi scroll karta hai (height yahin CSS se),
+       taaki header row isi box ke top par chipki rahe — chahe kitna bhi neeche scroll karo. */
     .st-key-site_lux_wrap {
         background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        max-height: 78vh !important;
         border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
         border-radius: 0 !important;
     }
@@ -2795,14 +2800,22 @@ st.markdown("""
         padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
     }
 
-    /* Sticky header row */
-    .st-key-slux_head {
-        position: sticky !important; top: 0 !important; z-index: 5 !important;
-        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important;
-        padding: 13px 0 !important; min-width: 4600px !important;
+    /* Sticky header row — naye aur purane dono Streamlit versions ke liye:
+       (a) header block khud scroll-box ka direct child ho, ya
+       (b) Streamlit ne use ek wrapper div me lapeta ho -> wrapper ko sticky banao. */
+    .st-key-site_lux_wrap > .st-key-slux_head,
+    .st-key-site_lux_wrap > div:has(.st-key-slux_head) {
+        position: sticky !important; top: 0 !important; z-index: 20 !important;
     }
-    .st-key-slux_head [data-testid="stColumn"], .st-key-slux_head [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
-    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    /* Header ka alag, gehra color + bold safed text + amber underline — turant pehchaan me aaye */
+    .st-key-slux_head {
+        background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+        border-bottom: 3px solid #f59e0b !important;
+        box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+        padding: 14px 0 !important; min-width: 4600px !important;
+    }
+    .st-key-slux_head [data-testid="stColumn"], .st-key-slux_head [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+    .slux-th { color: #ffffff !important; font-size: .76rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
     .slux-th.c { text-align: center; }
 
     /* Data rows */
@@ -3062,7 +3075,7 @@ else:
         unsafe_allow_html=True,
     )
 
-    with st.container(key="site_lux_wrap", height=560):
+    with st.container(key="site_lux_wrap"):
         # --- PRE-FETCH PO UPLOAD AVAILABILITY FOR CURRENT PAGE ITEMS ---
         active_ws = st.session_state.get('active_workspace', 'VISPL')
         project_ids_on_page = [str(x).strip() for x in df_page['Project ID'].unique() if str(x).strip() and str(x).strip() != '-']
@@ -3155,6 +3168,17 @@ else:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # --- 8. NEXT / PREVIOUS PAGINATION CONTROLS (with Go-To-Page box) ---
+def _reset_site_page():
+    st.session_state.current_page = 1
+
+_rp_space, _rp_col = st.columns([6, 1.3])
+with _rp_col:
+    st.selectbox(
+        "Rows per page", [25, 50, 100, 200],
+        key="site_rows_per_page", on_change=_reset_site_page,
+        help="Ek page par kitni lines dikhni chahiye (default 100).",
+    )
+
 with st.container(key="slux_pager"):
     col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
 
