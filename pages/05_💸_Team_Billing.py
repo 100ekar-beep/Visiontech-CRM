@@ -4,6 +4,7 @@ import datetime
 import io
 import os
 import math
+import html
 import requests
 from supabase import create_client, Client
 from st_keyup import st_keyup
@@ -26,14 +27,14 @@ if 'billing_view_mode' not in st.session_state:
 if 'invoice_sub_tab' not in st.session_state:
     st.session_state.invoice_sub_tab = "team"
 
-# --- 2. LAVISH CUSTOM CSS ---
+# --- 2. ✨ LAVISH CUSTOM CSS (Quotation / Site Data / Invoice jaisa) ---
 st.markdown("""
     <style>
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
-    
+
     /* Tabs Styling */
     button[data-baseweb="tab"] { font-weight: 700 !important; font-size: 1.1rem !important; }
-    
+
     /* Buttons (support both old "baseButton-*" and newer "stBaseButton-*" testid naming) */
     button[data-testid="baseButton-primary"], button[data-testid="stBaseButton-primary"],
     button[kind="primary"], button[kind="primaryFormSubmit"] {
@@ -41,264 +42,192 @@ st.markdown("""
         color: white !important; border: none !important; border-radius: 8px !important;
         font-weight: 800 !important; padding: 0.6rem 1.2rem !important;
         box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4) !important;
+        transition: all .2s ease !important;
     }
+    button[kind="primary"] p, button[kind="primaryFormSubmit"] p { color: #ffffff !important; font-weight: 800 !important; }
+    /* Secondary = clean white/indigo (pehle poori page par RED tha — ab sirf Delete/Reject red hain) */
     button[data-testid="baseButton-secondary"], button[data-testid="stBaseButton-secondary"],
     button[kind="secondary"], button[kind="secondaryFormSubmit"] {
-        background: #ef4444 !important; color: white !important; border: none !important; border-radius: 8px !important;
-        font-weight: 800 !important;
+        background: #ffffff !important; color: #334155 !important;
+        border: 1.5px solid #cbd5e1 !important; border-radius: 8px !important;
+        font-weight: 800 !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
+        transition: all .2s ease !important;
     }
-    
-    /* KPI Cards for Reports */
-    .kpi-card {
-        background: white; border-radius: 12px; padding: 20px; text-align: center;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0;
-    }
-    .kpi-title { font-size: 1rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
-    .kpi-value-red { font-size: 2rem; color: #ef4444; font-weight: 900; }
-    .kpi-value-green { font-size: 2rem; color: #10b981; font-weight: 900; }
-    .kpi-value-blue { font-size: 2rem; color: #3b82f6; font-weight: 900; }
+    button[kind="secondary"] p { color: #334155 !important; font-weight: 800 !important; }
+    button[kind="primary"]:hover, button[kind="secondary"]:hover { transform: translateY(-2px) !important; }
 
     /* Inputs & Labels */
     label p, label[data-testid="stWidgetLabel"] p { color: #64748b !important; font-weight: 700 !important; font-size: 0.85rem !important; text-transform: uppercase; }
 
-    /* =========================================================
-       LAVISH TABLE STYLING (st.dataframe + st.data_editor)
-       ========================================================= */
+    /* st.dataframe (ledger tables) polish */
     [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
-        border-radius: 16px !important;
-        overflow: hidden !important;
+        border-radius: 16px !important; overflow: hidden !important;
         box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 6px -2px rgba(15, 23, 42, 0.05) !important;
-        border: 1px solid #e2e8f0 !important;
-        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important; background: #ffffff !important;
     }
-    [data-testid="stDataFrame"] > div, [data-testid="stDataEditor"] > div {
-        border-radius: 16px !important;
-        overflow: hidden !important;
-    }
-    /* Header row */
-    [data-testid="stDataFrame"] th, [data-testid="stDataEditor"] th,
-    [data-testid="stDataFrame"] [role="columnheader"], [data-testid="stDataEditor"] [role="columnheader"] {
-        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        font-size: 0.8rem !important;
-        letter-spacing: 0.4px !important;
-        text-transform: uppercase !important;
-        border: none !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
-    }
-    /* Body cells */
-    [data-testid="stDataFrame"] td, [data-testid="stDataEditor"] td,
-    [data-testid="stDataFrame"] [role="gridcell"], [data-testid="stDataEditor"] [role="gridcell"] {
-        font-size: 0.88rem !important;
-        color: #1e293b !important;
-        border-bottom: 1px solid #f1f5f9 !important;
-        border-right: 1px solid #f8fafc !important;
-    }
-    /* Zebra striping */
-    [data-testid="stDataFrame"] tr:nth-child(even) td,
-    [data-testid="stDataEditor"] tr:nth-child(even) td {
-        background-color: #f8fafc !important;
-    }
-    /* Row hover highlight */
-    [data-testid="stDataFrame"] tr:hover td,
-    [data-testid="stDataEditor"] tr:hover td {
-        background-color: #eef2ff !important;
-        transition: background-color 0.15s ease-in-out !important;
-    }
-    /* Canvas-based grid (glide-data-grid) rounding + shadow wrapper fallback */
-    [data-testid="stDataFrame"] canvas, [data-testid="stDataEditor"] canvas {
-        border-radius: 0 0 16px 16px !important;
-    }
-    /* Scrollbar polish inside tables */
-    [data-testid="stDataFrame"] ::-webkit-scrollbar, [data-testid="stDataEditor"] ::-webkit-scrollbar {
-        height: 10px !important; width: 10px !important;
-    }
-    [data-testid="stDataFrame"] ::-webkit-scrollbar-thumb, [data-testid="stDataEditor"] ::-webkit-scrollbar-thumb {
-        background: #c7d2fe !important; border-radius: 8px !important;
-    }
-    [data-testid="stDataFrame"] ::-webkit-scrollbar-track, [data-testid="stDataEditor"] ::-webkit-scrollbar-track {
-        background: #f1f5f9 !important;
-    }
-    /* Toolbar (search/download icons) that appears on dataframe hover */
     [data-testid="stElementToolbar"] {
-        background: #ffffff !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12) !important;
-        border: 1px solid #e2e8f0 !important;
+        background: #ffffff !important; border-radius: 8px !important;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12) !important; border: 1px solid #e2e8f0 !important;
     }
 
-    /* =========================================================
-       CUSTOM ROW-BASED TABLE (Site Data Hub style) — used on
-       Invoice Entry / Payment Entry / Pending MRN Approval tabs,
-       with round gear/trash/tick/cross icon action buttons.
-       Header and body are SEPARATE containers (not :first-child)
-       so the gradient only ever applies to the actual header row.
-       ========================================================= */
-    .st-key-inv_table_header, .st-key-pay_table_header, .st-key-mrn_table_header {
-        background: linear-gradient(90deg, #4f46e5 0%, #6366f1 45%, #8b5cf6 100%) !important;
-        border-radius: 14px 14px 0 0 !important;
-        overflow: hidden auto !important;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.10) !important;
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
     }
-    .st-key-inv_table_header div[data-testid="stHorizontalBlock"],
-    .st-key-pay_table_header div[data-testid="stHorizontalBlock"],
-    .st-key-mrn_table_header div[data-testid="stHorizontalBlock"] {
-        min-width: 1700px !important;
-        align-items: center !important;
-        flex-wrap: nowrap !important;
-        padding: 10px 0 !important;
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
     }
-    .st-key-inv_table_wrap, .st-key-pay_table_wrap, .st-key-mrn_table_wrap {
-        background: #ffffff !important;
-        border: 1px solid #e2e8f0 !important;
-        border-top: none !important;
-        border-radius: 0 0 14px 14px !important;
-        overflow: auto !important;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.10), 0 4px 6px -2px rgba(15, 23, 42, 0.04) !important;
-        padding: 4px 0 !important;
-        margin-bottom: 20px !important;
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.5rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-value.blue { color: #4f46e5; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
     }
-    .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"],
-    .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1700px !important;
-        align-items: center !important;
-        border-bottom: 1px solid #f1f5f9 !important;
-        padding: 7px 0 !important;
-        flex-wrap: nowrap !important;
-    }
-    .st-key-inv_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-pay_table_wrap div[data-testid="stHorizontalBlock"]:hover,
-    .st-key-mrn_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: #eef2ff !important;
-    }
-    .st-key-inv_table_header div[data-testid="column"],
-    .st-key-pay_table_header div[data-testid="column"],
-    .st-key-mrn_table_header div[data-testid="column"] {
-        padding: 0 12px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .st-key-inv_table_wrap div[data-testid="column"],
-    .st-key-pay_table_wrap div[data-testid="column"],
-    .st-key-mrn_table_wrap div[data-testid="column"] {
-        padding: 0 12px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid #f8fafc;
-    }
-    .st-key-inv_table_header div[data-testid="column"]:last-child,
-    .st-key-pay_table_header div[data-testid="column"]:last-child,
-    .st-key-mrn_table_header div[data-testid="column"]:last-child,
-    .st-key-inv_table_wrap div[data-testid="column"]:last-child,
-    .st-key-pay_table_wrap div[data-testid="column"]:last-child,
-    .st-key-mrn_table_wrap div[data-testid="column"]:last-child {
-        border-right: none;
-    }
-    .st-key-inv_table_header .tbl-head,
-    .st-key-pay_table_header .tbl-head,
-    .st-key-mrn_table_header .tbl-head {
-        color: #ffffff !important;
-        font-size: 0.72rem !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.6px !important;
-        text-transform: uppercase !important;
-        white-space: nowrap !important;
-        padding: 4px 0 !important;
-    }
-    .st-key-inv_table_wrap .tbl-cell,
-    .st-key-pay_table_wrap .tbl-cell,
-    .st-key-mrn_table_wrap .tbl-cell {
-        color: #1e293b !important;
-        font-size: 0.85rem !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        width: 100%;
-    }
-    /* Wrapping variant — used for columns like Project ID whose full value
-       should be visible, wrapping onto multiple lines within the same box
-       instead of being cut off with an ellipsis. */
-    .st-key-inv_table_wrap .tbl-cell-wrap,
-    .st-key-pay_table_wrap .tbl-cell-wrap,
-    .st-key-mrn_table_wrap .tbl-cell-wrap {
-        color: #1e293b !important;
-        font-size: 0.85rem !important;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-        word-break: break-word !important;
-        line-height: 1.25 !important;
-        width: 100%;
-    }
-    .st-key-inv_table_wrap .tbl-serial,
-    .st-key-pay_table_wrap .tbl-serial,
-    .st-key-mrn_table_wrap .tbl-serial {
-        color: #94a3b8 !important;
-        font-weight: 800 !important;
-        font-size: 0.82rem !important;
-    }
-    /* Round icon action buttons */
-    .st-key-inv_table_wrap button, .st-key-pay_table_wrap button, .st-key-mrn_table_wrap button {
-        height: 32px !important;
-        width: 100% !important;
-        max-width: 34px !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-        border-radius: 8px !important;
-        margin: 0 auto !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-shadow: none !important;
-        font-size: 0.95rem !important;
-    }
-    div[class*="st-key-inv_mgr_"] button, div[class*="st-key-pay_mgr_"] button {
-        background: rgba(99, 102, 241, 0.14) !important;
-        border: 1px solid rgba(99, 102, 241, 0.35) !important;
-    }
-    div[class*="st-key-inv_mgr_"] button:hover, div[class*="st-key-pay_mgr_"] button:hover {
-        background: #6366f1 !important;
-        transform: translateY(-2px) !important;
-    }
-    div[class*="st-key-inv_dl_"] button {
-        background: rgba(59, 130, 246, 0.14) !important;
-        border: 1px solid rgba(59, 130, 246, 0.35) !important;
-    }
-    div[class*="st-key-inv_dl_"] button:hover {
-        background: #3b82f6 !important;
-        transform: translateY(-2px) !important;
-    }
-    div[class*="st-key-inv_del_"] button, div[class*="st-key-pay_del_"] button, div[class*="st-key-mrn_rej_"] button {
-        background: rgba(239, 68, 68, 0.14) !important;
-        border: 1px solid rgba(239, 68, 68, 0.35) !important;
-    }
-    div[class*="st-key-inv_del_"] button:hover, div[class*="st-key-pay_del_"] button:hover, div[class*="st-key-mrn_rej_"] button:hover {
-        background: #ef4444 !important;
-        transform: translateY(-2px) !important;
-    }
-    div[class*="st-key-mrn_app_"] button {
-        background: rgba(16, 185, 129, 0.14) !important;
-        border: 1px solid rgba(16, 185, 129, 0.35) !important;
-    }
-    div[class*="st-key-mrn_app_"] button:hover {
-        background: #10b981 !important;
-        transform: translateY(-2px) !important;
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
 
+    /* ================= SCROLLING TABLE BODIES (inv / pay / transfer / mrn) ================= */
+    div[class*="st-key-"][class*="_table_wrap"] {
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
+    }
+    div[class*="_table_wrap"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    div[class*="_table_wrap"] [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
+    }
+    div[class*="_table_wrap"] [data-testid="stColumn"], div[class*="_table_wrap"] [data-testid="column"] {
+        padding: 0 10px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
+    }
+
+    /* Sticky header rows */
+    div[class*="st-key-blhead_"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
+    }
+    div[class*="st-key-blhead_"] [data-testid="stColumn"], div[class*="st-key-blhead_"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
+
+    /* Data rows */
+    div[class*="st-key-blrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-blrow_odd"] { background: #fafaff; }
+    div[class*="st-key-blrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-blrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-wrap { font-size: .85rem; color: #1e293b; white-space: normal; word-break: break-word; line-height: 1.25; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .72rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .76rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-chip.inv { background: #fdf4ff; border-color: #f5d0fe; color: #a21caf; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .bl-team { font-weight: 800; color: #b45309; }
+    .bl-vendor { font-weight: 800; color: #0e7490; }
+    .bl-amt { text-align: right; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums; }
+    .bl-amt.zero { color: #cbd5e1; font-weight: 600; }
+    .bl-amt.strong { color: #4f46e5; font-weight: 900; font-size: .9rem; }
+    .bl-amt.paid { color: #059669; font-weight: 900; }
+    .bl-amt.tds { color: #d97706; }
+    .status-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-red    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .status-blue   { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-purple { background: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
+
+    /* ---- Row action buttons ---- */
+    div[class*="st-key-blpop_"] button, div[class*="st-key-reverse_transfer_"] button, div[class*="st-key-reversed_transfer_"] button,
+    div[class*="st-key-mrn_app_"] button, div[class*="st-key-mrn_rej_"] button {
+        width: 38px !important; max-width: 38px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        box-shadow: none !important; transition: all .2s ease !important;
+    }
+    /* Single ⚙️ popover (Site Data jaisa) */
+    div[class*="st-key-blpop_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-blpop_"] button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important; }
+    div[class*="st-key-blpop_"] button p, div[class*="st-key-blpop_"] button span { color: #1e293b !important; }
+    div[class*="st-key-blpop_"] button svg { display: none !important; }
+    /* ↩️ Revoke transfer (amber) */
+    div[class*="st-key-reverse_transfer_"] button { background: rgba(245,158,11,0.15) !important; border: 1px solid rgba(245,158,11,0.35) !important; }
+    div[class*="st-key-reverse_transfer_"] button:hover { background: #f59e0b !important; transform: translateY(-2px) !important; }
+    /* ✅ Approve (green) / ❌ Reject (red) */
+    div[class*="st-key-mrn_app_"] button { background: rgba(16,185,129,0.15) !important; border: 1px solid rgba(16,185,129,0.35) !important; }
+    div[class*="st-key-mrn_app_"] button:hover { background: #10b981 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(16,185,129,.6) !important; }
+    div[class*="st-key-mrn_rej_"] button { background: rgba(239,68,68,0.12) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    div[class*="st-key-mrn_rej_"] button:hover { background: #ef4444 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(239,68,68,.6) !important; }
+    /* Red "Yes, Delete" inside confirm dialogs + card delete/reject buttons */
+    div[class*="st-key-bl_del_yes"] button, div[class*="st-key-invc_del_"] button, div[class*="st-key-payc_del_"] button, div[class*="st-key-mrnc_rej_"] button {
+        background: linear-gradient(90deg, #ef4444, #dc2626) !important; border: none !important;
+    }
+    div[class*="st-key-bl_del_yes"] button p, div[class*="st-key-invc_del_"] button p, div[class*="st-key-payc_del_"] button p, div[class*="st-key-mrnc_rej_"] button p { color: #ffffff !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45); margin-bottom: 20px;
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
     /* =========================================================
-       MOBILE CARD VIEW (light theme) — used when the Mobile View
-       toggle is on, instead of the wide horizontal-scroll tables.
+       MOBILE CARD VIEW (light theme)
        ========================================================= */
-    .billing-card-title { font-size: 1.02rem; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
+    .billing-card-title { font-size: 1.02rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
     .billing-card-sub { font-size: 0.8rem; color: #64748b; margin-bottom: 10px; }
-    .billing-card-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; }
+    .billing-card-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; }
     .billing-card-row:last-child { border-bottom: none; }
-    .billing-card-label { color: #64748b; font-weight: 600; }
+    .billing-card-label { color: #64748b; font-weight: 700; text-transform: uppercase; font-size: .75rem; }
     .billing-card-value { color: #1e293b; font-weight: 600; text-align: right; }
 
     /* Dialog/Popup Premium Styling */
@@ -315,9 +244,9 @@ st.markdown("""
     .total-highlight { color: #3b82f6; font-weight: 900; font-size: 1.8rem; }
 
     /* PREMIUM SIDEBAR NAVIGATION BUTTONS */
-    section[data-testid="stSidebar"] { 
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important; 
-        border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
     }
     div[data-testid="stSidebarNav"] a {
         padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
@@ -330,93 +259,39 @@ st.markdown("""
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* =========================================================
-       CUSTOM PAGE NAVIGATION BAR (replaces st.tabs — fully reliable styling)
-       Scoped to .st-key-billing_nav_bar so it doesn't clash with the
-       red "secondary" (delete) button styling used elsewhere on this page.
-       ========================================================= */
-    .st-key-billing_nav_bar div[data-testid="stHorizontalBlock"] {
-        gap: 12px !important;
-        flex-wrap: wrap !important;
-    }
+    /* ================= PAGE NAVIGATION BAR ================= */
+    .st-key-billing_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-billing_nav_bar button {
-        font-size: 1.05rem !important;
-        font-weight: 800 !important;
-        padding: 16px 10px !important;
-        height: auto !important;
-        border-radius: 12px !important;
-        transition: all 0.25s ease !important;
-        white-space: nowrap !important;
-        box-shadow: none !important;
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 16px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
+        white-space: nowrap !important; box-shadow: none !important;
     }
-    .st-key-billing_nav_bar button[kind="secondary"] {
-        background: #ffffff !important;
-        color: #475569 !important;
-        border: 1.5px solid #e2e8f0 !important;
-    }
-    .st-key-billing_nav_bar button[kind="secondary"]:hover {
-        background: #f1f5f9 !important;
-        color: #0f172a !important;
-        border-color: #cbd5e1 !important;
-        transform: translateY(-2px) !important;
-    }
+    .st-key-billing_nav_bar button[kind="secondary"] { background: #ffffff !important; color: #475569 !important; border: 1.5px solid #e2e8f0 !important; }
+    .st-key-billing_nav_bar button[kind="secondary"]:hover { background: #f1f5f9 !important; color: #0f172a !important; border-color: #cbd5e1 !important; transform: translateY(-2px) !important; }
     .st-key-billing_nav_bar button[kind="secondary"] p,
     .st-key-billing_nav_bar button[kind="secondary"] span,
-    .st-key-billing_nav_bar button[kind="secondary"] div {
-        color: #475569 !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
-    }
-    .st-key-billing_nav_bar button[kind="secondary"]:hover p,
-    .st-key-billing_nav_bar button[kind="secondary"]:hover span,
-    .st-key-billing_nav_bar button[kind="secondary"]:hover div {
-        color: #0f172a !important;
-    }
+    .st-key-billing_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; font-size: 1.05rem !important; }
     .st-key-billing_nav_bar button[kind="primary"] {
-        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4) !important;
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4) !important;
     }
     .st-key-billing_nav_bar button[kind="primary"] p,
     .st-key-billing_nav_bar button[kind="primary"] span,
-    .st-key-billing_nav_bar button[kind="primary"] div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
-        font-size: 1.05rem !important;
-    }
+    .st-key-billing_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; font-size: 1.05rem !important; }
 
-    /* =========================================================
-       INVOICE SUB-TAB BAR (Team Invoices / Vendor Invoices)
-       Reuses the same look as the main nav bar, just smaller.
-       ========================================================= */
-    .st-key-invoice_sub_tab_bar div[data-testid="stHorizontalBlock"] {
-        gap: 10px !important;
-    }
+    /* ================= INVOICE SUB-TAB BAR ================= */
+    .st-key-invoice_sub_tab_bar div[data-testid="stHorizontalBlock"] { gap: 10px !important; }
     .st-key-invoice_sub_tab_bar button {
-        font-size: 0.92rem !important;
-        font-weight: 800 !important;
-        padding: 10px 8px !important;
-        height: auto !important;
-        border-radius: 10px !important;
-        box-shadow: none !important;
+        font-size: 0.92rem !important; font-weight: 800 !important; padding: 10px 8px !important;
+        height: auto !important; border-radius: 10px !important; box-shadow: none !important;
     }
-    .st-key-invoice_sub_tab_bar button[kind="secondary"] {
-        background: #ffffff !important;
-        color: #475569 !important;
-        border: 1.5px solid #e2e8f0 !important;
-    }
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] { background: #ffffff !important; color: #475569 !important; border: 1.5px solid #e2e8f0 !important; }
     .st-key-invoice_sub_tab_bar button[kind="secondary"] p,
     .st-key-invoice_sub_tab_bar button[kind="secondary"] span,
-    .st-key-invoice_sub_tab_bar button[kind="secondary"] div {
-        color: #475569 !important;
-        font-weight: 800 !important;
-    }
+    .st-key-invoice_sub_tab_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
     .st-key-invoice_sub_tab_bar button[kind="primary"] {
-        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        box-shadow: 0 4px 10px rgba(79, 70, 229, 0.35) !important;
+        background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.35) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -554,6 +429,22 @@ def cell(val):
     if s == "" or s.lower() in ("nan", "none", "nat"):
         return "-"
     return s
+
+
+def _parse_any_date(val):
+    """Dialog default date: ISO (2026-09-05) ya table wala DD/MM/YYYY dono sahi padhta hai.
+    FIX: pehle table se aaya '05/09/2026' month-first padha jaata tha (9 May),
+    isliye Edit karke Save karne par invoice/payment ki DATE badal jaati thi."""
+    s = str(val or "").strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return pd.to_datetime(s).date()
+    except Exception:
+        return datetime.date.today()
 
 def number_to_words(n):
     if n is None or pd.isna(n):
@@ -935,7 +826,7 @@ def team_invoice_dialog(row_data=None):
     def_team = row_data.get("team_name", team_list[0]) if not is_new else team_list[0]
     def_inv = row_data.get("invoice_no", "") if not is_new else ""
     def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
-    def_date = pd.to_datetime(def_date_str).date()
+    def_date = _parse_any_date(def_date_str)
     
     c1, c2, c3 = st.columns(3)
     team_val = c1.selectbox("Team Name *", options=team_list, index=team_list.index(def_team) if def_team in team_list else 0)
@@ -1000,7 +891,7 @@ def team_invoice_dialog(row_data=None):
 
     # --- MRN LINE ITEMS (read-only, fetched live from mrn_items by Invoice/MRN Number) ---
     st.markdown("---")
-    st.markdown("<div style='color:#64748b; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px;'>📦 MRN Line Items</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#4338ca; font-weight:800; font-size:0.85rem; letter-spacing:1px; text-transform:uppercase; margin-bottom:10px;'>📦 MRN Line Items</div>", unsafe_allow_html=True)
 
     mrn_items_dialog_rows = []
     if inv_no:
@@ -1026,9 +917,9 @@ def team_invoice_dialog(row_data=None):
         net_items_val = gross_items_val - tds_items_val
 
         mi1, mi2, mi3 = st.columns(3)
-        mi1.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Gross Invoice Value</span><br><span style='font-size:1.15rem; font-weight:800; color:#3b82f6;'>₹ {gross_items_val:,.0f}</span></div>", unsafe_allow_html=True)
-        mi2.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>TDS (1%)</span><br><span style='font-size:1.15rem; font-weight:800; color:#f59e0b;'>₹ {tds_items_val:,.0f}</span></div>", unsafe_allow_html=True)
-        mi3.markdown(f"<div style='text-align:center; background:#f8fafc; border-radius:10px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Net Payable</span><br><span style='font-size:1.15rem; font-weight:800; color:#10b981;'>₹ {net_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+        mi1.markdown(f"<div style='text-align:center; background:#f8fafc; border:1px solid #e0e7ff; border-radius:12px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Gross Invoice Value</span><br><span style='font-size:1.15rem; font-weight:800; color:#3b82f6;'>₹ {gross_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+        mi2.markdown(f"<div style='text-align:center; background:#f8fafc; border:1px solid #e0e7ff; border-radius:12px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>TDS (1%)</span><br><span style='font-size:1.15rem; font-weight:800; color:#f59e0b;'>₹ {tds_items_val:,.0f}</span></div>", unsafe_allow_html=True)
+        mi3.markdown(f"<div style='text-align:center; background:#f8fafc; border:1px solid #e0e7ff; border-radius:12px; padding:10px;'><span style='color:#64748b; font-weight:700; font-size:0.8rem; text-transform:uppercase;'>Net Payable</span><br><span style='font-size:1.15rem; font-weight:800; color:#10b981;'>₹ {net_items_val:,.0f}</span></div>", unsafe_allow_html=True)
     else:
         st.caption("No MRN line items found for this Invoice/MRN number.")
 
@@ -1076,7 +967,7 @@ def vendor_invoice_dialog(row_data=None):
     def_team = row_data.get("team_name", team_list[0]) if not is_new else team_list[0]
     def_inv = row_data.get("invoice_no", "") if not is_new else ""
     def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
-    def_date = pd.to_datetime(def_date_str).date()
+    def_date = _parse_any_date(def_date_str)
     
     c1, c2, c3 = st.columns(3)
     vendor_val = c1.selectbox("Vendor Name *", options=vendor_list, index=vendor_list.index(def_vendor) if def_vendor in vendor_list else 0)
@@ -1129,7 +1020,7 @@ def vendor_invoice_dialog(row_data=None):
     total_calc = safe_basic + gst_amt
     
     st.markdown(f"""
-        <div style='display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #e2e8f0;'>
+        <div style='display: flex; justify-content: space-between; align-items: center; background: linear-gradient(90deg,#f5f3ff,#eef2ff); padding: 15px; border-radius: 12px; margin-top: 10px; margin-bottom: 20px; border: 1px solid #c7d2fe;'>
             <div><span style='font-weight:700; color:#64748b;'>GST Amount:</span> <span class='gst-highlight'>₹ {gst_amt:,.0f}</span></div>
             <div style='text-align:right;'><span style='font-size:1.2rem; font-weight:700; color:#64748b;'>Grand Total: </span><span class='total-highlight'>₹ {total_calc:,.0f}</span><br><span style='color:#ef4444; font-weight:800; font-size:0.95rem;'>{number_to_words(total_calc)}</span></div>
         </div>
@@ -1178,7 +1069,7 @@ def payment_dialog(row_data=None, mode="Team"):
     def_type = row_data.get("pay_type", pay_type_list[0]) if not is_new else (pay_type_list[0] if pay_type_list else "")
     
     def_date_str = row_data.get("date", str(datetime.date.today())) if not is_new else str(datetime.date.today())
-    def_date = pd.to_datetime(def_date_str).date()
+    def_date = _parse_any_date(def_date_str)
     
     p1, p2, p3 = st.columns(3)
     pay_from = p1.selectbox("Payment From *", options=pay_from_list, index=pay_from_list.index(def_from) if def_from in pay_from_list else 0)
@@ -1282,6 +1173,63 @@ def team_material_transfer_dialog():
             except Exception as e:
                 st.error(f"Material Transfer save error: {e}")
 
+
+# --- NEW: DELETE CONFIRMATION DIALOGS (pehle ek click me turant delete ho jaata tha) ---
+def _confirm_box(title, sub):
+    st.markdown(
+        f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
+<div style="font-weight:900;color:#991b1b;font-size:1rem;">{html.escape(str(title))}</div>
+<div style="color:#7f1d1d;font-size:.85rem;margin-top:4px;">{html.escape(str(sub))}</div>
+</div>
+<p style="color:#475569;">Ye record permanently delete ho jayega. Kya aap sure hain?</p>""",
+        unsafe_allow_html=True,
+    )
+
+@st.dialog("🗑️ Delete Invoice")
+def delete_invoice_dialog(row_dict):
+    rid = row_dict.get("id")
+    entity = row_dict.get("vendor_name") if str(row_dict.get("invoice_type", "")).strip() == "Vendor" else row_dict.get("team_name")
+    amt = pd.to_numeric(row_dict.get("amount"), errors="coerce")
+    _confirm_box(
+        f"Invoice {cell(row_dict.get('invoice_no'))}",
+        f"{cell(entity)} • {cell(row_dict.get('date'))} • ₹ {(0 if pd.isna(amt) else amt):,.0f}",
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", key="bl_del_no_inv", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("Yes, Delete", key="bl_del_yes_inv", use_container_width=True):
+            try:
+                supabase.table("billing_invoices").delete().eq("id", rid).execute()
+                st.success("✅ Deleted successfully!")
+                fetch_billing_invoices_cached.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error deleting: {e}")
+
+@st.dialog("🗑️ Delete Payment")
+def delete_payment_dialog(row_dict):
+    rid = row_dict.get("id")
+    amt = pd.to_numeric(row_dict.get("amount"), errors="coerce")
+    _confirm_box(
+        f"Payment to {cell(row_dict.get('pay_to'))}",
+        f"{cell(row_dict.get('date'))} • {cell(row_dict.get('pay_type'))} • ₹ {(0 if pd.isna(amt) else amt):,.0f}",
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Cancel", key="bl_del_no_pay", use_container_width=True):
+            st.rerun()
+    with c2:
+        if st.button("Yes, Delete", key="bl_del_yes_pay", use_container_width=True):
+            try:
+                supabase.table("billing_payments").delete().eq("id", rid).execute()
+                st.success("✅ Deleted successfully!")
+                fetch_billing_payments_cached.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error deleting: {e}")
+
 # --- 6. MAIN PAGE NAVIGATION (custom buttons, replaces st.tabs for guaranteed styling) ---
 st.markdown("<h1 style='color:#0f172a; margin-bottom: 20px;'>💸 Team & Vendor Billing</h1>", unsafe_allow_html=True)
 
@@ -1363,6 +1311,116 @@ def fetch_pending_mrn_cached(workspace):
         return p_res.data or []
     except Exception:
         return []
+
+
+# ================================================================
+# --- ✨ LAVISH TABLE RENDER HELPERS ---
+# ================================================================
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+
+def _num(v):
+    n = pd.to_numeric(v, errors="coerce")
+    return None if pd.isna(n) else float(n)
+
+def _txt(v, extra_cls=""):
+    s = cell(v)
+    if s == "-":
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+
+def _wrap(v, extra_cls=""):
+    s = cell(v)
+    if s == "-":
+        return _MUTED
+    return f"<div class='slux-wrap {extra_cls}'>{html.escape(s)}</div>"
+
+def _chip(v, extra_cls=""):
+    s = cell(v)
+    if s == "-":
+        return _MUTED
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+
+def _pill(v):
+    s = cell(v)
+    if s == "-":
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+
+def _money(v, style=""):
+    n = _num(v)
+    if n is None:
+        return "<div class='slux-cell bl-amt zero'>—</div>"
+    cls = "zero" if n == 0 and not style else style
+    return f"<div class='slux-cell bl-amt {cls}'>₹ {n:,.0f}</div>"
+
+def _entity(v, kind="team"):
+    s = cell(v)
+    if s == "-":
+        return _MUTED
+    icon = "👷" if kind == "team" else "🏭"
+    cls = "bl-team" if kind == "team" else "bl-vendor"
+    e = html.escape(s)
+    return f"<div class='slux-cell' title='{e}'><span class='{cls}'>{icon} {e}</span></div>"
+
+def _badge(text, color):
+    return f"<div class='slux-cell'><span class='status-badge status-{color}'>{html.escape(str(text))}</span></div>"
+
+def _serial(n):
+    return f"<div style='text-align:center;'><span class='slux-num'>{n}</span></div>"
+
+def kpi_card(icon, label, value, foot, accent, soft, value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+KPI_INDIGO = ("linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+KPI_GREEN = ("linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5")
+KPI_AMBER = ("linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+KPI_PINK = ("linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
+KPI_RED = ("linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2")
+KPI_BLUE = ("linear-gradient(90deg,#3b82f6,#06b6d4)", "#eff6ff")
+
+def kpi_grid(*cards):
+    st.markdown('<div class="lux-kpi-grid">' + "".join(cards) + '</div>', unsafe_allow_html=True)
+
+def table_title_bar(title, subtitle, badge):
+    st.markdown(
+        '<div class="slux-head-bar">'
+        f'<div class="slux-title">{title}<span>{subtitle}</span></div>'
+        f'<div class="slux-badge">{badge}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+def table_min_width_css(wrap_key, min_width):
+    st.markdown(
+        f"<style>.st-key-{wrap_key} [data-testid='stHorizontalBlock'],"
+        f".st-key-{wrap_key} div[class*='st-key-blhead_'],"
+        f".st-key-{wrap_key} div[class*='st-key-blrow_'] {{ min-width: {min_width}px !important; }}</style>",
+        unsafe_allow_html=True,
+    )
+
+def table_header_row(key, ratios, labels, center_idx=(), right_idx=()):
+    with st.container(key=key):
+        h_cols = st.columns(ratios, vertical_alignment="center")
+        for i, (h_col, label) in enumerate(zip(h_cols, labels)):
+            cls = " c" if i in center_idx else (" r" if i in right_idx else "")
+            h_col.markdown(f"<div class='slux-th{cls}' title='{label}'>{label}</div>", unsafe_allow_html=True)
+
+def table_footer(left_html, right_html=""):
+    st.markdown(f'<div class="slux-foot"><div>{left_html}</div><div class="slux-foot-amts">{right_html}</div></div>', unsafe_allow_html=True)
+
+def empty_state(msg):
+    st.markdown(f'<div class="slux-empty"><div>🗂️</div>{html.escape(msg)}</div>', unsafe_allow_html=True)
+
+def _sum_col(df, col):
+    if df is None or df.empty or col not in df.columns:
+        return 0.0
+    return float(pd.to_numeric(df[col], errors="coerce").fillna(0).sum())
 
 
 # ==========================================
@@ -1485,6 +1543,27 @@ if st.session_state.billing_active_page == "invoice":
                 else:
                     st.button("📦 All PDFs (ZIP)", disabled=True, use_container_width=True, key="dl_inv_zip_btn_disabled", help="Select a specific team above to enable bulk PDF download")
 
+            # --- KPI CARDS (filter + search ke hisaab se) ---
+            k_count = len(df_inv)
+            k_basic = _sum_col(df_inv, "basic_amount")
+            k_gst = _sum_col(df_inv, "gst_amount")
+            k_total = _sum_col(df_inv, "amount")
+            if is_vendor_tab:
+                kpi_grid(
+                    kpi_card("🏭", "Vendor Invoices", f"{k_count:,}", "Filtered results" if (search_inv or team_filter_inv != inv_filter_all) else "All records", *KPI_INDIGO),
+                    kpi_card("📦", "Basic Amount", f"₹ {k_basic:,.0f}", "Before GST", *KPI_BLUE),
+                    kpi_card("🏛️", "GST Amount", f"₹ {k_gst:,.0f}", "Total GST", *KPI_PINK),
+                    kpi_card("💰", "Total Amount", f"₹ {k_total:,.0f}", "No TDS on vendor bills", *KPI_GREEN, value_cls="green"),
+                )
+            else:
+                k_tds = k_total * 0.01
+                kpi_grid(
+                    kpi_card("👥", "Team Invoices", f"{k_count:,}", "Filtered results" if (search_inv or team_filter_inv != inv_filter_all) else "All records", *KPI_INDIGO),
+                    kpi_card("📦", "Basic Amount", f"₹ {k_basic:,.0f}", f"GST ₹ {k_gst:,.0f}", *KPI_BLUE),
+                    kpi_card("✂️", "TDS (1%)", f"₹ {k_tds:,.0f}", "Deducted", *KPI_AMBER),
+                    kpi_card("💰", "Net Payable", f"₹ {k_total - k_tds:,.0f}", "After TDS", *KPI_GREEN, value_cls="green"),
+                )
+
             if not df_inv.empty:
                 if "date" in df_inv.columns:
                     df_inv["date"] = pd.to_datetime(df_inv["date"], errors="coerce").dt.strftime('%d/%m/%Y')
@@ -1511,18 +1590,18 @@ if st.session_state.billing_active_page == "invoice":
 
                         with st.container(border=True):
                             st.markdown(f"""
-                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('team_name'))}</div>
-                                <div class="billing-card-sub">{cell(row_dict.get('invoice_no'))} • {cell(row_dict.get('date'))}</div>
-                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{cell(row_dict.get('project_id'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{cell(row_dict.get('site_id'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{cell(row_dict.get('site_name'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{cell(row_dict.get('cluster'))}</span></div>
+                                <div class="billing-card-title">#{pos + 1} — {html.escape(cell(row_dict.get('vendor_name') if is_vendor_invoice else row_dict.get('team_name')))}</div>
+                                <div class="billing-card-sub">{html.escape(cell(row_dict.get('invoice_no')))} • {cell(row_dict.get('date'))}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{html.escape(cell(row_dict.get('project_id')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{html.escape(cell(row_dict.get('site_id')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{html.escape(cell(row_dict.get('site_name')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{html.escape(cell(row_dict.get('cluster')))}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">Basic Amount</span><span class="billing-card-value">{'₹ %s' % format(basic_v, ',.0f') if pd.notna(basic_v) else '-'}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">GST Amount</span><span class="billing-card-value">{'₹ %s' % format(gst_v, ',.0f') if pd.notna(gst_v) else '-'}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">TDS (1%)</span><span class="billing-card-value">{'Not Applicable' if is_vendor_invoice else ('₹ %s' % format(tds_v, ',.0f') if tds_v is not None else '-')}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Total (Net)</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(net_v, ',.0f') if net_v is not None else '-'}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Vendor</span><span class="billing-card-value">{cell(row_dict.get('vendor_name'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">{'Team' if is_vendor_invoice else 'Vendor'}</span><span class="billing-card-value">{html.escape(cell(row_dict.get('team_name') if is_vendor_invoice else row_dict.get('vendor_name')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{html.escape(cell(row_dict.get('remark')))}</span></div>
                             """, unsafe_allow_html=True)
 
                             bc1, bc2, bc3 = st.columns(3)
@@ -1544,108 +1623,111 @@ if st.session_state.billing_active_page == "invoice":
                                     st.button("📥 PDF", key=f"invc_dl_{rid}", disabled=True, use_container_width=True)
                             with bc3:
                                 if st.button("🗑️ Delete", key=f"invc_del_{rid}", use_container_width=True):
-                                    try:
-                                        supabase.table("billing_invoices").delete().eq("id", rid).execute()
-                                        st.success("✅ Deleted successfully!")
-                                        fetch_billing_invoices_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error deleting: {e}")
+                                    delete_invoice_dialog(row_dict)
                 else:
                     # ---------------------------------------------------------------
-                    # DESKTOP WIDE TABLE VIEW
+                    # ✨ LAVISH DESKTOP TABLE VIEW — single ⚙️ button at row start
                     # ---------------------------------------------------------------
                     if is_vendor_tab:
-                        INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.55, 1.25, 1.0, 1.05, 1.0, 1.1, 1.35, 1.7]
-                        INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "VENDOR NAME", "INVOICE NO.", "INVOICE DATE", "BASIC AMOUNT", "GST AMOUNT", "TOTAL AMOUNT", "TEAM NAME", "REMARK"]
+                        INV_COL_RATIOS = [0.55, 0.5, 1.6, 1.3, 1.0, 1.1, 1.0, 1.2, 1.4, 1.8]
+                        INV_COL_LABELS = ["⚙️", "#", "VENDOR NAME", "INVOICE NO.", "INVOICE DATE", "BASIC AMOUNT", "GST AMOUNT", "TOTAL AMOUNT", "TEAM NAME", "REMARK"]
+                        right_idx = (5, 6, 7)
+                        min_w = 1500
                     else:
-                        INV_COL_RATIOS = [0.35, 0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 0.9, 1.0, 1.1, 1.3]
-                        INV_COL_LABELS = ["#", "⚙️", "📥", "🗑️", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
+                        INV_COL_RATIOS = [0.55, 0.5, 1.3, 1.2, 0.95, 1.4, 1.0, 1.3, 1.0, 1.0, 0.95, 0.9, 1.1, 1.1, 1.4]
+                        INV_COL_LABELS = ["⚙️", "#", "TEAM", "INVOICE NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "GST AMT", "TDS", "TOTAL (NET)", "VENDOR", "REMARK"]
+                        right_idx = (9, 10, 11, 12)
+                        min_w = 2000
 
-                    with st.container(key="inv_table_header"):
-                        h_cols = st.columns(INV_COL_RATIOS)
-                        for h_col, label in zip(h_cols, INV_COL_LABELS):
-                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                    view_net = k_total if is_vendor_tab else k_total * 0.99
+                    table_min_width_css("inv_table_wrap", min_w)
+                    table_title_bar(
+                        "🏭 Vendor Invoice Register" if is_vendor_tab else "👥 Team Invoice Register",
+                        "newest first • scroll right for more →",
+                        f"₹ {view_net:,.0f}",
+                    )
 
-                    with st.container(key="inv_table_wrap", height=500):
+                    with st.container(key="inv_table_wrap", height=520):
+                        table_header_row("blhead_inv", INV_COL_RATIOS, INV_COL_LABELS, center_idx=(0, 1), right_idx=right_idx)
+
                         for pos, (_, row) in enumerate(df_inv.iterrows()):
                             row_dict = row.to_dict()
                             rid = row_dict.get("id")
-                            rcols = st.columns(INV_COL_RATIOS)
+                            parity = "odd" if (pos + 1) % 2 else "even"
 
-                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                            with st.container(key=f"blrow_{parity}_inv_{rid}"):
+                                rcols = st.columns(INV_COL_RATIOS, vertical_alignment="center")
 
-                            with rcols[1]:
-                                if st.button("⚙️", key=f"inv_mgr_{rid}", help="Edit Invoice", use_container_width=True):
-                                    if row_dict.get("invoice_type") == "Team":
-                                        team_invoice_dialog(row_dict)
-                                    else:
-                                        vendor_invoice_dialog(row_dict)
-                            with rcols[2]:
-                                try:
-                                    pdf_bytes_row = generate_invoice_pdf(row_dict)
-                                    file_no_row = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
-                                    st.download_button(
-                                        "📥", data=pdf_bytes_row, file_name=f"Invoice_{file_no_row}.pdf",
-                                        mime="application/pdf", key=f"inv_dl_{rid}", help="Download Invoice PDF",
-                                        use_container_width=True
-                                    )
-                                except Exception:
-                                    st.button("📥", key=f"inv_dl_{rid}", help="PDF generation error", use_container_width=True, disabled=True)
-                            with rcols[3]:
-                                if st.button("🗑️", key=f"inv_del_{rid}", help="Delete Invoice", use_container_width=True):
-                                    try:
-                                        supabase.table("billing_invoices").delete().eq("id", rid).execute()
-                                        st.success("✅ Deleted successfully!")
-                                        fetch_billing_invoices_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error deleting: {e}")
+                                with rcols[0]:
+                                    with st.container(key=f"blpop_inv_{rid}"):
+                                        with st.popover("⚙️"):
+                                            if st.button("✏️ Edit Invoice", key=f"inv_mgr_{rid}", use_container_width=True):
+                                                if row_dict.get("invoice_type") == "Team":
+                                                    team_invoice_dialog(row_dict)
+                                                else:
+                                                    vendor_invoice_dialog(row_dict)
+                                            try:
+                                                pdf_bytes_row = generate_invoice_pdf(row_dict)
+                                                file_no_row = str(row_dict.get("invoice_no", "") or "invoice").replace("/", "-").replace(" ", "_")
+                                                st.download_button(
+                                                    "📥 Download PDF", data=pdf_bytes_row, file_name=f"Invoice_{file_no_row}.pdf",
+                                                    mime="application/pdf", key=f"inv_dl_{rid}", use_container_width=True
+                                                )
+                                            except Exception:
+                                                st.button("📥 PDF Error", key=f"inv_dl_{rid}", use_container_width=True, disabled=True)
+                                            if st.button("🗑️ Delete Invoice", key=f"inv_del_{rid}", use_container_width=True):
+                                                delete_invoice_dialog(row_dict)
 
-                            basic_v = row_dict.get('basic_amount')
-                            gst_v = row_dict.get('gst_amount')
-                            amt_v = row_dict.get('amount')
-                            is_vendor_invoice = str(row_dict.get('invoice_type', '')).strip() == 'Vendor'
+                                rcols[1].markdown(_serial(pos + 1), unsafe_allow_html=True)
 
-                            if is_vendor_tab:
-                                rcols[4].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                                rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                                rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                                rcols[7].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[8].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[9].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[10].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                                rcols[11].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
-                            else:
-                                rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                                rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                                rcols[6].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                                rcols[7].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                                rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                                rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                                rcols[10].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
-                                rcols[11].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[12].markdown(f"<div class='tbl-cell'>₹ {gst_v:,.0f}</div>" if pd.notna(gst_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                if pd.notna(amt_v):
-                                    tds_v = amt_v * 0.01
-                                    net_v = amt_v - tds_v
-                                    rcols[13].markdown(f"<div class='tbl-cell' style='color:#f59e0b;'>₹ {tds_v:,.0f}</div>", unsafe_allow_html=True)
-                                    rcols[14].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {net_v:,.0f}</div>", unsafe_allow_html=True)
+                                basic_v = row_dict.get('basic_amount')
+                                gst_v = row_dict.get('gst_amount')
+                                amt_v = row_dict.get('amount')
+
+                                if is_vendor_tab:
+                                    rcols[2].markdown(_entity(row_dict.get('vendor_name'), "vendor"), unsafe_allow_html=True)
+                                    rcols[3].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
+                                    rcols[4].markdown(_txt(row_dict.get('date'), "slux-soft"), unsafe_allow_html=True)
+                                    rcols[5].markdown(_money(basic_v), unsafe_allow_html=True)
+                                    rcols[6].markdown(_money(gst_v), unsafe_allow_html=True)
+                                    rcols[7].markdown(_money(amt_v, "strong"), unsafe_allow_html=True)
+                                    rcols[8].markdown(_entity(row_dict.get('team_name'), "team"), unsafe_allow_html=True)
+                                    rcols[9].markdown(_wrap(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
                                 else:
-                                    rcols[13].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                    rcols[14].markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                                rcols[15].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('vendor_name'))}</div>", unsafe_allow_html=True)
-                                rcols[16].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                                    rcols[2].markdown(_entity(row_dict.get('team_name'), "team"), unsafe_allow_html=True)
+                                    rcols[3].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
+                                    rcols[4].markdown(_txt(row_dict.get('date'), "slux-soft"), unsafe_allow_html=True)
+                                    rcols[5].markdown(_chip(row_dict.get('project_id'), "proj"), unsafe_allow_html=True)
+                                    rcols[6].markdown(_chip(row_dict.get('site_id')), unsafe_allow_html=True)
+                                    rcols[7].markdown(_txt(row_dict.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                                    rcols[8].markdown(_pill(row_dict.get('cluster')), unsafe_allow_html=True)
+                                    rcols[9].markdown(_money(basic_v), unsafe_allow_html=True)
+                                    rcols[10].markdown(_money(gst_v), unsafe_allow_html=True)
+                                    amt_n = _num(amt_v)
+                                    if amt_n is not None:
+                                        rcols[11].markdown(_money(amt_n * 0.01, "tds"), unsafe_allow_html=True)
+                                        rcols[12].markdown(_money(amt_n * 0.99, "strong"), unsafe_allow_html=True)
+                                    else:
+                                        rcols[11].markdown(_money(None), unsafe_allow_html=True)
+                                        rcols[12].markdown(_money(None), unsafe_allow_html=True)
+                                    rcols[13].markdown(_txt(row_dict.get('vendor_name')), unsafe_allow_html=True)
+                                    rcols[14].markdown(_txt(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
+
+                    table_footer(
+                        f'{len(df_inv):,} invoice{"s" if len(df_inv) != 1 else ""}',
+                        f'<span>Basic: <b style="color:#334155;">₹ {k_basic:,.0f}</b></span>'
+                        + ("" if is_vendor_tab else f'<span>TDS: <b style="color:#d97706;">₹ {k_total * 0.01:,.0f}</b></span>')
+                        + f'<span>{"Total" if is_vendor_tab else "Net"}: <b style="color:#4f46e5;">₹ {view_net:,.0f}</b></span>',
+                    )
             else:
-                st.info("No invoices match your search.")
+                empty_state("No invoices match your search.")
         else:
-            st.info("No invoices found. Click the buttons above to add one.")
+            empty_state("No invoices found. Click the buttons above to add one.")
             with col_dl:
                 st.button("📥 Download Excel", disabled=True, use_container_width=True, key="dl_inv_btn_disabled")
     except Exception as e:
         st.error(f"Database error: {e}")
 
-# ==========================================
 # ==========================================
 # PAGE 2: PAYMENT ENTRY
 # ==========================================
@@ -1678,6 +1760,19 @@ elif st.session_state.billing_active_page == "payment":
                     df_pay.to_excel(writer, index=False, sheet_name='Payments')
                 st.download_button(label="📥 Download Excel", data=buffer_p.getvalue(), file_name="Payments_List.xlsx", use_container_width=True, type="secondary", key="dl_pay_btn")
 
+            # --- KPI CARDS ---
+            k_count = len(df_pay)
+            k_total = _sum_col(df_pay, "amount")
+            _mode = df_pay["mode"].astype(str) if "mode" in df_pay.columns else pd.Series([""] * len(df_pay))
+            k_team = _sum_col(df_pay[_mode.values == "Team"], "amount") if k_count else 0.0
+            k_vendor = _sum_col(df_pay[_mode.values == "Vendor"], "amount") if k_count else 0.0
+            kpi_grid(
+                kpi_card("💳", "Payments", f"{k_count:,}", "Filtered results" if search_pay else "All records", *KPI_INDIGO),
+                kpi_card("💰", "Total Paid", f"₹ {k_total:,.0f}", "Team + Vendor", *KPI_GREEN, value_cls="green"),
+                kpi_card("👷", "Team Payments", f"₹ {k_team:,.0f}", "Mode = Team", *KPI_AMBER),
+                kpi_card("🏭", "Vendor Payments", f"₹ {k_vendor:,.0f}", "Mode = Vendor", *KPI_BLUE),
+            )
+
             if not df_pay.empty:
                 if "date" in df_pay.columns:
                     df_pay["date"] = pd.to_datetime(df_pay["date"], errors="coerce").dt.strftime('%d/%m/%Y')
@@ -1695,11 +1790,11 @@ elif st.session_state.billing_active_page == "payment":
 
                         with st.container(border=True):
                             st.markdown(f"""
-                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('pay_to'))}</div>
-                                <div class="billing-card-sub">{cell(row_dict.get('date'))} • {cell(row_dict.get('pay_type'))} • {cell(row_dict.get('mode'))}</div>
-                                <div class="billing-card-row"><span class="billing-card-label">Pay From</span><span class="billing-card-value">{cell(row_dict.get('pay_from'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Amount</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(amt_v, ',.0f') if pd.notna(amt_v) else '-'}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                                <div class="billing-card-title">#{pos + 1} — {html.escape(cell(row_dict.get('pay_to')))}</div>
+                                <div class="billing-card-sub">{cell(row_dict.get('date'))} • {html.escape(cell(row_dict.get('pay_type')))} • {html.escape(cell(row_dict.get('mode')))}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Pay From</span><span class="billing-card-value">{html.escape(cell(row_dict.get('pay_from')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Amount</span><span class="billing-card-value" style="color:#059669;font-weight:800;">{'₹ %s' % format(amt_v, ',.0f') if pd.notna(amt_v) else '-'}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{html.escape(cell(row_dict.get('remark')))}</span></div>
                             """, unsafe_allow_html=True)
 
                             bc1, bc2 = st.columns(2)
@@ -1708,58 +1803,59 @@ elif st.session_state.billing_active_page == "payment":
                                     payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
                             with bc2:
                                 if st.button("🗑️ Delete", key=f"payc_del_{rid}", use_container_width=True):
-                                    try:
-                                        supabase.table("billing_payments").delete().eq("id", rid).execute()
-                                        st.success("✅ Deleted successfully!")
-                                        fetch_billing_payments_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error deleting: {e}")
+                                    delete_payment_dialog(row_dict)
                 else:
                     # ---------------------------------------------------------------
-                    # DESKTOP WIDE TABLE VIEW
+                    # ✨ LAVISH DESKTOP TABLE VIEW — single ⚙️ button at row start
                     # ---------------------------------------------------------------
-                    PAY_COL_RATIOS = [0.35, 0.35, 0.35, 1.0, 1.0, 1.0, 1.0, 0.9, 1.4, 0.8]
-                    PAY_COL_LABELS = ["#", "⚙️", "🗑️", "PAY FROM", "PAY TO", "PAY TYPE", "AMOUNT", "DATE", "REMARK", "MODE"]
+                    PAY_COL_RATIOS = [0.55, 0.5, 1.1, 1.6, 1.0, 1.1, 1.0, 1.8, 0.9]
+                    PAY_COL_LABELS = ["⚙️", "#", "PAY FROM", "PAY TO", "PAY TYPE", "AMOUNT", "DATE", "REMARK", "MODE"]
 
-                    with st.container(key="pay_table_header"):
-                        h_cols = st.columns(PAY_COL_RATIOS)
-                        for h_col, label in zip(h_cols, PAY_COL_LABELS):
-                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                    table_min_width_css("pay_table_wrap", 1300)
+                    table_title_bar("💳 Payment Register", "newest first", f"₹ {k_total:,.0f}")
 
-                    with st.container(key="pay_table_wrap", height=500):
+                    with st.container(key="pay_table_wrap", height=520):
+                        table_header_row("blhead_pay", PAY_COL_RATIOS, PAY_COL_LABELS, center_idx=(0, 1, 8), right_idx=(5,))
+
                         for pos, (_, row) in enumerate(df_pay.iterrows()):
                             row_dict = row.to_dict()
                             rid = row_dict.get("id")
-                            rcols = st.columns(PAY_COL_RATIOS)
+                            parity = "odd" if (pos + 1) % 2 else "even"
+                            is_team_mode = str(row_dict.get("mode", "")).strip() != "Vendor"
 
-                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                            with st.container(key=f"blrow_{parity}_pay_{rid}"):
+                                rcols = st.columns(PAY_COL_RATIOS, vertical_alignment="center")
 
-                            with rcols[1]:
-                                if st.button("⚙️", key=f"pay_mgr_{rid}", help="Edit Payment", use_container_width=True):
-                                    payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
-                            with rcols[2]:
-                                if st.button("🗑️", key=f"pay_del_{rid}", help="Delete Payment", use_container_width=True):
-                                    try:
-                                        supabase.table("billing_payments").delete().eq("id", rid).execute()
-                                        st.success("✅ Deleted successfully!")
-                                        fetch_billing_payments_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error deleting: {e}")
+                                with rcols[0]:
+                                    with st.container(key=f"blpop_pay_{rid}"):
+                                        with st.popover("⚙️"):
+                                            if st.button("✏️ Edit Payment", key=f"pay_mgr_{rid}", use_container_width=True):
+                                                payment_dialog(row_data=row_dict, mode=row_dict.get("mode", "Team"))
+                                            if st.button("🗑️ Delete Payment", key=f"pay_del_{rid}", use_container_width=True):
+                                                delete_payment_dialog(row_dict)
 
-                            rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_from'))}</div>", unsafe_allow_html=True)
-                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_to'))}</div>", unsafe_allow_html=True)
-                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('pay_type'))}</div>", unsafe_allow_html=True)
-                            amt_v = row_dict.get('amount')
-                            rcols[6].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('date'))}</div>", unsafe_allow_html=True)
-                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
-                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('mode'))}</div>", unsafe_allow_html=True)
+                                rcols[1].markdown(_serial(pos + 1), unsafe_allow_html=True)
+                                rcols[2].markdown(_pill(row_dict.get('pay_from')), unsafe_allow_html=True)
+                                rcols[3].markdown(_entity(row_dict.get('pay_to'), "team" if is_team_mode else "vendor"), unsafe_allow_html=True)
+                                rcols[4].markdown(_chip(row_dict.get('pay_type')), unsafe_allow_html=True)
+                                rcols[5].markdown(_money(row_dict.get('amount'), "paid"), unsafe_allow_html=True)
+                                rcols[6].markdown(_txt(row_dict.get('date'), "slux-soft"), unsafe_allow_html=True)
+                                rcols[7].markdown(_txt(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
+                                rcols[8].markdown(
+                                    f"<div style='text-align:center;'>{_badge(cell(row_dict.get('mode')), 'blue' if is_team_mode else 'purple')}</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                    table_footer(
+                        f'{len(df_pay):,} payment{"s" if len(df_pay) != 1 else ""}',
+                        f'<span>Team: <b style="color:#b45309;">₹ {k_team:,.0f}</b></span>'
+                        f'<span>Vendor: <b style="color:#0e7490;">₹ {k_vendor:,.0f}</b></span>'
+                        f'<span>Total: <b style="color:#059669;">₹ {k_total:,.0f}</b></span>',
+                    )
             else:
-                st.info("No payments match your search.")
+                empty_state("No payments match your search.")
         else:
-            st.info("No payments found. Click the buttons above to add one.")
+            empty_state("No payments found. Click the buttons above to add one.")
             with col_dl_p:
                 st.button("📥 Download Excel", disabled=True, use_container_width=True, key="dl_p_btn_disabled")
     except Exception as e:
@@ -1797,51 +1893,75 @@ elif st.session_state.billing_active_page == "transfer":
             st.download_button("📥 Download Excel", transfer_buffer.getvalue(), "Team_Material_Transfers.xlsx", use_container_width=True, key="transfer_excel")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        ratios = [0.35, 0.7, 1.0, 1.0, 1.05, 1.7, 0.8, 1.0, 1.4, 0.8]
-        labels = ["#", "ACTION", "DATE", "FROM TEAM", "TO TEAM", "MATERIAL", "QTY", "AMOUNT", "REMARK / REF.", "STATUS"]
-        header_cols = st.columns(ratios)
-        for header_col, label in zip(header_cols, labels):
-            header_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
-        with st.container(height=520, key="material_transfer_table"):
+        # --- KPI CARDS ---
+        _status = df_transfer["status"].astype(str) if "status" in df_transfer.columns else pd.Series([""] * len(df_transfer))
+        _active_df = df_transfer[_status.values == "Active"]
+        k_active = len(_active_df)
+        k_reversed = int((_status == "Reversed").sum())
+        k_value = _sum_col(_active_df, "amount")
+        kpi_grid(
+            kpi_card("🔄", "Transfers", f"{len(df_transfer):,}", "Filtered results" if transfer_search else "All records", *KPI_INDIGO),
+            kpi_card("✅", "Active", f"{k_active:,}", "Counted in ledgers", *KPI_GREEN, value_cls="green"),
+            kpi_card("↩️", "Reversed", f"{k_reversed:,}", "Not counted", *KPI_RED, value_cls="red" if k_reversed else ""),
+            kpi_card("💰", "Active Material Value", f"₹ {k_value:,.0f}", "Given ↔ Received", *KPI_AMBER),
+        )
+
+        ratios = [0.55, 0.5, 1.0, 1.4, 1.4, 1.9, 0.8, 1.1, 1.7, 1.0]
+        labels = ["↩️", "#", "DATE", "FROM TEAM", "TO TEAM", "MATERIAL", "QTY", "AMOUNT", "REMARK / REF.", "STATUS"]
+
+        table_min_width_css("transfer_table_wrap", 1500)
+        table_title_bar("🔄 Material Transfer Register", "↩️ = revoke an active transfer", f"₹ {k_value:,.0f}")
+
+        with st.container(height=520, key="transfer_table_wrap"):
+            table_header_row("blhead_transfer", ratios, labels, center_idx=(0, 1, 6, 9), right_idx=(7,))
             for pos, (_, transfer) in enumerate(df_transfer.reset_index(drop=True).iterrows()):
                 row = transfer.to_dict()
                 rid = row.get("id")
-                row_cols = st.columns(ratios)
-                row_cols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                with row_cols[1]:
-                    if row.get("status") == "Active":
-                        if st.button("↩️", key=f"reverse_transfer_{rid}", help="Revoke Transfer", use_container_width=True):
-                            try:
-                                supabase.table("team_material_transfers").update({
-                                    "status": "Reversed",
-                                    "reversed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-                                }).eq("id", rid).execute()
-                                fetch_team_material_transfers_cached.clear()
-                                fetch_ledger_data_cached.clear()
-                                st.success("✅ Transfer revoked. दोनों ledgers से adjustment हट गया।")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Revoke error: {e}")
-                    else:
-                        st.button("↩️", key=f"reversed_transfer_{rid}", disabled=True, use_container_width=True)
-                transfer_date_display = pd.to_datetime(row.get("transfer_date"), errors="coerce")
-                transfer_date_display = transfer_date_display.strftime("%d/%m/%Y") if pd.notna(transfer_date_display) else "-"
-                row_cols[2].markdown(f"<div class='tbl-cell'>{transfer_date_display}</div>", unsafe_allow_html=True)
-                row_cols[3].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('from_team'))}</div>", unsafe_allow_html=True)
-                row_cols[4].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('to_team'))}</div>", unsafe_allow_html=True)
-                row_cols[5].markdown(f"<div class='tbl-cell-wrap'>{cell(row.get('material_description'))}</div>", unsafe_allow_html=True)
-                row_cols[6].markdown(f"<div class='tbl-cell'>{cell(row.get('quantity'))}</div>", unsafe_allow_html=True)
-                amount_value = pd.to_numeric(row.get("amount"), errors="coerce")
-                row_cols[7].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amount_value:,.0f}</div>" if pd.notna(amount_value) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                ref_remark = " | ".join(v for v in [str(row.get("reference_no") or "").strip(), str(row.get("remark") or "").strip()] if v)
-                row_cols[8].markdown(f"<div class='tbl-cell-wrap'>{cell(ref_remark)}</div>", unsafe_allow_html=True)
-                status_color = "#10b981" if row.get("status") == "Active" else "#ef4444"
-                row_cols[9].markdown(f"<div class='tbl-cell' style='font-weight:800;color:{status_color};'>{cell(row.get('status'))}</div>", unsafe_allow_html=True)
+                parity = "odd" if (pos + 1) % 2 else "even"
+                with st.container(key=f"blrow_{parity}_tr_{rid}"):
+                    row_cols = st.columns(ratios, vertical_alignment="center")
+                    with row_cols[0]:
+                        if row.get("status") == "Active":
+                            if st.button("↩️", key=f"reverse_transfer_{rid}", help="Revoke Transfer"):
+                                try:
+                                    supabase.table("team_material_transfers").update({
+                                        "status": "Reversed",
+                                        "reversed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                    }).eq("id", rid).execute()
+                                    fetch_team_material_transfers_cached.clear()
+                                    fetch_ledger_data_cached.clear()
+                                    st.success("✅ Transfer revoked. दोनों ledgers से adjustment हट गया।")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Revoke error: {e}")
+                        else:
+                            st.button("↩️", key=f"reversed_transfer_{rid}", disabled=True)
+                    transfer_date_display = pd.to_datetime(row.get("transfer_date"), errors="coerce")
+                    transfer_date_display = transfer_date_display.strftime("%d/%m/%Y") if pd.notna(transfer_date_display) else "-"
+                    row_cols[1].markdown(_serial(pos + 1), unsafe_allow_html=True)
+                    row_cols[2].markdown(_txt(transfer_date_display, "slux-soft"), unsafe_allow_html=True)
+                    row_cols[3].markdown(_entity(row.get('from_team'), "team"), unsafe_allow_html=True)
+                    row_cols[4].markdown(_entity(row.get('to_team'), "team"), unsafe_allow_html=True)
+                    row_cols[5].markdown(_wrap(row.get('material_description'), "slux-strong"), unsafe_allow_html=True)
+                    row_cols[6].markdown(f"<div style='text-align:center;'>{_txt(row.get('quantity'))}</div>", unsafe_allow_html=True)
+                    row_cols[7].markdown(_money(row.get("amount"), "strong"), unsafe_allow_html=True)
+                    ref_remark = " | ".join(v for v in [str(row.get("reference_no") or "").strip(), str(row.get("remark") or "").strip()] if v)
+                    row_cols[8].markdown(_wrap(ref_remark, "slux-soft"), unsafe_allow_html=True)
+                    is_active_tr = row.get("status") == "Active"
+                    row_cols[9].markdown(
+                        f"<div style='text-align:center;'>{_badge(cell(row.get('status')), 'green' if is_active_tr else 'red')}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        table_footer(
+            f'{len(df_transfer):,} transfer{"s" if len(df_transfer) != 1 else ""}',
+            f'<span>Active Value: <b style="color:#4f46e5;">₹ {k_value:,.0f}</b></span>',
+        )
     else:
         with c_download:
             st.button("📥 Download Excel", disabled=True, use_container_width=True, key="transfer_excel_disabled")
-        st.info("अभी कोई Team Material Transfer नहीं है। New Transfer से पहली entry जोड़ें।")
+        empty_state("अभी कोई Team Material Transfer नहीं है। New Transfer से पहली entry जोड़ें।")
 
 # ==========================================
 # PAGE 4: REPORTS & LEDGER
@@ -1936,31 +2056,33 @@ elif st.session_state.billing_active_page == "ledger":
             st.error(f"Error fetching data: {e}")
 
         bal = tot_inv - tot_pay + tot_material_given - tot_material_received
-        k1, k2, k3, k4, k5 = st.columns(5)
-        with k1:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Billed</div><div class='kpi-value-blue'>₹ {tot_inv:,.0f}</div></div>", unsafe_allow_html=True)
-        with k2:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Total Paid</div><div class='kpi-value-green'>₹ {tot_pay:,.0f}</div></div>", unsafe_allow_html=True)
-        with k3:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Material Given</div><div class='kpi-value-blue'>₹ {tot_material_given:,.0f}</div></div>", unsafe_allow_html=True)
-        with k4:
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Material Received</div><div class='kpi-value-red'>₹ {tot_material_received:,.0f}</div></div>", unsafe_allow_html=True)
-        with k5:
-            bal_color = "kpi-value-red" if bal > 0 else "kpi-value-green"
-            st.markdown(f"<div class='kpi-card'><div class='kpi-title'>Net Balance</div><div class='{bal_color}'>₹ {bal:,.0f}</div></div>", unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        # --- ✨ LAVISH KPI CARDS ---
+        _cards = [
+            kpi_card("🧾", "Total Billed", f"₹ {tot_inv:,.0f}", f"{len(df_inv_rep):,} invoice(s)", *KPI_BLUE, value_cls="blue"),
+            kpi_card("💰", "Total Paid", f"₹ {tot_pay:,.0f}", f"{len(df_pay_rep):,} payment(s)", *KPI_GREEN, value_cls="green"),
+        ]
+        if rep_mode == "Team":
+            _cards += [
+                kpi_card("📤", "Material Given", f"₹ {tot_material_given:,.0f}", "Added to balance (+)", *KPI_INDIGO, value_cls="blue"),
+                kpi_card("📥", "Material Received", f"₹ {tot_material_received:,.0f}", "Less from balance (−)", *KPI_PINK, value_cls="red"),
+            ]
+        _cards.append(
+            kpi_card("⚖️", "Net Balance", f"₹ {bal:,.0f}", "Payable" if bal > 0 else "Settled / Advance",
+                     *(KPI_RED if bal > 0 else KPI_GREEN), value_cls="red" if bal > 0 else "green")
+        )
+        kpi_grid(*_cards)
 
         t1, t2 = st.columns(2)
         with t1:
-            st.markdown("#### 📚 Invoices")
+            st.markdown("<h4 style='color:#0f172a;'>📚 Invoices</h4>", unsafe_allow_html=True)
             st.dataframe(df_inv_rep, use_container_width=True, hide_index=True)
         with t2:
-            st.markdown("#### 💸 Payments")
+            st.markdown("<h4 style='color:#0f172a;'>💸 Payments</h4>", unsafe_allow_html=True)
             st.dataframe(df_pay_rep, use_container_width=True, hide_index=True)
 
         if rep_mode == "Team":
-            st.markdown("#### 🔄 Material Transfers")
+            st.markdown("<h4 style='color:#0f172a;'>🔄 Material Transfers</h4>", unsafe_allow_html=True)
             st.dataframe(df_transfer_rep, use_container_width=True, hide_index=True)
 
         st.markdown("---")
@@ -2160,7 +2282,7 @@ elif st.session_state.billing_active_page == "ledger":
                 st.error(str(e))
 
 # ==========================================
-# PAGE 4: PENDING MRN APPROVAL
+# PAGE 5: PENDING MRN APPROVAL
 # ==========================================
 elif st.session_state.billing_active_page == "mrn":
     st.markdown("<h3 style='color:#0f172a;'>🔒 MRN Approval Gate</h3>", unsafe_allow_html=True)
@@ -2174,7 +2296,7 @@ elif st.session_state.billing_active_page == "mrn":
         
         try:
             active_ws = st.session_state.get('active_workspace', 'VISPL')
-            # ---> UPDATED: Added .order("id", desc=True) so latest pending records appear at the top
+            # Latest pending records appear at the top
             pending_rows = fetch_pending_mrn_cached(active_ws)
             if pending_rows:
                 df_pending = pd.DataFrame(pending_rows).reset_index(drop=True)
@@ -2184,7 +2306,15 @@ elif st.session_state.billing_active_page == "mrn":
                     if "date" in df_pending.columns else pd.Series([""] * len(df_pending))
                 )
 
-                st.markdown("##### 🕒 Pending MRNs")
+                # --- KPI CARDS ---
+                k_pending = len(df_pending)
+                k_pending_amt = _sum_col(df_pending, "amount")
+                k_pending_teams = df_pending["team_name"].astype(str).str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA}).dropna().nunique() if "team_name" in df_pending.columns else 0
+                kpi_grid(
+                    kpi_card("🕒", "Pending MRNs", f"{k_pending:,}", "Waiting for approval", *KPI_AMBER),
+                    kpi_card("💰", "Pending Amount", f"₹ {k_pending_amt:,.0f}", "Will move to billing on approve", *KPI_INDIGO, value_cls="blue"),
+                    kpi_card("👷", "Teams", f"{k_pending_teams:,}", "With pending MRNs", *KPI_PINK),
+                )
 
                 if st.session_state.billing_view_mode == "cards":
                     # ---------------------------------------------------------------
@@ -2198,20 +2328,20 @@ elif st.session_state.billing_active_page == "mrn":
 
                         with st.container(border=True):
                             st.markdown(f"""
-                                <div class="billing-card-title">#{pos + 1} — {cell(row_dict.get('team_name'))}</div>
-                                <div class="billing-card-sub">{cell(row_dict.get('invoice_no'))} • {cell(display_dates.iloc[pos])}</div>
-                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{cell(row_dict.get('project_id'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{cell(row_dict.get('site_id'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{cell(row_dict.get('site_name'))}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{cell(row_dict.get('cluster'))}</span></div>
+                                <div class="billing-card-title">#{pos + 1} — {html.escape(cell(row_dict.get('team_name')))}</div>
+                                <div class="billing-card-sub">{html.escape(cell(row_dict.get('invoice_no')))} • {cell(display_dates.iloc[pos])}</div>
+                                <div class="billing-card-row"><span class="billing-card-label">Project ID</span><span class="billing-card-value">{html.escape(cell(row_dict.get('project_id')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site ID</span><span class="billing-card-value">{html.escape(cell(row_dict.get('site_id')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Site Name</span><span class="billing-card-value">{html.escape(cell(row_dict.get('site_name')))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Cluster</span><span class="billing-card-value">{html.escape(cell(row_dict.get('cluster')))}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label">Basic Amount</span><span class="billing-card-value">{'₹ %s' % format(basic_v, ',.0f') if pd.notna(basic_v) else '-'}</span></div>
                                 <div class="billing-card-row"><span class="billing-card-label" style="font-weight:800;">Total</span><span class="billing-card-value" style="color:#4f46e5;font-weight:800;">{'₹ %s' % format(amt_v, ',.0f') if pd.notna(amt_v) else '-'}</span></div>
-                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{cell(row_dict.get('remark'))}</span></div>
+                                <div class="billing-card-row"><span class="billing-card-label">Remark</span><span class="billing-card-value">{html.escape(cell(row_dict.get('remark')))}</span></div>
                             """, unsafe_allow_html=True)
 
                             bc1, bc2 = st.columns(2)
                             with bc1:
-                                if st.button("✅ Approve", key=f"mrnc_app_{rid}", use_container_width=True):
+                                if st.button("✅ Approve", key=f"mrnc_app_{rid}", type="primary", use_container_width=True):
                                     try:
                                         full_row = dict(row_dict)
                                         full_row.pop("id", None)
@@ -2234,62 +2364,66 @@ elif st.session_state.billing_active_page == "mrn":
                                         st.error(f"Error rejecting: {e}")
                 else:
                     # ---------------------------------------------------------------
-                    # DESKTOP WIDE TABLE VIEW
+                    # ✨ LAVISH DESKTOP TABLE VIEW — ✅ / ❌ at row start
                     # ---------------------------------------------------------------
-                    MRN_COL_RATIOS = [0.35, 0.35, 0.35, 1.1, 1.1, 0.9, 1.3, 0.9, 1.1, 0.9, 1.0, 1.0, 1.3]
-                    MRN_COL_LABELS = ["#", "✅", "❌", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
+                    MRN_COL_RATIOS = [0.5, 0.5, 0.5, 1.3, 1.2, 0.95, 1.4, 1.0, 1.3, 1.0, 1.05, 1.1, 1.4]
+                    MRN_COL_LABELS = ["✅", "❌", "#", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
 
-                    with st.container(key="mrn_table_header"):
-                        h_cols = st.columns(MRN_COL_RATIOS)
-                        for h_col, label in zip(h_cols, MRN_COL_LABELS):
-                            h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+                    table_min_width_css("mrn_table_wrap", 1800)
+                    table_title_bar("🕒 Pending MRN Queue", "✅ approve → moves to Invoice Entry • ❌ reject → removed", f"₹ {k_pending_amt:,.0f}")
 
-                    with st.container(key="mrn_table_wrap", height=440):
+                    with st.container(key="mrn_table_wrap", height=460):
+                        table_header_row("blhead_mrn", MRN_COL_RATIOS, MRN_COL_LABELS, center_idx=(0, 1, 2), right_idx=(10, 11))
+
                         for pos, (_, row) in enumerate(df_pending.iterrows()):
                             row_dict = row.to_dict()
                             rid = row_dict.get("id")
-                            rcols = st.columns(MRN_COL_RATIOS)
+                            parity = "odd" if (pos + 1) % 2 else "even"
 
-                            rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                            with st.container(key=f"blrow_{parity}_mrn_{rid}"):
+                                rcols = st.columns(MRN_COL_RATIOS, vertical_alignment="center")
 
-                            with rcols[1]:
-                                if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN", use_container_width=True):
-                                    try:
-                                        full_row = dict(row_dict)
-                                        full_row.pop("id", None)
-                                        supabase.table("billing_invoices").insert(full_row).execute()
-                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
-                                        st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
-                                        fetch_billing_invoices_cached.clear()
-                                        fetch_pending_mrn_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error approving: {e}")
-                            with rcols[2]:
-                                if st.button("❌", key=f"mrn_rej_{rid}", help="Reject MRN", use_container_width=True):
-                                    try:
-                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
-                                        st.error("❌ Pending MRN Rejected and Deleted from Queue!")
-                                        fetch_pending_mrn_cached.clear()
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error rejecting: {e}")
+                                with rcols[0]:
+                                    if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN"):
+                                        try:
+                                            full_row = dict(row_dict)
+                                            full_row.pop("id", None)
+                                            supabase.table("billing_invoices").insert(full_row).execute()
+                                            supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                            st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
+                                            fetch_billing_invoices_cached.clear()
+                                            fetch_pending_mrn_cached.clear()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error approving: {e}")
+                                with rcols[1]:
+                                    if st.button("❌", key=f"mrn_rej_{rid}", help="Reject MRN"):
+                                        try:
+                                            supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                            st.error("❌ Pending MRN Rejected and Deleted from Queue!")
+                                            fetch_pending_mrn_cached.clear()
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error rejecting: {e}")
 
-                            rcols[3].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('team_name'))}</div>", unsafe_allow_html=True)
-                            rcols[4].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('invoice_no'))}</div>", unsafe_allow_html=True)
-                            rcols[5].markdown(f"<div class='tbl-cell'>{cell(display_dates.iloc[pos])}</div>", unsafe_allow_html=True)
-                            rcols[6].markdown(f"<div class='tbl-cell-wrap'>{cell(row_dict.get('project_id'))}</div>", unsafe_allow_html=True)
-                            rcols[7].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_id'))}</div>", unsafe_allow_html=True)
-                            rcols[8].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('site_name'))}</div>", unsafe_allow_html=True)
-                            rcols[9].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('cluster'))}</div>", unsafe_allow_html=True)
+                                rcols[2].markdown(_serial(pos + 1), unsafe_allow_html=True)
+                                rcols[3].markdown(_entity(row_dict.get('team_name'), "team"), unsafe_allow_html=True)
+                                rcols[4].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
+                                rcols[5].markdown(_txt(display_dates.iloc[pos], "slux-soft"), unsafe_allow_html=True)
+                                rcols[6].markdown(_chip(row_dict.get('project_id'), "proj"), unsafe_allow_html=True)
+                                rcols[7].markdown(_chip(row_dict.get('site_id')), unsafe_allow_html=True)
+                                rcols[8].markdown(_txt(row_dict.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                                rcols[9].markdown(_pill(row_dict.get('cluster')), unsafe_allow_html=True)
+                                rcols[10].markdown(_money(row_dict.get('basic_amount')), unsafe_allow_html=True)
+                                rcols[11].markdown(_money(row_dict.get('amount'), "strong"), unsafe_allow_html=True)
+                                rcols[12].markdown(_txt(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
 
-                            basic_v = row_dict.get('basic_amount')
-                            rcols[10].markdown(f"<div class='tbl-cell'>₹ {basic_v:,.0f}</div>" if pd.notna(basic_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                            amt_v = row_dict.get('amount')
-                            rcols[11].markdown(f"<div class='tbl-cell' style='font-weight:800;color:#4f46e5;'>₹ {amt_v:,.0f}</div>" if pd.notna(amt_v) else "<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
-                            rcols[12].markdown(f"<div class='tbl-cell'>{cell(row_dict.get('remark'))}</div>", unsafe_allow_html=True)
+                    table_footer(
+                        f'{k_pending:,} pending MRN{"s" if k_pending != 1 else ""}',
+                        f'<span>Pending Total: <b style="color:#4f46e5;">₹ {k_pending_amt:,.0f}</b></span>',
+                    )
             else:
-                st.info("No pending MRNs waiting for approval.")
+                empty_state("No pending MRNs waiting for approval.")
         except Exception as e:
             st.error(f"Database error: {e}")
     elif pwd != "":
