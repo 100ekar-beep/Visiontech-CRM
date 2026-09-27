@@ -1965,10 +1965,7 @@ def edit_record_dialog(row_data):
 
         # Team app me site delete band
         if st.session_state.get("team_authed"):
-            return
 
-        # ---------------------------------------------------------------
-        # --- DANGER ZONE: DELETE THIS RECORD (merged from separate button)
 
 # --- 3.7 WAREHOUSE MATERIAL POP-UP DIALOG FUNCTION ---
 @st.dialog("📦 Warehouse Material Tracking", width="large")
