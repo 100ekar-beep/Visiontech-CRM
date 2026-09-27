@@ -19,6 +19,47 @@ except ImportError:
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Team & Vendor Billing", page_icon="💸", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-blhead_"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-blhead_"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-blhead_"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-blhead_"] [data-testid="stColumn"], .stApp div[class*="st-key-blhead_"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-blhead_"] .slux-th, .stApp div[class*="st-key-blhead_"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 # --- INIT SESSION STATE (nav) ---
 if 'billing_active_page' not in st.session_state:
     st.session_state.billing_active_page = "invoice"
@@ -1647,7 +1688,7 @@ if st.session_state.billing_active_page == "invoice":
                         f"₹ {view_net:,.0f}",
                     )
 
-                    with st.container(key="inv_table_wrap", height=520):
+                    with st.container(key="inv_table_wrap"):
                         table_header_row("blhead_inv", INV_COL_RATIOS, INV_COL_LABELS, center_idx=(0, 1), right_idx=right_idx)
 
                         for pos, (_, row) in enumerate(df_inv.iterrows()):
@@ -1814,7 +1855,7 @@ elif st.session_state.billing_active_page == "payment":
                     table_min_width_css("pay_table_wrap", 1300)
                     table_title_bar("💳 Payment Register", "newest first", f"₹ {k_total:,.0f}")
 
-                    with st.container(key="pay_table_wrap", height=520):
+                    with st.container(key="pay_table_wrap"):
                         table_header_row("blhead_pay", PAY_COL_RATIOS, PAY_COL_LABELS, center_idx=(0, 1, 8), right_idx=(5,))
 
                         for pos, (_, row) in enumerate(df_pay.iterrows()):
@@ -1913,7 +1954,7 @@ elif st.session_state.billing_active_page == "transfer":
         table_min_width_css("transfer_table_wrap", 1500)
         table_title_bar("🔄 Material Transfer Register", "↩️ = revoke an active transfer", f"₹ {k_value:,.0f}")
 
-        with st.container(height=520, key="transfer_table_wrap"):
+        with st.container(key="transfer_table_wrap"):
             table_header_row("blhead_transfer", ratios, labels, center_idx=(0, 1, 6, 9), right_idx=(7,))
             for pos, (_, transfer) in enumerate(df_transfer.reset_index(drop=True).iterrows()):
                 row = transfer.to_dict()
@@ -2372,7 +2413,7 @@ elif st.session_state.billing_active_page == "mrn":
                     table_min_width_css("mrn_table_wrap", 1800)
                     table_title_bar("🕒 Pending MRN Queue", "✅ approve → moves to Invoice Entry • ❌ reject → removed", f"₹ {k_pending_amt:,.0f}")
 
-                    with st.container(key="mrn_table_wrap", height=460):
+                    with st.container(key="mrn_table_wrap"):
                         table_header_row("blhead_mrn", MRN_COL_RATIOS, MRN_COL_LABELS, center_idx=(0, 1, 2), right_idx=(10, 11))
 
                         for pos, (_, row) in enumerate(df_pending.iterrows()):
