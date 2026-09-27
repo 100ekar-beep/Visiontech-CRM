@@ -52,7 +52,7 @@ DOCS = [
     {"label": "SRC",   "status": "SRC Status",  "files": "SRC Files",    "folder": "src",    "tag": "SRC",   "icon": "📑", "css": "attach_lav_src", "to_pdf": True},
     {"label": "DC",    "status": "DC Status",   "files": "DC Files",     "folder": "dc",     "tag": "DC",    "icon": "📦", "css": "attach_lav_dc", "to_pdf": True},
     {"label": "E-Way", "status": "EWAY Status", "files": "EWAY Files",   "folder": "eway",   "tag": "EWAY",  "icon": "🚚", "css": "attach_lav_eway", "to_pdf": True},
-    {"label": "Photo", "status": "Photos",      "files": "Photos Files", "folder": "photos", "tag": "Photo", "icon": "📷", "css": "attach_lav_photo", "to_pdf": False},
+    {"label": "Photo", "status": "Photos",      "files": "Photos Files", "folder": "photos", "tag": "Photo", "icon": "📷", "css": "attach_lav_photo", "to_pdf": True},
     {"label": "POD",   "status": "POD Status",  "files": "POD Files",    "folder": "pod",    "tag": "POD",   "icon": "✅", "css": "attach_lav_pod", "to_pdf": True},
 ]
 NEW_COLS = ["SRC Status", "DC Status", "EWAY Status", "POD Status", "POD Files", REMARK_COL]
@@ -962,7 +962,8 @@ def _render_doc(rec, doc):
 def dg_site_dialog(rec):
     ss = st.session_state
     rid = rec["id"]
-    st.caption("SRC, DC, E-Way, Photo aur POD upload karein, status aur remark update karein")
+    st.caption("SRC, DC, E-Way, Photo aur POD upload karein, status aur remark update karein  ·  "
+               "Page version: v7 (PDF cover page)")
     if R2_PROBLEM:
         st.warning("⚠️ File upload abhi nahi chalega. " + R2_PROBLEM)
 
