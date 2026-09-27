@@ -21,6 +21,9 @@ import streamlit as st
 from botocore.client import Config
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 from st_keyup import st_keyup
 from supabase import create_client, Client
 
@@ -32,14 +35,15 @@ PROJECT_MATCH = "DG Removal"          # Project Name me ye text ho to site yaha 
 STATUS_OPTS = ["Pending", "Available", "Not Required"]
 ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png"]
 MAX_PHOTOS = 15
+IMAGE_EXT = (".jpg", ".jpeg", ".png")
 REMARK_COL = "Remark"
 
 DOCS = [
-    {"label": "SRC",   "status": "SRC Status",  "files": "SRC Files",    "folder": "src",    "tag": "SRC",   "icon": "📑", "css": "attach_lav_src"},
-    {"label": "DC",    "status": "DC Status",   "files": "DC Files",     "folder": "dc",     "tag": "DC",    "icon": "📦", "css": "attach_lav_dc"},
-    {"label": "E-Way", "status": "EWAY Status", "files": "EWAY Files",   "folder": "eway",   "tag": "EWAY",  "icon": "🚚", "css": "attach_lav_eway"},
-    {"label": "Photo", "status": "Photos",      "files": "Photos Files", "folder": "photos", "tag": "Photo", "icon": "📷", "css": "attach_lav_photo"},
-    {"label": "POD",   "status": "POD Status",  "files": "POD Files",    "folder": "pod",    "tag": "POD",   "icon": "✅", "css": "attach_lav_pod"},
+    {"label": "SRC",   "status": "SRC Status",  "files": "SRC Files",    "folder": "src",    "tag": "SRC",   "icon": "📑", "css": "attach_lav_src", "to_pdf": True},
+    {"label": "DC",    "status": "DC Status",   "files": "DC Files",     "folder": "dc",     "tag": "DC",    "icon": "📦", "css": "attach_lav_dc", "to_pdf": True},
+    {"label": "E-Way", "status": "EWAY Status", "files": "EWAY Files",   "folder": "eway",   "tag": "EWAY",  "icon": "🚚", "css": "attach_lav_eway", "to_pdf": True},
+    {"label": "Photo", "status": "Photos",      "files": "Photos Files", "folder": "photos", "tag": "Photo", "icon": "📷", "css": "attach_lav_photo", "to_pdf": False},
+    {"label": "POD",   "status": "POD Status",  "files": "POD Files",    "folder": "pod",    "tag": "POD",   "icon": "✅", "css": "attach_lav_pod", "to_pdf": True},
 ]
 NEW_COLS = ["SRC Status", "DC Status", "EWAY Status", "POD Status", "POD Files", REMARK_COL]
 
@@ -379,26 +383,59 @@ def _compress_pdf_bytes(raw_bytes):
     return raw_bytes
 
 
-def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
+def put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag):
+    """Bytes ko R2 me daalo. Naam: ProjectID_SiteID_Tag_xxxxxx.ext (Site Data page jaisa)."""
     if r2_client is None:
         raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
-    ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "bin"
-    if ext in ("jpg", "jpeg", "png"):
-        file_obj, content_type, ext = _compress_image(uploaded_file)
-    elif ext == "pdf":
-        uploaded_file.seek(0)
-        file_obj = io.BytesIO(_compress_pdf_bytes(uploaded_file.read()))
-        content_type = "application/pdf"
-    else:
-        uploaded_file.seek(0)
-        file_obj, content_type = uploaded_file, (uploaded_file.type or "application/octet-stream")
 
     def _safe(v, fb):
         return "".join(c for c in str(v) if c.isalnum() or c in ("-", "_")) or fb
 
     object_key = f"{folder}/{_safe(project_id, 'proj')}_{_safe(site_id, 'site')}_{_safe(field_tag, 'file')}_{uuid.uuid4().hex[:6]}.{ext}"
-    r2_client.upload_fileobj(file_obj, R2_BUCKET, object_key, ExtraArgs={"ContentType": content_type})
+    r2_client.upload_fileobj(io.BytesIO(data), R2_BUCKET, object_key, ExtraArgs={"ContentType": content_type})
     return f"{R2_PUBLIC_URL}/{object_key}"
+
+
+def upload_file_to_r2(uploaded_file, folder, project_id, site_id, field_tag):
+    """Ek file compress karke upload. Returns (url, uploaded_size_bytes)."""
+    ext = uploaded_file.name.split(".")[-1].lower() if "." in uploaded_file.name else "bin"
+    if ext in ("jpg", "jpeg", "png"):
+        file_obj, content_type, ext = _compress_image(uploaded_file)
+        data = file_obj.read()
+    elif ext == "pdf":
+        uploaded_file.seek(0)
+        data = _compress_pdf_bytes(uploaded_file.read())
+        content_type = "application/pdf"
+    else:
+        uploaded_file.seek(0)
+        data = uploaded_file.read()
+        content_type = uploaded_file.type or "application/octet-stream"
+    return put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag), len(data)
+
+
+def images_to_pdf_bytes(image_files):
+    """Kai photos -> ek PDF (har photo ek page). Photos pehle compress hoti hain
+    (1600px, JPEG q50), phir A4 page pe fit hoti hain. Landscape photo = landscape page."""
+    out = io.BytesIO()
+    pdf = canvas.Canvas(out, pagesize=A4)
+    for uf in image_files:
+        uf.seek(0)
+        img_buf, _, _ = _compress_image(uf)
+        reader = ImageReader(img_buf)
+        iw, ih = reader.getSize()
+        page_w, page_h = (A4[1], A4[0]) if iw > ih else A4
+        pdf.setPageSize((page_w, page_h))
+        margin = 18
+        scale = min((page_w - 2 * margin) / iw, (page_h - 2 * margin) / ih)
+        w, h = iw * scale, ih * scale
+        pdf.drawImage(reader, (page_w - w) / 2, (page_h - h) / 2, width=w, height=h)
+        pdf.showPage()
+    pdf.save()
+    return out.getvalue()
+
+
+def fmt_size(n):
+    return f"{n / 1024 / 1024:.1f} MB" if n >= 1024 * 1024 else f"{max(n, 1) / 1024:.0f} KB"
 
 
 def delete_from_r2(url):
@@ -559,12 +596,17 @@ def _render_doc(rec, doc):
     st.markdown(f"<div class='dg-doc-title'>{doc['icon']} {doc['label']}{count}</div>", unsafe_allow_html=True)
 
     # --- Upload: file chunte hi upload ---
+    pdf_key = f"dg_topdf_{f}_{rid}"
+    if pdf_key not in ss:
+        ss[pdf_key] = doc["to_pdf"]
+    make_pdf = st.toggle("Photos ko 1 PDF banao", key=pdf_key,
+                         help="On: jitni photos ek saath chunoge, sab milkar ek PDF banegi (har photo ek page).")
     with st.container(key=doc["css"]):
         picked = st.file_uploader(f"Upload {doc['label']}", type=ALLOWED_EXT, accept_multiple_files=True,
                                   key=f"dg_up_{f}_{rid}", label_visibility="collapsed")
     new_files = [u for u in (picked or []) if (u.name, u.size) not in ss[proc_key]]
     if new_files:
-        if f == "photos":
+        if f == "photos" and not make_pdf:
             slots = MAX_PHOTOS - len(files)
             if slots <= 0:
                 st.error(f"Photos pehle se {MAX_PHOTOS}/{MAX_PHOTOS} hain. Pehle kuch delete karein.")
@@ -575,10 +617,27 @@ def _render_doc(rec, doc):
                     ss[proc_key].add((extra.name, extra.size))
                 new_files = new_files[:slots]
         uploaded, errors = [], []
-        with st.spinner("Upload ho raha hai..."):
-            for uf in new_files:
+        orig_size, final_size = 0, 0
+        pid, sid = rec.get("Project ID"), rec.get("Site ID")
+        images = [u for u in new_files if u.name.lower().endswith(IMAGE_EXT)]
+        singles = [u for u in new_files if u not in images] if (make_pdf and images) else new_files
+        with st.spinner("Compress + upload ho raha hai..."):
+            if make_pdf and images:
                 try:
-                    uploaded.append(upload_file_to_r2(uf, f, rec.get("Project ID"), rec.get("Site ID"), doc["tag"]))
+                    pdf_bytes = images_to_pdf_bytes(images)
+                    uploaded.append(put_bytes_to_r2(pdf_bytes, "application/pdf", "pdf", f, pid, sid, doc["tag"]))
+                    orig_size += sum(u.size for u in images)
+                    final_size += len(pdf_bytes)
+                    for u in images:
+                        ss[proc_key].add((u.name, u.size))
+                except Exception as e:
+                    errors.append(f"Photos se PDF nahi bani: {e}")
+            for uf in singles:
+                try:
+                    url, size = upload_file_to_r2(uf, f, pid, sid, doc["tag"])
+                    uploaded.append(url)
+                    orig_size += uf.size
+                    final_size += size
                     ss[proc_key].add((uf.name, uf.size))
                 except Exception as e:
                     errors.append(f"{uf.name}: {e}")
@@ -590,7 +649,8 @@ def _render_doc(rec, doc):
                 update_site(rid, {doc["files"]: ", ".join(new_list), doc["status"]: "Available"})
                 ss[files_key] = new_list
                 ss[st_key] = "Available"
-                ss[f"dg_msg_{rid}"] = f"✅ {len(uploaded)} {doc['label']} file(s) upload hui, status Available."
+                ss[f"dg_msg_{rid}"] = (f"✅ {doc['label']}: {len(uploaded)} file(s) upload hui "
+                                       f"({fmt_size(orig_size)} → {fmt_size(final_size)}), status Available.")
                 st.rerun(scope="fragment")
             except Exception as e:
                 st.error(f"site_data update nahi hua: {e}")
