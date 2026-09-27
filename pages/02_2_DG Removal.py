@@ -195,17 +195,17 @@ div[class*="st-key-dgdl_"] a, div[class*="st-key-dgdl_"] a p, div[class*="st-key
     border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important; border-radius: 0 !important;
 }
 .st-key-site_lux_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
-.st-key-site_lux_wrap [data-testid="stHorizontalBlock"] { min-width: 2300px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important; }
+.st-key-site_lux_wrap [data-testid="stHorizontalBlock"] { min-width: 2450px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important; }
 .st-key-site_lux_wrap [data-testid="stColumn"], .st-key-site_lux_wrap [data-testid="column"] { padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9; }
 .st-key-site_lux_wrap > .st-key-slux_head, .st-key-site_lux_wrap > div:has(.st-key-slux_head) { position: sticky !important; top: 0 !important; z-index: 20 !important; }
 .st-key-slux_head {
     background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important; border-bottom: 3px solid #f59e0b !important;
-    box-shadow: 0 8px 14px -8px rgba(30,27,75,.55) !important; padding: 14px 0 !important; min-width: 2300px !important;
+    box-shadow: 0 8px 14px -8px rgba(30,27,75,.55) !important; padding: 14px 0 !important; min-width: 2450px !important;
 }
 .st-key-slux_head [data-testid="stColumn"], .st-key-slux_head [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
 .slux-th { color: #fff !important; font-size: .76rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
 .slux-th.c { text-align: center; }
-div[class*="st-key-sluxrow_"] { padding: 9px 0 !important; min-width: 2300px !important; background: #fff; border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease; }
+div[class*="st-key-sluxrow_"] { padding: 9px 0 !important; min-width: 2450px !important; background: #fff; border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease; }
 div[class*="st-key-sluxrow_odd"] { background: #fafaff; }
 div[class*="st-key-sluxrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
 div[class*="st-key-sluxrow_"] p { margin: 0 !important; }
@@ -475,6 +475,15 @@ def site_status_options():
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def team_name_options():
+    try:
+        res = supabase.table("dropdown_master").select("option_value").eq("category", "Team Name").execute()
+        return sorted({r["option_value"] for r in (res.data or []) if r.get("option_value")})
+    except Exception:
+        return []
+
+
 def update_site(rid, payload):
     supabase.table("site_data").update(payload).eq("id", rid).execute()
     fetch_dg_sites.clear()
@@ -661,8 +670,8 @@ def dg_site_dialog(rec):
         with col:
             _render_doc(rec, doc)
 
-    st.markdown('<div class="modal-section-title">📝 SITE STATUS & REMARK</div>', unsafe_allow_html=True)
-    ss_key, rm_key = f"dg_sitestatus_{rid}", f"dg_remark_{rid}"
+    st.markdown('<div class="modal-section-title">📝 SITE STATUS, TEAM & REMARK</div>', unsafe_allow_html=True)
+    ss_key, rm_key, tm_key = f"dg_sitestatus_{rid}", f"dg_remark_{rid}", f"dg_team_{rid}"
     cur_ss = _clean(rec.get("Site Status"))
     ss_opts = site_status_options()
     if cur_ss not in ss_opts:
@@ -671,15 +680,22 @@ def dg_site_dialog(rec):
         ss[ss_key] = cur_ss
     if rm_key not in ss:
         ss[rm_key] = _clean(rec.get(REMARK_COL))
+    cur_team = _clean(rec.get("Team Name"))
+    team_opts = [""] + team_name_options()
+    if cur_team not in team_opts:
+        team_opts.insert(1, cur_team)
+    if tm_key not in ss:
+        ss[tm_key] = cur_team
 
-    c1, c2 = st.columns([1, 2])
+    c1, c2, c3 = st.columns([1, 1, 2])
     c1.selectbox("SITE STATUS", ss_opts, key=ss_key, format_func=lambda x: x or "Select")
-    c2.text_area("REMARK", key=rm_key, height=90)
+    c2.selectbox("TEAM NAME", team_opts, key=tm_key, format_func=lambda x: x or "Select")
+    c3.text_area("REMARK", key=rm_key, height=90)
 
     _, col_save = st.columns([8, 2])
     with col_save:
         if st.button("💾 Update Data", type="primary", use_container_width=True, key=f"dg_save_{rid}"):
-            payload = {"Site Status": ss[ss_key], REMARK_COL: ss[rm_key].strip()}
+            payload = {"Site Status": ss[ss_key], "Team Name": ss[tm_key], REMARK_COL: ss[rm_key].strip()}
             for doc in DOCS:
                 payload[doc["status"]] = ss[f"dg_st_{doc['folder']}_{rid}"]
             try:
@@ -721,12 +737,12 @@ if rows:
 
 raw_by_id = {r["id"]: r for r in rows}
 STATUS_COLS = [f"{d['label']} Status" for d in DOCS]
-DISPLAY_COLS = ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Site Status"] + STATUS_COLS + ["Remark"]
+DISPLAY_COLS = ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Team Name", "Site Status"] + STATUS_COLS + ["Remark"]
 
 records = []
 for r in rows:
     rec = {"id": r["id"], "created_at": r.get("created_at")}
-    for c in ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Site Status"]:
+    for c in ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Team Name", "Site Status"]:
         rec[c] = _clean(r.get(c))
     for doc in DOCS:
         rec[f"{doc['label']} Status"] = effective_status(r.get(doc["status"]), parse_files(r.get(doc["files"])))
@@ -857,6 +873,7 @@ elif st.session_state.dg_view_mode == "cards":
             st.markdown(f"""
                 <div class="site-card-title">#{serial_no} — {escape(row['Site ID'] or '-')} | {escape(row['Site Name'] or '-')}</div>
                 <div class="site-card-sub">{escape(row['Project ID'] or '-')} • {escape(row['Cluster'] or '-')}</div>
+                <div class="site-card-row"><span class="site-card-label">Team Name</span><span class="site-card-value">{escape(row['Team Name'] or '-')}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Site Status</span><span class="site-card-value">{status_badge(row['Site Status'])}</span></div>
                 {doc_rows}
                 <div class="site-card-row"><span class="site-card-label">Remark</span><span class="site-card-value">{escape(row['Remark'] or '-')}</span></div>
@@ -865,8 +882,8 @@ elif st.session_state.dg_view_mode == "cards":
                 open_site(row["id"])
 
 else:
-    COL_RATIOS = [0.45, 0.45, 1.4, 1.1, 1.4, 1.7, 1.1, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 2.2]
-    COL_LABELS = ["#", "⚙️", "PROJECT NAME", "SITE ID", "PROJECT ID", "SITE NAME", "CLUSTER", "SITE STATUS",
+    COL_RATIOS = [0.45, 0.45, 1.4, 1.1, 1.4, 1.7, 1.1, 1.3, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 2.2]
+    COL_LABELS = ["#", "⚙️", "PROJECT NAME", "SITE ID", "PROJECT ID", "SITE NAME", "CLUSTER", "TEAM NAME", "SITE STATUS",
                   "SRC STATUS", "DC STATUS", "E-WAY STATUS", "PHOTO STATUS", "POD STATUS", "REMARK"]
 
     st.markdown(
@@ -895,10 +912,11 @@ else:
                 rc[4].markdown(_chip(row["Project ID"], "proj"), unsafe_allow_html=True)
                 rc[5].markdown(_txt(row["Site Name"], "slux-strong"), unsafe_allow_html=True)
                 rc[6].markdown(_pill(row["Cluster"]), unsafe_allow_html=True)
-                rc[7].markdown(status_badge(row["Site Status"]), unsafe_allow_html=True)
+                rc[7].markdown(_txt(row["Team Name"], "slux-strong"), unsafe_allow_html=True)
+                rc[8].markdown(status_badge(row["Site Status"]), unsafe_allow_html=True)
                 for i, col in enumerate(STATUS_COLS):
-                    rc[8 + i].markdown(status_badge(row[col]), unsafe_allow_html=True)
-                rc[13].markdown(_txt(row["Remark"], "slux-soft"), unsafe_allow_html=True)
+                    rc[9 + i].markdown(status_badge(row[col]), unsafe_allow_html=True)
+                rc[14].markdown(_txt(row["Remark"], "slux-soft"), unsafe_allow_html=True)
 
     shown_from = start_idx + 1 if total_rows else 0
     shown_to = min(end_idx, total_rows)
