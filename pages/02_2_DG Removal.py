@@ -44,7 +44,7 @@ ALLOWED_EXT = ["pdf", "jpg", "jpeg", "png"]
 MAX_PHOTOS = 15
 # PDF cover page pe company ka poora naam (yahan badal sakte hain)
 COMPANY_FULL_NAMES = {
-    "VISPL": "VISIONTECH INFRA SOLUTIONS PVT. LTD.",
+    "VISPL": "VISIONTECH INFRA SOLUTIONS",
     "Bhagyashree": "BHAGYASHREE",
     "Sai Tele": "SAI TELE SERVICES",
 }
@@ -604,30 +604,37 @@ def draw_cover_page(pdf, info):
     _gradient_round_rect(pdf, W / 2 - 70, H - 132, 140, 5, 2.5, "#f59e0b", "#ec4899")
 
     # --- Big title ---
+    title = info.get("title", "SITE PHOTOS")
+    pdf.setFont("Helvetica-Bold", 54)
     pdf.setFillColor(HexColor("#000000"), alpha=0.25)
-    pdf.setFont("Helvetica-Bold", 56)
-    pdf.drawCentredString(W / 2 + 3, H - 243, info.get("title", "SITE PHOTOS"))
+    pdf.drawCentredString(W / 2 + 3, H - 213, title)
     pdf.setFillColor(HexColor("#ffffff"), alpha=1)
-    pdf.drawCentredString(W / 2, H - 240, info.get("title", "SITE PHOTOS"))
+    pdf.drawCentredString(W / 2, H - 210, title)
 
     # --- Chip: document type + photo count ---
-    chip = f"{info.get('doc_label', '')}  •  {info.get('count', 0)} PHOTO{'S' if info.get('count', 0) != 1 else ''}".upper()
+    n = info.get("count", 0)
+    count_txt = f"{n} PHOTO{'S' if n != 1 else ''}"
+    label = str(info.get("doc_label", "")).strip()
+    chip = (count_txt if label.lower() in ("", "photo", "photos") else f"{label}  •  {count_txt}").upper()
     pdf.setFont("Helvetica-Bold", 12)
-    cw = stringWidth(chip, "Helvetica-Bold", 12) + 44
-    _gradient_round_rect(pdf, W / 2 - cw / 2, H - 298, cw, 30, 15, "#f59e0b", "#ec4899")
+    chip_w = stringWidth(chip, "Helvetica-Bold", 12) + 44
+    _gradient_round_rect(pdf, W / 2 - chip_w / 2, H - 266, chip_w, 30, 15, "#f59e0b", "#ec4899")
     pdf.setFillColor(HexColor("#ffffff"))
-    pdf.drawCentredString(W / 2, H - 287, chip)
+    pdf.drawCentredString(W / 2, H - 255, chip)
 
-    # --- White info card with shadow ---
+    # --- White info card: 5 colourful rows ---
     cx, cw2 = 48, W - 96
     rows = [
         ("SITE NAME", info.get("site_name"), "#ec4899", "#fdf2f8"),
         ("SITE ID", info.get("site_id"), "#06b6d4", "#ecfeff"),
         ("PROJECT NAME", info.get("project_name"), "#f59e0b", "#fffbeb"),
+        ("PROJECT ID", info.get("project_id"), "#22c55e", "#f0fdf4"),
+        ("CLUSTER", info.get("cluster"), "#8b5cf6", "#f5f3ff"),
     ]
-    row_h, pad = 78, 26
-    card_h = pad * 2 + row_h * len(rows)
-    card_top = H - 350
+    row_h, pad = 72, 22
+    box_h = row_h - 12
+    card_h = pad * 2 + row_h * len(rows) - 12
+    card_top = H - 300
     card_y = card_top - card_h
     pdf.setFillColor(HexColor("#0f0a2e"), alpha=0.35)
     pdf.roundRect(cx + 6, card_y - 8, cw2, card_h, 22, stroke=0, fill=1)
@@ -636,31 +643,22 @@ def draw_cover_page(pdf, info):
     _gradient_round_rect(pdf, cx + 22, card_top - 6, cw2 - 44, 6, 3, "#6366f1", "#ec4899")
 
     for i, (label, value, accent, soft) in enumerate(rows):
-        ry = card_top - pad - (i + 1) * row_h + 8
+        ry = card_top - pad - i * row_h - box_h
         pdf.setFillColor(HexColor(soft))
-        pdf.roundRect(cx + 20, ry, cw2 - 40, row_h - 14, 14, stroke=0, fill=1)
+        pdf.roundRect(cx + 20, ry, cw2 - 40, box_h, 14, stroke=0, fill=1)
         pdf.setFillColor(HexColor(accent))
-        pdf.roundRect(cx + 20, ry, 9, row_h - 14, 4.5, stroke=0, fill=1)
-        pdf.circle(cx + 56, ry + (row_h - 14) / 2, 14, stroke=0, fill=1)
+        pdf.roundRect(cx + 20, ry, 9, box_h, 4.5, stroke=0, fill=1)
+        pdf.circle(cx + 56, ry + box_h / 2, 14, stroke=0, fill=1)
         pdf.setFillColor(HexColor("#ffffff"))
         pdf.setFont("Helvetica-Bold", 13)
-        pdf.drawCentredString(cx + 56, ry + (row_h - 14) / 2 - 4.5, str(i + 1))
+        pdf.drawCentredString(cx + 56, ry + box_h / 2 - 4.5, str(i + 1))
         pdf.setFillColor(HexColor(accent))
         pdf.setFont("Helvetica-Bold", 9.5)
-        pdf.drawString(cx + 84, ry + row_h - 36, f"{label}  :-")
-        val, vsize = _fit_text(value or "-", "Helvetica-Bold", 21, 11, cw2 - 124)
+        pdf.drawString(cx + 84, ry + box_h - 19, f"{label}  :-")
+        val, vsize = _fit_text(value or "-", "Helvetica-Bold", 20, 11, cw2 - 124)
         pdf.setFillColor(HexColor("#0f172a"))
         pdf.setFont("Helvetica-Bold", vsize)
-        pdf.drawString(cx + 84, ry + 14, val)
-
-    # --- Extra details strip ---
-    extra = f"Project ID: {info.get('project_id') or '-'}     |     Cluster: {info.get('cluster') or '-'}"
-    extra, esize = _fit_text(extra, "Helvetica-Bold", 11, 8, W - 120)
-    pdf.setFillColor(HexColor("#ffffff"), alpha=0.12)
-    pdf.roundRect(48, card_y - 70, W - 96, 34, 17, stroke=0, fill=1)
-    pdf.setFillColor(HexColor("#e0e7ff"), alpha=1)
-    pdf.setFont("Helvetica-Bold", esize)
-    pdf.drawCentredString(W / 2, card_y - 58, extra)
+        pdf.drawString(cx + 84, ry + 12, val)
 
     # --- Footer ---
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
