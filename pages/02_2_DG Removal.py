@@ -319,46 +319,82 @@ if supabase is None:
     st.stop()
 
 
+# -------------------------------------------------------------
+# R2 settings: Streamlit secrets me kahin bhi ho, dhoondh lo
+#   [r2] / [R2] / [cloudflare] section, ya top-level R2_BUCKET_NAME jaise keys,
+#   ya environment variables (R2_BUCKET_NAME, R2_PUBLIC_URL, ...)
+# -------------------------------------------------------------
+_R2_FIELDS = {
+    "account_id": ("account_id", "accountid", "cf_account_id"),
+    "access_key_id": ("access_key_id", "access_key", "aws_access_key_id", "key_id"),
+    "secret_access_key": ("secret_access_key", "secret_key", "aws_secret_access_key"),
+    "bucket_name": ("bucket_name", "bucket"),
+    "public_url": ("public_url", "public_base_url", "public_domain", "custom_domain", "dev_url"),
+    "endpoint_url": ("endpoint_url", "endpoint", "s3_endpoint", "s3_api"),
+}
+
+
+def _flatten_secrets(obj, prefix=""):
+    out = {}
+    try:
+        for k in obj.keys():
+            v = obj[k]
+            path = f"{prefix}{k}"
+            if hasattr(v, "keys"):
+                out.update(_flatten_secrets(v, path + "."))
+            else:
+                out[path] = v
+    except Exception:
+        pass
+    return out
+
+
+def load_r2_config():
+    flat = _flatten_secrets(st.secrets)
+    cfg = {}
+    for field, names in _R2_FIELDS.items():
+        wanted = set(names) | {f"r2_{n}" for n in names} | {f"cloudflare_{n}" for n in names}
+        best = None
+        for path, val in flat.items():
+            low = path.lower()
+            if path.split(".")[-1].lower() not in wanted or not str(val).strip():
+                continue
+            score = 2 if ("r2" in low or "cloudflare" in low) else 1
+            if best is None or score > best[0]:
+                best = (score, str(val).strip())
+        cfg[field] = best[1] if best else os.environ.get(f"R2_{field.upper()}", "").strip()
+    return cfg, sorted(flat.keys())
+
+
 @st.cache_resource
-def init_r2_connection():
+def dg_make_r2_client(endpoint, access_key, secret_key):
+    return boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key,
+                        aws_secret_access_key=secret_key, config=Config(signature_version="s3v4"),
+                        region_name="auto")
+
+
+R2_CFG, SECRET_NAMES = load_r2_config()
+R2_BUCKET = R2_CFG["bucket_name"]
+R2_PUBLIC_URL = R2_CFG["public_url"].rstrip("/")
+_r2_endpoint = R2_CFG["endpoint_url"] or (
+    f"https://{R2_CFG['account_id']}.r2.cloudflarestorage.com" if R2_CFG["account_id"] else "")
+
+_missing = [name for name, ok in [
+    ("account_id (ya endpoint_url)", _r2_endpoint), ("access_key_id", R2_CFG["access_key_id"]),
+    ("secret_access_key", R2_CFG["secret_access_key"]), ("bucket_name", R2_BUCKET),
+    ("public_url (https://...)", R2_PUBLIC_URL.startswith("http")),
+] if not ok]
+
+r2_client = None
+R2_PROBLEM = ""
+if _missing:
+    R2_PROBLEM = ("Cloudflare R2 settings Streamlit secrets me nahi mili: " + ", ".join(_missing)
+                  + ". Secrets me abhi sirf ye keys hain: " + (", ".join(SECRET_NAMES) or "(kuch nahi)"))
+else:
     try:
-        r2_cfg = st.secrets["r2"]
-        return boto3.client(
-            "s3",
-            endpoint_url=f"https://{r2_cfg['account_id']}.r2.cloudflarestorage.com",
-            aws_access_key_id=r2_cfg["access_key_id"],
-            aws_secret_access_key=r2_cfg["secret_access_key"],
-            config=Config(signature_version="s3v4"),
-            region_name="auto",
-        )
+        r2_client = dg_make_r2_client(_r2_endpoint, R2_CFG["access_key_id"], R2_CFG["secret_access_key"])
     except Exception as e:
-        st.error(f"🚨 R2 connection error: {e}")
-        return None
-
-
-r2_client = init_r2_connection()
-def _r2_setting(*names):
-    """[r2] secrets se value lo — key ka naam thoda alag ho (bucket / BUCKET_NAME) to bhi mil jaye."""
-    try:
-        cfg = st.secrets["r2"]
-    except Exception:
-        return ""
-    lower = {str(k).lower(): k for k in cfg.keys()}
-    for n in names:
-        if n.lower() in lower and cfg[lower[n.lower()]]:
-            return str(cfg[lower[n.lower()]]).strip()
-    return ""
-
-
-def _r2_key_names():
-    try:
-        return ", ".join(str(k) for k in st.secrets["r2"].keys()) or "(khali)"
-    except Exception:
-        return "[r2] section hi nahi mila"
-
-
-R2_BUCKET = _r2_setting("bucket_name", "bucket", "r2_bucket", "r2_bucket_name")
-R2_PUBLIC_URL = _r2_setting("public_url", "public_base_url", "r2_public_url", "public_domain", "custom_domain").rstrip("/")
+        R2_PROBLEM = f"R2 connection error: {e}"
 
 
 def _compress_image(uploaded_file, max_dimension=1600, quality=50):
@@ -416,13 +452,8 @@ def _compress_pdf_bytes(raw_bytes):
 
 def put_bytes_to_r2(data, content_type, ext, folder, project_id, site_id, field_tag):
     """Bytes ko R2 me daalo. Naam: ProjectID_SiteID_Tag_xxxxxx.ext (Site Data page jaisa)."""
-    if r2_client is None:
-        raise RuntimeError("R2 client not configured — check [r2] section in Streamlit secrets.")
-    if not R2_BUCKET:
-        raise RuntimeError(f"Streamlit secrets ke [r2] me bucket name nahi mila. [r2] me ye keys hain: {_r2_key_names()}")
-    if not R2_PUBLIC_URL.startswith("http"):
-        raise RuntimeError(f"Streamlit secrets ke [r2] me public_url nahi mila (https://... hona chahiye). "
-                           f"[r2] me ye keys hain: {_r2_key_names()}")
+    if R2_PROBLEM or r2_client is None:
+        raise RuntimeError(R2_PROBLEM or "R2 client nahi bana.")
 
     def _safe(v, fb):
         return "".join(c for c in str(v) if c.isalnum() or c in ("-", "_")) or fb
@@ -786,6 +817,8 @@ def dg_site_dialog(rec):
     ss = st.session_state
     rid = rec["id"]
     st.caption("SRC, DC, E-Way, Photo aur POD upload karein, status aur remark update karein")
+    if R2_PROBLEM:
+        st.warning("⚠️ File upload abhi nahi chalega. " + R2_PROBLEM)
 
     st.markdown('<div class="modal-section-title">🏢 SITE INFORMATION</div>', unsafe_allow_html=True)
     info_cols = st.columns(5)
