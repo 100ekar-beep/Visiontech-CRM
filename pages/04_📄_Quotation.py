@@ -9,6 +9,40 @@ from supabase import create_client, Client
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Quotation List", page_icon="📄", layout="wide")
 
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+.stApp .st-key-lux_tbody { max-height: 78vh !important; overflow: auto !important; }
+/* Header: alag gehra color + bold safed text + amber underline (header body ke upar fixed rehta hai) */
+.stApp .st-key-lux_thead {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px !important; position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+.stApp .st-key-lux_thead p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+</style>
+""", unsafe_allow_html=True)
+
 # --- NEW: MOBILE VIEW TOGGLE STATE ---
 if 'quo_view_mode' not in st.session_state:
     st.session_state.quo_view_mode = "table"
@@ -928,7 +962,7 @@ else:
     # ---------------------------------------------------------------
     # LAVISH DESKTOP TABLE VIEW — inline ✏️ Edit / 🗑️ Delete per row
     # ---------------------------------------------------------------
-    PAGE_SIZE = 25
+    PAGE_SIZE = rows_per_page_picker("quo_rows_per_page", "quo_page")
 
     # Search badalne par page 1 par wapas jao
     if st.session_state.get("quo_last_search") != search_q:
@@ -960,7 +994,7 @@ else:
             col.markdown(f'<p style="text-align:{align};">{label}</p>', unsafe_allow_html=True)
 
     # ---- Rows ----
-    body_kwargs = {"height": 560} if len(df_page) > 8 else {}
+    body_kwargs = {}  # height ab CSS (78vh) se aati hai
     with st.container(key="lux_tbody", border=False, **body_kwargs):
         if df_page.empty:
             st.markdown(
