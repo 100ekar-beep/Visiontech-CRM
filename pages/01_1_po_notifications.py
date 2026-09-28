@@ -14,6 +14,9 @@
 ================================================================================
 """
 
+import io
+import zipfile
+import urllib.request
 import streamlit as st
 from datetime import datetime, timezone
 from supabase import create_client, Client
@@ -67,6 +70,16 @@ st.markdown("""
         color: #ffffff !important;
         font-weight: 800 !important;
     }
+
+    div.stDownloadButton > button {
+        background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+        color: white !important; border: none; border-radius: 8px;
+        font-weight: 800 !important; padding: 0.5rem 1rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+    }
+    div.stDownloadButton > button p,
+    div.stDownloadButton > button span,
+    div.stDownloadButton > button div { color: #ffffff !important; font-weight: 800 !important; }
 
     /* PREMIUM SIDEBAR NAVIGATION */
     [data-testid="stSidebar"] {
@@ -493,15 +506,44 @@ def group_uploads(rows):
         if not g:
             g = dict(r)
             g["ids"] = []
+            g["links"] = []
             g["file_count"] = 0
             groups[key] = g
         g["ids"].append(r["id"])
+        if r.get("file_link"):
+            g["links"].append(r["file_link"])
         g["file_count"] += int(r.get("file_count") or 1)
         if str(r.get("uploaded_at", "")) > str(g.get("uploaded_at", "")):
             g["uploaded_at"] = r.get("uploaded_at")
-            g["file_link"] = r.get("file_link")
-            g["uploaded_by"] = r.get("uploaded_by") or g.get("uploaded_by")
+        for f in ("team_name", "project_name", "site_name", "uploaded_by"):
+            if r.get(f) and not g.get(f):
+                g[f] = r.get(f)
     return sorted(groups.values(), key=lambda x: str(x.get("uploaded_at", "")), reverse=True)
+
+
+def build_download(links, base_name):
+    """1 file -> seedha file. Bahut saari -> ZIP. Returns (bytes, filename, mime)."""
+    def _get(u):
+        with urllib.request.urlopen(u, timeout=60) as resp:
+            return resp.read()
+
+    if len(links) == 1:
+        name = links[0].split("/")[-1]
+        mime = "application/pdf" if name.lower().endswith(".pdf") else "application/octet-stream"
+        if name.lower().endswith((".jpg", ".jpeg")):
+            mime = "image/jpeg"
+        elif name.lower().endswith(".png"):
+            mime = "image/png"
+        return _get(links[0]), name, mime
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for u in links:
+            try:
+                z.writestr(u.split("/")[-1], _get(u))
+            except Exception:
+                pass
+    return buf.getvalue(), f"{base_name}.zip", "application/zip"
 
 
 # --- 5. WORKSPACE NAV BAR ---
@@ -770,13 +812,13 @@ else:
             st.success("✅ Koi naya upload pending nahi hai. Sab clear hai!")
     else:
         if is_up_closed_tab:
-            col_ratios = [0.5, 1.2, 1.8, 1.0, 0.8, 1.3, 1.6, 0.9, 1.6, 1.2]
-            col_labels = ["#", "SITE ID", "SITE NAME", "TYPE", "FILES", "UPLOADED BY",
-                          "UPLOADED AT", "LINK", "CLOSED AT", "ACTION"]
+            col_ratios = [0.4, 1.3, 1.7, 1.0, 1.2, 1.7, 1.2, 1.4, 1.5, 1.2]
+            col_labels = ["#", "TEAM NAME", "SITE NAME", "SITE ID", "PROJECT ID", "PROJECT NAME",
+                          "PHOTO / JMS", "DOWNLOAD", "CLOSED AT", "ACTION"]
         else:
-            col_ratios = [0.5, 1.2, 1.8, 1.0, 0.8, 1.3, 1.6, 0.9, 1.2]
-            col_labels = ["#", "SITE ID", "SITE NAME", "TYPE", "FILES", "UPLOADED BY",
-                          "UPLOADED AT", "LINK", "ACTION"]
+            col_ratios = [0.4, 1.3, 1.7, 1.0, 1.2, 1.7, 1.2, 1.4, 1.2]
+            col_labels = ["#", "TEAM NAME", "SITE NAME", "SITE ID", "PROJECT ID", "PROJECT NAME",
+                          "PHOTO / JMS", "DOWNLOAD", "ACTION"]
 
         with st.container(key="notif_table_wrap", height=520):
             h_cols = st.columns(col_ratios)
@@ -788,18 +830,34 @@ else:
                 rcols = st.columns(col_ratios)
                 up_type = str(row.get("upload_type", "-"))
                 type_cls = "status-blue" if up_type.lower() == "photo" else "status-yellow"
-                uploaded_at = str(row.get("uploaded_at", "") or "")[:16].replace("T", " ")
-                link = row.get("file_link")
-                link_html = (f"<a href='{link}' target='_blank'>🔗 Open</a>" if link else "-")
+                team = row.get("team_name") or row.get("uploaded_by") or "-"
+                pname = row.get("project_name") or "-"
 
                 rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{row.get('site_id', '-') or '-'}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-') or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<span class='status-badge {type_cls}'>{up_type}</span>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('file_count', 1)}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{row.get('uploaded_by', '-') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{uploaded_at}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{link_html}</div>", unsafe_allow_html=True)
+                rcols[1].markdown(f"<div class='tbl-cell' title=\"{team}\">{team}</div>", unsafe_allow_html=True)
+                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name') or '-'}</div>", unsafe_allow_html=True)
+                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id') or '-'}</div>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('project_id') or '-'}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell' title=\"{pname}\">{pname}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(
+                    f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>",
+                    unsafe_allow_html=True)
+
+                # --- Download (2 step: prepare -> save) ---
+                dl_key = f"dl_data_{rid}"
+                with rcols[7]:
+                    if dl_key in st.session_state:
+                        data, fname, mime = st.session_state[dl_key]
+                        st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
+                                           key=f"up_save_{rid}", use_container_width=True)
+                    elif row.get("links"):
+                        if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
+                            with st.spinner("Files la raha hu..."):
+                                base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                st.session_state[dl_key] = build_download(row["links"], base)
+                            st.rerun()
+                    else:
+                        st.markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
 
                 if is_up_closed_tab:
                     closed_at = str(row.get("closed_at", "") or "")[:19].replace("T", " ") or "-"
