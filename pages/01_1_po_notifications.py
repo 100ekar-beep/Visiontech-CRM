@@ -521,10 +521,52 @@ def group_uploads(rows):
     return sorted(groups.values(), key=lambda x: str(x.get("uploaded_at", "")), reverse=True)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def site_lookup_maps():
+    """site_data se (project_id, site_id) -> names. Dono workspace cover karta hai."""
+    by_pair, by_site = {}, {}
+    for ws in ("VISPL", "BHAGYASHREE"):
+        try:
+            for r in _fetch_all_site_data_paginated(ws):
+                pid = str(r.get("Project ID", "") or "").strip()
+                sid = str(r.get("Site ID", "") or "").strip()
+                pname = str(r.get("Project Name", "") or "").strip()
+                sname = str(r.get("Site Name", "") or "").strip()
+                if sid:
+                    by_pair[(pid, sid)] = (pid, pname, sname)
+                    by_site.setdefault(sid, (pid, pname, sname))
+        except Exception:
+            pass
+    return by_pair, by_site
+
+
+def enrich_groups(groups):
+    """Jis row me project/site name khali ho, use site_data se bharo."""
+    by_pair, by_site = site_lookup_maps()
+    for g in groups:
+        pid = str(g.get("project_id") or "").strip()
+        sid = str(g.get("site_id") or "").strip()
+        hit = by_pair.get((pid, sid)) or by_site.get(sid)
+        if not hit:
+            continue
+        if not g.get("project_id"):
+            g["project_id"] = hit[0]
+        if not g.get("project_name"):
+            g["project_name"] = hit[1]
+        if not g.get("site_name"):
+            g["site_name"] = hit[2]
+    return groups
+
+
 def build_download(links, base_name):
     """1 file -> seedha file. Bahut saari -> ZIP. Returns (bytes, filename, mime)."""
     def _get(u):
-        with urllib.request.urlopen(u, timeout=60) as resp:
+        req = urllib.request.Request(u, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "*/*",
+        })
+        with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.read()
 
     if len(links) == 1:
@@ -771,8 +813,8 @@ elif st.session_state.notif_main_tab == "rfai":
 # TAB 3: PHOTO / JMS UPLOAD NOTIFICATION
 # ==============================================================
 else:
-    open_up = group_uploads(fetch_uploads_cached(workspace, False))
-    closed_up = group_uploads(fetch_uploads_cached(workspace, True))
+    open_up = enrich_groups(group_uploads(fetch_uploads_cached(workspace, False)))
+    closed_up = enrich_groups(group_uploads(fetch_uploads_cached(workspace, True)))
 
     col_title, col_tabs, col_ref = st.columns([2, 3, 1])
     with col_title:
@@ -800,10 +842,28 @@ else:
     is_up_closed_tab = st.session_state.upload_notif_tab == "closed"
     up_rows = closed_up if is_up_closed_tab else open_up
 
-    type_filter = st.radio("Type", ["All", "Photo", "JMS"], horizontal=True,
-                           key="up_type_filter", label_visibility="collapsed")
+    sc1, sc2 = st.columns([3, 2])
+    with sc1:
+        search_q = st.text_input(
+            "Search", key="up_search", label_visibility="collapsed",
+            placeholder="🔍 Search: Team, Site Name, Site ID, Project ID, Project Name..."
+        ).strip().lower()
+    with sc2:
+        type_filter = st.radio("Type", ["All", "Photo", "JMS"], horizontal=True,
+                               key="up_type_filter", label_visibility="collapsed")
+
     if type_filter != "All":
         up_rows = [r for r in up_rows if str(r.get("upload_type", "")).lower() == type_filter.lower()]
+
+    if search_q:
+        def _hay(r):
+            return " ".join(str(r.get(k) or "") for k in
+                            ("team_name", "uploaded_by", "site_name", "site_id",
+                             "project_id", "project_name", "upload_type")).lower()
+        up_rows = [r for r in up_rows if search_q in _hay(r)]
+
+    if st.session_state.get("dl_error"):
+        st.error(st.session_state.pop("dl_error"))
 
     if not up_rows:
         if is_up_closed_tab:
@@ -852,9 +912,15 @@ else:
                                            key=f"up_save_{rid}", use_container_width=True)
                     elif row.get("links"):
                         if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
-                            with st.spinner("Files la raha hu..."):
-                                base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                st.session_state[dl_key] = build_download(row["links"], base)
+                            try:
+                                with st.spinner("Files la raha hu..."):
+                                    base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                    st.session_state[dl_key] = build_download(row["links"], base)
+                            except Exception as e:
+                                st.session_state["dl_error"] = (
+                                    f"❌ Download fail ({row.get('site_id')}): {e}. "
+                                    f"Link check karo: {row['links'][0]}"
+                                )
                             st.rerun()
                     else:
                         st.markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
