@@ -1,40 +1,16 @@
 """
 ================================================================================
  VISIONTECH INFRA SOLUTION PVT. LTD.
- PO NOTIFICATION  —  Streamlit page (matches Site Data Hub's design system)
+ NOTIFICATIONS  —  Streamlit page (PO / RFAI / Photo-JMS)
  --------------------------------------------------------------------------
- IMPORTANT: save this file at exactly:
+ Save this file at exactly:
      pages/15_🔔_PO_Notifications.py
- (same folder structure as your other numbered pages), because Site Data
- Hub navigates here with:
-     st.switch_page("pages/15_🔔_PO_Notifications.py")
 
- Reads/writes the Supabase table `po_notifications` (see
- supabase_po_notifications.sql). Data lands there from the desktop "PO &
- WCC Upload Software" app's Notification tab.
-
- Workspace handling:
-   - If opened via the "🔔 Notifications" button on Site Data Hub, it
-     already set st.session_state['notification_workspace'] /
-     ['notification_company'] to match whichever company tab was active
-     there — this page picks that up automatically.
-   - If opened directly (e.g. from the sidebar), a VISPL / Bhagyashree
-     switcher bar (same style as Site Data Hub's company tabs) lets the
-     user pick.
-
- Flow:
-   - "🔔 Open" tab (default): every revised PO not yet closed, each row
-     with a "✅ Close" button. Clicking it marks that row is_closed = True
-     and it moves to the Closed tab.
-   - "✅ Closed" tab: history of everything already closed, with a
-     "↩️ Reopen" button in case something was closed by mistake.
-   - When the desktop app finds a NEW revision for a PO you already
-     closed, that new revision inserts as a brand-new (open) row — so it
-     shows up in Open again, while your closed record for the old
-     revision stays untouched in Closed.
-
- RFAI NOTIFICATION needs this column (run once in Supabase SQL Editor):
-     ALTER TABLE rfai_notifications ADD COLUMN IF NOT EXISTS project_name text;
+ Tables used:
+   - po_notifications
+   - rfai_notifications   (needs column project_name text)
+   - upload_notifications (filled by the Cloudflare Worker on every
+                           Photo / JMS upload)
 ================================================================================
 """
 
@@ -61,6 +37,8 @@ if 'notif_main_tab' not in st.session_state:
     st.session_state.notif_main_tab = "po"
 if 'rfai_notif_tab' not in st.session_state:
     st.session_state.rfai_notif_tab = "open"
+if 'upload_notif_tab' not in st.session_state:
+    st.session_state.upload_notif_tab = "open"
 
 # --- 2. LAVISH CUSTOM CSS (same design language as Site Data Hub) ---
 st.markdown("""
@@ -90,9 +68,7 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION (identical to other pages)
-       ========================================================= */
+    /* PREMIUM SIDEBAR NAVIGATION */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -125,10 +101,7 @@ st.markdown("""
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* =========================================================
-       WORKSPACE / TAB NAV BAR (VISPL / Bhagyashree AND Open / Closed)
-       — same segmented-button pattern as Site Data Hub's company bar
-       ========================================================= */
+    /* WORKSPACE / TAB NAV BAR */
     .st-key-notif_company_nav_bar div[data-testid="stHorizontalBlock"],
     .st-key-notif_tab_nav_bar div[data-testid="stHorizontalBlock"],
     .st-key-notif_main_tab_bar div[data-testid="stHorizontalBlock"] {
@@ -187,9 +160,7 @@ st.markdown("""
     .st-key-notif_main_tab_bar button[kind="primary"] span,
     .st-key-notif_main_tab_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
 
-    /* =========================================================
-       LAVISH TABLE (identical pattern to site_table_wrap)
-       ========================================================= */
+    /* LAVISH TABLE */
     .st-key-notif_table_wrap {
         background: #ffffff;
         border: 1px solid rgba(0,0,0,0.15);
@@ -243,7 +214,7 @@ st.markdown("""
     }
     .st-key-notif_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
 
-    /* Status badge pill (same palette as Site Data Hub) */
+    /* Status badge pill */
     .status-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -263,7 +234,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- 3. SUPABASE CONNECTION (same pattern as Site Data Hub) ---
+# --- 3. SUPABASE CONNECTION ---
 @st.cache_resource
 def init_connection():
     try:
@@ -299,7 +270,7 @@ def status_badge(val):
     return f"<span class='status-badge {cls}'>{v}</span>"
 
 
-# --- 4. CACHED DATA FETCHERS (same TTL-cache pattern as Site Data Hub) ---
+# --- 4. PO NOTIFICATION DATA ---
 @st.cache_data(ttl=15, show_spinner=False)
 def fetch_notifications_cached(workspace, is_closed):
     try:
@@ -345,10 +316,7 @@ def reopen_row(row_id):
 
 
 # ==============================================================
-# --- RFAI NOTIFICATION (2nd tab) ---
-# Pulled directly from site_data's "RFAI Status" column — no desktop app
-# involved. Synced into its own rfai_notifications table on each load so
-# Close/Reopen state can persist independently of the live site_data row.
+# --- RFAI NOTIFICATION DATA ---
 # ==============================================================
 RFAI_TABLE_NAME = "rfai_notifications"
 RFAI_TARGET_STATUSES = [
@@ -364,8 +332,6 @@ RFAI_TARGET_STATUSES_LOWER = {s.lower() for s in RFAI_TARGET_STATUSES}
 
 
 def _fetch_all_site_data_paginated(workspace):
-    """Supabase caps a single select() at ~1000 rows by default — page through
-    with .range() so large workspaces are fully covered."""
     all_rows = []
     limit = 1000
     offset = 0
@@ -388,8 +354,6 @@ def _fetch_all_site_data_paginated(workspace):
 
 
 def sync_rfai_notifications(workspace):
-    """Scans site_data for the 7 tracked RFAI statuses and upserts them into
-    rfai_notifications (is_closed is never touched by this upsert)."""
     try:
         site_rows = _fetch_all_site_data_paginated(workspace)
         records = []
@@ -470,7 +434,77 @@ def reopen_rfai_row(row_id):
         return False
 
 
-# --- 5. WORKSPACE NAV BAR (VISPL / Bhagyashree — same style as Site Data Hub) ---
+# ==============================================================
+# --- PHOTO / JMS UPLOAD NOTIFICATION DATA ---
+# ==============================================================
+UPLOAD_TABLE_NAME = "upload_notifications"
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_uploads_cached(workspace, is_closed):
+    try:
+        res = (
+            supabase.table(UPLOAD_TABLE_NAME)
+            .select("*")
+            .eq("workspace", workspace)
+            .eq("is_closed", is_closed)
+            .order("closed_at" if is_closed else "uploaded_at", desc=True)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+
+def clear_upload_cache():
+    fetch_uploads_cached.clear()
+
+
+def close_upload_rows(ids):
+    try:
+        supabase.table(UPLOAD_TABLE_NAME).update({
+            "is_closed": True,
+            "closed_at": datetime.now(timezone.utc).isoformat(),
+        }).in_("id", ids).execute()
+        return True
+    except Exception as e:
+        st.error(f"❌ Close karne me error: {e}")
+        return False
+
+
+def reopen_upload_rows(ids):
+    try:
+        supabase.table(UPLOAD_TABLE_NAME).update({
+            "is_closed": False,
+            "closed_at": None,
+        }).in_("id", ids).execute()
+        return True
+    except Exception as e:
+        st.error(f"❌ Reopen karne me error: {e}")
+        return False
+
+
+def group_uploads(rows):
+    """Same site + same type ke rows ko ek line me jodo."""
+    groups = {}
+    for r in rows:
+        key = (r.get("workspace"), r.get("project_id"), r.get("site_id"), r.get("upload_type"))
+        g = groups.get(key)
+        if not g:
+            g = dict(r)
+            g["ids"] = []
+            g["file_count"] = 0
+            groups[key] = g
+        g["ids"].append(r["id"])
+        g["file_count"] += int(r.get("file_count") or 1)
+        if str(r.get("uploaded_at", "")) > str(g.get("uploaded_at", "")):
+            g["uploaded_at"] = r.get("uploaded_at")
+            g["file_link"] = r.get("file_link")
+            g["uploaded_by"] = r.get("uploaded_by") or g.get("uploaded_by")
+    return sorted(groups.values(), key=lambda x: str(x.get("uploaded_at", "")), reverse=True)
+
+
+# --- 5. WORKSPACE NAV BAR ---
 with st.container(key="notif_company_nav_bar"):
     nav_cols = st.columns(len(NOTIF_COMPANIES))
     for nav_col, (company_id, company_label) in zip(nav_cols, NOTIF_COMPANIES):
@@ -489,9 +523,11 @@ st.markdown("<br>", unsafe_allow_html=True)
 workspace = st.session_state.notification_workspace
 company_display = st.session_state.notification_company
 
-# --- 5.5 MAIN TAB BAR: PO Notification / RFAI Notification ---
+# --- 5.5 MAIN TAB BAR: PO / RFAI / Photo-JMS ---
+upload_open_count_tab = len(group_uploads(fetch_uploads_cached(workspace, False)))
+
 with st.container(key="notif_main_tab_bar"):
-    mt1, mt2 = st.columns(2)
+    mt1, mt2, mt3 = st.columns(3)
     with mt1:
         if st.button("📄 PO Notification", key="main_tab_po", use_container_width=True,
                      type=("primary" if st.session_state.notif_main_tab == "po" else "secondary")):
@@ -502,11 +538,21 @@ with st.container(key="notif_main_tab_bar"):
                      type=("primary" if st.session_state.notif_main_tab == "rfai" else "secondary")):
             st.session_state.notif_main_tab = "rfai"
             st.rerun()
+    with mt3:
+        if st.button(f"📸 Photo / JMS ({upload_open_count_tab})", key="main_tab_upload", use_container_width=True,
+                     type=("primary" if st.session_state.notif_main_tab == "upload" else "secondary")):
+            st.session_state.notif_main_tab = "upload"
+            st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 6. TOP BANNER (same gradient banner style as Site Data Hub) ---
-banner_label = "PO Notification" if st.session_state.notif_main_tab == "po" else "RFAI Notification"
+# --- 6. TOP BANNER ---
+banner_label = {
+    "po": "PO Notification",
+    "rfai": "RFAI Notification",
+    "upload": "Photo / JMS Notification",
+}[st.session_state.notif_main_tab]
+
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
         <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.2rem; text-transform: uppercase;">
@@ -515,8 +561,10 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
+# ==============================================================
+# TAB 1: PO NOTIFICATION
+# ==============================================================
 if st.session_state.notif_main_tab == "po":
-    # --- 7. TOP ACTION BAR: title + Open/Closed segmented tabs + Refresh ---
     open_rows_preview = fetch_notifications_cached(workspace, False)
     closed_rows_preview = fetch_notifications_cached(workspace, True)
     open_count = len(open_rows_preview)
@@ -545,7 +593,6 @@ if st.session_state.notif_main_tab == "po":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 8. LAVISH TABLE ---
     is_closed_tab = st.session_state.notif_tab == "closed"
     rows = closed_rows_preview if is_closed_tab else open_rows_preview
 
@@ -592,11 +639,11 @@ if st.session_state.notif_main_tab == "po":
                                 clear_notif_cache()
                                 st.rerun()
 
-else:
-    # ==============================================================
-    # RFAI NOTIFICATION TAB
-    # ==============================================================
-    sync_rfai_cached(workspace)  # keeps rfai_notifications fresh (cached ~20s)
+# ==============================================================
+# TAB 2: RFAI NOTIFICATION
+# ==============================================================
+elif st.session_state.notif_main_tab == "rfai":
+    sync_rfai_cached(workspace)
     open_rfai_preview = fetch_rfai_cached(workspace, False)
     closed_rfai_preview = fetch_rfai_cached(workspace, True)
     open_rfai_count = len(open_rfai_preview)
@@ -606,7 +653,7 @@ else:
     with col_title:
         st.markdown("<h2 style='margin:0; color:#0f172a;'>📋 Notifications</h2>", unsafe_allow_html=True)
     with col_tabs:
-        with st.container(key="rfai_tab_nav_bar"):
+        with st.container(key="notif_tab_nav_bar"):
             t1, t2 = st.columns(2)
             with t1:
                 if st.button(f"🔔 Open ({open_rfai_count})", key="rfai_tab_open", use_container_width=True,
@@ -623,9 +670,7 @@ else:
             clear_rfai_cache()
             st.rerun()
 
-    st.caption(
-        "Tracked RFAI statuses: " + ", ".join(RFAI_TARGET_STATUSES)
-    )
+    st.caption("Tracked RFAI statuses: " + ", ".join(RFAI_TARGET_STATUSES))
     st.markdown("<br>", unsafe_allow_html=True)
 
     is_rfai_closed_tab = st.session_state.rfai_notif_tab == "closed"
@@ -678,4 +723,95 @@ else:
                         if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
                             if close_rfai_row(rid):
                                 clear_rfai_cache()
+                                st.rerun()
+
+# ==============================================================
+# TAB 3: PHOTO / JMS UPLOAD NOTIFICATION
+# ==============================================================
+else:
+    open_up = group_uploads(fetch_uploads_cached(workspace, False))
+    closed_up = group_uploads(fetch_uploads_cached(workspace, True))
+
+    col_title, col_tabs, col_ref = st.columns([2, 3, 1])
+    with col_title:
+        st.markdown("<h2 style='margin:0; color:#0f172a;'>📸 Uploads</h2>", unsafe_allow_html=True)
+    with col_tabs:
+        with st.container(key="notif_tab_nav_bar"):
+            t1, t2 = st.columns(2)
+            with t1:
+                if st.button(f"🔔 Open ({len(open_up)})", key="up_tab_open", use_container_width=True,
+                             type=("primary" if st.session_state.upload_notif_tab == "open" else "secondary")):
+                    st.session_state.upload_notif_tab = "open"
+                    st.rerun()
+            with t2:
+                if st.button(f"✅ Billed / Closed ({len(closed_up)})", key="up_tab_closed", use_container_width=True,
+                             type=("primary" if st.session_state.upload_notif_tab == "closed" else "secondary")):
+                    st.session_state.upload_notif_tab = "closed"
+                    st.rerun()
+    with col_ref:
+        if st.button("🔄 Refresh", key="refresh_upload", use_container_width=True):
+            clear_upload_cache()
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    is_up_closed_tab = st.session_state.upload_notif_tab == "closed"
+    up_rows = closed_up if is_up_closed_tab else open_up
+
+    type_filter = st.radio("Type", ["All", "Photo", "JMS"], horizontal=True,
+                           key="up_type_filter", label_visibility="collapsed")
+    if type_filter != "All":
+        up_rows = [r for r in up_rows if str(r.get("upload_type", "")).lower() == type_filter.lower()]
+
+    if not up_rows:
+        if is_up_closed_tab:
+            st.info("Abhi tak kuch close nahi kiya gaya.")
+        else:
+            st.success("✅ Koi naya upload pending nahi hai. Sab clear hai!")
+    else:
+        if is_up_closed_tab:
+            col_ratios = [0.5, 1.2, 1.8, 1.0, 0.8, 1.3, 1.6, 0.9, 1.6, 1.2]
+            col_labels = ["#", "SITE ID", "SITE NAME", "TYPE", "FILES", "UPLOADED BY",
+                          "UPLOADED AT", "LINK", "CLOSED AT", "ACTION"]
+        else:
+            col_ratios = [0.5, 1.2, 1.8, 1.0, 0.8, 1.3, 1.6, 0.9, 1.2]
+            col_labels = ["#", "SITE ID", "SITE NAME", "TYPE", "FILES", "UPLOADED BY",
+                          "UPLOADED AT", "LINK", "ACTION"]
+
+        with st.container(key="notif_table_wrap", height=520):
+            h_cols = st.columns(col_ratios)
+            for h_col, label in zip(h_cols, col_labels):
+                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
+            for pos, row in enumerate(up_rows):
+                rid = row["ids"][0]
+                rcols = st.columns(col_ratios)
+                up_type = str(row.get("upload_type", "-"))
+                type_cls = "status-blue" if up_type.lower() == "photo" else "status-yellow"
+                uploaded_at = str(row.get("uploaded_at", "") or "")[:16].replace("T", " ")
+                link = row.get("file_link")
+                link_html = (f"<a href='{link}' target='_blank'>🔗 Open</a>" if link else "-")
+
+                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                rcols[1].markdown(f"<div class='tbl-cell'>{row.get('site_id', '-') or '-'}</div>", unsafe_allow_html=True)
+                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-') or '-'}</div>", unsafe_allow_html=True)
+                rcols[3].markdown(f"<span class='status-badge {type_cls}'>{up_type}</span>", unsafe_allow_html=True)
+                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('file_count', 1)}</div>", unsafe_allow_html=True)
+                rcols[5].markdown(f"<div class='tbl-cell'>{row.get('uploaded_by', '-') or '-'}</div>", unsafe_allow_html=True)
+                rcols[6].markdown(f"<div class='tbl-cell'>{uploaded_at}</div>", unsafe_allow_html=True)
+                rcols[7].markdown(f"<div class='tbl-cell'>{link_html}</div>", unsafe_allow_html=True)
+
+                if is_up_closed_tab:
+                    closed_at = str(row.get("closed_at", "") or "")[:19].replace("T", " ") or "-"
+                    rcols[8].markdown(f"<div class='tbl-cell'>{closed_at}</div>", unsafe_allow_html=True)
+                    with rcols[9]:
+                        if st.button("↩️ Reopen", key=f"up_reopen_{rid}", use_container_width=True):
+                            if reopen_upload_rows(row["ids"]):
+                                clear_upload_cache()
+                                st.rerun()
+                else:
+                    with rcols[8]:
+                        if st.button("✅ Close", key=f"up_close_{rid}", use_container_width=True):
+                            if close_upload_rows(row["ids"]):
+                                clear_upload_cache()
                                 st.rerun()
