@@ -414,6 +414,13 @@ def fetch_jms_templates_cached(workspace):
         grouped = {str(tid): [] for tid in ids}
         for item in items:
             grouped.setdefault(str(item["template_id"]), []).append(item)
+        master = get_item_master_details()
+        by_code = {code.casefold(): data for code, data in master.items()}
+        for template_items in grouped.values():
+            for item in template_items:
+                full_desc = by_code.get(_clean_text(item.get("item_code")).casefold(), {}).get("description", "")
+                if len(full_desc) > len(_clean_text(item.get("item_description"))):
+                    item["item_description"] = full_desc
         return [{"id": row["id"], "name": row["template_name"],
                  "line_items": grouped.get(str(row["id"]), [])} for row in heads]
     except Exception as exc:
@@ -487,22 +494,30 @@ def get_opts(category, all_data):
 
 def get_item_master_details():
     mapping = {}
-    table_names_to_try = ["Item Code", "item_code", "item_master"]
-    for t_name in table_names_to_try:
+    # Keep the original JMS item list from "Item Code". Later tables may only
+    # supply a longer description for an already listed code.
+    primary_loaded = False
+    for t_name in ("Item Code", "item_code", "item_master"):
         try:
-            res = supabase.table(t_name).select("*").execute()
-            if res.data:
-                for item in res.data:
-                    code = str(item.get("item_code", "")).strip()
-                    if code:
-                        mapping[code] = {
-                            "description": str(item.get("item_description", "") or ""),
-                            "stn_status": str(item.get("stn_status", "Required") or "Required"),
-                            "material_of": str(item.get("material_of", "Indus") or "Indus"),
-                            "rate": item.get("rate")
-                        }
-                if mapping:
-                    return mapping
+            rows = supabase.table(t_name).select("*").execute().data or []
+            for item in rows:
+                code = _clean_text(item.get("item_code"))
+                if not code or (primary_loaded and code not in mapping):
+                    continue
+                candidates = [_clean_text(item.get(column)) for column in
+                              ("item_description", "Item Description", "description", "Description")]
+                description = max(candidates, key=len, default="")[:80]
+                if code not in mapping:
+                    mapping[code] = {
+                        "description": description,
+                        "stn_status": str(item.get("stn_status", "Required") or "Required"),
+                        "material_of": str(item.get("material_of", "Indus") or "Indus"),
+                        "rate": item.get("rate"),
+                    }
+                elif len(description) > len(mapping[code]["description"]):
+                    mapping[code]["description"] = description
+            if mapping:
+                primary_loaded = True
         except Exception:
             continue
     return mapping
@@ -775,8 +790,8 @@ def _build_jms_pdf(row_data, circle, lines):
     pdf = canvas.Canvas(buffer, pagesize=A4)
     pdf.setTitle(f"JMS {_clean_text(row_data.get('Site ID'))}")
 
-    def first_60_words(value):
-        return " ".join(_clean_text(value).split()[:60])
+    def first_80_chars(value):
+        return _clean_text(value)[:80]
 
     def fit_lines(text, max_width, font="Helvetica", size=4.2, max_lines=4):
         words = str(text).split()
@@ -867,7 +882,7 @@ def _build_jms_pdf(row_data, circle, lines):
             global_no = (page_no - 1)*30 + row_pos + 1 if row_pos < len(chunk) else ""
             qty = _number_value(line.get("qty")) if line else 0
             qty_text = (str(int(qty)) if float(qty).is_integer() else f"{qty:g}") if line and qty != 0 else ""
-            values = [global_no, _clean_text(line.get("item_code")), first_60_words(line.get("item_description")), qty_text, _clean_text(line.get("remarks"))]
+            values = [global_no, _clean_text(line.get("item_code")), first_80_chars(line.get("item_description")), qty_text, _clean_text(line.get("remarks"))]
             x = tx
             for col_no, (value, width) in enumerate(zip(values, widths)):
                 pdf.rect(x, y_top-row_h, width, row_h, fill=0, stroke=1)
@@ -1169,9 +1184,9 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
     filled_description = False
     for row in changed_rows:
         code = _clean_text(row.get("item_code"))
-        if code and not _clean_text(row.get("item_description")):
+        if code:
             match = master_by_code.get(code.casefold())
-            if match and _clean_text(match.get("description")):
+            if match and len(_clean_text(match.get("description"))) > len(_clean_text(row.get("item_description"))):
                 row["item_description"] = match["description"]
                 filled_description = True
     if filled_description:
