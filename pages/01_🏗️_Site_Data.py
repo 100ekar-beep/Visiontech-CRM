@@ -77,6 +77,34 @@ if 'site_active_company' not in st.session_state:
 st.session_state['active_workspace'] = SITE_COMPANY_WORKSPACE_MAP.get(st.session_state.site_active_company, "VISPL")
 
 # --- 2. LAVISH CUSTOM CSS ---
+st.markdown("""<style>
+/* Manage popup: the side action stays inside the dialog's right edge while scrolling. */
+.st-key-site_update_top {
+    position: fixed !important;
+    top: 50% !important;
+    right: 12% !important;
+    transform: translateY(-50%) !important;
+    width: 180px !important;
+    z-index: 2147483647 !important;
+    padding: 6px !important;
+    background: white !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 18px rgba(15,23,42,.28) !important;
+}
+.st-key-site_update_bottom {
+    position: sticky !important;
+    bottom: 0 !important;
+    margin-left: auto !important;
+    width: 190px !important;
+    z-index: 99999 !important;
+    padding: 6px !important;
+    background: white !important;
+    border-radius: 10px !important;
+}
+@media(max-width:650px) {
+    .st-key-site_update_top { right: 16px !important; width: 135px !important; }
+}
+</style>""", unsafe_allow_html=True)
 st.markdown("""
     <style>
     /* Light Premium Theme */
@@ -1871,21 +1899,8 @@ def edit_record_dialog(row_data):
         return 0
 
     with st.container():
-        st.markdown("""<style>
-        div[data-testid="stDialog"] .st-key-site_update_top {
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 9999 !important;
-            padding: 8px !important;
-            background: rgba(255,255,255,.98) !important;
-            box-shadow: 0 3px 10px rgba(15,23,42,.12) !important;
-            border-radius: 10px !important;
-        }
-        </style>""", unsafe_allow_html=True)
         with st.container(key="site_update_top"):
-            top_left, top_right = st.columns([8, 2])
-            with top_right:
-                submitted_top = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_top_{rid}")
+            submitted_top = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_top_{rid}")
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
@@ -2337,8 +2352,7 @@ def edit_record_dialog(row_data):
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        col_btn1, col_btn2 = st.columns([8, 2])
-        with col_btn2:
+        with st.container(key="site_update_bottom"):
             submitted_bottom = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_bottom_{rid}")
         submitted = submitted_top or submitted_bottom
             
