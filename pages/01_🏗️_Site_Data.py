@@ -82,9 +82,9 @@ st.markdown("""<style>
 .st-key-site_update_top {
     position: fixed !important;
     top: 50% !important;
-    right: 12% !important;
+    right: 4px !important;
     transform: translateY(-50%) !important;
-    width: 180px !important;
+    width: 46px !important;
     z-index: 2147483647 !important;
     padding: 6px !important;
     background: white !important;
@@ -92,8 +92,6 @@ st.markdown("""<style>
     box-shadow: 0 4px 18px rgba(15,23,42,.28) !important;
 }
 .st-key-site_update_bottom {
-    position: sticky !important;
-    bottom: 0 !important;
     margin-left: auto !important;
     width: 190px !important;
     z-index: 99999 !important;
@@ -102,7 +100,7 @@ st.markdown("""<style>
     border-radius: 10px !important;
 }
 @media(max-width:650px) {
-    .st-key-site_update_top { right: 16px !important; width: 135px !important; }
+    .st-key-site_update_top { right: 2px !important; width: 42px !important; }
 }
 </style>""", unsafe_allow_html=True)
 st.markdown("""
@@ -1900,7 +1898,7 @@ def edit_record_dialog(row_data):
 
     with st.container():
         with st.container(key="site_update_top"):
-            submitted_top = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_top_{rid}")
+            submitted_top = st.button("💾", help="Update Data", type="primary", use_container_width=True, key=f"update_top_{rid}")
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
