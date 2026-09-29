@@ -400,6 +400,72 @@ def fetch_jms_drafts_cached(workspace):
     return result
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_jms_templates_cached(workspace):
+    """Existing ground_template / ground_template_items tables, shared by this app."""
+    try:
+        heads = supabase.table("ground_template").select("id,template_name").order("template_name").execute().data or []
+        if not heads:
+            return []
+        ids = [row["id"] for row in heads]
+        items = (supabase.table("ground_template_items")
+                 .select("id,template_id,item_code,item_description,sort_order")
+                 .in_("template_id", ids).order("sort_order").execute().data or [])
+        grouped = {str(tid): [] for tid in ids}
+        for item in items:
+            grouped.setdefault(str(item["template_id"]), []).append(item)
+        return [{"id": row["id"], "name": row["template_name"],
+                 "line_items": grouped.get(str(row["id"]), [])} for row in heads]
+    except Exception as exc:
+        st.error(f"Templates load nahi hue. ground_template_items me item_description column add karein: {exc}")
+        return []
+
+
+def _template_lines(lines):
+    # Qty and remarks are entered separately for each JMS, never inherited from a template.
+    return [{"item_code": _clean_text(line.get("item_code")),
+             "item_description": _clean_text(line.get("item_description")),
+             "qty": None, "qty_manual": True, "remarks": ""}
+            for line in lines if _clean_text(line.get("item_code")) or _clean_text(line.get("item_description"))]
+
+
+def save_jms_template(name, lines, template_id=None):
+    clean_lines = _template_lines(lines)
+    if template_id:
+        tid = int(template_id)
+        old = (supabase.table("ground_template_items").select("id")
+               .eq("template_id", tid).execute().data or [])
+        # Insert replacement rows first, so a failed insert leaves existing items intact.
+        payload = [{"template_id": tid, "item_code": row["item_code"],
+                    "item_description": row["item_description"], "default_qty": 0,
+                    "sort_order": pos}
+                   for pos, row in enumerate(clean_lines, 1)]
+        inserted = supabase.table("ground_template_items").insert(payload).execute()
+        new_ids = [row["id"] for row in (inserted.data or [])]
+        try:
+            supabase.table("ground_template").update({"template_name": name.strip()}).eq("id", tid).execute()
+            if old:
+                supabase.table("ground_template_items").delete().in_("id", [x["id"] for x in old]).execute()
+        except Exception:
+            if new_ids:
+                supabase.table("ground_template_items").delete().in_("id", new_ids).execute()
+            raise
+    else:
+        parent = supabase.table("ground_template").insert({"template_name": name.strip()}).execute()
+        tid = parent.data[0]["id"]
+        payload = [{"template_id": tid, "item_code": row["item_code"],
+                    "item_description": row["item_description"], "default_qty": 0,
+                    "sort_order": pos}
+                   for pos, row in enumerate(clean_lines, 1)]
+        try:
+            supabase.table("ground_template_items").insert(payload).execute()
+        except Exception:
+            supabase.table("ground_template").delete().eq("id", tid).execute()
+            raise
+    fetch_jms_templates_cached.clear()
+    return tid
+
+
 def clear_jms_cache():
     fetch_site_data_cached.clear()
     fetch_jms_drafts_cached.clear()
@@ -784,7 +850,7 @@ def _build_jms_pdf(row_data, circle, lines):
 
         tx, table_top = 16*mm, iy - 4*mm
         widths = [10*mm, 33*mm, 91*mm, 18*mm, 26*mm]
-        header_h, row_h = 8*mm, 6.35*mm
+        header_h, row_h = 8*mm, 5.8*mm
         headers = ["S.No.", "Item Code", "Item Description", "Qty as per site", "Remarks"]
         x = tx
         pdf.setFillColor(colors.HexColor("#e5e7eb")); pdf.rect(tx, table_top-header_h, sum(widths), header_h, fill=1, stroke=0)
@@ -910,11 +976,6 @@ def jms_dialog(row_data):
 
     st.markdown("#### Manual JMS Line Items" if is_blank_jms else "#### PO / Saved JMS Line Items")
     if st.session_state.jmspage_lines:
-        if is_blank_jms:
-            # Blank JMS means Qty must stay strictly empty in UI, saved draft and PDF.
-            for blank_line in st.session_state.jmspage_lines:
-                blank_line["qty"] = None
-                blank_line["qty_manual"] = True
         editor_df = pd.DataFrame(st.session_state.jmspage_lines)
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
             if col not in editor_df.columns:
@@ -928,34 +989,65 @@ def jms_dialog(row_data):
         edited = st.data_editor(
             editor_df[["item_code", "item_description", "qty", "remarks"]],
             hide_index=True, use_container_width=True, num_rows="dynamic",
-            disabled=["qty"] if is_blank_jms else [],
+            disabled=[],
             column_config={
                 "item_code": st.column_config.TextColumn("Item Code"),
                 "item_description": st.column_config.TextColumn("Item Description", width="large"),
                 "qty": st.column_config.TextColumn("Qty", help="Qty editable hai; 0 ya blank dono blank rahenge."),
                 "remarks": st.column_config.TextColumn("Remarks", width="medium"),
-            }, key=f"jmspage_editor_{active_key}")
+            }, key=f"jmspage_editor_{active_key}_{st.session_state.jmspage_add_gen}")
         edited_records = edited.to_dict("records")
         for item in edited_records:
-            if is_blank_jms:
-                item["qty"] = None
-            else:
-                raw_qty = _clean_text(item.get("qty"))
-                if raw_qty:
-                    try:
-                        parsed_qty = float(raw_qty.replace(",", ""))
-                        item["qty"] = None if parsed_qty == 0 else parsed_qty
-                    except ValueError:
-                        item["qty"] = None
-                else:
+            raw_qty = _clean_text(item.get("qty"))
+            if raw_qty:
+                try:
+                    parsed_qty = float(raw_qty.replace(",", ""))
+                    item["qty"] = None if parsed_qty == 0 else parsed_qty
+                except ValueError:
                     item["qty"] = None
+            else:
+                item["qty"] = None
             item["qty_manual"] = True
         st.session_state.jmspage_lines = edited_records
     else:
         if is_blank_jms:
-            st.info("Neeche Item Code select kijiye. Blank JMS me Qty column khali rahega.")
+            st.info("Template select karein ya neeche item add karein. Qty baad me bhar sakte hain.")
         else:
             st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
+
+    with st.expander("📋 Saved template use karein / current items template me save karein"):
+        templates = fetch_jms_templates_cached(workspace)
+        template_ids = {str(t["id"]): t for t in templates}
+        chosen_id = st.selectbox(
+            "Template", [""] + list(template_ids),
+            format_func=lambda tid: "-- Template select karein --" if not tid else template_ids[tid]["name"],
+            key=f"jmspage_template_choice_{active_key}")
+        if chosen_id:
+            st.caption(f"{len(template_ids[chosen_id].get('line_items') or [])} items. Load karne par editor me template ke sabhi items aur blank Qty aayegi. Current unsaved lines replace hongi.")
+        if st.button("📥 Apply template", disabled=not chosen_id,
+                     key=f"jmspage_template_apply_{active_key}"):
+            st.session_state.jmspage_lines = _template_lines(
+                template_ids[chosen_id].get("line_items") or [])
+            st.session_state.jmspage_last_pdf = None
+            st.session_state.jmspage_add_gen += 1
+            st.rerun()
+        template_name = st.text_input("Current JMS items ko template naam se save karein",
+                                      key=f"jmspage_template_name_{active_key}")
+        if st.button("💾 Save as new template", key=f"jmspage_template_save_{active_key}"):
+            clean_name = template_name.strip()
+            if not clean_name:
+                st.error("Template name bhariye.")
+            elif not _template_lines(st.session_state.jmspage_lines):
+                st.error("Pehle kam se kam ek item add karein.")
+            elif any(t["name"].strip().casefold() == clean_name.casefold() for t in templates):
+                st.error("Is naam ka template pehle se hai. Naya naam rakhein ya neeche manage karein.")
+            else:
+                try:
+                    save_jms_template(clean_name, st.session_state.jmspage_lines)
+                    st.success("Template save ho gaya.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Template save nahi hua: {exc}")
 
     st.markdown("#### Add New Item")
     master = get_item_master_details()
@@ -967,12 +1059,9 @@ def jms_dialog(row_data):
     add_desc = master.get(add_code, {}).get("description", "") if master else st.text_input("Item Description", key=f"jmspage_add_desc_{active_key}_{gen}")
     if master and add_code:
         st.caption(add_desc)
-    if is_blank_jms:
-        add_qty_raw = ""
-    else:
-        add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jmspage_add_qty_{active_key}_{gen}")
+    add_qty_raw = st.text_input("Qty", value="", placeholder="Blank = 0", key=f"jmspage_add_qty_{active_key}_{gen}")
     if st.button("➕ Add New Item", use_container_width=True, key=f"jmspage_add_btn_{active_key}", disabled=not _clean_text(add_code)):
-        add_qty = None if is_blank_jms else (_number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None)
+        add_qty = _number_value(add_qty_raw.replace(",", "")) if _clean_text(add_qty_raw) else None
         st.session_state.jmspage_lines.append({"item_code": add_code, "item_description": add_desc, "qty": None if add_qty == 0 else add_qty, "qty_manual": True, "remarks": ""})
         st.session_state.jmspage_add_gen += 1
         st.rerun()
@@ -1039,6 +1128,52 @@ with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         clear_jms_cache()
         st.rerun()
+
+# --- REUSABLE JMS TEMPLATES: MANAGE ON THIS PAGE ---
+with st.expander("📋 JMS Templates — create / items add / edit", expanded=False):
+    workspace = st.session_state.get("active_workspace", "VISPL")
+    templates = fetch_jms_templates_cached(workspace)
+    by_id = {str(t["id"]): t for t in templates}
+    selection = st.selectbox(
+        "Template choose karein", [""] + list(by_id),
+        format_func=lambda tid: "➕ New template" if not tid else by_id[tid]["name"],
+        key=f"jmspage_manage_choice_{workspace}")
+    editor_identity = (workspace, selection)
+    if st.session_state.get("jmspage_manage_loaded") != editor_identity:
+        selected = by_id.get(selection, {})
+        st.session_state["jmspage_manage_name"] = selected.get("name", "")
+        st.session_state["jmspage_manage_items"] = _template_lines(selected.get("line_items") or [])
+        st.session_state["jmspage_manage_loaded"] = editor_identity
+        st.session_state["jmspage_manage_editor_gen"] = st.session_state.get("jmspage_manage_editor_gen", 0) + 1
+    name = st.text_input("Template name", key="jmspage_manage_name")
+    current = st.session_state["jmspage_manage_items"]
+    frame = pd.DataFrame(current, columns=["item_code", "item_description", "qty", "remarks"])
+    frame["qty"] = ""
+    frame["remarks"] = ""
+    changed = st.data_editor(
+        frame, num_rows="dynamic", hide_index=True, use_container_width=True,
+        disabled=["qty", "remarks"],
+        column_config={"item_code": st.column_config.TextColumn("Item Code"),
+                       "item_description": st.column_config.TextColumn("Item Description", width="large"),
+                       "qty": st.column_config.TextColumn("Qty"),
+                       "remarks": st.column_config.TextColumn("Remark")},
+        key=f"jmspage_manage_editor_{workspace}_{selection}_{st.session_state['jmspage_manage_editor_gen']}")
+    st.caption("Template me Item Code aur Item Description bhariye. Qty aur Remark JMS banate waqt editable honge.")
+    if st.button("💾 Save template / items", key=f"jmspage_manage_save_{workspace}"):
+        items = _template_lines(changed.to_dict("records"))
+        clean_name = name.strip()
+        if not clean_name or not items:
+            st.error("Template name aur kam se kam ek item zaroori hai.")
+        elif any(t["name"].strip().casefold() == clean_name.casefold() and str(t["id"]) != selection for t in templates):
+            st.error("Is naam ka template pehle se hai.")
+        else:
+            try:
+                save_jms_template(clean_name, items, selection or None)
+                st.session_state["jmspage_manage_loaded"] = None
+                st.success("Template aur items save ho gaye.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Template save nahi hua: {exc}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
