@@ -487,7 +487,7 @@ def get_opts(category, all_data):
 
 def get_item_master_details():
     mapping = {}
-    table_names_to_try = ["item_master", "Item Code", "item_code"]
+    table_names_to_try = ["Item Code", "item_code", "item_master"]
     for t_name in table_names_to_try:
         try:
             res = supabase.table(t_name).select("*").execute()
@@ -501,7 +501,8 @@ def get_item_master_details():
                             "material_of": str(item.get("material_of", "Indus") or "Indus"),
                             "rate": item.get("rate")
                         }
-                return mapping
+                if mapping:
+                    return mapping
         except Exception:
             continue
     return mapping
@@ -1147,6 +1148,10 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
         st.session_state["jmspage_manage_editor_gen"] = st.session_state.get("jmspage_manage_editor_gen", 0) + 1
     name = st.text_input("Template name", key="jmspage_manage_name")
     current = st.session_state["jmspage_manage_items"]
+    item_master = get_item_master_details()
+    code_options = sorted(set(item_master.keys()) | {
+        _clean_text(row.get("item_code")) for row in current if _clean_text(row.get("item_code"))
+    })
     frame = pd.DataFrame(current, columns=["item_code", "item_description", "qty", "remarks"])
     frame = frame.fillna("")
     frame["qty"] = ""
@@ -1154,12 +1159,11 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
     changed = st.data_editor(
         frame, num_rows="dynamic", hide_index=True, use_container_width=True,
         disabled=["qty", "remarks"],
-        column_config={"item_code": st.column_config.TextColumn("Item Code"),
+        column_config={"item_code": st.column_config.SelectboxColumn("Item Code", options=code_options, width="medium"),
                        "item_description": st.column_config.TextColumn("Item Description", width="large"),
                        "qty": st.column_config.TextColumn("Qty"),
                        "remarks": st.column_config.TextColumn("Remark")},
         key=f"jmspage_manage_editor_{workspace}_{selection}_{st.session_state['jmspage_manage_editor_gen']}")
-    item_master = get_item_master_details()
     master_by_code = {code.casefold(): detail for code, detail in item_master.items()}
     changed_rows = changed.to_dict("records")
     filled_description = False
@@ -1197,7 +1201,7 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
         else:
             st.warning("Ye Item Code template me pehle se hai.")
     if not item_master:
-        st.warning("item_master me Item Code nahi mile. Table ke column names check karein.")
+        st.warning("Item Code master table me items nahi mile. Table ke column names check karein.")
     if st.button("💾 Save template / items", key=f"jmspage_manage_save_{workspace}"):
         items = _template_lines(changed.to_dict("records"))
         clean_name = name.strip()
