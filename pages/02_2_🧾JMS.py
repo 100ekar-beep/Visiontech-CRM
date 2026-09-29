@@ -487,7 +487,7 @@ def get_opts(category, all_data):
 
 def get_item_master_details():
     mapping = {}
-    table_names_to_try = ["Item Code", "item_code"]
+    table_names_to_try = ["item_master", "Item Code", "item_code"]
     for t_name in table_names_to_try:
         try:
             res = supabase.table(t_name).select("*").execute()
@@ -1148,6 +1148,7 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
     name = st.text_input("Template name", key="jmspage_manage_name")
     current = st.session_state["jmspage_manage_items"]
     frame = pd.DataFrame(current, columns=["item_code", "item_description", "qty", "remarks"])
+    frame = frame.fillna("")
     frame["qty"] = ""
     frame["remarks"] = ""
     changed = st.data_editor(
@@ -1159,6 +1160,30 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
                        "remarks": st.column_config.TextColumn("Remark")},
         key=f"jmspage_manage_editor_{workspace}_{selection}_{st.session_state['jmspage_manage_editor_gen']}")
     st.caption("Template me Item Code aur Item Description bhariye. Qty aur Remark JMS banate waqt editable honge.")
+    item_master = get_item_master_details()
+    selected_codes = st.multiselect(
+        "Master se Item Code select karein (search karke ek ya kai chun sakte hain)",
+        options=sorted(item_master.keys()),
+        format_func=lambda code: f"{code} — {item_master[code]['description']}",
+        key=f"jmspage_master_codes_{workspace}_{selection}_{st.session_state['jmspage_manage_editor_gen']}",
+        placeholder="Item Code ya Description type karke search karein",
+    )
+    if st.button("➕ Selected items template me add karein", disabled=not selected_codes,
+                 key=f"jmspage_master_add_{workspace}"):
+        # Editor me is waqt ki edits bhi saath rakhein.
+        existing = _template_lines(changed.to_dict("records"))
+        present = {_clean_text(row.get("item_code")).casefold() for row in existing}
+        for code in selected_codes:
+            if code.casefold() not in present:
+                existing.append({"item_code": code,
+                                 "item_description": item_master[code]["description"],
+                                 "qty": None, "qty_manual": True, "remarks": ""})
+                present.add(code.casefold())
+        st.session_state["jmspage_manage_items"] = existing
+        st.session_state["jmspage_manage_editor_gen"] += 1
+        st.rerun()
+    if not item_master:
+        st.warning("item_master me Item Code nahi mile. Table ke column names check karein.")
     if st.button("💾 Save template / items", key=f"jmspage_manage_save_{workspace}"):
         items = _template_lines(changed.to_dict("records"))
         clean_name = name.strip()
