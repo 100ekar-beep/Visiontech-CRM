@@ -289,12 +289,33 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+# --- Same MRN / GRN desk for three separate companies ---
+MRN_COMPANIES = ("VISPL", "BHAGYASHREE", "SAI TELE")
+MRN_COMPANY_LABELS = {"VISPL": "VISPL", "BHAGYASHREE": "Bhagyashree", "SAI TELE": "Sai Tele"}
 if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.error("🚫 **Access Restricted!**")
-    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.warning("Ye module VISPL, BHAGYASHREE aur SAI TELE ke liye available hai.")
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
+
+if 'mrn_company_page' not in st.session_state:
+    initial_mrn_company = st.session_state.get('active_workspace', 'VISPL')
+    st.session_state.mrn_company_page = initial_mrn_company if initial_mrn_company in MRN_COMPANIES else 'VISPL'
+
+def active_mrn_company():
+    return st.session_state.mrn_company_page
+
+company_cols = st.columns(3)
+for company_col, company_key in zip(company_cols, MRN_COMPANIES):
+    with company_col:
+        if st.button(MRN_COMPANY_LABELS[company_key], key=f"mrn_company_tab_{company_key}",
+                     type="primary" if active_mrn_company() == company_key else "secondary",
+                     use_container_width=True):
+            st.session_state.mrn_company_page = company_key
+            st.session_state.mrn_current_page = 1
+            st.session_state.mrn_action = ""
+            st.session_state.mrn_items_error_banner = None
+            st.rerun()
 
 # --- 3. SUPABASE CONNECTION ---
 @st.cache_resource
@@ -323,7 +344,7 @@ def _fetch_mrn_data_cached(ws):
         return pd.DataFrame()
 
 def fetch_mrn_data():
-    return _fetch_mrn_data_cached(st.session_state.get('active_workspace', 'VISPL'))
+    return _fetch_mrn_data_cached(active_mrn_company())
 fetch_mrn_data.clear = _fetch_mrn_data_cached.clear
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -338,7 +359,7 @@ def _fetch_project_ids_cached(ws):
     return ["Select Project ID"]
 
 def fetch_project_ids():
-    return _fetch_project_ids_cached(st.session_state.get('active_workspace', 'VISPL'))
+    return _fetch_project_ids_cached(active_mrn_company())
 fetch_project_ids.clear = _fetch_project_ids_cached.clear
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -352,7 +373,7 @@ def _fetch_project_details_cached(proj_id, ws):
     return {}
 
 def fetch_project_details(proj_id):
-    return _fetch_project_details_cached(proj_id, st.session_state.get('active_workspace', 'VISPL'))
+    return _fetch_project_details_cached(proj_id, active_mrn_company())
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_team_percentage(team_name):
@@ -509,7 +530,7 @@ def fetch_mrn_used_qty_map(po_no, workspace, project_id):
 
 def fetch_po_line_items(po_no, site_id, proj_id):
     try:
-        ws = st.session_state.get('active_workspace', 'VISPL')
+        ws = active_mrn_company()
         
         all_data = get_unlimited_po_working(ws)
         if not all_data:
@@ -607,10 +628,11 @@ def delete_mrn_dialog(rid, mrn_no):
     with wc2:
         if st.button("✅ Confirm", type="primary", use_container_width=True):
             try:
-                supabase.table("mrn_data").delete().eq("id", rid).execute()
-                supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).execute()
-                supabase.table("pending_billing_invoices").delete().eq("invoice_no", mrn_no).execute()
-                supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).execute()
+                ws = active_mrn_company()
+                supabase.table("mrn_data").delete().eq("id", rid).eq("workspace", ws).execute()
+                supabase.table("mrn_items").delete().eq("MRN Number", mrn_no).eq("workspace", ws).execute()
+                supabase.table("pending_billing_invoices").delete().eq("invoice_no", mrn_no).eq("workspace", ws).execute()
+                supabase.table("billing_invoices").delete().eq("invoice_no", mrn_no).eq("workspace", ws).execute()
                 
                 st.success("✅ MRN & Auto-Bill Deleted Successfully!")
                 fetch_mrn_data.clear()
@@ -650,7 +672,7 @@ def edit_mrn_dialog(row_data):
         
     st.markdown('<div class="modal-section-title">📦 MRN LINE ITEMS (READ-ONLY)</div>', unsafe_allow_html=True)
     try:
-        res = supabase.table("mrn_items").select("*").eq("MRN Number", mrn_no).execute()
+        res = supabase.table("mrn_items").select("*").eq("MRN Number", mrn_no).eq("workspace", active_mrn_company()).execute()
         if res.data:
             items_df = pd.DataFrame(res.data)
             display_cols = []
@@ -670,9 +692,10 @@ def edit_mrn_dialog(row_data):
             new_date_str = new_date.strftime("%d-%m-%Y")
             new_bill_date_str = str(new_date)
             try:
-                supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).execute()
-                supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
-                supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).execute()
+                ws = active_mrn_company()
+                supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).eq("workspace", ws).execute()
+                supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
+                supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
                 
                 st.success("✅ MRN Date Updated Successfully!")
                 fetch_mrn_data.clear()
@@ -691,7 +714,8 @@ def add_mrn_dialog():
     
     if selected_proj != "Select Project ID":
         try:
-            ex_res = supabase.table("mrn_data").select('"MRN Number","Team Name"').eq("Project ID", selected_proj).execute()
+            ex_res = (supabase.table("mrn_data").select('"MRN Number","Team Name"')
+                      .eq("Project ID", selected_proj).eq("workspace", active_mrn_company()).execute())
             if ex_res.data:
                 ex_text = " | ".join([f"{r['MRN Number']} ({r['Team Name']})" for r in ex_res.data])
                 st.markdown(f"""
@@ -720,7 +744,7 @@ def add_mrn_dialog():
         if po_str and po_str.lower() != "nan":
             po_list = [p.strip() for p in po_str.split(",") if p.strip()]
             
-        ws_act = st.session_state.get('active_workspace', 'VISPL')
+        ws_act = active_mrn_company()
         try:
             all_po_data = get_unlimited_po_working(ws_act)
             p_target = str(selected_proj).strip().lower()
@@ -956,7 +980,7 @@ def add_mrn_dialog():
             on_click=add_extra_row
         )
 
-    item_lookup = fetch_item_lookup(st.session_state.get('active_workspace', 'VISPL'))
+    item_lookup = fetch_item_lookup(active_mrn_company())
     searchable_item_codes = [x["code"] for x in item_lookup.values()]
     searchable_item_codes = sorted(
         list(dict.fromkeys(searchable_item_codes)),
@@ -1089,7 +1113,7 @@ def add_mrn_dialog():
                     break 
             
             header_data = {
-                "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                "workspace": active_mrn_company(),
                 "MRN Number": new_mrn_no,
                 "Team Name": team_name,
                 "Project ID": selected_proj,
@@ -1113,7 +1137,7 @@ def add_mrn_dialog():
                         u_qty = pd.to_numeric(row["User Qty"], errors='coerce')
                         if pd.notna(u_qty) and u_qty > 0:
                             items_to_insert.append({
-                                "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                                "workspace": active_mrn_company(),
                                 "MRN Number": new_mrn_no,
                                 "PO Number": _clean_code_for_db(po),
                                 "Project ID": selected_proj,
@@ -1126,7 +1150,7 @@ def add_mrn_dialog():
 
                 for item in valid_extra_items:
                     items_to_insert.append({
-                        "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                        "workspace": active_mrn_company(),
                         "MRN Number": new_mrn_no,
                         "PO Number": "NON-PO",
                         "Project ID": selected_proj,
@@ -1172,7 +1196,7 @@ def add_mrn_dialog():
                     }
 
                 billing_payload = {
-                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                    "workspace": active_mrn_company(),
                     "invoice_type": "Team",
                     "team_name": team_name,
                     "amount": float(grand_basic_total),
@@ -1239,12 +1263,12 @@ def export_dialog(df_export):
         type="primary"
     )
 
-# --- TOP SINGLE WORKSPACE BANNER ---
-active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+# --- COMPANY BANNER ---
+active_ws_display = MRN_COMPANY_LABELS[active_mrn_company()]
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
         <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🏢 ACTIVE WORKSPACE : {active_ws_display}
+            🏢 {html.escape(active_ws_display)}
         </h1>
     </div>
 """, unsafe_allow_html=True)
