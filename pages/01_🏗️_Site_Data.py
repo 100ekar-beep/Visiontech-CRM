@@ -219,7 +219,7 @@ st.markdown("""
     }
     /* Every row: plain white background, clear bottom border (simple clean grid, no colour fill) */
     .st-key-site_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 4600px !important;
+        min-width: 6100px !important;
         align-items: center !important;
         border-bottom: 1px solid rgba(0,0,0,0.12) !important;
         padding: 8px 0 !important;
@@ -1379,6 +1379,61 @@ def get_opts(category, all_data):
     opts = [row["option_value"] for row in all_data if row["category"] == category]
     return ["Select"] + opts
 
+
+# Auditor names and numbers use the existing dropdown_master (category, option_value, mobile).
+def auditor_fields(all_dd, key_prefix, row_data=None):
+    row_data = row_data or {}
+    auditors = {str(r.get("option_value") or "").strip(): str(r.get("mobile") or "").strip()
+                for r in all_dd if r.get("category") == "Auditor Name" and str(r.get("option_value") or "").strip()}
+    current = str(row_data.get("Auditor Name") or "").strip()
+    options = ["Select"] + sorted(set(auditors) | ({current} if current else set()), key=str.casefold)
+    with st.expander("➕ Add Auditor to Master"):
+        with st.form(f"{key_prefix}_auditor_form"):
+            new_name = st.text_input("AUDITOR NAME", key=f"{key_prefix}_new_name").strip()
+            new_number = st.text_input("AUDITOR NUMBER", key=f"{key_prefix}_new_number").strip()
+            if st.form_submit_button("Save Auditor"):
+                if not new_name or not new_number:
+                    st.error("Auditor name and number are required.")
+                elif not re.fullmatch(r"[0-9+() -]{7,20}", new_number):
+                    st.error("Enter a valid auditor phone number.")
+                elif any(name.casefold() == new_name.casefold() for name in auditors):
+                    st.warning("Auditor already exists in Master Data. Select the name above.")
+                else:
+                    try:
+                        supabase.table("dropdown_master").insert({"category": "Auditor Name", "option_value": new_name, "mobile": new_number}).execute()
+                        st.success("Auditor added to Master Data. Select the name below.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not save auditor: {e}")
+    selected = st.selectbox("AUDITOR NAME", options, index=options.index(current) if current in options else 0,
+                            key=f"{key_prefix}_auditor")
+    number = auditors.get(selected, str(row_data.get("Auditor Number") or "") if selected == current else "")
+    st.text_input("AUDITOR NUMBER", value=number, disabled=True, key=f"{key_prefix}_auditor_number")
+    return ("" if selected == "Select" else selected), ("" if selected == "Select" else number)
+
+def ptw_fields(key_prefix, row_data=None):
+    row_data = row_data or {}
+    result = {}
+    for kind in ("Electrical", "Height", "Civil"):
+        number_col, date_col = f"{kind} PTW Number", f"{kind} PTW Date"
+        c_number, c_date = st.columns(2)
+        with c_number:
+            result[number_col] = st.text_input(number_col.upper(), value=str(row_data.get(number_col) or ""),
+                                               key=f"{key_prefix}_{kind}_ptw_number").strip()
+        with c_date:
+            saved = str(row_data.get(date_col) or "").strip()
+            parsed = None
+            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%b-%Y"):
+                try:
+                    parsed = datetime.strptime(saved, fmt).date()
+                    break
+                except ValueError:
+                    pass
+            chosen = st.date_input(date_col.upper(), value=parsed, format="DD/MM/YYYY",
+                                   key=f"{key_prefix}_{kind}_ptw_date")
+            result[date_col] = chosen.strftime("%d/%m/%Y") if chosen else ""
+    return result
+
 # --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
 def get_item_master_details():
     mapping = {}
@@ -1563,6 +1618,10 @@ def add_record_dialog():
                 if st.button("➖ Remove PO", use_container_width=True):
                     st.session_state.po_count -= 1
             
+        st.markdown('<div class="modal-section-title">🧑‍🔧 AUDITOR & PTW DETAILS</div>', unsafe_allow_html=True)
+        auditor_name, auditor_number = auditor_fields(all_dd, "add_site")
+        ptw_values = ptw_fields("add_site")
+
         # -------------------------------------------------------------
         # WAREHOUSE MATERIAL TRACKING IN ADD RECORD
         # -------------------------------------------------------------
@@ -1718,7 +1777,10 @@ def add_record_dialog():
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     
                     "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
+                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
+                    "Auditor Name": auditor_name,
+                    "Auditor Number": auditor_number,
+                    **ptw_values
                 }
                 
                 try:
@@ -1985,6 +2047,10 @@ def edit_record_dialog(row_data):
             if st.session_state.edit_po_count > 1:
                 if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
                     st.session_state.edit_po_count -= 1
+
+        st.markdown('<div class="modal-section-title">🧑‍🔧 AUDITOR & PTW DETAILS</div>', unsafe_allow_html=True)
+        auditor_name, auditor_number = auditor_fields(all_dd, f"edit_site_{rid}", row_data)
+        ptw_values = ptw_fields(f"edit_site_{rid}", row_data)
 
         # -------------------------------------------------------------
         # 📎 ATTACHMENTS — lavish Upload / Download buttons for Photos, JMS,
@@ -2326,7 +2392,10 @@ def edit_record_dialog(row_data):
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     
                     "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses])
+                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
+                    "Auditor Name": auditor_name,
+                    "Auditor Number": auditor_number,
+                    **ptw_values
                 }
                 
                 try:
@@ -3093,7 +3162,9 @@ columns_list = [
     "MRN Files", "SRC Files", "DC Files", "EWAY Files",
     "Solar Simulation Report Files", "Extra Approval Files",
     "Team Billing Status", "Vision Billing Status", "Extra Approval", 
-    "WCC Number", "WCC Status", "Commissioning Email Sent"
+    "WCC Number", "WCC Status", "Auditor Name", "Auditor Number",
+    "Electrical PTW Number", "Electrical PTW Date", "Height PTW Number", "Height PTW Date",
+    "Civil PTW Number", "Civil PTW Date", "Commissioning Email Sent"
 ]
 
 if data:
@@ -3233,7 +3304,7 @@ st.markdown("""
     }
     .st-key-site_lux_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
     .st-key-site_lux_wrap [data-testid="stHorizontalBlock"] {
-        min-width: 4600px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
+        min-width: 6100px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
     }
     .st-key-site_lux_wrap [data-testid="stColumn"],
     .st-key-site_lux_wrap [data-testid="column"] {
@@ -3252,7 +3323,7 @@ st.markdown("""
         background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
         border-bottom: 3px solid #f59e0b !important;
         box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
-        padding: 14px 0 !important; min-width: 4600px !important;
+        padding: 14px 0 !important; min-width: 6100px !important;
     }
     .st-key-slux_head [data-testid="stColumn"], .st-key-slux_head [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
     .slux-th { color: #ffffff !important; font-size: .76rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
@@ -3260,7 +3331,7 @@ st.markdown("""
 
     /* Data rows */
     div[class*="st-key-sluxrow_"] {
-        padding: 9px 0 !important; min-width: 4600px !important; background: #ffffff;
+        padding: 9px 0 !important; min-width: 6100px !important; background: #ffffff;
         border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
     }
     div[class*="st-key-sluxrow_odd"] { background: #fafaff; }
@@ -3493,7 +3564,8 @@ else:
         1.0, 1.2,                    # WH Mat, Team Name
         1.0, 1.0, 1.0, 1.3,          # Photos, Audit, JMS, Commissioning Report
         1.2, 1.2, 1.0,               # Team Bill, Vis Bill, Extra App
-        1.2, 1.0                     # WCC Number, WCC Status
+        1.2, 1.0,                    # WCC Number, WCC Status
+        1.2, 1.2, 1.2, 1.0, 1.2, 1.0, 1.2, 1.0  # Auditor and PTW
     ]
 
     COL_LABELS = [
@@ -3503,7 +3575,9 @@ else:
         "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION",
         "WH MATERIAL", "TEAM NAME", "PHOTOS", "AUDIT", "JMS", "COMMISSIONING REPORT",
         "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL",
-        "WCC NUMBER", "WCC STATUS"
+        "WCC NUMBER", "WCC STATUS", "AUDITOR NAME", "AUDITOR NUMBER",
+        "ELECTRICAL PTW NUMBER", "ELECTRICAL PTW DATE", "HEIGHT PTW NUMBER", "HEIGHT PTW DATE",
+        "CIVIL PTW NUMBER", "CIVIL PTW DATE"
     ]
 
     # ---- Title bar ----
@@ -3592,6 +3666,10 @@ else:
                 rcols[26].markdown(status_badge(row_dict.get('Extra Approval', '')), unsafe_allow_html=True)
                 rcols[27].markdown(_chip(row_dict.get('WCC Number')), unsafe_allow_html=True)
                 rcols[28].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+                for col_idx, field in enumerate(("Auditor Name", "Auditor Number", "Electrical PTW Number",
+                                                 "Electrical PTW Date", "Height PTW Number", "Height PTW Date",
+                                                 "Civil PTW Number", "Civil PTW Date"), start=29):
+                    rcols[col_idx].markdown(_txt(row_dict.get(field), "slux-soft"), unsafe_allow_html=True)
 
     # ---- Footer bar ----
     shown_from = start_idx + 1 if total_rows else 0
