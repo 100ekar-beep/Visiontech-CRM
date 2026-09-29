@@ -515,6 +515,37 @@ st.markdown("""
         background: rgba(255,255,255,0.4) !important;
     }
 
+
+    /* Solar Simulation Report and Extra Approval attachment drop zones */
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"],
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"] {
+        border: none !important; border-radius: 14px !important;
+        padding: 10px !important; transition: all .25s ease !important;
+    }
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #f59e0b, #ea580c) !important;
+        box-shadow: 0 6px 16px rgba(245, 158, 11, .35) !important;
+    }
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"] {
+        background: linear-gradient(135deg, #10b981, #059669) !important;
+        box-shadow: 0 6px 16px rgba(16, 185, 129, .35) !important;
+    }
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"]:hover,
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"]:hover {
+        transform: translateY(-2px) !important; filter: brightness(1.08);
+    }
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"] *,
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"] * {
+        color: #fff !important; text-shadow: 0 1px 2px rgba(0,0,0,.15);
+    }
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"] svg,
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"] svg {fill: #fff !important;}
+    .st-key-attach_lav_solar_simulation [data-testid="stFileUploaderDropzone"] button,
+    .st-key-attach_lav_extra_approval [data-testid="stFileUploaderDropzone"] button {
+        background: rgba(255,255,255,.25) !important; border: 1.5px solid rgba(255,255,255,.65) !important;
+        border-radius: 8px !important; font-weight: 800 !important;
+    }
+
     /* Download button — distinct indigo "call to action" style.
        st.link_button renders as an <a> tag, not <button>, so both are targeted. */
     div[class*="st-key-attach_lav_download_"] button,
@@ -1986,9 +2017,15 @@ def edit_record_dialog(row_data):
             ("DC Files", "dc", "DC", "📦", ["jpg", "jpeg", "png", "pdf"], "attach_lav_dc"),
             ("EWAY Files", "eway", "EWAY", "🚚", ["jpg", "jpeg", "png", "pdf"], "attach_lav_eway"),
         ]
+        # New document attachments; Extra Approval status dropdown above stays independent.
+        attach_field_configs_row3 = [
+            ("Solar Simulation Report Files", "solar_simulation", "Solar Simulation Report", "☀️", ["jpg", "jpeg", "png", "pdf"], "attach_lav_solar_simulation"),
+            ("Extra Approval Files", "extra_approval", "Extra Approval", "✅", ["jpg", "jpeg", "png", "pdf"], "attach_lav_extra_approval"),
+        ]
         FILE_NAME_TAGS = {
             "photos": "Photo", "jms": "JMS", "comm_report": "Comm_Report",
             "mrn": "MRN", "src": "SRC", "dc": "DC", "eway": "EWAY",
+            "solar_simulation": "Solar_Simulation_Report", "extra_approval": "Extra_Approval",
         }
         # Only fields with a matching status dropdown get auto-set to "Available" on upload
         STATUS_COL_MAP = {"photos": "Photos", "jms": "JMS", "comm_report": "Commissioning Report"}
@@ -2203,7 +2240,7 @@ def edit_record_dialog(row_data):
                             )
 
         # Sab attachments 3-3 ke grid me (DG Project jaisa kushada layout)
-        _all_attach = attach_field_configs_row1 + attach_field_configs_row2
+        _all_attach = attach_field_configs_row1 + attach_field_configs_row2 + attach_field_configs_row3
         for _i in range(0, len(_all_attach), 3):
             _att_cols = st.columns(3)
             for config, att_col in zip(_all_attach[_i:_i + 3], _att_cols):
@@ -3054,6 +3091,7 @@ columns_list = [
     "Team Name", "Photos", "Audit", "JMS", "Commissioning Report",
     "Photos Files", "JMS Files", "Commissioning Report Files",
     "MRN Files", "SRC Files", "DC Files", "EWAY Files",
+    "Solar Simulation Report Files", "Extra Approval Files",
     "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Commissioning Email Sent"
 ]
