@@ -337,19 +337,42 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
+# --- Three complete company pages, using the existing billing screens ---
+BILLING_WORKSPACES = ("VISPL", "BHAGYASHREE", "SAI TELE")
+BILLING_PAGE_LABELS = {
+    "VISPL": "🏢 Visiontech",
+    "BHAGYASHREE": "🏢 Bhagyashree",
+    "SAI TELE": "🏢 Sai Tele",
+}
 if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
     st.error("🚫 **Access Restricted!**")
-    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
+    st.warning("Ye module VISPL, BHAGYASHREE aur SAI TELE workspaces ke liye available hai.")
     st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
     st.stop()
 
-# --- TOP SINGLE WORKSPACE BANNER ---
-active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+if 'billing_company_page' not in st.session_state:
+    initial_company = st.session_state.get('active_workspace', 'VISPL')
+    st.session_state.billing_company_page = initial_company if initial_company in BILLING_WORKSPACES else 'VISPL'
+
+def active_billing_workspace():
+    return st.session_state.billing_company_page
+
+company_tabs = st.columns(3)
+for company_col, company_key in zip(company_tabs, BILLING_WORKSPACES):
+    with company_col:
+        if st.button(BILLING_PAGE_LABELS[company_key], key=f"billing_company_{company_key}",
+                     type="primary" if active_billing_workspace() == company_key else "secondary",
+                     use_container_width=True):
+            st.session_state.billing_company_page = company_key
+            st.session_state.pop("mrn_bulk_confirm_ids", None)
+            st.rerun()
+
+# --- TOP COMPANY PAGE BANNER ---
+active_ws_display = active_billing_workspace()
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
         <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🏢 ACTIVE WORKSPACE : {active_ws_display}
+            🏢 TEAM BILLING : {html.escape(BILLING_PAGE_LABELS[active_ws_display])}
         </h1>
     </div>
 """, unsafe_allow_html=True)
@@ -393,9 +416,7 @@ def get_pan_number(category, name):
     return ""
 
 def fetch_mrn_items(invoice_no, workspace):
-    """Fetch mrn_items rows for a given MRN/Invoice Number, with fallbacks in case
-    of workspace mismatches or extra whitespace/case differences in the MRN Number
-    (some MRNs were failing to match on an exact + workspace-scoped query)."""
+    """Fetch only MRN items belonging to the active billing workspace."""
     inv_clean = str(invoice_no or "").strip()
     if not inv_clean:
         return []
@@ -408,17 +429,10 @@ def fetch_mrn_items(invoice_no, workspace):
     except Exception:
         pass
 
-    # 2) Exact match, without the workspace filter (in case workspace was recorded differently)
+    # Case-insensitive fallback stays inside this workspace.
     try:
-        res = supabase.table("mrn_items").select("*").eq("MRN Number", inv_clean).execute()
-        if res.data:
-            return res.data
-    except Exception:
-        pass
-
-    # 3) Case-insensitive / whitespace-tolerant match as a last resort
-    try:
-        res = supabase.table("mrn_items").select("*").ilike("MRN Number", inv_clean).execute()
+        res = (supabase.table("mrn_items").select("*")
+               .eq("workspace", workspace).ilike("MRN Number", inv_clean).execute())
         if res.data:
             return res.data
     except Exception:
@@ -527,6 +541,24 @@ VISIONTECH_ADDRESS_LINES = [
 ]
 VISIONTECH_GSTIN = "27AAICV3205F1ZI"
 VISIONTECH_PAN = "AAICV3205F"
+
+def billing_company_details(workspace):
+    """Optional legal details for other companies in Streamlit secrets."""
+    if workspace == "VISPL":
+        return "Visiontech Infra Solution Pvt. Ltd.", VISIONTECH_ADDRESS_LINES, VISIONTECH_GSTIN, VISIONTECH_PAN
+    if workspace == "BHAGYASHREE":
+        return ("Bhagyashree Enterprises",
+                ["S. No. 66, Sai Pritam Nagar Rahtani, BLD - A Flat - 7 Pune",
+                 "Pune, Maharashtra - 411017, India."],
+                "27ABWPV2922M1ZQ", "ABWPV2922M")
+    names = {"BHAGYASHREE": "Bhagyashree", "SAI TELE": "Sai Tele"}
+    try:
+        configured = dict(st.secrets.get("billing_companies", {}).get(workspace, {}))
+    except Exception:
+        configured = {}
+    return (configured.get("name") or names.get(workspace, workspace),
+            configured.get("address_lines") or [], configured.get("gstin") or "",
+            configured.get("pan") or "")
 
 # --- INVOICE PDF GENERATOR (fully in-memory — NEVER saved/uploaded to Supabase) ---
 def _wrap_text_for_pdf(pdf, text, width_mm):
@@ -680,7 +712,7 @@ def generate_invoice_pdf(row_dict):
         total_amt = basic_amt
 
     # --- Fetch MRN line items (PO Number, Item Code, Description, Qty, Price, Total) ---
-    ws_val = row_dict.get("workspace") or st.session_state.get('active_workspace', 'VISPL')
+    ws_val = row_dict.get("workspace") or active_billing_workspace()
     mrn_items_rows = fetch_mrn_items(invoice_no, ws_val)
 
     try:
@@ -717,7 +749,13 @@ def generate_invoice_pdf(row_dict):
     pdf.set_font("Arial", 'B', 13)
     pdf.cell(190, 9, "INVOICE", border=1, align='C', ln=True)
 
-    # --- Bill To / Ship To (left = Visiontech) + Entity Info (right) box ---
+    # --- Bill To / Ship To for the selected company + Entity Info ---
+    bill_company, bill_address, bill_gstin, bill_pan = billing_company_details(ws_val)
+    address_details = "\n".join(bill_address)
+    if bill_gstin:
+        address_details += f"\nGSTIN/UIN : {bill_gstin}"
+    if bill_pan:
+        address_details += f"\nPAN : {bill_pan}"
     box_top = pdf.get_y()
     box_height = 50
     pdf.rect(10, box_top, 190, box_height)
@@ -726,18 +764,17 @@ def generate_invoice_pdf(row_dict):
     left_x = 12
     pdf.set_xy(left_x, box_top + 2)
     pdf.set_font("Arial", 'B', 9)
-    pdf.cell(90, 5, "Bill To : Visiontech Infra Solution Pvt. Ltd.", ln=2)
+    pdf.cell(90, 5, f"Bill To : {bill_company}", ln=2)
     pdf.set_x(left_x)
     pdf.set_font("Arial", '', 8)
-    addr_block = "\n".join(VISIONTECH_ADDRESS_LINES) + f"\nGSTIN/UIN : {VISIONTECH_GSTIN}\nPAN : {VISIONTECH_PAN}"
-    pdf.multi_cell(90, 4, addr_block)
+    pdf.multi_cell(90, 4, address_details)
     pdf.ln(1)
     pdf.set_x(left_x)
     pdf.set_font("Arial", 'B', 9)
-    pdf.cell(90, 5, "Ship To : Visiontech Infra Solution Pvt. Ltd.", ln=2)
+    pdf.cell(90, 5, f"Ship To : {bill_company}", ln=2)
     pdf.set_x(left_x)
     pdf.set_font("Arial", '', 8)
-    pdf.multi_cell(90, 4, "\n".join(VISIONTECH_ADDRESS_LINES) + f"\nGSTIN/UIN : {VISIONTECH_GSTIN}")
+    pdf.multi_cell(90, 4, address_details)
 
     right_x = 107
     pdf.set_xy(right_x, box_top + 2)
@@ -876,7 +913,7 @@ def team_invoice_dialog(row_data=None):
     is_duplicate = False
     if inv_no:
         try:
-            ws_active = st.session_state.get('active_workspace', 'VISPL')
+            ws_active = active_billing_workspace()
             dup_res = supabase.table("billing_invoices").select("id").eq("workspace", ws_active).eq("invoice_no", inv_no).execute()
             if dup_res.data:
                 if is_new:
@@ -936,7 +973,7 @@ def team_invoice_dialog(row_data=None):
 
     mrn_items_dialog_rows = []
     if inv_no:
-        ws_items = st.session_state.get('active_workspace', 'VISPL')
+        ws_items = active_billing_workspace()
         mrn_items_dialog_rows = fetch_mrn_items(inv_no, ws_items)
 
     if mrn_items_dialog_rows:
@@ -973,7 +1010,7 @@ def team_invoice_dialog(row_data=None):
             st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
-                "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                "workspace": active_billing_workspace(),
                 "invoice_type": "Team",
                 "team_name": team_val,
                 "amount": total_calc,
@@ -1017,7 +1054,7 @@ def vendor_invoice_dialog(row_data=None):
     is_duplicate = False
     if inv_no:
         try:
-            ws_active = st.session_state.get('active_workspace', 'VISPL')
+            ws_active = active_billing_workspace()
             dup_res = supabase.table("billing_invoices").select("id").eq("workspace", ws_active).eq("invoice_no", inv_no).execute()
             if dup_res.data:
                 if is_new:
@@ -1074,7 +1111,7 @@ def vendor_invoice_dialog(row_data=None):
             st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
         else:
             payload = {
-                "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                "workspace": active_billing_workspace(),
                 "invoice_type": "Vendor",
                 "team_name": team_val,
                 "amount": total_calc,
@@ -1135,7 +1172,7 @@ def payment_dialog(row_data=None, mode="Team"):
         else:
             try:
                 payload = {
-                    "workspace": st.session_state.get('active_workspace', 'VISPL'),
+                    "workspace": active_billing_workspace(),
                     "pay_from": pay_from,
                     "pay_to": pay_to,
                     "pay_type": pay_type,
@@ -1196,7 +1233,7 @@ def team_material_transfer_dialog():
         else:
             try:
                 supabase.table("team_material_transfers").insert({
-                    "workspace": st.session_state.get("active_workspace", "VISPL"),
+                    "workspace": active_billing_workspace(),
                     "transfer_date": str(transfer_date),
                     "from_team": from_team,
                     "to_team": to_team,
@@ -1468,7 +1505,7 @@ def _sum_col(df, col):
 # PAGE 1: INVOICE ENTRY
 # ==========================================
 if st.session_state.billing_active_page == "invoice":
-    active_ws = st.session_state.get('active_workspace', 'VISPL')
+    active_ws = active_billing_workspace()
     try:
         inv_data_raw_all = fetch_billing_invoices_cached(active_ws)
     except Exception:
@@ -1786,7 +1823,7 @@ elif st.session_state.billing_active_page == "payment":
     st.markdown("<br>", unsafe_allow_html=True)
 
     try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        active_ws = active_billing_workspace()
         pay_data_raw = fetch_billing_payments_cached(active_ws)
         if pay_data_raw:
             df_pay = pd.DataFrame(pay_data_raw)
@@ -1906,7 +1943,7 @@ elif st.session_state.billing_active_page == "payment":
 # PAGE 3: TEAM MATERIAL TRANSFER
 # ==========================================
 elif st.session_state.billing_active_page == "transfer":
-    active_ws = st.session_state.get("active_workspace", "VISPL")
+    active_ws = active_billing_workspace()
     c_add, c_search, c_download = st.columns([1.7, 4.5, 1.8])
     with c_add:
         if st.button("➕ New Transfer", type="primary", use_container_width=True, key="add_material_transfer"):
@@ -2025,7 +2062,7 @@ elif st.session_state.billing_active_page == "ledger":
         df_inv_rep, df_pay_rep, df_transfer_rep = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         
         try:
-            active_ws = st.session_state.get('active_workspace', 'VISPL')
+            active_ws = active_billing_workspace()
             inv_col = "team_name" if rep_mode == "Team" else "vendor_name"
             inv_rows, pay_rows = fetch_ledger_data_cached(active_ws, rep_mode, inv_col, sel_name)
             if inv_rows:
@@ -2152,7 +2189,7 @@ elif st.session_state.billing_active_page == "ledger":
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.add_page()
                 
-                if os.path.exists("logo (1).png"):
+                if active_ws == "VISPL" and os.path.exists("logo (1).png"):
                     pdf.image("logo (1).png", x=75, y=10, w=60)
                     pdf.ln(28) 
                 
@@ -2163,7 +2200,7 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 pdf.set_text_color(*primary_color)
                 pdf.set_font("Arial", 'B', 18)
-                pdf.cell(190, 10, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
+                pdf.cell(190, 10, billing_company_details(active_ws)[0].upper(), ln=True, align='C')
                 
                 pdf.set_text_color(*secondary_color)
                 pdf.set_font("Arial", 'B', 14)
@@ -2336,7 +2373,7 @@ elif st.session_state.billing_active_page == "mrn":
         st.markdown("<br>", unsafe_allow_html=True)
         
         try:
-            active_ws = st.session_state.get('active_workspace', 'VISPL')
+            active_ws = active_billing_workspace()
             # Latest pending records appear at the top
             pending_rows = fetch_pending_mrn_cached(active_ws)
             if pending_rows:
