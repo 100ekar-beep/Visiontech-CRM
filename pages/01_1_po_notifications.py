@@ -18,6 +18,7 @@ import io
 import zipfile
 import urllib.request
 import streamlit as st
+import html
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
@@ -43,32 +44,24 @@ if 'rfai_notif_tab' not in st.session_state:
 if 'upload_notif_tab' not in st.session_state:
     st.session_state.upload_notif_tab = "open"
 
-# --- 2. LAVISH CUSTOM CSS (same design language as Site Data Hub) ---
+# --- 2. LAVISH CUSTOM CSS (Imported from Site Data Hub) ---
 st.markdown("""
     <style>
     /* Light Premium Theme */
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
 
-    /* Gradient action buttons everywhere (Refresh, tabs, Close/Reopen...) */
+    /* Gradient action buttons everywhere (Refresh, tabs...) */
     div.stButton > button {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-        color: white !important;
-        border: none;
-        border-radius: 8px;
-        font-weight: 800 !important;
-        padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+        color: white !important; border: none; border-radius: 8px;
+        font-weight: 800 !important; padding: 0.5rem 1rem;
+        transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
     div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
+        transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
     }
-    div.stButton > button p,
-    div.stButton > button span,
-    div.stButton > button div {
-        color: #ffffff !important;
-        font-weight: 800 !important;
+    div.stButton > button p, div.stButton > button span, div.stButton > button div {
+        color: #ffffff !important; font-weight: 800 !important;
     }
 
     div.stDownloadButton > button {
@@ -77,208 +70,164 @@ st.markdown("""
         font-weight: 800 !important; padding: 0.5rem 1rem;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
     }
-    div.stDownloadButton > button p,
-    div.stDownloadButton > button span,
-    div.stDownloadButton > button div { color: #ffffff !important; font-weight: 800 !important; }
+    div.stDownloadButton > button p, div.stDownloadButton > button span, div.stDownloadButton > button div { 
+        color: #ffffff !important; font-weight: 800 !important; 
+    }
 
     /* PREMIUM SIDEBAR NAVIGATION */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%); border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
     [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important; font-weight: 600 !important;
+        font-size: 1.05rem !important; transition: all 0.3s ease !important; border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        display: flex !important; align-items: center !important; gap: 12px !important;
     }
     [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        color: #ffffff !important;
+        background: rgba(255, 255, 255, 0.1) !important; transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important; color: #ffffff !important;
     }
     [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
+        border-color: transparent !important; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
     }
     [data-testid="stSidebarNav"] a span { color: inherit !important; }
 
     /* WORKSPACE / TAB NAV BAR */
     .st-key-notif_company_nav_bar div[data-testid="stHorizontalBlock"],
     .st-key-notif_tab_nav_bar div[data-testid="stHorizontalBlock"],
-    .st-key-notif_main_tab_bar div[data-testid="stHorizontalBlock"] {
-        gap: 12px !important; flex-wrap: wrap !important;
-    }
-    .st-key-notif_company_nav_bar button,
-    .st-key-notif_tab_nav_bar button,
-    .st-key-notif_main_tab_bar button {
+    .st-key-notif_main_tab_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
+    
+    .st-key-notif_company_nav_bar button, .st-key-notif_tab_nav_bar button, .st-key-notif_main_tab_bar button {
         font-size: 1.05rem !important; font-weight: 800 !important; padding: 14px 10px !important;
         height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
         white-space: nowrap !important;
     }
-    .st-key-notif_company_nav_bar button[kind="secondary"],
-    .st-key-notif_tab_nav_bar button[kind="secondary"],
-    .st-key-notif_main_tab_bar button[kind="secondary"] {
+    .st-key-notif_company_nav_bar button[kind="secondary"], .st-key-notif_tab_nav_bar button[kind="secondary"], .st-key-notif_main_tab_bar button[kind="secondary"] {
         background: #ffffff !important; color: #475569 !important;
         border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
     }
-    .st-key-notif_company_nav_bar button[kind="secondary"]:hover,
-    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover,
-    .st-key-notif_main_tab_bar button[kind="secondary"]:hover {
-        background: #f1f5f9 !important; color: #0f172a !important;
-        border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover, .st-key-notif_tab_nav_bar button[kind="secondary"]:hover, .st-key-notif_main_tab_bar button[kind="secondary"]:hover {
+        background: #f1f5f9 !important; color: #0f172a !important; border-color: rgba(0,0,0,0.2) !important; transform: translateY(-2px) !important;
     }
-    .st-key-notif_company_nav_bar button[kind="secondary"] p,
-    .st-key-notif_company_nav_bar button[kind="secondary"] span,
-    .st-key-notif_company_nav_bar button[kind="secondary"] div,
-    .st-key-notif_tab_nav_bar button[kind="secondary"] p,
-    .st-key-notif_tab_nav_bar button[kind="secondary"] span,
-    .st-key-notif_tab_nav_bar button[kind="secondary"] div,
-    .st-key-notif_main_tab_bar button[kind="secondary"] p,
-    .st-key-notif_main_tab_bar button[kind="secondary"] span,
-    .st-key-notif_main_tab_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; }
-    .st-key-notif_company_nav_bar button[kind="secondary"]:hover p,
-    .st-key-notif_company_nav_bar button[kind="secondary"]:hover span,
-    .st-key-notif_company_nav_bar button[kind="secondary"]:hover div,
-    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover p,
-    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover span,
-    .st-key-notif_tab_nav_bar button[kind="secondary"]:hover div,
-    .st-key-notif_main_tab_bar button[kind="secondary"]:hover p,
-    .st-key-notif_main_tab_bar button[kind="secondary"]:hover span,
-    .st-key-notif_main_tab_bar button[kind="secondary"]:hover div { color: #0f172a !important; }
-    .st-key-notif_company_nav_bar button[kind="primary"],
-    .st-key-notif_tab_nav_bar button[kind="primary"],
-    .st-key-notif_main_tab_bar button[kind="primary"] {
+    .st-key-notif_company_nav_bar button[kind="secondary"] p, .st-key-notif_tab_nav_bar button[kind="secondary"] p, .st-key-notif_main_tab_bar button[kind="secondary"] p { color: #475569 !important; font-weight: 800 !important; }
+    .st-key-notif_company_nav_bar button[kind="secondary"]:hover p, .st-key-notif_tab_nav_bar button[kind="secondary"]:hover p, .st-key-notif_main_tab_bar button[kind="secondary"]:hover p { color: #0f172a !important; }
+    
+    .st-key-notif_company_nav_bar button[kind="primary"], .st-key-notif_tab_nav_bar button[kind="primary"], .st-key-notif_main_tab_bar button[kind="primary"] {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important; color: #ffffff !important;
         border: none !important; box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
     }
-    .st-key-notif_company_nav_bar button[kind="primary"] p,
-    .st-key-notif_company_nav_bar button[kind="primary"] span,
-    .st-key-notif_company_nav_bar button[kind="primary"] div,
-    .st-key-notif_tab_nav_bar button[kind="primary"] p,
-    .st-key-notif_tab_nav_bar button[kind="primary"] span,
-    .st-key-notif_tab_nav_bar button[kind="primary"] div,
-    .st-key-notif_main_tab_bar button[kind="primary"] p,
-    .st-key-notif_main_tab_bar button[kind="primary"] span,
-    .st-key-notif_main_tab_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; }
+    .st-key-notif_company_nav_bar button[kind="primary"] p, .st-key-notif_tab_nav_bar button[kind="primary"] p, .st-key-notif_main_tab_bar button[kind="primary"] p { color: #ffffff !important; font-weight: 800 !important; }
 
-    /* LAVISH TABLE */
-    .st-key-notif_table_wrap {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.15);
-        border-radius: 10px;
-        overflow: auto !important;
-        padding: 0px 0 !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
     }
-    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 900px !important;
-        align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.12) !important;
-        padding: 10px 0 !important;
-        flex-wrap: nowrap !important;
-        background: #ffffff !important;
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
     }
-    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"]:has(.tbl-head) {
-        background: #eef2ff !important;
-        border-bottom: 2px solid rgba(79,70,229,0.35) !important;
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 2 !important;
-    }
-    .st-key-notif_table_wrap div[data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {
-        background: #f8fafc !important;
-    }
-    .st-key-notif_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.08);
-    }
-    .st-key-notif_table_wrap div[data-testid="column"]:last-child { border-right: none; }
-    .st-key-notif_table_wrap .tbl-head {
-        background: transparent;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        color: #312e81;
-        text-transform: uppercase;
-        white-space: nowrap !important;
-    }
-    .st-key-notif_table_wrap .tbl-cell {
-        color: #0f172a;
-        font-size: 0.9rem;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        width: 100%;
-    }
-    .st-key-notif_table_wrap .tbl-serial { color: #64748b; font-size: 0.85rem; font-weight: 800; }
 
-    /* Status badge pill */
+    /* ================= SCROLLING TABLE BODY ================= */
+    .st-key-notif_lux_wrap {
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        max-height: 78vh !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 0 18px 18px !important;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35) !important;
+    }
+    .st-key-notif_lux_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-notif_lux_wrap [data-testid="stHorizontalBlock"] {
+        min-width: 1400px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
+    }
+    .st-key-notif_lux_wrap [data-testid="stColumn"],
+    .st-key-notif_lux_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
+    }
+
+    .st-key-notif_lux_wrap > .st-key-nlux_head,
+    .st-key-notif_lux_wrap > div:has(.st-key-nlux_head) {
+        position: sticky !important; top: 0 !important; z-index: 20 !important;
+    }
+    .st-key-nlux_head {
+        background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+        border-bottom: 3px solid #f59e0b !important;
+        box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+        padding: 14px 0 !important;
+    }
+    .st-key-nlux_head [data-testid="stColumn"], .st-key-nlux_head [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+    .slux-th { color: #ffffff !important; font-size: .76rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+    .slux-th.c { text-align: center; }
+
+    div[class*="st-key-nluxrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-nluxrow_odd"] { background: #fafaff; }
+    div[class*="st-key-nluxrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-nluxrow_"] p { margin: 0 !important; }
+
+    /* Lavish Text Styles */
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+
+    /* Badges */
     .status-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.4px;
-        white-space: nowrap !important;
-        text-align: center;
+        display: inline-flex !important; align-items: center; gap: 6px;
+        padding: 4px 11px !important; border-radius: 999px !important; border: 1px solid transparent;
+        font-size: .7rem !important; font-weight: 800 !important; letter-spacing: .4px; white-space: nowrap;
     }
-    .status-green  { background: rgba(34,197,94,0.15);  color: #15803d; }
-    .status-blue   { background: rgba(59,130,246,0.15); color: #1d4ed8; }
-    .status-yellow { background: rgba(234,179,8,0.15);  color: #a16207; }
-    .status-red    { background: rgba(239,68,68,0.15);  color: #b91c1c; }
-    .status-grey   { background: rgba(148,163,184,0.18); color: #334155; }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7 !important; color: #15803d !important; border-color: #bbf7d0 !important; }
+    .status-blue   { background: #dbeafe !important; color: #1d4ed8 !important; border-color: #bfdbfe !important; }
+    .status-yellow { background: #fef9c3 !important; color: #a16207 !important; border-color: #fde68a !important; }
+    .status-red    { background: #fee2e2 !important; color: #b91c1c !important; border-color: #fecaca !important; }
+    .status-grey   { background: #f1f5f9 !important; color: #475569 !important; border-color: #e2e8f0 !important; }
 
-    /* Site Data register styling, scoped to notification tables. */
-    .notif-lux-title {
-        display:flex; justify-content:space-between; align-items:center; gap:12px;
-        padding:16px 22px; border-radius:18px 18px 0 0;
-        background:linear-gradient(100deg,#1e1b4b,#312e81 45%,#5b21b6);
-        color:#fff; font-weight:900; font-size:1.05rem; letter-spacing:1.2px;
-        text-transform:uppercase;
+    /* Action Buttons (Close, Reopen, Download) */
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button {
+        height: 34px !important; min-height: 34px !important;
+        padding: 0 10px !important; margin: 0 auto !important; border-radius: 8px !important;
+        box-shadow: none !important; font-size: .85rem !important; transition: all .2s ease !important;
+        width: 100% !important;
     }
-    .notif-lux-title small {color:#c7d2fe;font-size:.8rem;font-weight:600;letter-spacing:.3px;text-transform:none;}
-    .notif-lux-count {background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fde68a;padding:5px 12px;border-radius:999px;font-size:.78rem;white-space:nowrap;}
-    .notif-lux-footer {display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px 22px;background:linear-gradient(90deg,#f5f3ff,#eef2ff);border:1px solid #e0e7ff;border-top:2px solid #c7d2fe;border-radius:0 0 18px 18px;box-shadow:0 24px 48px -22px rgba(30,27,75,.45);color:#312e81;font-size:.78rem;font-weight:900;text-transform:uppercase;letter-spacing:1px;}
-    .notif-lux-footer small {color:#6366f1;font-weight:700;text-transform:none;letter-spacing:.3px;}
-    .st-key-notif_table_wrap {background:#fff !important; border:1px solid #e0e7ff !important;border-top:0 !important;border-bottom:0 !important;border-radius:0 !important;box-shadow:none !important;overflow:auto !important;padding:0 !important;max-height:78vh !important;}
-    .st-key-notif_table_wrap [data-testid="stVerticalBlock"] {gap:0 !important;}
-    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"] {min-width:1600px !important;flex-wrap:nowrap !important;gap:0 !important;align-items:center !important;border-bottom:0 !important;padding:0 !important;background:transparent !important;}
-    .st-key-notif_table_wrap [data-testid="stColumn"], .st-key-notif_table_wrap [data-testid="column"] {padding:0 12px !important;min-width:0 !important;border-right:1px solid #f1f5f9 !important;}
-    .st-key-notif_table_wrap [data-testid="stColumn"]:last-child, .st-key-notif_table_wrap [data-testid="column"]:last-child {border-right:0 !important;}
-    .st-key-notif_head, .st-key-notif_table_wrap > div:has(.st-key-notif_head) {position:sticky !important;top:0 !important;z-index:20 !important;}
-    .st-key-notif_head {background:linear-gradient(90deg,#312e81,#4338ca 45%,#6d28d9) !important;border-bottom:3px solid #f59e0b !important;box-shadow:0 8px 14px -8px rgba(30,27,75,.55) !important;padding:14px 0 !important;min-width:1600px !important;}
-    .st-key-notif_head [data-testid="stColumn"], .st-key-notif_head [data-testid="column"] {border-right:1px solid rgba(255,255,255,.18) !important;}
-    .st-key-notif_table_wrap .tbl-head {color:#fff !important;font-size:.76rem !important;font-weight:900 !important;letter-spacing:1.1px !important;text-shadow:0 1px 2px rgba(0,0,0,.25);}
-    div[class*="st-key-notifrow_"] {min-width:1600px !important;padding:9px 0 !important;background:#fff !important;border-bottom:1px solid #f1f5f9 !important;transition:background .15s ease,box-shadow .15s ease;}
-    div[class*="st-key-notifrow_odd"] {background:#fafaff !important;}
-    div[class*="st-key-notifrow_"]:hover {background:#eef2ff !important;box-shadow:inset 4px 0 0 #6366f1 !important;}
-    .st-key-notif_table_wrap .tbl-cell {font-size:.86rem !important;color:#1e293b !important;margin:0 !important;}
-    .st-key-notif_table_wrap .tbl-serial {display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff !important;font-weight:800;font-size:.75rem !important;box-shadow:0 4px 10px -3px rgba(99,102,241,.6);}
-    .st-key-notif_table_wrap .status-badge {border:1px solid #ddd6fe;border-radius:999px;font-size:.7rem;font-weight:800;}
-    .st-key-notif_table_wrap div.stButton > button, .st-key-notif_table_wrap div.stDownloadButton > button {font-size:.8rem !important;min-height:34px !important;padding:4px 9px !important;box-shadow:none !important;}
-    .st-key-notif_table_wrap .notif-chip {display:inline-block;font-family:ui-monospace,Menlo,Consolas,monospace;background:#eef2ff;border:1px solid #c7d2fe;color:#4338ca;padding:3px 8px;border-radius:6px;font-size:.78rem;font-weight:700;white-space:nowrap;}
-    .st-key-notif_table_wrap .notif-strong {font-weight:700;color:#0f172a;}
-    .st-key-notif_table_wrap .status-green {background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
-    .st-key-notif_table_wrap .status-blue {background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;}
-    .st-key-notif_table_wrap .status-yellow {background:#fef9c3;color:#a16207;border-color:#fde68a;}
-    .st-key-notif_table_wrap .status-red {background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
-    .st-key-notif_table_wrap .status-grey {background:#f1f5f9;color:#475569;border-color:#e2e8f0;}
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; color: #1d4ed8 !important; }
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button:hover {
+        background: #3b82f6 !important; border-color: #60a5fa !important; color: white !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
+    }
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; color: #7e22ce !important;}
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button:hover {
+        background: #a855f7 !important; border-color: #c084fc !important; color: white !important;
+        transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(168,85,247,.6) !important;
+    }
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button p,
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button p { color: inherit !important; font-weight: 800 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -295,17 +244,40 @@ def init_connection():
         st.error(f"🚨 Supabase connection error: {e}")
         return None
 
-
 supabase: Client = init_connection()
 
+# --- LAVISH TEXT HELPERS ---
+def _clean(v):
+    s = str(v if v is not None else "").strip()
+    return "" if s.lower() in ("nan", "none", "null", "-") else s
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+    return f"<div class='slux-cell {extra_cls}' title='{html.escape(s)}'>{html.escape(s)}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+    return f"<div class='slux-cell'><span class='slux-chip {extra_cls}'>{html.escape(s)}</span></div>"
+
+def _pill(v):
+    s = _clean(v)
+    if not s:
+        return "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
 
 def status_badge(val):
     v = str(val).strip()
     if not v or v.lower() in ("nan", "none", "-"):
-        return "<span class='tbl-cell'>-</span>"
+        return "<span class='slux-muted'>—</span>"
     vl = v.lower()
     if vl == "not required":
         cls = "status-grey"
+    elif "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
     elif any(k in vl for k in ["completed", "approved", "done", "available", "closed"]):
         cls = "status-green"
     elif any(k in vl for k in ["hold", "progress", "open"]):
@@ -316,7 +288,7 @@ def status_badge(val):
         cls = "status-red"
     else:
         cls = "status-grey"
-    return f"<span class='status-badge {cls}'>{v}</span>"
+    return f"<span class='status-badge {cls}'>{html.escape(v)}</span>"
 
 
 # --- 4. PO NOTIFICATION DATA ---
@@ -335,10 +307,8 @@ def fetch_notifications_cached(workspace, is_closed):
     except Exception:
         return []
 
-
 def clear_notif_cache():
     fetch_notifications_cached.clear()
-
 
 def close_row(row_id):
     try:
@@ -350,7 +320,6 @@ def close_row(row_id):
     except Exception as e:
         st.error(f"❌ Close karne me error: {e}")
         return False
-
 
 def reopen_row(row_id):
     try:
@@ -379,7 +348,6 @@ RFAI_TARGET_STATUSES = [
 ]
 RFAI_TARGET_STATUSES_LOWER = {s.lower() for s in RFAI_TARGET_STATUSES}
 
-
 def _fetch_all_site_data_paginated(workspace):
     all_rows = []
     limit = 1000
@@ -387,7 +355,6 @@ def _fetch_all_site_data_paginated(workspace):
     while True:
         res = (
             supabase.table("site_data")
-            # Added "Team Name" column in select
             .select('"Project ID","Project Name","Site ID","Site Name","RFAI Status","PO No.","WCC Number","Team Name"')
             .eq("workspace", workspace)
             .range(offset, offset + limit - 1)
@@ -401,7 +368,6 @@ def _fetch_all_site_data_paginated(workspace):
             break
         offset += limit
     return all_rows
-
 
 def sync_rfai_notifications(workspace):
     try:
@@ -432,12 +398,10 @@ def sync_rfai_notifications(workspace):
     except Exception as e:
         st.error(f"🚨 RFAI sync error: {e}")
 
-
 @st.cache_data(ttl=20, show_spinner=False)
 def sync_rfai_cached(workspace):
     sync_rfai_notifications(workspace)
     return True
-
 
 @st.cache_data(ttl=20, show_spinner=False)
 def fetch_rfai_cached(workspace, is_closed):
@@ -454,11 +418,9 @@ def fetch_rfai_cached(workspace, is_closed):
     except Exception:
         return []
 
-
 def clear_rfai_cache():
     sync_rfai_cached.clear()
     fetch_rfai_cached.clear()
-
 
 def close_rfai_row(row_id):
     try:
@@ -470,7 +432,6 @@ def close_rfai_row(row_id):
     except Exception as e:
         st.error(f"❌ Close karne me error: {e}")
         return False
-
 
 def reopen_rfai_row(row_id):
     try:
@@ -489,7 +450,6 @@ def reopen_rfai_row(row_id):
 # ==============================================================
 UPLOAD_TABLE_NAME = "upload_notifications"
 
-
 @st.cache_data(ttl=15, show_spinner=False)
 def fetch_uploads_cached(workspace, is_closed):
     try:
@@ -505,10 +465,8 @@ def fetch_uploads_cached(workspace, is_closed):
     except Exception:
         return []
 
-
 def clear_upload_cache():
     fetch_uploads_cached.clear()
-
 
 def close_upload_rows(ids):
     try:
@@ -521,7 +479,6 @@ def close_upload_rows(ids):
         st.error(f"❌ Close karne me error: {e}")
         return False
 
-
 def reopen_upload_rows(ids):
     try:
         supabase.table(UPLOAD_TABLE_NAME).update({
@@ -532,7 +489,6 @@ def reopen_upload_rows(ids):
     except Exception as e:
         st.error(f"❌ Reopen karne me error: {e}")
         return False
-
 
 def group_uploads(rows):
     """Same site + same type ke rows ko ek line me jodo."""
@@ -557,7 +513,6 @@ def group_uploads(rows):
                 g[f] = r.get(f)
     return sorted(groups.values(), key=lambda x: str(x.get("uploaded_at", "")), reverse=True)
 
-
 @st.cache_data(ttl=300, show_spinner=False)
 def site_lookup_maps():
     """site_data se (project_id, site_id) -> names. Dono workspace cover karta hai."""
@@ -569,7 +524,7 @@ def site_lookup_maps():
                 sid = str(r.get("Site ID", "") or "").strip()
                 pname = str(r.get("Project Name", "") or "").strip()
                 sname = str(r.get("Site Name", "") or "").strip()
-                tname = str(r.get("Team Name", "") or "").strip() # Added Team Name extraction
+                tname = str(r.get("Team Name", "") or "").strip()
 
                 if sid:
                     by_pair[(pid, sid)] = (pid, pname, sname, tname)
@@ -577,7 +532,6 @@ def site_lookup_maps():
         except Exception:
             pass
     return by_pair, by_site
-
 
 def enrich_groups(groups):
     """Jis row me project/site/team name khali ho, use site_data se bharo."""
@@ -595,19 +549,16 @@ def enrich_groups(groups):
         if not g.get("site_name"):
             g["site_name"] = hit[2]
         
-        # Team Name mapping included here
         if not g.get("team_name") and len(hit) > 3:
             g["team_name"] = hit[3]
             
     return groups
 
-
 def build_download(links, base_name):
     """1 file -> seedha file. Bahut saari -> ZIP. Returns (bytes, filename, mime)."""
     def _get(u):
         req = urllib.request.Request(u, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
             "Accept": "*/*",
         })
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -689,6 +640,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
+
 # ==============================================================
 # TAB 1: PO NOTIFICATION
 # ==============================================================
@@ -738,43 +690,48 @@ if st.session_state.notif_main_tab == "po":
             col_labels = ["#", "PO NUMBER", "REV NUMBER", "PO AMOUNT", "PO STATUS", "ACTION"]
 
         st.markdown(
-            f"<div class='notif-lux-title'><div>📄 PO Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(rows)} records</span></div>",
-            unsafe_allow_html=True,
+            '<div class="slux-head-bar">'
+            '<div class="slux-title">📄 PO Notifications<span>manage purchase order approvals</span></div>'
+            f'<div class="slux-badge">Total {len(rows)}</div>'
+            '</div>', unsafe_allow_html=True
         )
-        with st.container(key="notif_table_wrap"):
-            with st.container(key="notif_head"):
-                h_cols = st.columns(col_ratios)
-                for h_col, label in zip(h_cols, col_labels):
-                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+        with st.container(key="notif_lux_wrap"):
+            with st.container(key="nlux_head"):
+                h_cols = st.columns(col_ratios, vertical_alignment="center")
+                for h_idx, (h_col, label) in enumerate(zip(h_cols, col_labels)):
+                    center_cls = " c" if h_idx == 0 else ""
+                    h_col.markdown(f"<div class='slux-th{center_cls}'>{label}</div>", unsafe_allow_html=True)
 
             for pos, row in enumerate(rows):
-                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
-                    rid = row.get("id")
-                    rcols = st.columns(col_ratios)
-                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('po_number', '-')}</span></div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div class='tbl-cell'>{row.get('rev_number', '-')}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div class='tbl-cell'>{row.get('amount', '-')}</div>", unsafe_allow_html=True)
-                    rcols[4].markdown(status_badge(row.get('po_status', '-')), unsafe_allow_html=True)
+                rid = row.get("id")
+                parity = "odd" if pos % 2 else "even"
+                with st.container(key=f"nluxrow_{parity}_{rid}"):
+                    rcols = st.columns(col_ratios, vertical_alignment="center")
+                    rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{pos + 1}</span></div>", unsafe_allow_html=True)
+                    rcols[1].markdown(_chip(row.get('po_number'), "proj"), unsafe_allow_html=True)
+                    rcols[2].markdown(_pill(row.get('rev_number')), unsafe_allow_html=True)
+                    rcols[3].markdown(_txt(row.get('amount'), "slux-strong"), unsafe_allow_html=True)
+                    rcols[4].markdown(status_badge(row.get('po_status')), unsafe_allow_html=True)
 
                     if is_closed_tab:
                         closed_at = row.get("closed_at", "-")
                         closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
-                        rcols[5].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                        rcols[5].markdown(_txt(closed_at_display, "slux-soft"), unsafe_allow_html=True)
                         with rcols[6]:
-                            if st.button("↩️ Reopen", key=f"reopen_{rid}", use_container_width=True):
-                                if reopen_row(rid):
-                                    clear_notif_cache()
-                                    st.rerun()
+                            with st.container(key=f"action_btn_reopen_{rid}"):
+                                if st.button("↩️ Reopen", key=f"reopen_{rid}", use_container_width=True):
+                                    if reopen_row(rid):
+                                        clear_notif_cache()
+                                        st.rerun()
                     else:
                         with rcols[5]:
-                            if st.button("✅ Close", key=f"close_{rid}", use_container_width=True):
-                                if close_row(rid):
-                                    clear_notif_cache()
-                                    st.rerun()
+                            with st.container(key=f"action_btn_close_{rid}"):
+                                if st.button("✅ Close", key=f"close_{rid}", use_container_width=True):
+                                    if close_row(rid):
+                                        clear_notif_cache()
+                                        st.rerun()
 
-        st.markdown(f"<div class='notif-lux-footer'><span>Total PO Records</span><span>{len(rows)} shown</span></div>", unsafe_allow_html=True)
 
 # ==============================================================
 # TAB 2: RFAI NOTIFICATION
@@ -829,47 +786,53 @@ elif st.session_state.notif_main_tab == "rfai":
                           "PO NUMBER", "WCC NUMBER", "ACTION"]
 
         st.markdown(
-            f"<div class='notif-lux-title'><div>📋 RFAI Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(rfai_rows)} records</span></div>",
-            unsafe_allow_html=True,
+            '<div class="slux-head-bar">'
+            '<div class="slux-title">📋 RFAI Notifications<span>manage readiness for active integration</span></div>'
+            f'<div class="slux-badge">Total {len(rfai_rows)}</div>'
+            '</div>', unsafe_allow_html=True
         )
-        with st.container(key="notif_table_wrap"):
-            with st.container(key="notif_head"):
-                h_cols = st.columns(col_ratios)
-                for h_col, label in zip(h_cols, col_labels):
-                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+        with st.container(key="notif_lux_wrap"):
+            with st.container(key="nlux_head"):
+                h_cols = st.columns(col_ratios, vertical_alignment="center")
+                for h_idx, (h_col, label) in enumerate(zip(h_cols, col_labels)):
+                    center_cls = " c" if h_idx == 0 else ""
+                    h_col.markdown(f"<div class='slux-th{center_cls}'>{label}</div>", unsafe_allow_html=True)
 
             for pos, row in enumerate(rfai_rows):
-                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
-                    rid = row.get("id")
-                    project_name = row.get("project_name", "") or ""
-                    rcols = st.columns(col_ratios)
-                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('project_id', '-')}</span></div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div class='tbl-cell' title=\"{project_name}\">{project_name or '-'}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('site_id', '-')}</span></div>", unsafe_allow_html=True)
-                    rcols[4].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-')}</div>", unsafe_allow_html=True)
-                    rcols[5].markdown(status_badge(row.get('rfai_status', '-')), unsafe_allow_html=True)
-                    rcols[6].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('po_no', '-') or '-'}</span></div>", unsafe_allow_html=True)
-                    rcols[7].markdown(f"<div class='tbl-cell'>{row.get('wcc_number', '-') or '-'}</div>", unsafe_allow_html=True)
+                rid = row.get("id")
+                project_name = row.get("project_name", "") or ""
+                parity = "odd" if pos % 2 else "even"
+                
+                with st.container(key=f"nluxrow_{parity}_{rid}"):
+                    rcols = st.columns(col_ratios, vertical_alignment="center")
+                    rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{pos + 1}</span></div>", unsafe_allow_html=True)
+                    rcols[1].markdown(_chip(row.get('project_id'), "proj"), unsafe_allow_html=True)
+                    rcols[2].markdown(_txt(project_name, "slux-strong"), unsafe_allow_html=True)
+                    rcols[3].markdown(_chip(row.get('site_id')), unsafe_allow_html=True)
+                    rcols[4].markdown(_txt(row.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                    rcols[5].markdown(status_badge(row.get('rfai_status')), unsafe_allow_html=True)
+                    rcols[6].markdown(_chip(row.get('po_no')), unsafe_allow_html=True)
+                    rcols[7].markdown(_chip(row.get('wcc_number')), unsafe_allow_html=True)
 
                     if is_rfai_closed_tab:
                         closed_at = row.get("closed_at", "-")
                         closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
-                        rcols[8].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(_txt(closed_at_display, "slux-soft"), unsafe_allow_html=True)
                         with rcols[9]:
-                            if st.button("↩️ Reopen", key=f"rfai_reopen_{rid}", use_container_width=True):
-                                if reopen_rfai_row(rid):
-                                    clear_rfai_cache()
-                                    st.rerun()
+                            with st.container(key=f"action_btn_rreopen_{rid}"):
+                                if st.button("↩️ Reopen", key=f"rfai_reopen_{rid}", use_container_width=True):
+                                    if reopen_rfai_row(rid):
+                                        clear_rfai_cache()
+                                        st.rerun()
                     else:
                         with rcols[8]:
-                            if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
-                                if close_rfai_row(rid):
-                                    clear_rfai_cache()
-                                    st.rerun()
+                            with st.container(key=f"action_btn_rclose_{rid}"):
+                                if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
+                                    if close_rfai_row(rid):
+                                        clear_rfai_cache()
+                                        st.rerun()
 
-        st.markdown(f"<div class='notif-lux-footer'><span>Total RFAI Records</span><span>{len(rfai_rows)} shown</span></div>", unsafe_allow_html=True)
 
 # ==============================================================
 # TAB 3: PHOTO / JMS UPLOAD NOTIFICATION
@@ -943,70 +906,74 @@ else:
                           "PHOTO / JMS", "DOWNLOAD", "ACTION"]
 
         st.markdown(
-            f"<div class='notif-lux-title'><div>📸 Photo / JMS Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(up_rows)} records</span></div>",
-            unsafe_allow_html=True,
+            '<div class="slux-head-bar">'
+            '<div class="slux-title">📸 Photo / JMS Uploads<span>manage site assets & documents</span></div>'
+            f'<div class="slux-badge">Total {len(up_rows)}</div>'
+            '</div>', unsafe_allow_html=True
         )
-        with st.container(key="notif_table_wrap"):
-            with st.container(key="notif_head"):
-                h_cols = st.columns(col_ratios)
-                for h_col, label in zip(h_cols, col_labels):
-                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
 
+        with st.container(key="notif_lux_wrap"):
+            with st.container(key="nlux_head"):
+                h_cols = st.columns(col_ratios, vertical_alignment="center")
+                for h_idx, (h_col, label) in enumerate(zip(h_cols, col_labels)):
+                    center_cls = " c" if h_idx == 0 else ""
+                    h_col.markdown(f"<div class='slux-th{center_cls}'>{label}</div>", unsafe_allow_html=True)
 
             for pos, row in enumerate(up_rows):
-                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
-                    rid = row["ids"][0]
-                    rcols = st.columns(col_ratios)
+                rid = row["ids"][0]
+                parity = "odd" if pos % 2 else "even"
+                
+                with st.container(key=f"nluxrow_{parity}_{rid}"):
+                    rcols = st.columns(col_ratios, vertical_alignment="center")
                     up_type = str(row.get("upload_type", "-"))
                     type_cls = "status-blue" if up_type.lower() == "photo" else "status-yellow"
                     team = row.get("team_name") or row.get("uploaded_by") or "-"
                     pname = row.get("project_name") or "-"
 
-                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                    rcols[1].markdown(f"<div class='tbl-cell' title=\"{team}\">{team}</div>", unsafe_allow_html=True)
-                    rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name') or '-'}</div>", unsafe_allow_html=True)
-                    rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id') or '-'}</div>", unsafe_allow_html=True)
-                    rcols[4].markdown(f"<div class='tbl-cell'>{row.get('project_id') or '-'}</div>", unsafe_allow_html=True)
-                    rcols[5].markdown(f"<div class='tbl-cell' title=\"{pname}\">{pname}</div>", unsafe_allow_html=True)
-                    rcols[6].markdown(
-                        f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>",
-                        unsafe_allow_html=True)
+                    rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{pos + 1}</span></div>", unsafe_allow_html=True)
+                    rcols[1].markdown(_pill(team), unsafe_allow_html=True)
+                    rcols[2].markdown(_txt(row.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                    rcols[3].markdown(_chip(row.get('site_id')), unsafe_allow_html=True)
+                    rcols[4].markdown(_chip(row.get('project_id'), "proj"), unsafe_allow_html=True)
+                    rcols[5].markdown(_txt(pname, "slux-strong"), unsafe_allow_html=True)
+                    rcols[6].markdown(f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>", unsafe_allow_html=True)
 
                     # --- Download (2 step: prepare -> save) ---
                     dl_key = f"dl_data_{rid}"
                     with rcols[7]:
-                        if dl_key in st.session_state:
-                            data, fname, mime = st.session_state[dl_key]
-                            st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
-                                               key=f"up_save_{rid}", use_container_width=True)
-                        elif row.get("links"):
-                            if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
-                                try:
-                                    with st.spinner("Files la raha hu..."):
-                                        base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                        st.session_state[dl_key] = build_download(row["links"], base)
-                                except Exception as e:
-                                    st.session_state["dl_error"] = (
-                                        f"❌ Download fail ({row.get('site_id')}): {e}. "
-                                        f"Link check karo: {row['links'][0]}"
-                                    )
-                                st.rerun()
-                        else:
-                            st.markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        with st.container(key=f"dl_btn_{rid}"):
+                            if dl_key in st.session_state:
+                                data, fname, mime = st.session_state[dl_key]
+                                st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
+                                                   key=f"up_save_{rid}", use_container_width=True)
+                            elif row.get("links"):
+                                if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
+                                    try:
+                                        with st.spinner("Files la raha hu..."):
+                                            base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                            st.session_state[dl_key] = build_download(row["links"], base)
+                                    except Exception as e:
+                                        st.session_state["dl_error"] = (
+                                            f"❌ Download fail ({row.get('site_id')}): {e}. "
+                                            f"Link check karo: {row['links'][0]}"
+                                        )
+                                    st.rerun()
+                            else:
+                                st.markdown("<div style='text-align:center;'><span class='slux-muted'>—</span></div>", unsafe_allow_html=True)
 
                     if is_up_closed_tab:
                         closed_at = str(row.get("closed_at", "") or "")[:19].replace("T", " ") or "-"
-                        rcols[8].markdown(f"<div class='tbl-cell'>{closed_at}</div>", unsafe_allow_html=True)
+                        rcols[8].markdown(_txt(closed_at, "slux-soft"), unsafe_allow_html=True)
                         with rcols[9]:
-                            if st.button("↩️ Reopen", key=f"up_reopen_{rid}", use_container_width=True):
-                                if reopen_upload_rows(row["ids"]):
-                                    clear_upload_cache()
-                                    st.rerun()
+                            with st.container(key=f"action_btn_ureopen_{rid}"):
+                                if st.button("↩️ Reopen", key=f"up_reopen_{rid}", use_container_width=True):
+                                    if reopen_upload_rows(row["ids"]):
+                                        clear_upload_cache()
+                                        st.rerun()
                     else:
                         with rcols[8]:
-                            if st.button("✅ Close", key=f"up_close_{rid}", use_container_width=True):
-                                if close_upload_rows(row["ids"]):
-                                    clear_upload_cache()
-                                    st.rerun()
-
-        st.markdown(f"<div class='notif-lux-footer'><span>Total Upload Records</span><span>{len(up_rows)} shown</span></div>", unsafe_allow_html=True)
+                            with st.container(key=f"action_btn_uclose_{rid}"):
+                                if st.button("✅ Close", key=f"up_close_{rid}", use_container_width=True):
+                                    if close_upload_rows(row["ids"]):
+                                        clear_upload_cache()
+                                        st.rerun()
