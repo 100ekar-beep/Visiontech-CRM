@@ -10,7 +10,7 @@
    - po_notifications
    - rfai_notifications   (needs column project_name text)
    - upload_notifications (filled by the Cloudflare Worker on every
-                           Photo / JMS upload)
+                            Photo / JMS upload)
 ================================================================================
 """
 
@@ -351,7 +351,8 @@ def _fetch_all_site_data_paginated(workspace):
     while True:
         res = (
             supabase.table("site_data")
-            .select('"Project ID","Project Name","Site ID","Site Name","RFAI Status","PO No.","WCC Number"')
+            # Added "Team Name" column in select
+            .select('"Project ID","Project Name","Site ID","Site Name","RFAI Status","PO No.","WCC Number","Team Name"')
             .eq("workspace", workspace)
             .range(offset, offset + limit - 1)
             .execute()
@@ -532,16 +533,18 @@ def site_lookup_maps():
                 sid = str(r.get("Site ID", "") or "").strip()
                 pname = str(r.get("Project Name", "") or "").strip()
                 sname = str(r.get("Site Name", "") or "").strip()
+                tname = str(r.get("Team Name", "") or "").strip() # Added Team Name extraction
+
                 if sid:
-                    by_pair[(pid, sid)] = (pid, pname, sname)
-                    by_site.setdefault(sid, (pid, pname, sname))
+                    by_pair[(pid, sid)] = (pid, pname, sname, tname)
+                    by_site.setdefault(sid, (pid, pname, sname, tname))
         except Exception:
             pass
     return by_pair, by_site
 
 
 def enrich_groups(groups):
-    """Jis row me project/site name khali ho, use site_data se bharo."""
+    """Jis row me project/site/team name khali ho, use site_data se bharo."""
     by_pair, by_site = site_lookup_maps()
     for g in groups:
         pid = str(g.get("project_id") or "").strip()
@@ -555,6 +558,11 @@ def enrich_groups(groups):
             g["project_name"] = hit[1]
         if not g.get("site_name"):
             g["site_name"] = hit[2]
+        
+        # Team Name mapping included here
+        if not g.get("team_name") and len(hit) > 3:
+            g["team_name"] = hit[3]
+            
     return groups
 
 
