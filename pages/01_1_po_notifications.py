@@ -2,15 +2,6 @@
 ================================================================================
  VISIONTECH INFRA SOLUTION PVT. LTD.
  NOTIFICATIONS  —  Streamlit page (PO / RFAI / Photo-JMS)
- --------------------------------------------------------------------------
- Save this file at exactly:
-     pages/15_🔔_PO_Notifications.py
-
- Tables used:
-   - po_notifications
-   - rfai_notifications   (needs column project_name text)
-   - upload_notifications (filled by the Cloudflare Worker on every
-                            Photo / JMS upload)
 ================================================================================
 """
 
@@ -19,6 +10,8 @@ import zipfile
 import urllib.request
 import streamlit as st
 import html
+import base64
+import streamlit.components.v1 as components
 from datetime import datetime, timezone
 from supabase import create_client, Client
 
@@ -44,13 +37,13 @@ if 'rfai_notif_tab' not in st.session_state:
 if 'upload_notif_tab' not in st.session_state:
     st.session_state.upload_notif_tab = "open"
 
-# --- 2. LAVISH CUSTOM CSS (Imported from Site Data Hub) ---
+# --- 2. LAVISH CUSTOM CSS ---
 st.markdown("""
     <style>
     /* Light Premium Theme */
     .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
 
-    /* Gradient action buttons everywhere (Refresh, tabs...) */
+    /* Gradient action buttons everywhere */
     div.stButton > button {
         background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
         color: white !important; border: none; border-radius: 8px;
@@ -62,16 +55,6 @@ st.markdown("""
     }
     div.stButton > button p, div.stButton > button span, div.stButton > button div {
         color: #ffffff !important; font-weight: 800 !important;
-    }
-
-    div.stDownloadButton > button {
-        background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
-        color: white !important; border: none; border-radius: 8px;
-        font-weight: 800 !important; padding: 0.5rem 1rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
-    }
-    div.stDownloadButton > button p, div.stDownloadButton > button span, div.stDownloadButton > button div { 
-        color: #ffffff !important; font-weight: 800 !important; 
     }
 
     /* PREMIUM SIDEBAR NAVIGATION */
@@ -208,26 +191,55 @@ st.markdown("""
     .status-red    { background: #fee2e2 !important; color: #b91c1c !important; border-color: #fecaca !important; }
     .status-grey   { background: #f1f5f9 !important; color: #475569 !important; border-color: #e2e8f0 !important; }
 
-    /* Action Buttons (Close, Reopen, Download) */
+    /* ==========================================================
+       ACTION BUTTONS: BLACK, BOLD & 100% WIDTH
+       ========================================================== */
     .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button,
-    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button {
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a {
         height: 34px !important; min-height: 34px !important;
         padding: 0 10px !important; margin: 0 auto !important; border-radius: 8px !important;
-        box-shadow: none !important; font-size: .85rem !important; transition: all .2s ease !important;
+        box-shadow: none !important; transition: all .2s ease !important;
         width: 100% !important;
+        display: flex !important; align-items: center !important; justify-content: center !important;
+        text-decoration: none !important;
     }
-    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; color: #1d4ed8 !important; }
+
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; }
+
+    /* Force Text to BLACK & EXTRA BOLD */
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button p,
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button span,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button p,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button span,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a p,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a span {
+        color: #000000 !important;
+        font-weight: 900 !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* Hover Effects -> Turns White & Elevates */
     .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button:hover {
-        background: #3b82f6 !important; border-color: #60a5fa !important; color: white !important;
+        background: #3b82f6 !important; border-color: #60a5fa !important;
         transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important;
     }
-    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button { background: rgba(168,85,247,0.15) !important; border: 1px solid rgba(168,85,247,0.3) !important; color: #7e22ce !important;}
-    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button:hover {
-        background: #a855f7 !important; border-color: #c084fc !important; color: white !important;
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button:hover,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a:hover {
+        background: #a855f7 !important; border-color: #c084fc !important;
         transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(168,85,247,.6) !important;
     }
-    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button p,
-    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button p { color: inherit !important; font-weight: 800 !important; }
+
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button:hover p,
+    .st-key-notif_lux_wrap div[class*="st-key-action_btn_"] button:hover span,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button:hover p,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] button:hover span,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a:hover p,
+    .st-key-notif_lux_wrap div[class*="st-key-dl_btn_"] a:hover span {
+        color: #ffffff !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -938,26 +950,35 @@ else:
                     rcols[5].markdown(_txt(pname, "slux-strong"), unsafe_allow_html=True)
                     rcols[6].markdown(f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>", unsafe_allow_html=True)
 
-                    # --- Download (2 step: prepare -> save) ---
-                    dl_key = f"dl_data_{rid}"
+                    # --- 1-CLICK DOWNLOAD LOGIC ---
                     with rcols[7]:
                         with st.container(key=f"dl_btn_{rid}"):
-                            if dl_key in st.session_state:
-                                data, fname, mime = st.session_state[dl_key]
-                                st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
-                                                   key=f"up_save_{rid}", use_container_width=True)
-                            elif row.get("links"):
-                                if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
-                                    try:
-                                        with st.spinner("Files la raha hu..."):
-                                            base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                            st.session_state[dl_key] = build_download(row["links"], base)
-                                    except Exception as e:
-                                        st.session_state["dl_error"] = (
-                                            f"❌ Download fail ({row.get('site_id')}): {e}. "
-                                            f"Link check karo: {row['links'][0]}"
-                                        )
-                                    st.rerun()
+                            if row.get("links"):
+                                if len(row["links"]) == 1:
+                                    # Native Streamlit link button for Single file (Native 1-click)
+                                    st.link_button("⬇️ Download", row["links"][0], use_container_width=True)
+                                else:
+                                    # For ZIP (Multiple files), clicking builds zip & triggers auto download via JS
+                                    if st.button("⬇️ Download ZIP", key=f"up_dl_{rid}", use_container_width=True):
+                                        with st.spinner("Zipping..."):
+                                            try:
+                                                base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                                zip_data, fname, mime = build_download(row["links"], base)
+                                                b64 = base64.b64encode(zip_data).decode()
+                                                
+                                                js_trigger = f"""
+                                                <script>
+                                                    var link = document.createElement('a');
+                                                    link.href = 'data:{mime};base64,{b64}';
+                                                    link.download = '{fname}';
+                                                    document.body.appendChild(link);
+                                                    link.click();
+                                                    document.body.removeChild(link);
+                                                </script>
+                                                """
+                                                components.html(js_trigger, height=0)
+                                            except Exception as e:
+                                                st.error(f"❌ Error: {e}")
                             else:
                                 st.markdown("<div style='text-align:center;'><span class='slux-muted'>—</span></div>", unsafe_allow_html=True)
 
