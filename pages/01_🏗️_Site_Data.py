@@ -1871,6 +1871,21 @@ def edit_record_dialog(row_data):
         return 0
 
     with st.container():
+        st.markdown("""<style>
+        div[data-testid="stDialog"] .st-key-site_update_top {
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 9999 !important;
+            padding: 8px !important;
+            background: rgba(255,255,255,.98) !important;
+            box-shadow: 0 3px 10px rgba(15,23,42,.12) !important;
+            border-radius: 10px !important;
+        }
+        </style>""", unsafe_allow_html=True)
+        with st.container(key="site_update_top"):
+            top_left, top_right = st.columns([8, 2])
+            with top_right:
+                submitted_top = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_top_{rid}")
         st.markdown('<div class="modal-section-title">🏢 SITE PARAMETERS & PROJECT EXECUTION</div>', unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
@@ -2322,26 +2337,10 @@ def edit_record_dialog(row_data):
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown("""<style>
-        div[data-testid="stDialog"] .st-key-site_update_bar {
-            position: fixed !important;
-            right: 7vw !important;
-            bottom: 20px !important;
-            width: 190px !important;
-            padding: 6px !important;
-            border-radius: 12px !important;
-            background: #fff !important;
-            box-shadow: 0 4px 18px rgba(15,23,42,.25) !important;
-            z-index: 999999 !important;
-        }
-        @media (max-width: 650px) {
-            div[data-testid="stDialog"] .st-key-site_update_bar {
-                right: 20px !important; bottom: 12px !important; width: 160px !important;
-            }
-        }
-        </style>""", unsafe_allow_html=True)
-        with st.container(key="site_update_bar"):
-            submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
+        col_btn1, col_btn2 = st.columns([8, 2])
+        with col_btn2:
+            submitted_bottom = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_bottom_{rid}")
+        submitted = submitted_top or submitted_bottom
             
         if submitted:
             # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
