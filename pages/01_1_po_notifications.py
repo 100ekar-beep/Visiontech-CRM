@@ -243,28 +243,42 @@ st.markdown("""
     .status-yellow { background: rgba(234,179,8,0.15);  color: #a16207; }
     .status-red    { background: rgba(239,68,68,0.15);  color: #b91c1c; }
     .status-grey   { background: rgba(148,163,184,0.18); color: #334155; }
+
     /* Site Data register styling, scoped to notification tables. */
+    .notif-lux-title {
         display:flex; justify-content:space-between; align-items:center; gap:12px;
         padding:16px 22px; border-radius:18px 18px 0 0;
         background:linear-gradient(100deg,#1e1b4b,#312e81 45%,#5b21b6);
         color:#fff; font-weight:900; font-size:1.05rem; letter-spacing:1.2px;
         text-transform:uppercase;
     }
+    .notif-lux-title small {color:#c7d2fe;font-size:.8rem;font-weight:600;letter-spacing:.3px;text-transform:none;}
+    .notif-lux-count {background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fde68a;padding:5px 12px;border-radius:999px;font-size:.78rem;white-space:nowrap;}
+    .notif-lux-footer {display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px 22px;background:linear-gradient(90deg,#f5f3ff,#eef2ff);border:1px solid #e0e7ff;border-top:2px solid #c7d2fe;border-radius:0 0 18px 18px;box-shadow:0 24px 48px -22px rgba(30,27,75,.45);color:#312e81;font-size:.78rem;font-weight:900;text-transform:uppercase;letter-spacing:1px;}
+    .notif-lux-footer small {color:#6366f1;font-weight:700;text-transform:none;letter-spacing:.3px;}
     .st-key-notif_table_wrap {background:#fff !important; border:1px solid #e0e7ff !important;border-top:0 !important;border-bottom:0 !important;border-radius:0 !important;box-shadow:none !important;overflow:auto !important;padding:0 !important;max-height:78vh !important;}
     .st-key-notif_table_wrap [data-testid="stVerticalBlock"] {gap:0 !important;}
-    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"] {min-width:1100px !important;flex-wrap:nowrap !important;gap:0 !important;align-items:center !important;border-bottom:0 !important;padding:0 !important;background:transparent !important;}
+    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"] {min-width:1600px !important;flex-wrap:nowrap !important;gap:0 !important;align-items:center !important;border-bottom:0 !important;padding:0 !important;background:transparent !important;}
     .st-key-notif_table_wrap [data-testid="stColumn"], .st-key-notif_table_wrap [data-testid="column"] {padding:0 12px !important;min-width:0 !important;border-right:1px solid #f1f5f9 !important;}
     .st-key-notif_table_wrap [data-testid="stColumn"]:last-child, .st-key-notif_table_wrap [data-testid="column"]:last-child {border-right:0 !important;}
+    .st-key-notif_head, .st-key-notif_table_wrap > div:has(.st-key-notif_head) {position:sticky !important;top:0 !important;z-index:20 !important;}
+    .st-key-notif_head {background:linear-gradient(90deg,#312e81,#4338ca 45%,#6d28d9) !important;border-bottom:3px solid #f59e0b !important;box-shadow:0 8px 14px -8px rgba(30,27,75,.55) !important;padding:14px 0 !important;min-width:1600px !important;}
+    .st-key-notif_head [data-testid="stColumn"], .st-key-notif_head [data-testid="column"] {border-right:1px solid rgba(255,255,255,.18) !important;}
     .st-key-notif_table_wrap .tbl-head {color:#fff !important;font-size:.76rem !important;font-weight:900 !important;letter-spacing:1.1px !important;text-shadow:0 1px 2px rgba(0,0,0,.25);}
+    div[class*="st-key-notifrow_"] {min-width:1600px !important;padding:9px 0 !important;background:#fff !important;border-bottom:1px solid #f1f5f9 !important;transition:background .15s ease,box-shadow .15s ease;}
+    div[class*="st-key-notifrow_odd"] {background:#fafaff !important;}
+    div[class*="st-key-notifrow_"]:hover {background:#eef2ff !important;box-shadow:inset 4px 0 0 #6366f1 !important;}
     .st-key-notif_table_wrap .tbl-cell {font-size:.86rem !important;color:#1e293b !important;margin:0 !important;}
     .st-key-notif_table_wrap .tbl-serial {display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff !important;font-weight:800;font-size:.75rem !important;box-shadow:0 4px 10px -3px rgba(99,102,241,.6);}
     .st-key-notif_table_wrap .status-badge {border:1px solid #ddd6fe;border-radius:999px;font-size:.7rem;font-weight:800;}
     .st-key-notif_table_wrap div.stButton > button, .st-key-notif_table_wrap div.stDownloadButton > button {font-size:.8rem !important;min-height:34px !important;padding:4px 9px !important;box-shadow:none !important;}
-
-    /* Original Streamlit rows remain untouched; style their horizontal blocks. */
-    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"]:has(.tbl-head) {background:linear-gradient(90deg,#312e81,#4338ca 45%,#6d28d9) !important;position:sticky !important;top:0 !important;z-index:20 !important;min-width:1100px !important;padding:14px 0 !important;border-bottom:3px solid #f59e0b !important;}
-    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"]:not(:has(.tbl-head)) {min-width:1100px !important;padding:9px 0 !important;border-bottom:1px solid #f1f5f9 !important;}
-    .st-key-notif_table_wrap [data-testid="stHorizontalBlock"]:not(:has(.tbl-head)):hover {background:#eef2ff !important;}
+    .st-key-notif_table_wrap .notif-chip {display:inline-block;font-family:ui-monospace,Menlo,Consolas,monospace;background:#eef2ff;border:1px solid #c7d2fe;color:#4338ca;padding:3px 8px;border-radius:6px;font-size:.78rem;font-weight:700;white-space:nowrap;}
+    .st-key-notif_table_wrap .notif-strong {font-weight:700;color:#0f172a;}
+    .st-key-notif_table_wrap .status-green {background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
+    .st-key-notif_table_wrap .status-blue {background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;}
+    .st-key-notif_table_wrap .status-yellow {background:#fef9c3;color:#a16207;border-color:#fde68a;}
+    .st-key-notif_table_wrap .status-red {background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+    .st-key-notif_table_wrap .status-grey {background:#f1f5f9;color:#475569;border-color:#e2e8f0;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -723,35 +737,44 @@ if st.session_state.notif_main_tab == "po":
             col_ratios = [0.5, 1.8, 1.2, 1.4, 1.4, 1.2]
             col_labels = ["#", "PO NUMBER", "REV NUMBER", "PO AMOUNT", "PO STATUS", "ACTION"]
 
-        with st.container(key="notif_table_wrap", height=520):
-            h_cols = st.columns(col_ratios)
-            for h_col, label in zip(h_cols, col_labels):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='notif-lux-title'><div>📄 PO Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(rows)} records</span></div>",
+            unsafe_allow_html=True,
+        )
+        with st.container(key="notif_table_wrap"):
+            with st.container(key="notif_head"):
+                h_cols = st.columns(col_ratios)
+                for h_col, label in zip(h_cols, col_labels):
+                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
 
             for pos, row in enumerate(rows):
-                rid = row.get("id")
-                rcols = st.columns(col_ratios)
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{row.get('po_number', '-')}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('rev_number', '-')}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('amount', '-')}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(status_badge(row.get('po_status', '-')), unsafe_allow_html=True)
+                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
+                    rid = row.get("id")
+                    rcols = st.columns(col_ratios)
+                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('po_number', '-')}</span></div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div class='tbl-cell'>{row.get('rev_number', '-')}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div class='tbl-cell'>{row.get('amount', '-')}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(status_badge(row.get('po_status', '-')), unsafe_allow_html=True)
 
-                if is_closed_tab:
-                    closed_at = row.get("closed_at", "-")
-                    closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
-                    rcols[5].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
-                    with rcols[6]:
-                        if st.button("↩️ Reopen", key=f"reopen_{rid}", use_container_width=True):
-                            if reopen_row(rid):
-                                clear_notif_cache()
-                                st.rerun()
-                else:
-                    with rcols[5]:
-                        if st.button("✅ Close", key=f"close_{rid}", use_container_width=True):
-                            if close_row(rid):
-                                clear_notif_cache()
-                                st.rerun()
+                    if is_closed_tab:
+                        closed_at = row.get("closed_at", "-")
+                        closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
+                        rcols[5].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                        with rcols[6]:
+                            if st.button("↩️ Reopen", key=f"reopen_{rid}", use_container_width=True):
+                                if reopen_row(rid):
+                                    clear_notif_cache()
+                                    st.rerun()
+                    else:
+                        with rcols[5]:
+                            if st.button("✅ Close", key=f"close_{rid}", use_container_width=True):
+                                if close_row(rid):
+                                    clear_notif_cache()
+                                    st.rerun()
+
+        st.markdown(f"<div class='notif-lux-footer'><span>Total PO Records</span><span>{len(rows)} shown</span></div>", unsafe_allow_html=True)
 
 # ==============================================================
 # TAB 2: RFAI NOTIFICATION
@@ -805,39 +828,48 @@ elif st.session_state.notif_main_tab == "rfai":
             col_labels = ["#", "PROJECT ID", "PROJECT NAME", "SITE ID", "SITE NAME", "RFAI STATUS",
                           "PO NUMBER", "WCC NUMBER", "ACTION"]
 
-        with st.container(key="notif_table_wrap", height=520):
-            h_cols = st.columns(col_ratios)
-            for h_col, label in zip(h_cols, col_labels):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='notif-lux-title'><div>📋 RFAI Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(rfai_rows)} records</span></div>",
+            unsafe_allow_html=True,
+        )
+        with st.container(key="notif_table_wrap"):
+            with st.container(key="notif_head"):
+                h_cols = st.columns(col_ratios)
+                for h_col, label in zip(h_cols, col_labels):
+                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
 
             for pos, row in enumerate(rfai_rows):
-                rid = row.get("id")
-                project_name = row.get("project_name", "") or ""
-                rcols = st.columns(col_ratios)
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell'>{row.get('project_id', '-')}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell' title=\"{project_name}\">{project_name or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id', '-')}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-')}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(status_badge(row.get('rfai_status', '-')), unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row.get('po_no', '-') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{row.get('wcc_number', '-') or '-'}</div>", unsafe_allow_html=True)
+                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
+                    rid = row.get("id")
+                    project_name = row.get("project_name", "") or ""
+                    rcols = st.columns(col_ratios)
+                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('project_id', '-')}</span></div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div class='tbl-cell' title=\"{project_name}\">{project_name or '-'}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('site_id', '-')}</span></div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div class='tbl-cell'>{row.get('site_name', '-')}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(status_badge(row.get('rfai_status', '-')), unsafe_allow_html=True)
+                    rcols[6].markdown(f"<div class='tbl-cell'><span class='notif-chip'>{row.get('po_no', '-') or '-'}</span></div>", unsafe_allow_html=True)
+                    rcols[7].markdown(f"<div class='tbl-cell'>{row.get('wcc_number', '-') or '-'}</div>", unsafe_allow_html=True)
 
-                if is_rfai_closed_tab:
-                    closed_at = row.get("closed_at", "-")
-                    closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
-                    rcols[8].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
-                    with rcols[9]:
-                        if st.button("↩️ Reopen", key=f"rfai_reopen_{rid}", use_container_width=True):
-                            if reopen_rfai_row(rid):
-                                clear_rfai_cache()
-                                st.rerun()
-                else:
-                    with rcols[8]:
-                        if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
-                            if close_rfai_row(rid):
-                                clear_rfai_cache()
-                                st.rerun()
+                    if is_rfai_closed_tab:
+                        closed_at = row.get("closed_at", "-")
+                        closed_at_display = str(closed_at)[:19].replace("T", " ") if closed_at else "-"
+                        rcols[8].markdown(f"<div class='tbl-cell'>{closed_at_display}</div>", unsafe_allow_html=True)
+                        with rcols[9]:
+                            if st.button("↩️ Reopen", key=f"rfai_reopen_{rid}", use_container_width=True):
+                                if reopen_rfai_row(rid):
+                                    clear_rfai_cache()
+                                    st.rerun()
+                    else:
+                        with rcols[8]:
+                            if st.button("✅ Close", key=f"rfai_close_{rid}", use_container_width=True):
+                                if close_rfai_row(rid):
+                                    clear_rfai_cache()
+                                    st.rerun()
+
+        st.markdown(f"<div class='notif-lux-footer'><span>Total RFAI Records</span><span>{len(rfai_rows)} shown</span></div>", unsafe_allow_html=True)
 
 # ==============================================================
 # TAB 3: PHOTO / JMS UPLOAD NOTIFICATION
@@ -910,62 +942,71 @@ else:
             col_labels = ["#", "TEAM NAME", "SITE NAME", "SITE ID", "PROJECT ID", "PROJECT NAME",
                           "PHOTO / JMS", "DOWNLOAD", "ACTION"]
 
-        with st.container(key="notif_table_wrap", height=520):
-            h_cols = st.columns(col_ratios)
-            for h_col, label in zip(h_cols, col_labels):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='notif-lux-title'><div>📸 Photo / JMS Register <small>Scroll right for more columns →</small></div><span class='notif-lux-count'>{len(up_rows)} records</span></div>",
+            unsafe_allow_html=True,
+        )
+        with st.container(key="notif_table_wrap"):
+            with st.container(key="notif_head"):
+                h_cols = st.columns(col_ratios)
+                for h_col, label in zip(h_cols, col_labels):
+                    h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+
 
             for pos, row in enumerate(up_rows):
-                rid = row["ids"][0]
-                rcols = st.columns(col_ratios)
-                up_type = str(row.get("upload_type", "-"))
-                type_cls = "status-blue" if up_type.lower() == "photo" else "status-yellow"
-                team = row.get("team_name") or row.get("uploaded_by") or "-"
-                pname = row.get("project_name") or "-"
+                with st.container(key=f"notifrow_{'odd' if pos % 2 else 'even'}_{pos}"):
+                    rid = row["ids"][0]
+                    rcols = st.columns(col_ratios)
+                    up_type = str(row.get("upload_type", "-"))
+                    type_cls = "status-blue" if up_type.lower() == "photo" else "status-yellow"
+                    team = row.get("team_name") or row.get("uploaded_by") or "-"
+                    pname = row.get("project_name") or "-"
 
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
-                rcols[1].markdown(f"<div class='tbl-cell' title=\"{team}\">{team}</div>", unsafe_allow_html=True)
-                rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name') or '-'}</div>", unsafe_allow_html=True)
-                rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id') or '-'}</div>", unsafe_allow_html=True)
-                rcols[4].markdown(f"<div class='tbl-cell'>{row.get('project_id') or '-'}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell' title=\"{pname}\">{pname}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(
-                    f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>",
-                    unsafe_allow_html=True)
+                    rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{pos + 1}</div>", unsafe_allow_html=True)
+                    rcols[1].markdown(f"<div class='tbl-cell' title=\"{team}\">{team}</div>", unsafe_allow_html=True)
+                    rcols[2].markdown(f"<div class='tbl-cell'>{row.get('site_name') or '-'}</div>", unsafe_allow_html=True)
+                    rcols[3].markdown(f"<div class='tbl-cell'>{row.get('site_id') or '-'}</div>", unsafe_allow_html=True)
+                    rcols[4].markdown(f"<div class='tbl-cell'>{row.get('project_id') or '-'}</div>", unsafe_allow_html=True)
+                    rcols[5].markdown(f"<div class='tbl-cell' title=\"{pname}\">{pname}</div>", unsafe_allow_html=True)
+                    rcols[6].markdown(
+                        f"<span class='status-badge {type_cls}'>{up_type} ({row.get('file_count', 1)})</span>",
+                        unsafe_allow_html=True)
 
-                # --- Download (2 step: prepare -> save) ---
-                dl_key = f"dl_data_{rid}"
-                with rcols[7]:
-                    if dl_key in st.session_state:
-                        data, fname, mime = st.session_state[dl_key]
-                        st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
-                                           key=f"up_save_{rid}", use_container_width=True)
-                    elif row.get("links"):
-                        if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
-                            try:
-                                with st.spinner("Files la raha hu..."):
-                                    base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                    st.session_state[dl_key] = build_download(row["links"], base)
-                            except Exception as e:
-                                st.session_state["dl_error"] = (
-                                    f"❌ Download fail ({row.get('site_id')}): {e}. "
-                                    f"Link check karo: {row['links'][0]}"
-                                )
-                            st.rerun()
+                    # --- Download (2 step: prepare -> save) ---
+                    dl_key = f"dl_data_{rid}"
+                    with rcols[7]:
+                        if dl_key in st.session_state:
+                            data, fname, mime = st.session_state[dl_key]
+                            st.download_button("💾 Save", data=data, file_name=fname, mime=mime,
+                                               key=f"up_save_{rid}", use_container_width=True)
+                        elif row.get("links"):
+                            if st.button("⬇️ Download", key=f"up_dl_{rid}", use_container_width=True):
+                                try:
+                                    with st.spinner("Files la raha hu..."):
+                                        base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                        st.session_state[dl_key] = build_download(row["links"], base)
+                                except Exception as e:
+                                    st.session_state["dl_error"] = (
+                                        f"❌ Download fail ({row.get('site_id')}): {e}. "
+                                        f"Link check karo: {row['links'][0]}"
+                                    )
+                                st.rerun()
+                        else:
+                            st.markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+
+                    if is_up_closed_tab:
+                        closed_at = str(row.get("closed_at", "") or "")[:19].replace("T", " ") or "-"
+                        rcols[8].markdown(f"<div class='tbl-cell'>{closed_at}</div>", unsafe_allow_html=True)
+                        with rcols[9]:
+                            if st.button("↩️ Reopen", key=f"up_reopen_{rid}", use_container_width=True):
+                                if reopen_upload_rows(row["ids"]):
+                                    clear_upload_cache()
+                                    st.rerun()
                     else:
-                        st.markdown("<div class='tbl-cell'>-</div>", unsafe_allow_html=True)
+                        with rcols[8]:
+                            if st.button("✅ Close", key=f"up_close_{rid}", use_container_width=True):
+                                if close_upload_rows(row["ids"]):
+                                    clear_upload_cache()
+                                    st.rerun()
 
-                if is_up_closed_tab:
-                    closed_at = str(row.get("closed_at", "") or "")[:19].replace("T", " ") or "-"
-                    rcols[8].markdown(f"<div class='tbl-cell'>{closed_at}</div>", unsafe_allow_html=True)
-                    with rcols[9]:
-                        if st.button("↩️ Reopen", key=f"up_reopen_{rid}", use_container_width=True):
-                            if reopen_upload_rows(row["ids"]):
-                                clear_upload_cache()
-                                st.rerun()
-                else:
-                    with rcols[8]:
-                        if st.button("✅ Close", key=f"up_close_{rid}", use_container_width=True):
-                            if close_upload_rows(row["ids"]):
-                                clear_upload_cache()
-                                st.rerun()
+        st.markdown(f"<div class='notif-lux-footer'><span>Total Upload Records</span><span>{len(up_rows)} shown</span></div>", unsafe_allow_html=True)
