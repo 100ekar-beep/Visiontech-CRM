@@ -1387,7 +1387,10 @@ def auditor_fields(all_dd, key_prefix, row_data=None):
                 for r in all_dd if r.get("category") == "Auditor Name" and str(r.get("option_value") or "").strip()}
     current = str(row_data.get("Auditor Name") or "").strip()
     options = ["Select"] + sorted(set(auditors) | ({current} if current else set()), key=str.casefold)
-    with st.expander("➕ Add Auditor to Master"):
+    title_col, add_col = st.columns([4, 1], vertical_alignment="bottom")
+    with title_col:
+        st.markdown('<div class="modal-section-title">🧑‍🔧 AUDITOR & PTW DETAILS</div>', unsafe_allow_html=True)
+    with add_col, st.popover("➕ Add Auditor"):
         with st.form(f"{key_prefix}_auditor_form"):
             new_name = st.text_input("AUDITOR NAME", key=f"{key_prefix}_new_name").strip()
             new_number = st.text_input("AUDITOR NUMBER", key=f"{key_prefix}_new_number").strip()
@@ -1405,18 +1408,21 @@ def auditor_fields(all_dd, key_prefix, row_data=None):
                         st.rerun()
                     except Exception as e:
                         st.error(f"Could not save auditor: {e}")
-    selected = st.selectbox("AUDITOR NAME", options, index=options.index(current) if current in options else 0,
-                            key=f"{key_prefix}_auditor")
+    field_slots = st.columns(4) + st.columns(4)
+    with field_slots[0]:
+        selected = st.selectbox("AUDITOR NAME", options, index=options.index(current) if current in options else 0,
+                                key=f"{key_prefix}_auditor")
     number = auditors.get(selected, str(row_data.get("Auditor Number") or "") if selected == current else "")
-    st.text_input("AUDITOR NUMBER", value=number, disabled=True, key=f"{key_prefix}_auditor_number")
-    return ("" if selected == "Select" else selected), ("" if selected == "Select" else number)
+    with field_slots[1]:
+        st.text_input("AUDITOR NUMBER", value=number, disabled=True, key=f"{key_prefix}_auditor_number")
+    return ("" if selected == "Select" else selected), ("" if selected == "Select" else number), field_slots
 
-def ptw_fields(key_prefix, row_data=None):
+def ptw_fields(key_prefix, field_slots, row_data=None):
     row_data = row_data or {}
     result = {}
-    for kind in ("Electrical", "Height", "Civil"):
+    for offset, kind in enumerate(("Electrical", "Height", "Civil")):
         number_col, date_col = f"{kind} PTW Number", f"{kind} PTW Date"
-        c_number, c_date = st.columns(2)
+        c_number, c_date = field_slots[2 + 2 * offset:4 + 2 * offset]
         with c_number:
             result[number_col] = st.text_input(number_col.upper(), value=str(row_data.get(number_col) or ""),
                                                key=f"{key_prefix}_{kind}_ptw_number").strip()
@@ -1618,9 +1624,8 @@ def add_record_dialog():
                 if st.button("➖ Remove PO", use_container_width=True):
                     st.session_state.po_count -= 1
             
-        st.markdown('<div class="modal-section-title">🧑‍🔧 AUDITOR & PTW DETAILS</div>', unsafe_allow_html=True)
-        auditor_name, auditor_number = auditor_fields(all_dd, "add_site")
-        ptw_values = ptw_fields("add_site")
+        auditor_name, auditor_number, detail_slots = auditor_fields(all_dd, "add_site")
+        ptw_values = ptw_fields("add_site", detail_slots)
 
         # -------------------------------------------------------------
         # WAREHOUSE MATERIAL TRACKING IN ADD RECORD
@@ -2048,9 +2053,8 @@ def edit_record_dialog(row_data):
                 if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
                     st.session_state.edit_po_count -= 1
 
-        st.markdown('<div class="modal-section-title">🧑‍🔧 AUDITOR & PTW DETAILS</div>', unsafe_allow_html=True)
-        auditor_name, auditor_number = auditor_fields(all_dd, f"edit_site_{rid}", row_data)
-        ptw_values = ptw_fields(f"edit_site_{rid}", row_data)
+        auditor_name, auditor_number, detail_slots = auditor_fields(all_dd, f"edit_site_{rid}", row_data)
+        ptw_values = ptw_fields(f"edit_site_{rid}", detail_slots, row_data)
 
         # -------------------------------------------------------------
         # 📎 ATTACHMENTS — lavish Upload / Download buttons for Photos, JMS,
