@@ -954,28 +954,55 @@ else:
                     with rcols[7]:
                         with st.container(key=f"dl_btn_{rid}"):
                             if row.get("links"):
-                                # Check file count for button label
                                 btn_label = "⬇️ Download" if len(row["links"]) == 1 else "⬇️ Download ZIP"
                                 
-                                # Single button logic for both single file and zip
                                 if st.button(btn_label, key=f"up_dl_{rid}", use_container_width=True):
                                     with st.spinner("Downloading..."):
                                         try:
                                             base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                            # build_download single file aur zip dono handle kar leta hai
                                             file_data, fname, mime = build_download(row["links"], base)
-                                            b64 = base64.b64encode(file_data).decode()
+                                            b64 = base64.b64encode(file_data).decode('utf-8')
                                             
-                                            # JS trigger to force direct download instead of opening new tab
+                                            # Robust JS trigger using Blob object to avoid data URI size limit 
                                             js_trigger = f"""
+                                            <html>
+                                            <body>
                                             <script>
-                                                var link = document.createElement('a');
-                                                link.href = 'data:{mime};base64,{b64}';
-                                                link.download = '{fname}';
-                                                document.body.appendChild(link);
-                                                link.click();
-                                                document.body.removeChild(link);
+                                                function b64toBlob(b64Data, contentType) {{
+                                                    var sliceSize = 512;
+                                                    var byteCharacters = atob(b64Data);
+                                                    var byteArrays = [];
+                                                    for (var offset = 0; offset < byteCharacters.length; offset += sliceSize) {{
+                                                        var slice = byteCharacters.slice(offset, offset + sliceSize);
+                                                        var byteNumbers = new Array(slice.length);
+                                                        for (var i = 0; i < slice.length; i++) {{
+                                                            byteNumbers[i] = slice.charCodeAt(i);
+                                                        }}
+                                                        var byteArray = new Uint8Array(byteNumbers);
+                                                        byteArrays.push(byteArray);
+                                                    }}
+                                                    return new Blob(byteArrays, {{type: contentType}});
+                                                }}
+                                                
+                                                try {{
+                                                    var blob = b64toBlob('{b64}', '{mime}');
+                                                    var url = window.URL.createObjectURL(blob);
+                                                    var a = document.createElement('a');
+                                                    a.style.display = 'none';
+                                                    a.href = url;
+                                                    a.download = '{fname}';
+                                                    document.body.appendChild(a);
+                                                    a.click();
+                                                    setTimeout(function() {{
+                                                        document.body.removeChild(a);
+                                                        window.URL.revokeObjectURL(url);
+                                                    }}, 1000);
+                                                }} catch (e) {{
+                                                    console.error("Download Error:", e);
+                                                }}
                                             </script>
+                                            </body>
+                                            </html>
                                             """
                                             components.html(js_trigger, height=0)
                                         except Exception as e:
