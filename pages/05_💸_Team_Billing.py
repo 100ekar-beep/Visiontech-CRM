@@ -2367,10 +2367,18 @@ elif st.session_state.billing_active_page == "mrn":
                     for select_key in mrn_keys.values():
                         st.session_state[select_key] = value
 
+                def toggle_all_mrns():
+                    set_mrn_selection(st.session_state["mrn_select_all_checkbox"])
+
+                # Keep the header checkbox in sync when individual rows change.
+                st.session_state["mrn_select_all_checkbox"] = all(
+                    st.session_state[select_key] for select_key in mrn_keys.values()
+                )
+
                 select_col, clear_col, approve_col = st.columns([1, 1, 2])
                 with select_col:
-                    st.button("☑️ Select All", key="mrn_select_all", on_click=set_mrn_selection,
-                              args=(True,), use_container_width=True)
+                    st.checkbox("Select All", key="mrn_select_all_checkbox",
+                                on_change=toggle_all_mrns)
                 with clear_col:
                     st.button("Clear Selection", key="mrn_clear_selection", on_click=set_mrn_selection,
                               args=(False,), use_container_width=True)
