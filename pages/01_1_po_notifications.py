@@ -954,31 +954,32 @@ else:
                     with rcols[7]:
                         with st.container(key=f"dl_btn_{rid}"):
                             if row.get("links"):
-                                if len(row["links"]) == 1:
-                                    # Native Streamlit link button for Single file (Native 1-click)
-                                    st.link_button("⬇️ Download", row["links"][0], use_container_width=True)
-                                else:
-                                    # For ZIP (Multiple files), clicking builds zip & triggers auto download via JS
-                                    if st.button("⬇️ Download ZIP", key=f"up_dl_{rid}", use_container_width=True):
-                                        with st.spinner("Zipping..."):
-                                            try:
-                                                base = f"{row.get('site_id') or 'site'}_{up_type}"
-                                                zip_data, fname, mime = build_download(row["links"], base)
-                                                b64 = base64.b64encode(zip_data).decode()
-                                                
-                                                js_trigger = f"""
-                                                <script>
-                                                    var link = document.createElement('a');
-                                                    link.href = 'data:{mime};base64,{b64}';
-                                                    link.download = '{fname}';
-                                                    document.body.appendChild(link);
-                                                    link.click();
-                                                    document.body.removeChild(link);
-                                                </script>
-                                                """
-                                                components.html(js_trigger, height=0)
-                                            except Exception as e:
-                                                st.error(f"❌ Error: {e}")
+                                # Check file count for button label
+                                btn_label = "⬇️ Download" if len(row["links"]) == 1 else "⬇️ Download ZIP"
+                                
+                                # Single button logic for both single file and zip
+                                if st.button(btn_label, key=f"up_dl_{rid}", use_container_width=True):
+                                    with st.spinner("Downloading..."):
+                                        try:
+                                            base = f"{row.get('site_id') or 'site'}_{up_type}"
+                                            # build_download single file aur zip dono handle kar leta hai
+                                            file_data, fname, mime = build_download(row["links"], base)
+                                            b64 = base64.b64encode(file_data).decode()
+                                            
+                                            # JS trigger to force direct download instead of opening new tab
+                                            js_trigger = f"""
+                                            <script>
+                                                var link = document.createElement('a');
+                                                link.href = 'data:{mime};base64,{b64}';
+                                                link.download = '{fname}';
+                                                document.body.appendChild(link);
+                                                link.click();
+                                                document.body.removeChild(link);
+                                            </script>
+                                            """
+                                            components.html(js_trigger, height=0)
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {e}")
                             else:
                                 st.markdown("<div style='text-align:center;'><span class='slux-muted'>—</span></div>", unsafe_allow_html=True)
 
