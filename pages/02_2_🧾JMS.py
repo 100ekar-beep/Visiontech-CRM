@@ -4,6 +4,7 @@ import math
 import io
 import json
 import html
+import inspect
 from datetime import datetime
 from uuid import uuid4
 from supabase import create_client, Client
@@ -915,7 +916,24 @@ def _cached_jms_pdf_bytes(workspace, site_data_id, updated_at, row_json, circle,
     return _build_jms_pdf(row_data, circle, lines)
 
 
-@st.dialog("🧾 Create / Edit JMS", width="large")
+def _clear_jms_dialog():
+    st.session_state.jmspage_open_row = None
+    st.session_state.jmspage_loaded_key = None
+    st.session_state.jmspage_last_pdf = None
+    st.query_params.pop("jms_ctx", None)
+
+
+# On newer Streamlit, the dismissal callback also handles X, Esc and outside click.
+# Older versions that support dismissible=False must use the Close button.
+_dialog_options = {"width": "large"}
+_dialog_parameters = inspect.signature(st.dialog).parameters
+if "on_dismiss" in _dialog_parameters:
+    _dialog_options["on_dismiss"] = _clear_jms_dialog
+elif "dismissible" in _dialog_parameters:
+    _dialog_options["dismissible"] = False
+
+
+@st.dialog("🧾 Create / Edit JMS", **_dialog_options)
 def jms_dialog(row_data):
     active_key = _jms_row_key(row_data)
     is_blank_jms = bool(row_data.get("_blank_jms"))
@@ -1099,9 +1117,7 @@ def jms_dialog(row_data):
                     st.error(f"JMS save nahi hui: {exc}")
     with c2:
         if st.button("✖ Close", use_container_width=True, key=f"jmspage_close_{active_key}"):
-            st.session_state.jmspage_open_row = None
-            st.session_state.jmspage_loaded_key = None
-            st.query_params.pop("jms_ctx", None)
+            _clear_jms_dialog()
             st.rerun()
 
     if st.session_state.get("jmspage_last_pdf"):
