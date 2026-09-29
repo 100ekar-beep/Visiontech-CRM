@@ -2357,6 +2357,76 @@ elif st.session_state.billing_active_page == "mrn":
                     kpi_card("👷", "Teams", f"{k_pending_teams:,}", "With pending MRNs", *KPI_PINK),
                 )
 
+                # Selection is shared by desktop rows and mobile cards.
+                mrn_ids = [str(rid) for rid in df_pending["id"]]
+                mrn_keys = {rid: f"mrn_bulk_select_{active_ws}_{rid}" for rid in mrn_ids}
+                for select_key in mrn_keys.values():
+                    st.session_state.setdefault(select_key, False)
+
+                def set_mrn_selection(value):
+                    for select_key in mrn_keys.values():
+                        st.session_state[select_key] = value
+
+                select_col, clear_col, approve_col = st.columns([1, 1, 2])
+                with select_col:
+                    st.button("☑️ Select All", key="mrn_select_all", on_click=set_mrn_selection,
+                              args=(True,), use_container_width=True)
+                with clear_col:
+                    st.button("Clear Selection", key="mrn_clear_selection", on_click=set_mrn_selection,
+                              args=(False,), use_container_width=True)
+                selected_ids = [rid for rid in mrn_ids if st.session_state[mrn_keys[rid]]]
+                with approve_col:
+                    if st.button(f"✅ Approve Selected ({len(selected_ids)})", key="mrn_bulk_approve",
+                                 type="primary", disabled=not selected_ids, use_container_width=True):
+                        st.session_state["mrn_bulk_confirm_ids"] = selected_ids
+
+                # Confirm exact selection before writing to either billing table.
+                confirm_ids = st.session_state.get("mrn_bulk_confirm_ids", [])
+                if confirm_ids:
+                    current_ids = set(mrn_ids)
+                    confirm_ids = [rid for rid in confirm_ids if rid in current_ids]
+                    if confirm_ids:
+                        st.warning(f"{len(confirm_ids)} selected MRNs ko Invoice Entry mein approve karein?")
+                        yes_col, no_col = st.columns(2)
+                        with yes_col:
+                            confirm_bulk = st.button("Confirm Bulk Approval", key="mrn_bulk_confirm", type="primary")
+                        with no_col:
+                            cancel_bulk = st.button("Cancel", key="mrn_bulk_cancel")
+                        if cancel_bulk:
+                            st.session_state.pop("mrn_bulk_confirm_ids", None)
+                            st.rerun()
+                        if confirm_bulk:
+                            approved = 0
+                            failure = None
+                            for rid in confirm_ids:
+                                try:
+                                    # Refetch each pending row in the active workspace before moving it.
+                                    fresh = (supabase.table("pending_billing_invoices").select("*")
+                                             .eq("id", rid).eq("workspace", active_ws).execute())
+                                    if not fresh.data:
+                                        raise ValueError("Pending MRN no longer exists in this workspace")
+                                    full_row = dict(fresh.data[0])
+                                    full_row.pop("id", None)
+                                    supabase.table("billing_invoices").insert(full_row).execute()
+                                    (supabase.table("pending_billing_invoices").delete()
+                                     .eq("id", rid).eq("workspace", active_ws).execute())
+                                    st.session_state[mrn_keys[rid]] = False
+                                    approved += 1
+                                except Exception as e:
+                                    failure = f"MRN ID {rid}: {e}"
+                                    break
+                            st.session_state.pop("mrn_bulk_confirm_ids", None)
+                            fetch_billing_invoices_cached.clear()
+                            fetch_pending_mrn_cached.clear()
+                            if failure:
+                                st.error(f"{approved} approved; process stopped. {failure}. Failed MRN ko retry se pehle Invoice Entry aur Pending Queue mein check karein.")
+                            else:
+                                st.success(f"✅ {approved} MRNs approved and moved to Invoice Entry!")
+                            if approved and not failure:
+                                st.rerun()
+                    else:
+                        st.session_state.pop("mrn_bulk_confirm_ids", None)
+
                 if st.session_state.billing_view_mode == "cards":
                     # ---------------------------------------------------------------
                     # MOBILE CARD VIEW
@@ -2368,6 +2438,7 @@ elif st.session_state.billing_active_page == "mrn":
                         amt_v = row_dict.get('amount')
 
                         with st.container(border=True):
+                            st.checkbox("Select for bulk approval", key=mrn_keys[str(rid)])
                             st.markdown(f"""
                                 <div class="billing-card-title">#{pos + 1} — {html.escape(cell(row_dict.get('team_name')))}</div>
                                 <div class="billing-card-sub">{html.escape(cell(row_dict.get('invoice_no')))} • {cell(display_dates.iloc[pos])}</div>
@@ -2407,14 +2478,14 @@ elif st.session_state.billing_active_page == "mrn":
                     # ---------------------------------------------------------------
                     # ✨ LAVISH DESKTOP TABLE VIEW — ✅ / ❌ at row start
                     # ---------------------------------------------------------------
-                    MRN_COL_RATIOS = [0.5, 0.5, 0.5, 1.3, 1.2, 0.95, 1.4, 1.0, 1.3, 1.0, 1.05, 1.1, 1.4]
-                    MRN_COL_LABELS = ["✅", "❌", "#", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
+                    MRN_COL_RATIOS = [0.6, 0.5, 0.5, 0.5, 1.3, 1.2, 0.95, 1.4, 1.0, 1.3, 1.0, 1.05, 1.1, 1.4]
+                    MRN_COL_LABELS = ["SELECT", "✅", "❌", "#", "TEAM", "MRN NO.", "DATE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "BASIC AMT", "TOTAL", "REMARK"]
 
-                    table_min_width_css("mrn_table_wrap", 1800)
+                    table_min_width_css("mrn_table_wrap", 1900)
                     table_title_bar("🕒 Pending MRN Queue", "✅ approve → moves to Invoice Entry • ❌ reject → removed", f"₹ {k_pending_amt:,.0f}")
 
                     with st.container(key="mrn_table_wrap"):
-                        table_header_row("blhead_mrn", MRN_COL_RATIOS, MRN_COL_LABELS, center_idx=(0, 1, 2), right_idx=(10, 11))
+                        table_header_row("blhead_mrn", MRN_COL_RATIOS, MRN_COL_LABELS, center_idx=(0, 1, 2, 3), right_idx=(11, 12))
 
                         for pos, (_, row) in enumerate(df_pending.iterrows()):
                             row_dict = row.to_dict()
@@ -2425,6 +2496,8 @@ elif st.session_state.billing_active_page == "mrn":
                                 rcols = st.columns(MRN_COL_RATIOS, vertical_alignment="center")
 
                                 with rcols[0]:
+                                    st.checkbox("Select", key=mrn_keys[str(rid)], label_visibility="collapsed")
+                                with rcols[1]:
                                     if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN"):
                                         try:
                                             full_row = dict(row_dict)
@@ -2437,7 +2510,7 @@ elif st.session_state.billing_active_page == "mrn":
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Error approving: {e}")
-                                with rcols[1]:
+                                with rcols[2]:
                                     if st.button("❌", key=f"mrn_rej_{rid}", help="Reject MRN"):
                                         try:
                                             supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
@@ -2447,17 +2520,17 @@ elif st.session_state.billing_active_page == "mrn":
                                         except Exception as e:
                                             st.error(f"Error rejecting: {e}")
 
-                                rcols[2].markdown(_serial(pos + 1), unsafe_allow_html=True)
-                                rcols[3].markdown(_entity(row_dict.get('team_name'), "team"), unsafe_allow_html=True)
-                                rcols[4].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
-                                rcols[5].markdown(_txt(display_dates.iloc[pos], "slux-soft"), unsafe_allow_html=True)
-                                rcols[6].markdown(_chip(row_dict.get('project_id'), "proj"), unsafe_allow_html=True)
-                                rcols[7].markdown(_chip(row_dict.get('site_id')), unsafe_allow_html=True)
-                                rcols[8].markdown(_txt(row_dict.get('site_name'), "slux-strong"), unsafe_allow_html=True)
-                                rcols[9].markdown(_pill(row_dict.get('cluster')), unsafe_allow_html=True)
-                                rcols[10].markdown(_money(row_dict.get('basic_amount')), unsafe_allow_html=True)
-                                rcols[11].markdown(_money(row_dict.get('amount'), "strong"), unsafe_allow_html=True)
-                                rcols[12].markdown(_txt(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
+                                rcols[3].markdown(_serial(pos + 1), unsafe_allow_html=True)
+                                rcols[4].markdown(_entity(row_dict.get('team_name'), "team"), unsafe_allow_html=True)
+                                rcols[5].markdown(_chip(row_dict.get('invoice_no'), "inv"), unsafe_allow_html=True)
+                                rcols[6].markdown(_txt(display_dates.iloc[pos], "slux-soft"), unsafe_allow_html=True)
+                                rcols[7].markdown(_chip(row_dict.get('project_id'), "proj"), unsafe_allow_html=True)
+                                rcols[8].markdown(_chip(row_dict.get('site_id')), unsafe_allow_html=True)
+                                rcols[9].markdown(_txt(row_dict.get('site_name'), "slux-strong"), unsafe_allow_html=True)
+                                rcols[10].markdown(_pill(row_dict.get('cluster')), unsafe_allow_html=True)
+                                rcols[11].markdown(_money(row_dict.get('basic_amount')), unsafe_allow_html=True)
+                                rcols[12].markdown(_money(row_dict.get('amount'), "strong"), unsafe_allow_html=True)
+                                rcols[13].markdown(_txt(row_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
 
                     table_footer(
                         f'{k_pending:,} pending MRN{"s" if k_pending != 1 else ""}',
