@@ -1159,8 +1159,22 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
                        "qty": st.column_config.TextColumn("Qty"),
                        "remarks": st.column_config.TextColumn("Remark")},
         key=f"jmspage_manage_editor_{workspace}_{selection}_{st.session_state['jmspage_manage_editor_gen']}")
-    st.caption("Template me Item Code aur Item Description bhariye. Qty aur Remark JMS banate waqt editable honge.")
     item_master = get_item_master_details()
+    master_by_code = {code.casefold(): detail for code, detail in item_master.items()}
+    changed_rows = changed.to_dict("records")
+    filled_description = False
+    for row in changed_rows:
+        code = _clean_text(row.get("item_code"))
+        if code and not _clean_text(row.get("item_description")):
+            match = master_by_code.get(code.casefold())
+            if match and _clean_text(match.get("description")):
+                row["item_description"] = match["description"]
+                filled_description = True
+    if filled_description:
+        st.session_state["jmspage_manage_items"] = _template_lines(changed_rows)
+        st.session_state["jmspage_manage_editor_gen"] += 1
+        st.rerun()
+    st.caption("Item Code master me mila to Description apne aap aayega. Qty aur Remark JMS banate waqt editable honge.")
     selected_codes = st.multiselect(
         "Master se Item Code select karein (search karke ek ya kai chun sakte hain)",
         options=sorted(item_master.keys()),
