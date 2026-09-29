@@ -1626,6 +1626,7 @@ def add_record_dialog():
             
         auditor_name, auditor_number, detail_slots = auditor_fields(all_dd, "add_site")
         ptw_values = ptw_fields("add_site", detail_slots)
+        site_remark = st.text_input("REMARK", placeholder="Site remark", key="add_site_remark")
 
         # -------------------------------------------------------------
         # WAREHOUSE MATERIAL TRACKING IN ADD RECORD
@@ -1785,6 +1786,7 @@ def add_record_dialog():
                     "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
                     "Auditor Name": auditor_name,
                     "Auditor Number": auditor_number,
+                    "Remark": site_remark,
                     **ptw_values
                 }
                 
@@ -2055,6 +2057,7 @@ def edit_record_dialog(row_data):
 
         auditor_name, auditor_number, detail_slots = auditor_fields(all_dd, f"edit_site_{rid}", row_data)
         ptw_values = ptw_fields(f"edit_site_{rid}", detail_slots, row_data)
+        site_remark = st.text_input("REMARK", value=str(row_data.get("Remark") or ""), key=f"edit_site_remark_{rid}")
 
         # -------------------------------------------------------------
         # 📎 ATTACHMENTS — lavish Upload / Download buttons for Photos, JMS,
@@ -2319,8 +2322,25 @@ def edit_record_dialog(row_data):
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        col_btn1, col_btn2 = st.columns([8, 2])
-        with col_btn2:
+        st.markdown("""<style>
+        div[data-testid="stDialog"] .st-key-site_update_bar {
+            position: fixed !important;
+            right: 7vw !important;
+            bottom: 20px !important;
+            width: 190px !important;
+            padding: 6px !important;
+            border-radius: 12px !important;
+            background: #fff !important;
+            box-shadow: 0 4px 18px rgba(15,23,42,.25) !important;
+            z-index: 999999 !important;
+        }
+        @media (max-width: 650px) {
+            div[data-testid="stDialog"] .st-key-site_update_bar {
+                right: 20px !important; bottom: 12px !important; width: 160px !important;
+            }
+        }
+        </style>""", unsafe_allow_html=True)
+        with st.container(key="site_update_bar"):
             submitted = st.button("💾 Update Data", type="primary", use_container_width=True)
             
         if submitted:
@@ -2399,6 +2419,7 @@ def edit_record_dialog(row_data):
                     "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
                     "Auditor Name": auditor_name,
                     "Auditor Number": auditor_number,
+                    "Remark": site_remark,
                     **ptw_values
                 }
                 
@@ -3168,7 +3189,7 @@ columns_list = [
     "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Auditor Name", "Auditor Number",
     "Electrical PTW Number", "Electrical PTW Date", "Height PTW Number", "Height PTW Date",
-    "Civil PTW Number", "Civil PTW Date", "Commissioning Email Sent"
+    "Civil PTW Number", "Civil PTW Date", "Remark", "Commissioning Email Sent"
 ]
 
 if data:
