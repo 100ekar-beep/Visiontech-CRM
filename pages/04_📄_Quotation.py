@@ -535,6 +535,21 @@ def quotation_dialog(quotation_data=None):
         
     dynamic_options = [""] + available_opts
     
+    bulk_mode = is_new and st.checkbox("Multiple projects - same template", key="quo_bulk_mode")
+    selected_projects = []
+    if bulk_mode:
+        selected_projects = st.multiselect(
+            "SELECT PROJECT IDs *", options=available_opts, key="quo_bulk_projects",
+            help="One separate quotation will be created for each selected project using the same items and quantities."
+        )
+        if selected_projects:
+            st.caption(f"{len(selected_projects)} projects selected. Site details below preview the first project.")
+            st.dataframe(
+                df_projects[df_projects["Project ID"].isin(selected_projects)][
+                    ["Project ID", "Site ID", "Site Name", "Cluster", "Project Name"]
+                ], hide_index=True, use_container_width=True
+            )
+
     # Top Section
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -543,7 +558,11 @@ def quotation_dialog(quotation_data=None):
         quo_date = st.date_input("QUOTATION DATE *", value=default_date)
     with col3:
         sel_idx = dynamic_options.index(default_proj) if default_proj in dynamic_options else 0
-        sel_proj = st.selectbox("PROJECT ID *", options=dynamic_options, index=sel_idx)
+        if bulk_mode:
+            sel_proj = selected_projects[0] if selected_projects else ""
+            st.text_input("FIRST PROJECT (PREVIEW)", value=str(sel_proj), disabled=True)
+        else:
+            sel_proj = st.selectbox("PROJECT ID *", options=dynamic_options, index=sel_idx)
     
     auto_site_id = ""
     auto_site_name = ""
@@ -700,7 +719,81 @@ def quotation_dialog(quotation_data=None):
         st.button("📥 Download PDF", use_container_width=True)
         
     with col_save:
-        if st.button("💾 Save Quotation", type="primary", use_container_width=True):
+        save_label = f"Generate {len(selected_projects)} Quotations" if bulk_mode else "💾 Save Quotation"
+        if st.button(save_label, type="primary", use_container_width=True):
+            if bulk_mode:
+                if not selected_projects:
+                    st.error("Select at least one Project ID.")
+                    return
+                if selected_template == "-- Select Template --":
+                    st.error("Select a quotation template.")
+                    return
+                if not quo_name.strip():
+                    st.error("Quotation name is required.")
+                    return
+                import uuid
+                active_ws = st.session_state.get('active_workspace', 'VISPL')
+                bulk_items = []
+                for _, r in edited_items_df.iterrows():
+                    if pd.notna(r["Item Code"]) and str(r["Item Code"]).strip():
+                        qty = int(r["Qty"]) if pd.notna(r["Qty"]) else 0
+                        price = int(r["Price"]) if pd.notna(r["Price"]) else 0
+                        bulk_items.append({
+                            "workspace": active_ws,
+                            "Item Code": str(r["Item Code"]).split(" | ")[0].strip(),
+                            "Description": str(r["Description"]),
+                            "Qty": qty, "Price": price, "Total": qty * price
+                        })
+                if not bulk_items:
+                    st.error("Template must contain at least one material item.")
+                    return
+                bulk_results = []
+                progress = st.progress(0)
+                for position, project_id in enumerate(selected_projects):
+                    inserted_id = None
+                    bulk_name = ""
+                    try:
+                        existing = (supabase.table("quotations").select('id')
+                                    .eq("workspace", active_ws).eq("Project ID", project_id)
+                                    .limit(1).execute())
+                        if existing.data:
+                            bulk_results.append({"Project ID": project_id, "Quotation": "", "Result": "Skipped - quotation already exists"})
+                            continue
+                        project_rows = df_projects[df_projects["Project ID"] == project_id]
+                        if project_rows.empty:
+                            raise ValueError("Project details not found")
+                        project_row = project_rows.iloc[0]
+                        bulk_name = f"{quo_name.strip()} - {project_id} - {uuid.uuid4().hex}"
+                        inserted_id = str(uuid.uuid4())
+                        bulk_header = {
+                            "id": inserted_id, "workspace": active_ws,
+                            "Quotation Name": bulk_name, "Date": str(quo_date),
+                            "Project ID": project_id,
+                            "Site ID": str(project_row.get("Site ID", "")),
+                            "Site Name": str(project_row.get("Site Name", "")),
+                            "Project Name": str(project_row.get("Project Name", "")),
+                            "Quotation Amount": sum(item["Total"] for item in bulk_items),
+                            "Status": "Manual"
+                        }
+                        supabase.table("quotations").insert(bulk_header).execute()
+                        try:
+                            supabase.table("quotation_items").insert([
+                                dict(item, **{"Quotation Name": bulk_name}) for item in bulk_items
+                            ]).execute()
+                        except Exception:
+                            supabase.table("quotation_items").delete().eq("workspace", active_ws).eq("Quotation Name", bulk_name).execute()
+                            supabase.table("quotations").delete().eq("workspace", active_ws).eq("id", inserted_id).execute()
+                            raise
+                        bulk_results.append({"Project ID": project_id, "Quotation": bulk_name, "Result": "Saved"})
+                    except Exception as e:
+                        bulk_results.append({"Project ID": project_id, "Quotation": bulk_name, "Result": f"Failed - {e}"})
+                    finally:
+                        progress.progress((position + 1) / len(selected_projects))
+                fetch_quotations_cached.clear()
+                st.session_state.quotations_df = fetch_quotations()
+                st.session_state["quo_bulk_results"] = bulk_results
+                st.rerun()
+                return
             if not sel_proj:
                 st.error("⚠️ Project ID is required!")
                 return
@@ -779,6 +872,18 @@ def quotation_dialog(quotation_data=None):
                     st.error(f"❌ Error Deleting Quotation: {e}")
 
 # --- 7. TOP HEADER & FILTERS ---
+if st.session_state.get("quo_bulk_results"):
+    bulk_result_df = pd.DataFrame(st.session_state["quo_bulk_results"])
+    saved_count = int((bulk_result_df["Result"] == "Saved").sum())
+    st.success(f"Bulk generation complete: {saved_count} quotations saved out of {len(bulk_result_df)} selected projects.")
+    with st.expander("Bulk quotation results", expanded=True):
+        st.dataframe(bulk_result_df, hide_index=True, use_container_width=True)
+        st.download_button("Download Results CSV", bulk_result_df.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="bulk_quotation_results.csv", mime="text/csv")
+        if st.button("Clear Bulk Results"):
+            del st.session_state["quo_bulk_results"]
+            st.rerun()
+
 col_head1, col_head2, col_head3, col_head4, col_head5 = st.columns([3.5, 1.8, 1.6, 1.6, 1.6])
 with col_head1:
     st.markdown("<h1 style='margin:0; color:#0f172a;'>Quotation List</h1>", unsafe_allow_html=True)
