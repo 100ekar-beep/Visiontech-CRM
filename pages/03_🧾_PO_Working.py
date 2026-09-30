@@ -574,7 +574,7 @@ if 'po_working_df' not in st.session_state:
             for col in num_cols:
                 if col in df_fetched.columns:
                     df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
-                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(int)
+                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(float if col == 'User Qty' else int)
             st.session_state.po_working_df = df_fetched
         else:
             st.session_state.po_working_df = pd.DataFrame(columns=[
@@ -661,7 +661,7 @@ def po_upload_dialog():
                 for col in num_columns_to_int:
                     if col in df_proc.columns:
                         df_proc[col] = df_proc[col].astype(str).str.replace(',', '', regex=True)
-                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(int)
+                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(float if col == 'User Qty' else int)
                 
                 df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
                 df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
@@ -728,7 +728,7 @@ def po_upload_dialog():
                         clean_rec["workspace"] = st.session_state.get('active_workspace', 'VISPL')
                         for k, v in rec.items():
                             if k in num_columns_to_int:
-                                clean_rec[k] = int(v)
+                                clean_rec[k] = float(v) if k == 'User Qty' else int(v)
                             else:
                                 clean_rec[k] = str(v).strip() if pd.notna(v) and str(v) != 'nan' else ""
                         records_to_insert.append(clean_rec)
@@ -891,7 +891,7 @@ def view_po_details_dialog(row_data):
         df_temp['wcc_status'] = ''
     
     df_temp['User Qty'] = df_temp['User Qty'].astype(str).str.replace(',', '', regex=True)
-    df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['User Qty'] = pd.to_numeric(df_temp['User Qty'], errors='coerce').fillna(0).astype(float)
     
     df_temp['Claim Qty'] = df_temp['Claim Qty'].astype(str).str.replace(',', '', regex=True)
     df_temp['Claim Qty'] = pd.to_numeric(df_temp['Claim Qty'], errors='coerce').fillna(0).astype(int)
@@ -977,7 +977,7 @@ def view_po_details_dialog(row_data):
                 )
             with add_col3:
                 new_user_qty = st.number_input(
-                    "USER QTY", min_value=0, value=0, step=1,
+                    "USER QTY", min_value=0.0, value=0.0, step=0.01, format="%g",
                     key=f"po_add_user_qty_{safe_po_file}_{proj_name}_{add_form_version}"
                 )
             with add_col4:
@@ -1019,7 +1019,7 @@ def view_po_details_dialog(row_data):
                             "Description": str(selected_master_row.get("Description", "") or "").strip(),
                             "UOM": default_uom,
                             "PO Qty": int(new_po_qty),
-                            "User Qty": int(new_user_qty),
+                            "User Qty": float(new_user_qty),
                             "VIS Qty": int(new_vis_qty),
                             "Diff": int(new_po_qty) - int(new_vis_qty),
                             "wcc_qty": 0, "wcc_status": "",
@@ -1063,7 +1063,7 @@ def view_po_details_dialog(row_data):
             "Line Number": st.column_config.NumberColumn("Line", width="small", alignment="center", format="%d"),
             "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
             "PO Qty": st.column_config.NumberColumn("PO Qty", min_value=0, alignment="center", format="%d", step=1),
-            "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%d", step=1),
+            "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%g", step=0.01),
             "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
             "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
             "wcc_qty": st.column_config.NumberColumn("WCC QTY", disabled=True, alignment="center", format="%d"),
@@ -1138,7 +1138,8 @@ def view_po_details_dialog(row_data):
                 try:
                     if pd.notna(row.get('id')):
                         po_qty_val = safe_int(row.get('PO Qty', 0))
-                        user_qty_val = safe_int(row.get('User Qty', 0))
+                        user_qty_parsed = pd.to_numeric(row.get('User Qty', 0), errors="coerce")
+                        user_qty_val = 0.0 if pd.isna(user_qty_parsed) else float(user_qty_parsed)
                         vis_qty_val = safe_int(row.get('VIS Qty', 0))
                         claim_qty_val = safe_int(row.get('Claim Qty', 0))
                         receipt_qty_val = safe_int(row.get('Receipt Qty', 0))
