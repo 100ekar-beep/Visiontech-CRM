@@ -3121,10 +3121,8 @@ def update_po_status_dialog():
                 except Exception as e:
                     st.error(f"❌ Error processing file: {e}")
 
-# --- 3.9 EXPORT DIALOG FUNCTION ---
-@st.dialog("📥 Export Data", width="large")
-def export_dialog(df_export):
-    st.caption("Download your live database records as an Excel file.")
+# --- 3.9 PREPARE DIRECT EXCEL DOWNLOAD ---
+def build_site_export_excel(df_export):
     
     export_df = df_export.copy()
     if "🎯 Select" in export_df.columns:
@@ -3134,17 +3132,7 @@ def export_dialog(df_export):
         
     # --- ADDING PO UPLOAD STATUS TO EXCEL ---
     active_ws = st.session_state.get('active_workspace', 'VISPL')
-    uploaded_po_identifiers = set()
-    try:
-        res_po = supabase.table("po_working").select("*").eq("workspace", active_ws).execute()
-        if res_po.data:
-            for item in res_po.data:
-                p_name = str(item.get("Project Name", "")).strip()
-                s_id = str(item.get("Site ID", "")).strip()
-                if p_name: uploaded_po_identifiers.add(p_name)
-                if s_id: uploaded_po_identifiers.add(s_id)
-    except Exception:
-        pass
+    uploaded_po_identifiers = fetch_po_upload_identifiers_cached(active_ws)
 
     def get_po_upload_status(row):
         pid = str(row.get("Project ID", "")).strip()
@@ -3165,14 +3153,7 @@ def export_dialog(df_export):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         export_df.to_excel(writer, index=False, sheet_name='Site Data')
         
-    st.download_button(
-        label="📊 Download Excel File",
-        data=buffer.getvalue(),
-        file_name="Site_Data_Export.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        type="primary"
-    )
+    return buffer.getvalue()
 
 # ==============================================================
 # --- TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
@@ -3310,8 +3291,7 @@ with col_sync:
     if st.button("🔁 Bulk Sync PO/WCC", use_container_width=True):
         bulk_sync_dialog()
 with col_export:
-    if st.button("📥 Export Data", use_container_width=True):
-        st.session_state.action = "export"
+    site_export_slot = st.empty()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -3411,10 +3391,18 @@ if search_query:
     mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
     df = df[mask]
 
-# --- EXPORT LOGIC TRIGGER: AFTER team filter + search, so export matches exactly
-#     what's currently shown in the table (whether that's 1 row or 100,000) ---
+# Fill the top-bar download after applying all filters (all matching rows, not just this page).
+with site_export_slot.container():
+    st.download_button(
+        "📥 Export Data",
+        data=build_site_export_excel(df),
+        file_name="Site_Data_Export.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        on_click="ignore",
+        key="site_direct_export",
+    )
 if st.session_state.get('action') == "export":
-    export_dialog(df)
     st.session_state.action = ""
 
 # --- 6. PAGINATION LOGIC (default 100 lines per page, changeable below the table) ---
