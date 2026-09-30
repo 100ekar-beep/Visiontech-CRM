@@ -3234,7 +3234,7 @@ else:
     df["🎯 Select"] = False
 
 # --- 5.5 LAVISH UNIVERSAL SEARCH BOX + TEAM FILTER + VIEW MODE TOGGLE ---
-col_table_title, col_team_filter, col_search, col_viewtoggle = st.columns([2.5, 2.2, 3, 2])
+col_table_title, col_team_filter, col_project_filter, col_search, col_viewtoggle = st.columns([2.5, 2.2, 2.2, 3, 2])
 with col_table_title:
     st.markdown("##### 🗄️ Live Database Records")
 with col_team_filter:
@@ -3244,6 +3244,20 @@ with col_team_filter:
     })
     selected_team_filter = st.selectbox(
         "Filter by Team", team_filter_opts, key="team_filter_select", label_visibility="collapsed"
+    )
+with col_project_filter:
+    project_filter_opts = ["All Projects"] + sorted({
+        str(row["option_value"]).strip() for row in _team_dd
+        if row.get("category") == "Project Name" and str(row.get("option_value") or "").strip()
+    } | {
+        str(value).strip() for value in df["Project Name"].dropna()
+        if str(value).strip() and str(value).strip().lower() not in ("nan", "none", "null", "-")
+    }, key=str.casefold)
+    if st.session_state.get("project_filter_select") not in project_filter_opts:
+        st.session_state["project_filter_select"] = "All Projects"
+    selected_project_filter = st.selectbox(
+        "Filter by Project", project_filter_opts, key="project_filter_select", label_visibility="collapsed",
+        on_change=lambda: st.session_state.update(current_page=1)
     )
 with col_search:
     search_query = st_keyup("Search", placeholder="🔍 Search records...", label_visibility="collapsed")
@@ -3256,6 +3270,10 @@ with col_viewtoggle:
 # --- APPLY TEAM FILTER ---
 if selected_team_filter and selected_team_filter != "All Teams":
     df = df[df["Team Name"].astype(str).str.strip() == selected_team_filter]
+
+# --- APPLY PROJECT FILTER (combines with Team and Search) ---
+if selected_project_filter and selected_project_filter != "All Projects":
+    df = df[df["Project Name"].astype(str).str.strip() == selected_project_filter]
 
 # --- APPLY SEARCH FILTER ---
 if search_query:
@@ -3515,7 +3533,7 @@ kpi_completed = int(_col_series("Site Status").str.contains("complet", na=False)
 _po_series = _col_series("PO No.")
 kpi_po = int((~_po_series.isin(["", "nan", "none", "null", "-"])).sum())
 kpi_bill_pending = int(_col_series("Vision Billing Status").str.contains("pending", na=False).sum())
-kpi_filter_note = "Filtered results" if (search_query or selected_team_filter != "All Teams") else "All records"
+kpi_filter_note = "Filtered results" if (search_query or selected_team_filter != "All Teams" or selected_project_filter != "All Projects") else "All records"
 
 st.markdown(
     '<div class="lux-kpi-grid">'
@@ -3538,7 +3556,7 @@ st.markdown(
 if df_page.empty:
     st.markdown(
         '<div class="slux-empty"><div>🗂️</div>'
-        f'{"No records match your search / team filter." if (search_query or selected_team_filter != "All Teams") else "No site records yet. Click ➕ Add Record to create one."}'
+        f'{"No records match your search / team / project filter." if (search_query or selected_team_filter != "All Teams" or selected_project_filter != "All Projects") else "No site records yet. Click ➕ Add Record to create one."}'
         '</div>',
         unsafe_allow_html=True,
     )
