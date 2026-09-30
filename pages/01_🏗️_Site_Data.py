@@ -1124,8 +1124,19 @@ def build_zip_from_urls(urls):
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_site_data_cached(workspace):
     try:
-        response = supabase.table("site_data").select("*").eq("workspace", workspace).execute()
-        return response.data or []
+        all_rows = []
+        page_size = 500
+        offset = 0
+        while True:
+            response = (supabase.table("site_data").select("*")
+                        .eq("workspace", workspace).order("id")
+                        .range(offset, offset + page_size - 1).execute())
+            chunk = response.data or []
+            if not chunk:
+                break
+            all_rows.extend(chunk)
+            offset += len(chunk)
+        return all_rows
     except Exception:
         return []
 
@@ -3398,7 +3409,7 @@ if selected_project_filter and selected_project_filter != "All Projects":
 
 # --- APPLY SEARCH FILTER ---
 if search_query:
-    mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+    mask = df.astype(str).apply(lambda x: x.str.contains(search_query.strip(), case=False, na=False, regex=False)).any(axis=1)
     df = df[mask]
 
 # Fill the top-bar download after applying all filters (all matching rows, not just this page).
