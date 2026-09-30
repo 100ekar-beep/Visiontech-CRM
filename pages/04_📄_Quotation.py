@@ -422,6 +422,8 @@ def fetch_item_master():
                     if cl in ['price', 'rate', 'amount', 'unit price']: col_map[c] = 'Price'
                 df = df.rename(columns=col_map)
                 if 'Item Code' in df.columns:
+                    df.attrs["master_table"] = t
+                    df.attrs["master_columns"] = {normalized: original for original, normalized in col_map.items()}
                     return df
         except Exception:
             continue
@@ -1235,7 +1237,51 @@ def render_quotation_templates():
             unsafe_allow_html=True,
         )
 
+
+def save_new_master_item(item_code, description, price, master_data):
+    item_code = item_code.strip()
+    description = description.strip()
+    if not item_code or not description:
+        raise ValueError("Item Code and Description are required.")
+    if price < 0:
+        raise ValueError("Price cannot be negative.")
+    table_name = master_data.attrs.get("master_table")
+    columns = master_data.attrs.get("master_columns", {})
+    if not table_name or not all(field in columns for field in ("Item Code", "Description", "Price")):
+        raise ValueError("Item Master table/columns could not be detected. Check Item Master access first.")
+    existing = (supabase.table(table_name).select(columns["Item Code"])
+                .eq(columns["Item Code"], item_code).limit(1).execute())
+    if existing.data:
+        raise ValueError("This Item Code already exists. Use the existing item from the dropdown.")
+    payload = {columns["Item Code"]: item_code, columns["Description"]: description,
+               columns["Price"]: int(price)}
+    supabase.table(table_name).insert(payload).execute()
+    fetch_item_master.clear()
+
+
+@st.dialog("➕ Add New Item to Item Master", width="large")
+def add_master_item_dialog():
+    st.caption("Save a new material item for use in quotation templates and quotations.")
+    with st.form("quotation_new_master_item_form", clear_on_submit=False):
+        new_item_code = st.text_input("ITEM CODE *")
+        new_item_description = st.text_area("DESCRIPTION *")
+        new_item_price = st.number_input("PRICE *", min_value=0, value=0, step=1)
+        submitted = st.form_submit_button("💾 Save New Item", type="primary", use_container_width=True)
+    if submitted:
+        try:
+            save_new_master_item(new_item_code, new_item_description, new_item_price, df_items)
+        except Exception as e:
+            st.error(f"Item could not be saved: {e}")
+            return
+        st.session_state["quotation_item_saved"] = new_item_code.strip()
+        st.rerun()
+
 # --- Integrated page navigation ---
+if st.session_state.get("quotation_item_saved"):
+    st.success(f"Item {st.session_state.pop('quotation_item_saved')} saved. Available in template and quotation dropdowns.")
+if st.button("➕ Add New Item", key="quotation_add_master_item"):
+    add_master_item_dialog()
+
 quotation_section = st.radio(
     "Quotation Setup", ["📄 Quotation List", "📋 Quotation Templates"],
     horizontal=True, key="quotation_setup_section", label_visibility="collapsed"
