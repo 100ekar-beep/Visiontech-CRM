@@ -1641,13 +1641,17 @@ def add_record_dialog():
         with c12d:
             comm_report_status = st.selectbox("COMMISSIONING REPORT", ["Select", "Available", "Pending", "Not Required"])
             
-        c13, c14, c15 = st.columns(3)
+        c13, c_mrn, c14, c15 = st.columns([1, 0.8, 1, 1])
         with c13:
             ex_opts = get_opts("Extra Approval", all_dd)
             def_extra = ex_opts.index("Not Available") if "Not Available" in ex_opts else 0
             extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=def_extra)
+        with c_mrn:
+            mrn_number = st.text_input("MRN NUMBER", placeholder="MRN Number")
         with c14:
             tb_opts = get_opts("Team Billing Status", all_dd)
+            if "Done" not in tb_opts:
+                tb_opts.append("Done")
             def_team = tb_opts.index("Pending") if "Pending" in tb_opts else 0
             team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=def_team)
         with c15:
@@ -1848,6 +1852,7 @@ def add_record_dialog():
                     "Audit": audit_status if audit_status != "Select" else "",
                     "JMS": jms_status if jms_status != "Select" else "",
                     "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
+                    "MRN Number": mrn_number.strip(),
                     "Team Billing Status": team_billing if team_billing != "Select" else "",
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
@@ -2042,12 +2047,16 @@ def edit_record_dialog(row_data):
                 st.session_state.pop(f"ed_comm_report_{rid}", None)
             comm_report_status = st.selectbox("COMMISSIONING REPORT", comm_report_opts_fixed, index=get_idx(_ov or row_data.get('Commissioning Report'), comm_report_opts_fixed), key=f"ed_comm_report_{rid}")
 
-        c13, c14, c15 = st.columns(3)
+        c13, c_mrn, c14, c15 = st.columns([1, 0.8, 1, 1])
         with c13:
             ex_opts = get_opts("Extra Approval", all_dd)
             extra_approval = st.selectbox("EXTRA APPROVAL", ex_opts, index=get_idx(row_data.get('Extra Approval'), ex_opts), key=f"ed_ex_{rid}")
+        with c_mrn:
+            mrn_number = st.text_input("MRN NUMBER", value=str(row_data.get("MRN Number") or ""), key=f"ed_mrn_{rid}")
         with c14:
             tb_opts = get_opts("Team Billing Status", all_dd)
+            if "Done" not in tb_opts:
+                tb_opts.append("Done")
             team_billing = st.selectbox("TEAM BILLING STATUS", tb_opts, index=get_idx(row_data.get('Team Billing Status'), tb_opts), key=f"ed_tb_{rid}")
         with c15:
             vb_opts = get_opts("Vision Billing Status", all_dd)
@@ -2467,6 +2476,7 @@ def edit_record_dialog(row_data):
                     "Audit": audit_status if audit_status != "Select" else "",
                     "JMS": jms_status if jms_status != "Select" else "",
                     "Commissioning Report": comm_report_status if comm_report_status != "Select" else "",
+                    "MRN Number": mrn_number.strip(),
                     "Team Billing Status": team_billing if team_billing != "Select" else "",
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
@@ -3308,7 +3318,7 @@ columns_list = [
     "Photos Files", "JMS Files", "Commissioning Report Files",
     "MRN Files", "SRC Files", "DC Files", "EWAY Files",
     "Solar Simulation Report Files", "Extra Approval Files",
-    "Team Billing Status", "Vision Billing Status", "Extra Approval", 
+    "MRN Number", "Team Billing Status", "Vision Billing Status", "Extra Approval", 
     "WCC Number", "WCC Status", "Auditor Name", "Auditor Number",
     "Electrical PTW Number", "Electrical PTW Date", "Height PTW Number", "Height PTW Date",
     "Civil PTW Number", "Civil PTW Date", "Remark", "Commissioning Email Sent"
@@ -3703,6 +3713,7 @@ elif st.session_state.site_view_mode == "cards":
                 <div class="site-card-row"><span class="site-card-label">JMS</span><span class="site-card-value">{status_badge(row_dict.get('JMS',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Commissioning Report</span><span class="site-card-value">{status_badge(row_dict.get('Commissioning Report',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">PO Status</span><span class="site-card-value">{status_badge(row_dict.get('PO Status',''))}</span></div>
+                <div class="site-card-row"><span class="site-card-label">MRN Number</span><span class="site-card-value">{_chip(row_dict.get("MRN Number"))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Team Billing</span><span class="site-card-value">{status_badge(row_dict.get('Team Billing Status',''))}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Vision Billing</span><span class="site-card-value">{status_badge(row_dict.get('Vision Billing Status',''))}</span></div>
             """, unsafe_allow_html=True)
@@ -3736,7 +3747,7 @@ else:
         1.0, 1.3, 1.0, 1.2, 2.0,     # PO Status, PO Upload Status, Product, RFAI, Work Desc
         1.0, 1.2,                    # WH Mat, Team Name
         1.0, 1.0, 1.0, 1.3,          # Photos, Audit, JMS, Commissioning Report
-        1.2, 1.2, 1.0,               # Team Bill, Vis Bill, Extra App
+        1.0, 1.2, 1.2, 1.0,          # MRN Number, Team Bill, Vis Bill, Extra App
         1.2, 1.0,                    # WCC Number, WCC Status
         1.2, 1.2, 1.2, 1.0, 1.2, 1.0, 1.2, 1.0  # Auditor and PTW
     ]
@@ -3747,7 +3758,7 @@ else:
         "SITE NAME", "CLUSTER", "SITE STATUS", "PO NO.", "PO DATE",
         "PO STATUS", "PO UPLOAD STATUS", "PRODUCT", "RFAI STATUS", "WORK DESCRIPTION",
         "WH MATERIAL", "TEAM NAME", "PHOTOS", "AUDIT", "JMS", "COMMISSIONING REPORT",
-        "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL",
+        "MRN NUMBER", "TEAM BILLING STATUS", "VISION BILLING STATUS", "EXTRA APPROVAL",
         "WCC NUMBER", "WCC STATUS", "AUDITOR NAME", "AUDITOR NUMBER",
         "ELECTRICAL PTW NUMBER", "ELECTRICAL PTW DATE", "HEIGHT PTW NUMBER", "HEIGHT PTW DATE",
         "CIVIL PTW NUMBER", "CIVIL PTW DATE"
@@ -3834,14 +3845,15 @@ else:
                 rcols[21].markdown(status_badge(row_dict.get('Audit', '')), unsafe_allow_html=True)
                 rcols[22].markdown(status_badge(row_dict.get('JMS', '')), unsafe_allow_html=True)
                 rcols[23].markdown(status_badge(row_dict.get('Commissioning Report', '')), unsafe_allow_html=True)
-                rcols[24].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
-                rcols[25].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
-                rcols[26].markdown(status_badge(row_dict.get('Extra Approval', '')), unsafe_allow_html=True)
-                rcols[27].markdown(_chip(row_dict.get('WCC Number')), unsafe_allow_html=True)
-                rcols[28].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
+                rcols[24].markdown(_chip(row_dict.get("MRN Number")), unsafe_allow_html=True)
+                rcols[25].markdown(status_badge(row_dict.get('Team Billing Status', '')), unsafe_allow_html=True)
+                rcols[26].markdown(status_badge(row_dict.get('Vision Billing Status', '')), unsafe_allow_html=True)
+                rcols[27].markdown(status_badge(row_dict.get('Extra Approval', '')), unsafe_allow_html=True)
+                rcols[28].markdown(_chip(row_dict.get('WCC Number')), unsafe_allow_html=True)
+                rcols[29].markdown(status_badge(row_dict.get('WCC Status', '')), unsafe_allow_html=True)
                 for col_idx, field in enumerate(("Auditor Name", "Auditor Number", "Electrical PTW Number",
                                                  "Electrical PTW Date", "Height PTW Number", "Height PTW Date",
-                                                 "Civil PTW Number", "Civil PTW Date"), start=29):
+                                                 "Civil PTW Number", "Civil PTW Date"), start=30):
                     rcols[col_idx].markdown(_txt(row_dict.get(field), "slux-soft"), unsafe_allow_html=True)
 
     # ---- Footer bar ----
