@@ -750,7 +750,6 @@ def quotation_dialog(quotation_data=None):
                 bulk_results = []
                 progress = st.progress(0)
                 for position, project_id in enumerate(selected_projects):
-                    inserted_id = None
                     bulk_name = ""
                     try:
                         existing = (supabase.table("quotations").select('id')
@@ -764,9 +763,8 @@ def quotation_dialog(quotation_data=None):
                             raise ValueError("Project details not found")
                         project_row = project_rows.iloc[0]
                         bulk_name = f"{quo_name.strip()} - {project_id} - {uuid.uuid4().hex}"
-                        inserted_id = str(uuid.uuid4())
                         bulk_header = {
-                            "id": inserted_id, "workspace": active_ws,
+                            "workspace": active_ws,
                             "Quotation Name": bulk_name, "Date": str(quo_date),
                             "Project ID": project_id,
                             "Site ID": str(project_row.get("Site ID", "")),
@@ -782,7 +780,7 @@ def quotation_dialog(quotation_data=None):
                             ]).execute()
                         except Exception:
                             supabase.table("quotation_items").delete().eq("workspace", active_ws).eq("Quotation Name", bulk_name).execute()
-                            supabase.table("quotations").delete().eq("workspace", active_ws).eq("id", inserted_id).execute()
+                            supabase.table("quotations").delete().eq("workspace", active_ws).eq("Quotation Name", bulk_name).execute()
                             raise
                         bulk_results.append({"Project ID": project_id, "Quotation": bulk_name, "Result": "Saved"})
                     except Exception as e:
@@ -875,7 +873,14 @@ def quotation_dialog(quotation_data=None):
 if st.session_state.get("quo_bulk_results"):
     bulk_result_df = pd.DataFrame(st.session_state["quo_bulk_results"])
     saved_count = int((bulk_result_df["Result"] == "Saved").sum())
-    st.success(f"Bulk generation complete: {saved_count} quotations saved out of {len(bulk_result_df)} selected projects.")
+    failed_count = int(bulk_result_df["Result"].str.startswith("Failed").sum())
+    bulk_summary = f"Bulk generation complete: {saved_count} quotations saved out of {len(bulk_result_df)} selected projects."
+    if failed_count:
+        st.error(f"{bulk_summary} {failed_count} failed. See results below.")
+    elif saved_count:
+        st.success(bulk_summary)
+    else:
+        st.warning(bulk_summary)
     with st.expander("Bulk quotation results", expanded=True):
         st.dataframe(bulk_result_df, hide_index=True, use_container_width=True)
         st.download_button("Download Results CSV", bulk_result_df.to_csv(index=False).encode("utf-8-sig"),
