@@ -3146,6 +3146,101 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
+# --- READ-ONLY PROJECT ID CHECK ACROSS ALL ACCESSIBLE WORKSPACES ---
+def check_project_ids_in_supabase(project_ids):
+    matches = {pid: [] for pid in project_ids}
+    # Small batches and pagination prevent the Supabase row limit hiding matches.
+    for start in range(0, len(project_ids), 100):
+        batch = project_ids[start:start + 100]
+        offset = 0
+        while True:
+            response = (supabase.table("site_data")
+                        .select('id,"Project ID",workspace,"Project Name","Site ID"')
+                        .in_("Project ID", batch).order("id")
+                        .range(offset, offset + 499).execute())
+            rows = response.data or []
+            for record in rows:
+                pid = str(record.get("Project ID") or "").strip()
+                if pid in matches:
+                    matches[pid].append(record)
+            if len(rows) < 500:
+                break
+            offset += 500
+    results = []
+    for pid in project_ids:
+        records = matches[pid]
+        workspaces = sorted({str(r.get("workspace") or "Unassigned") for r in records})
+        results.append({
+            "Project ID": pid,
+            "Result": "Found" if records else "Missing",
+            "Workspace": ", ".join(workspaces) if records else "—",
+            "Matched Records": len(records),
+            "Project Name": ", ".join(sorted({str(r.get("Project Name") or "") for r in records} - {""})),
+            "Site ID": ", ".join(sorted({str(r.get("Site ID") or "") for r in records} - {""})),
+        })
+    return pd.DataFrame(results)
+
+
+def _project_check_excel(frame):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        frame.to_excel(writer, index=False, sheet_name="Project ID Check")
+    return output.getvalue()
+
+
+@st.dialog("🔎 Check Project IDs", width="large")
+def check_project_ids_dialog():
+    st.caption("Paste Project IDs or upload Excel/CSV. Checks site_data across all workspaces without changing any records.")
+    pasted = st.text_area("PROJECT IDs", placeholder="One Project ID per line", height=140, key="project_check_text")
+    uploaded = st.file_uploader("Or upload Excel / CSV", type=["xlsx", "csv"], key="project_check_upload")
+    upload_ids = []
+    upload_error = None
+    if uploaded is not None:
+        try:
+            if uploaded.name.lower().endswith(".csv"):
+                uploaded_df = pd.read_csv(uploaded, dtype=str, keep_default_na=False)
+            else:
+                uploaded_df = pd.read_excel(uploaded, dtype=str, keep_default_na=False)
+            if uploaded_df.columns.empty:
+                raise ValueError("File has no columns.")
+            headers = list(uploaded_df.columns)
+            default_column = next((i for i, col in enumerate(headers) if str(col).strip().lower() in ("project id", "project_id")), 0)
+            id_column = st.selectbox("Project ID column", headers, index=default_column, key="project_check_column")
+            upload_ids = uploaded_df[id_column].tolist()
+        except Exception as exc:
+            upload_error = str(exc)
+            st.error(f"Could not read file: {exc}")
+    if st.button("🔎 Check All IDs", type="primary", use_container_width=True, key="project_check_run"):
+        st.session_state.pop("project_check_results", None)
+        if not upload_error:
+            raw_ids = re.split(r"[\n\r,;\t]+", pasted) + upload_ids
+            ids = list(dict.fromkeys(str(value).strip() for value in raw_ids if str(value).strip()))
+            if not ids:
+                st.warning("Paste Project IDs or upload a file first.")
+            else:
+                try:
+                    with st.spinner(f"Checking {len(ids)} unique Project IDs..."):
+                        result = check_project_ids_in_supabase(ids)
+                    st.session_state["project_check_results"] = result.to_dict("records")
+                except Exception as exc:
+                    st.error(f"Check failed. No report generated: {exc}")
+    saved = st.session_state.get("project_check_results")
+    if saved:
+        result = pd.DataFrame(saved)
+        missing = result[result["Result"] == "Missing"]
+        c_total, c_found, c_missing = st.columns(3)
+        c_total.metric("Total Unique IDs", len(result))
+        c_found.metric("Found", len(result) - len(missing))
+        c_missing.metric("Missing", len(missing))
+        st.dataframe(result, hide_index=True, use_container_width=True)
+        full_col, missing_col = st.columns(2)
+        with full_col:
+            st.download_button("📥 Full Report (Excel)", _project_check_excel(result), "Project_ID_Check.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="project_check_full_download")
+        with missing_col:
+            st.download_button("📥 Missing IDs (Excel)", _project_check_excel(missing), "Missing_Project_IDs.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="project_check_missing_download")
+
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
 col_title, col_ref, col_add, col_upload, col_update, col_sync, col_export = st.columns([2.2, 0.9, 1.3, 1.3, 1.3, 1.6, 1.3])
 with col_title:
@@ -3163,18 +3258,9 @@ with col_upload:
     if st.button("📤 Bulk Upload", use_container_width=True):
         bulk_upload_dialog() 
 with col_update:
-    # Team app me Notifications page diya hi nahi hai, isliye wahan ye button band rahega
-    notifications_enabled = (st.session_state.get('site_active_company') in ("VISPL", "Bhagyashree")) and not IS_TEAM_USER
-    if st.button(
-        "🔔 Notifications",
-        type="primary",
-        use_container_width=True,
-        disabled=not notifications_enabled,
-        help=None if notifications_enabled else "Notifications yahan available nahi hain.",
-    ):
-        st.session_state['notification_workspace'] = st.session_state.get('active_workspace', 'VISPL')
-        st.session_state['notification_company'] = st.session_state.get('site_active_company', 'VISPL')
-        st.switch_page("pages/15_🔔_PO_Notifications.py")
+    if st.button("🔎 Check Project IDs", type="primary", use_container_width=True):
+        st.session_state.pop("project_check_results", None)
+        check_project_ids_dialog()
 with col_sync:
     if st.button("🔁 Bulk Sync PO/WCC", use_container_width=True):
         bulk_sync_dialog()
