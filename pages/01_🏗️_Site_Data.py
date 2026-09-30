@@ -1116,12 +1116,12 @@ def build_zip_from_urls(urls):
 # --- EGRESS OPTIMIZATION: CACHED DATA FETCHERS ---
 # Without this, every keystroke in search / every rerun re-downloads the
 # whole table from Supabase, which is what was eating up the free-tier
-# egress quota. These cache results for a short time (30s) so repeated
+# egress quota. Cache results until a write or explicit Refresh so repeated
 # reruns (typing in search, opening dialogs, pagination) reuse the same
 # data instead of hitting Supabase again. Call .clear() right before any
-# insert/update/delete so the next read is fresh, not stale.
+# insert/update/delete so the next read is fresh. External writes require Refresh.
 # -------------------------------------------------------------
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_site_data_cached(workspace):
     try:
         all_rows = []
@@ -1141,7 +1141,7 @@ def fetch_site_data_cached(workspace):
         return []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_po_upload_identifiers_cached(workspace):
     """Returns the set of Project Name / Site ID values that already have a PO Working entry."""
     identifiers = set()
