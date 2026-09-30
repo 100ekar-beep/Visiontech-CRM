@@ -385,13 +385,23 @@ supabase: Client = init_connection()
 @st.cache_data(ttl=60)
 def fetch_quotation_projects(workspace_name):
     try:
-        res = supabase.table("site_data").select("*").eq("workspace", workspace_name).execute()
-        if res.data:
-            df = pd.DataFrame(res.data)
-            if "Operator" in df.columns:
-                mask = df["Operator"].astype(str).str.contains("uotat", case=False, na=False)
-                return df[mask]
-            return df
+        rows = []
+        offset = 0
+        page_size = 500
+        while True:
+            res = (supabase.table("site_data")
+                   .select('id,"Operator","Project ID","Site ID","Site Name","Cluster","Project Name"')
+                   .eq("workspace", workspace_name)
+                   .ilike("Operator", "%uotat%")
+                   .order("id")
+                   .range(offset, offset + page_size - 1).execute())
+            chunk = res.data or []
+            if not chunk:
+                break
+            rows.extend(chunk)
+            offset += len(chunk)
+        if rows:
+            return pd.DataFrame(rows)
     except Exception:
         pass
     return pd.DataFrame(columns=["Project ID", "Site ID", "Site Name", "Cluster", "KM", "Project Name"])
