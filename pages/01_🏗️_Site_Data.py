@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import math
 import io
@@ -1490,6 +1491,48 @@ def get_item_master_details():
             
     return mapping
 
+def install_site_save_shortcut(button_label):
+    """Ctrl/Cmd+Enter clicks the native save button in the currently open site dialog."""
+    label_json = json.dumps(button_label)
+    components.html("""
+    <script>
+    (() => {
+        const doc = window.parent.document;
+        const owner = window.parent;
+        if (owner.__siteSaveShortcutHandler) {
+            doc.removeEventListener('keydown', owner.__siteSaveShortcutHandler, true);
+        }
+        const label = __BUTTON_LABEL__;
+        const handler = (event) => {
+            if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter' || event.repeat || event.isComposing) return;
+            const buttons = Array.from(doc.querySelectorAll('button'));
+            const button = buttons.find((item) =>
+                item.textContent.trim() === label && !item.disabled &&
+                item.getClientRects().length > 0 &&
+                item.closest('[role="dialog"], [data-testid="stDialog"]')
+            );
+            if (!button) return;
+            const dialog = button.closest('[role="dialog"], [data-testid="stDialog"]');
+            if (!dialog.contains(event.target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            // Commit the currently edited text input before triggering Streamlit's button.
+            if (doc.activeElement && typeof doc.activeElement.blur === 'function') doc.activeElement.blur();
+            owner.setTimeout(() => {
+                const current = Array.from(doc.querySelectorAll('button')).find((item) =>
+                    item.textContent.trim() === label && !item.disabled && item.getClientRects().length > 0 &&
+                    item.closest('[role="dialog"], [data-testid="stDialog"]') === dialog
+                );
+                if (current) current.click();
+            }, 150);
+        };
+        owner.__siteSaveShortcutHandler = handler;
+        doc.addEventListener('keydown', handler, true);
+    })();
+    </script>
+    """.replace("__BUTTON_LABEL__", label_json), height=0, scrolling=False)
+    st.caption("⌨️ Ctrl + Enter to save (Mac: ⌘ + Enter)")
+
 # --- 3.5 ADD RECORD DIALOG FUNCTION (POP-UP) ---
 @st.dialog("📄 Add Site Data", width="large")
 def add_record_dialog():
@@ -1748,6 +1791,7 @@ def add_record_dialog():
         col_btn1, col_btn2 = st.columns([8, 2])
         with col_btn2:
             submitted = st.button("💾 Save All Data", type="primary", use_container_width=True)
+        install_site_save_shortcut("💾 Save All Data")
             
         if submitted:
             # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
@@ -2353,6 +2397,7 @@ def edit_record_dialog(row_data):
         with st.container(key="site_update_bottom"):
             submitted_bottom = st.button("💾 Update Data", type="primary", use_container_width=True, key=f"update_bottom_{rid}")
         submitted = submitted_top or submitted_bottom
+        install_site_save_shortcut("💾 Update Data")
             
         if submitted:
             # Treat any leftover "nan"/"none"/"null" text as blank instead of failing validation
