@@ -666,83 +666,46 @@ def po_upload_dialog():
                 df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
                 df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
                 
-                existing_df = st.session_state.po_working_df
-                new_rows_to_add = []
-                updated_count = 0
-                skipped_count = 0
-                update_errors = []
-                
-                # --- MATCHING RULE ---
-                # Har line ki uniqueness ab "Project Name" (Project ID) + "Item Num" (Item Code) se decide hoti hai,
-                # PO Number/Line Number se nahi. Isse same project ke andar same item code baar baar upload
-                # karne par duplicate nahi banta, sirf jab Qty change ho tabhi update hota hai.
-                for idx, new_row in df_proc.iterrows():
-                    proj_val = str(new_row.get('Project Name', '')).strip()
-                    item_val = str(new_row.get('Item Num', '')).strip()
-                    
-                    match_mask = (
-                        existing_df['Project Name'].astype(str).str.strip() == proj_val
-                    ) & (
-                        existing_df['Item Num'].astype(str).str.strip() == item_val
-                    )
-                    
-                    if match_mask.any():
-                        match_idx = existing_df[match_mask].index[0]
-                        row_id = existing_df.at[match_idx, 'id'] if 'id' in existing_df.columns else None
-                        
-                        curr_po = int(existing_df.at[match_idx, 'PO Qty']) if pd.notna(existing_df.at[match_idx, 'PO Qty']) else 0
-                        curr_vis = int(existing_df.at[match_idx, 'VIS Qty']) if pd.notna(existing_df.at[match_idx, 'VIS Qty']) else 0
-                        new_po = int(new_row['PO Qty'])
-                        new_price = int(new_row['Price'])
-                        
-                        new_diff = new_po - curr_vis
-                        new_amount = curr_vis * new_price
-                        
-                        if pd.notna(row_id):
-                            try:
-                                supabase.table("po_working").update({
-                                    'PO Number': po_no,
-                                    'Line Number': int(new_row['Line Number']),
-                                    'PO Qty': new_po,
-                                    'Price': new_price,
-                                    'UOM': str(new_row['UOM']),
-                                    'Description': str(new_row['Description']),
-                                    'Diff': new_diff,
-                                    'Amount': new_amount
-                                }).eq("id", row_id).execute()
-                                updated_count += 1
-                            except Exception as e:
-                                # FIX: pehle ye error silently swallow ho jaata tha - ab dikhega
-                                update_errors.append(f"Item {item_val}: {e}")
+                # Database enforces workspace + Project ID + PO Number + Item Code + Line Number.
+                # Never use the cached dataframe to decide whether a DB row exists.
+                for key_col in ['Project Name', 'PO Number', 'Item Num']:
+                    df_proc[key_col] = df_proc[key_col].fillna('').astype(str).str.strip().str.upper()
+                blank_project_mask = df_proc['Project Name'].eq('')
+                blank_project_count = int(blank_project_mask.sum())
+                df_proc = df_proc.loc[~blank_project_mask].copy()
+                if df_proc.empty:
+                    st.warning(f"Project Name / Project ID blank hai: {blank_project_count} lines skip hui. Koi line upload nahi hui.")
+                    return
+                for key_col in ['PO Number', 'Item Num']:
+                    if df_proc[key_col].eq('').any():
+                        raise ValueError(f"{key_col} blank hai. Upload rok diya; koi line save nahi hui.")
+                key_cols = ['Project Name', 'PO Number', 'Item Num', 'Line Number']
+                duplicates = df_proc[df_proc.duplicated(key_cols, keep=False)]
+                if not duplicates.empty:
+                    conflicts = duplicates.groupby(key_cols)['PO Qty'].nunique()
+                    if (conflicts > 1).any():
+                        raise ValueError("Same Project ID + PO Number + Item Code + Line Number ki different Qty file mein hai. File correct karke upload karein.")
+                repeated_count = len(df_proc) - len(df_proc.drop_duplicates(key_cols))
+                df_proc = df_proc.drop_duplicates(key_cols, keep='last')
+                records_to_insert = []
+                for rec in df_proc.to_dict('records'):
+                    clean_rec = {"workspace": st.session_state.get('active_workspace', 'VISPL')}
+                    for k, v in rec.items():
+                        if k in num_columns_to_int:
+                            clean_rec[k] = float(v) if k == 'User Qty' else int(v)
                         else:
-                            update_errors.append(f"Item {item_val}: matched row me 'id' nahi mila, update skip ho gaya.")
-                    else:
-                        # Is Project ke liye ye Item Code pehli baar aa raha hai -> naya row add hoga
-                        new_rows_to_add.append(new_row.to_dict())
-                
-                inserted_count = 0
-                if new_rows_to_add:
-                    records_to_insert = []
-                    for rec in new_rows_to_add:
-                        clean_rec = {}
-                        clean_rec["workspace"] = st.session_state.get('active_workspace', 'VISPL')
-                        for k, v in rec.items():
-                            if k in num_columns_to_int:
-                                clean_rec[k] = float(v) if k == 'User Qty' else int(v)
-                            else:
-                                clean_rec[k] = str(v).strip() if pd.notna(v) and str(v) != 'nan' else ""
-                        records_to_insert.append(clean_rec)
-                    
-                    try:
-                        res = supabase.table("po_working").insert(records_to_insert).execute()
-                        inserted_count = len(res.data) if res.data else 0
-                        if inserted_count == 0:
-                            # Supabase ne error nahi diya lekin kuch bhi return nahi kiya - isko bhi flag karo
-                            update_errors.append("Insert call ne 0 rows return ki - RLS policy ya column mismatch check karo.")
-                    except Exception as e:
-                        st.error(f"❌ DB Insert Error: Please verify Supabase columns match exactly. Details: {e}")
-                        return
-                
+                            clean_rec[k] = str(v).strip() if pd.notna(v) else ""
+                    records_to_insert.append(clean_rec)
+                # One atomic transaction; concurrent/repeated uploads cannot add duplicates.
+                result = supabase.rpc("po_working_import_unique", {"p_rows": records_to_insert}).execute()
+                summary = result.data
+                if not isinstance(summary, dict):
+                    raise ValueError("Database import summary nahi mila. SQL setup check karein.")
+                inserted_count = int(summary.get('added', 0))
+                updated_count = int(summary.get('updated', 0))
+                skipped_count = int(summary.get('skipped', 0)) + repeated_count + blank_project_count
+                update_errors = []
+
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
 
@@ -1003,8 +966,11 @@ def view_po_details_dialog(row_data):
                 if selected_master_row is None:
                     st.error("पहले Item Code select करें।")
                 else:
+                    if not str(proj_name or '').strip():
+                        st.error("Project Name / Project ID blank hai. Line upload nahi hui.")
+                        return
                     new_item_code = str(selected_master_row.get("Item Code", "")).strip()
-                    duplicate_mask = df_temp["Item Num"].astype(str).str.strip() == new_item_code
+                    duplicate_mask = (df_temp["Item Num"].astype(str).str.strip() == new_item_code) & (pd.to_numeric(df_temp["Line Number"], errors="coerce") == next_line_preview)
                     if duplicate_mask.any():
                         st.error("यह Item Code इस PO और Project ID में पहले से मौजूद है। Existing line edit करें।")
                     else:
