@@ -126,21 +126,49 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# --- SUPABASE CONNECTION (still used for contacts/templates/logs database) ---
-@st.cache_resource(ttl="45m")
-def init_connection():
-    try:
-        url: str = st.secrets["supabase"]["url"]
-        # FIX FOR PGRST125: Automatically remove '/rest/v1' or trailing slashes if mistakenly present in secrets.toml
-        url = url.replace("/rest/v1/", "").replace("/rest/v1", "").rstrip("/")
-        
-        key: str = st.secrets["supabase"]["key"]
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"🚨 Asli Error Ye Hai: {e}") 
-        return None
+# --- SUPABASE CONNECTION ---
+from urllib.parse import urlsplit, urlunsplit
 
-supabase = init_connection()
+@st.cache_resource(ttl="45m")
+def init_connection(url, key):
+    return create_client(url, key)
+
+supabase = None
+
+try:
+    url = str(st.secrets["supabase"]["url"]).strip()
+    key = str(st.secrets["supabase"]["key"]).strip()
+    url = url.strip("\"'").strip()
+    parsed_url = urlsplit(url)
+    url_path = parsed_url.path.rstrip("/")
+    if url_path.endswith("/rest/v1"):
+        url_path = url_path[:-len("/rest/v1")]
+
+    if (
+        parsed_url.scheme not in ("https", "http")
+        or not parsed_url.hostname
+        or any(char.isspace() for char in url)
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ValueError("Supabase URL valid nahi hai.")
+
+    url = urlunsplit((
+        parsed_url.scheme, parsed_url.netloc, url_path, "", ""
+    ))
+    if not key:
+        raise ValueError("Supabase key khaali hai.")
+
+    supabase = init_connection(url, key)
+
+except Exception:
+    st.error(
+        "🚨 Supabase connection initialize nahi hua. "
+        "Secrets mein [supabase] ka url aur key check karein. "
+        "URL format: https://YOUR-PROJECT-REF.supabase.co"
+    )
 
 # --- CLOUDINARY CONNECTION (NEW — used only for media/photo/video upload) ---
 @st.cache_resource(ttl="45m")
