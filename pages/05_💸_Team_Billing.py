@@ -1370,12 +1370,33 @@ def fetch_team_material_transfers_cached(workspace):
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_ledger_data_cached(workspace, rep_mode, inv_col, sel_name):
     try:
-        res_inv = supabase.table("billing_invoices").select("*").eq("workspace", workspace).eq("invoice_type", rep_mode).eq(inv_col, sel_name).order("id", desc=True).execute()
+        # Team Ledger on VISPL = billing from all 3 companies together.
+        # Vendor ledger and other company pages keep the existing workspace-wise behavior.
+        if rep_mode == "Team" and workspace == "VISPL":
+            res_inv = (supabase.table("billing_invoices").select("*")
+                       .in_("workspace", list(BILLING_WORKSPACES))
+                       .eq("invoice_type", rep_mode)
+                       .eq(inv_col, sel_name)
+                       .order("id", desc=True).execute())
+        else:
+            res_inv = (supabase.table("billing_invoices").select("*")
+                       .eq("workspace", workspace)
+                       .eq("invoice_type", rep_mode)
+                       .eq(inv_col, sel_name)
+                       .order("id", desc=True).execute())
         inv_rows = res_inv.data or []
     except Exception:
         inv_rows = []
+
     try:
-        res_pay = supabase.table("billing_payments").select("*").eq("workspace", workspace).eq("mode", rep_mode).eq("pay_to", sel_name).order("id", desc=True).execute()
+        # Team payments are centralized in Visiontech.
+        # So VISPL Team Ledger uses only VISPL payments against combined billing.
+        payment_workspace = "VISPL" if rep_mode == "Team" and workspace == "VISPL" else workspace
+        res_pay = (supabase.table("billing_payments").select("*")
+                   .eq("workspace", payment_workspace)
+                   .eq("mode", rep_mode)
+                   .eq("pay_to", sel_name)
+                   .order("id", desc=True).execute())
         pay_rows = res_pay.data or []
     except Exception:
         pay_rows = []
@@ -2069,7 +2090,7 @@ elif st.session_state.billing_active_page == "ledger":
                 df_inv_rep = pd.DataFrame(inv_rows)
                 tot_inv = df_inv_rep["amount"].sum()
                 
-                req_cols = ["invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "amount"]
+                req_cols = ["workspace", "invoice_no", "date", "project_id", "site_id", "site_name", "basic_amount", "amount"]
                 for c in req_cols:
                     if c not in df_inv_rep.columns:
                         df_inv_rep[c] = ""
@@ -2080,7 +2101,16 @@ elif st.session_state.billing_active_page == "ledger":
                 df_inv_rep["net_payable"] = df_inv_rep["amount"] - df_inv_rep["tds_amount"]
                 df_inv_rep = df_inv_rep.drop(columns=["amount"])
 
+                # Show source company before MRN / Invoice No.
+                company_name_map = {
+                    "VISPL": "Visiontech",
+                    "BHAGYASHREE": "Bhagyashree",
+                    "SAI TELE": "Sai Tele",
+                }
+                df_inv_rep["workspace"] = df_inv_rep["workspace"].map(company_name_map).fillna(df_inv_rep["workspace"])
+
                 df_inv_rep.rename(columns={
+                    "workspace": "Company",
                     "invoice_no": "Invoice No.",
                     "date": "Invoice Date",
                     "project_id": "Project ID",
