@@ -713,6 +713,15 @@ def generate_invoice_pdf(row_dict):
 
     # --- Fetch MRN line items (PO Number, Item Code, Description, Qty, Price, Total) ---
     ws_val = row_dict.get("workspace") or active_billing_workspace()
+
+    # Original company/workspace must always remain visible on the invoice.
+    work_company_map = {
+        "VISPL": "Visiontech Infra Solution Pvt. Ltd.",
+        "BHAGYASHREE": "Bhagyashree Enterprises",
+        "SAI TELE": "Sai Tele",
+    }
+    work_company = work_company_map.get(str(ws_val).strip().upper(), str(ws_val or "-").strip())
+
     mrn_items_rows = fetch_mrn_items(invoice_no, ws_val)
 
     try:
@@ -749,8 +758,18 @@ def generate_invoice_pdf(row_dict):
     pdf.set_font("Arial", 'B', 13)
     pdf.cell(190, 9, "INVOICE", border=1, align='C', ln=True)
 
-    # --- Bill To / Ship To for the selected company + Entity Info ---
-    bill_company, bill_address, bill_gstin, bill_pan = billing_company_details(ws_val)
+    # --- Bill To / Ship To + Entity Info ---
+    # FINAL RULE:
+    # Team invoice chahe VISPL / BHAGYASHREE / SAI TELE workspace ka ho,
+    # Bill To + Ship To hamesha Visiontech Infra Solution Pvt. Ltd. rahega.
+    # Vendor invoice ka existing company-wise logic unchanged rahega.
+    if invoice_type == "Vendor":
+        bill_company, bill_address, bill_gstin, bill_pan = billing_company_details(ws_val)
+    else:
+        bill_company = "Visiontech Infra Solution Pvt. Ltd."
+        bill_address = VISIONTECH_ADDRESS_LINES
+        bill_gstin = VISIONTECH_GSTIN
+        bill_pan = VISIONTECH_PAN
     address_details = "\n".join(bill_address)
     if bill_gstin:
         address_details += f"\nGSTIN/UIN : {bill_gstin}"
@@ -788,10 +807,11 @@ def generate_invoice_pdf(row_dict):
 
     # --- Invoice detail table ---
     detail_rows = [
-        ("Invoice Number", invoice_no, "MRN Date", date_fmt),
-        ("Project ID", project_id, "Site ID", site_id),
-        ("Site Name", site_name, "Cluster", cluster),
-        ("Remark", "Tower Work", "Place of Supply", "Maharashtra, Code : 27"),
+        ("Company / Work For", work_company, "Invoice Number", invoice_no),
+        ("MRN Date", date_fmt, "Project ID", project_id),
+        ("Site ID", site_id, "Site Name", site_name),
+        ("Cluster", cluster, "Remark", "Tower Work"),
+        ("Place of Supply", "Maharashtra, Code : 27", "Workspace", str(ws_val)),
     ]
     row_h = 7
     for label1, val1, label2, val2 in detail_rows:
@@ -1370,9 +1390,10 @@ def fetch_team_material_transfers_cached(workspace):
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_ledger_data_cached(workspace, rep_mode, inv_col, sel_name):
     try:
-        # Team Ledger on VISPL = billing from all 3 companies together.
-        # Vendor ledger and other company pages keep the existing workspace-wise behavior.
-        if rep_mode == "Team" and workspace == "VISPL":
+        # TEAM LEDGER is centralized: from ANY company page, show Team billing
+        # from VISPL + BHAGYASHREE + SAI TELE together. Company identity stays
+        # on each invoice through its original workspace value.
+        if rep_mode == "Team":
             res_inv = (supabase.table("billing_invoices").select("*")
                        .in_("workspace", list(BILLING_WORKSPACES))
                        .eq("invoice_type", rep_mode)
@@ -1389,9 +1410,8 @@ def fetch_ledger_data_cached(workspace, rep_mode, inv_col, sel_name):
         inv_rows = []
 
     try:
-        # Team payments are centralized in Visiontech.
-        # So VISPL Team Ledger uses only VISPL payments against combined billing.
-        payment_workspace = "VISPL" if rep_mode == "Team" and workspace == "VISPL" else workspace
+        # Team payments are centralized in Visiontech for all three companies.
+        payment_workspace = "VISPL" if rep_mode == "Team" else workspace
         res_pay = (supabase.table("billing_payments").select("*")
                    .eq("workspace", payment_workspace)
                    .eq("mode", rep_mode)
@@ -2230,7 +2250,8 @@ elif st.session_state.billing_active_page == "ledger":
                 
                 pdf.set_text_color(*primary_color)
                 pdf.set_font("Arial", 'B', 18)
-                pdf.cell(190, 10, billing_company_details(active_ws)[0].upper(), ln=True, align='C')
+                ledger_company_title = "Visiontech Infra Solution Pvt. Ltd." if rep_mode == "Team" else billing_company_details(active_ws)[0]
+                pdf.cell(190, 10, ledger_company_title.upper(), ln=True, align='C')
                 
                 pdf.set_text_color(*secondary_color)
                 pdf.set_font("Arial", 'B', 14)
