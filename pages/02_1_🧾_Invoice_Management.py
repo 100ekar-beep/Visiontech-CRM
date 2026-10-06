@@ -770,6 +770,25 @@ get_table_df.clear = _fetch_table_data.clear
 def field_widget(col_name, value, key, container):
     """Renders the right input widget for a column based on its name, returns the value to save."""
     cl = col_name.lower()
+
+    # Manual status dropdown for generic tables (Invoice Data / ERS Process etc.)
+    if cl in ("status", "sub_status"):
+        current = "" if value is None else str(value).strip()
+        if current.lower() in ("nan", "none", "null"):
+            current = ""
+        options = ["", "Submitted"]
+        if current and current.lower() != "submitted":
+            options.insert(1, current)
+        selected_index = next(
+            (i for i, opt in enumerate(options) if opt.lower() == current.lower()),
+            0
+        )
+        return container.selectbox(
+            col_name.replace("_", " ").title(),
+            options,
+            index=selected_index,
+            key=key
+        )
     if cl == 'sub_status':
         current = "" if value is None else str(value).strip()
         options = ["", "Submitted"]
