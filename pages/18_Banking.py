@@ -3185,6 +3185,50 @@ if is_indus:
             })
 
         df = pd.DataFrame(data)
+
+        # ------------------------------------------------------------
+        # Invoice-wise grouping:
+        # Standard Invoice first, then SAME invoice ka TDS Credit Memo.
+        # Example:
+        # VIS/26-27/1400
+        # VIS/26-27/1400-TDS-CM-xxxxx
+        # ------------------------------------------------------------
+        if not df.empty:
+            def _payment_parent_invoice(invoice_value):
+                invoice_value = str(invoice_value or "").strip()
+                upper_value = invoice_value.upper()
+                marker = "-TDS-CM-"
+                if marker in upper_value:
+                    marker_pos = upper_value.find(marker)
+                    return invoice_value[:marker_pos]
+                return invoice_value
+
+            df["_parent_invoice"] = df["Invoice"].apply(_payment_parent_invoice)
+            df["_type_order"] = (
+                df["Invoice Type"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .map({"standard": 0, "credit memo": 1})
+                .fillna(2)
+            )
+
+            # Payment Date latest first; within each date:
+            # parent invoice -> Standard -> Credit Memo/TDS.
+            df["_payment_date_sort"] = pd.to_datetime(
+                df["Payment Date"], errors="coerce", dayfirst=True
+            )
+
+            df = (
+                df.sort_values(
+                    by=["_payment_date_sort", "_parent_invoice", "_type_order", "Invoice"],
+                    ascending=[False, True, True, True],
+                    kind="stable",
+                )
+                .drop(columns=["_parent_invoice", "_type_order", "_payment_date_sort"])
+                .reset_index(drop=True)
+            )
+
         c1, c2 = st.columns([5, 1.6])
         with c1:
             q = st.text_input(
