@@ -2199,15 +2199,36 @@ def indus_po_from_prepayment(invoice_text, po_value=""):
     return match.group(1) if match else ""
 
 
-def indus_fetch_all(table_name, order_col="id", desc=True):
-    response = (
-        supabase.table(table_name)
-        .select("*")
-        .eq("workspace", ALLOWED_WORKSPACE)
-        .order(order_col, desc=desc)
-        .execute()
-    )
-    return response.data or []
+def indus_fetch_all(table_name, order_column=None, descending=False):
+    """
+    Fetch ALL INDUS rows from Supabase.
+    Supabase/PostgREST commonly returns max 1000 rows per request,
+    so fetch in 1000-row pages until the final partial page.
+    """
+    all_rows = []
+    page_size = 1000
+    start_row = 0
+
+    while True:
+        query = (
+            supabase.table(table_name)
+            .select("*")
+            .eq("workspace", ALLOWED_WORKSPACE)
+        )
+
+        if order_column:
+            query = query.order(order_column, desc=descending)
+
+        response = query.range(start_row, start_row + page_size - 1).execute()
+        batch = response.data or []
+        all_rows.extend(batch)
+
+        if len(batch) < page_size:
+            break
+
+        start_row += page_size
+
+    return all_rows
 
 
 def indus_existing_invoice(receipt_no):
