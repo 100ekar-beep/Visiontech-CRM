@@ -350,12 +350,27 @@ fetch_mrn_data.clear = _fetch_mrn_data_cached.clear
 @st.cache_data(ttl=60, show_spinner=False)
 def _fetch_project_ids_cached(ws):
     try:
-        res = supabase.table("site_data").select("*").eq("workspace", ws).limit(100000).execute()
-        if res.data:
-            pids = [str(x["Project ID"]).strip() for x in res.data if x.get("Project ID") and str(x.get("Project ID")).strip() != "" and str(x.get("Project ID")).strip().lower() != "nan"]
-            return ["Select Project ID"] + list(dict.fromkeys(pids))
+        pids = []
+        offset = 0
+        # Fetch every workspace row despite the API's per-response row cap.
+        while True:
+            res = (supabase.table("site_data").select('"Project ID",id')
+                   .eq("workspace", ws).order("id")
+                   .range(offset, offset + 499).execute())
+            rows = res.data or []
+            if not rows:
+                break
+            for row in rows:
+                raw = row.get("Project ID")
+                if raw is not None:
+                    pid = str(raw).strip()
+                    if pid and pid.lower() not in ("nan", "none", "null"):
+                        pids.append(str(raw))
+            offset += len(rows)
+        return ["Select Project ID"] + list(dict.fromkeys(pids))
     except Exception as e:
         st.error(f"Error fetching Project IDs: {e}")
+        st.stop()
     return ["Select Project ID"]
 
 def fetch_project_ids():
