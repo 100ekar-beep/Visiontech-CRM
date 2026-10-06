@@ -3160,6 +3160,8 @@ if is_indus:
         for r in active_invoice_rows
     )
     advance_total = sum(indus_number(r.get("balance_amount")) for r in prepayment_rows)
+    blocked_total = sum(abs(indus_number(r.get("invoice_amount"))) for r in blocked_invoice_rows)
+    blocked_count = len(blocked_invoice_rows)
 
     st.markdown(
         "<div class='indus-kpi-grid'>"
@@ -3169,6 +3171,7 @@ if is_indus:
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Payment Received</div><div class='indus-kpi-value'>₹ {received_total:,.2f}</div><div class='indus-kpi-foot'>Settled receipts</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Outstanding</div><div class='indus-kpi-value'>₹ {outstanding_total:,.2f}</div><div class='indus-kpi-foot'>Current due</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Advance Balance</div><div class='indus-kpi-value'>₹ {advance_total:,.2f}</div><div class='indus-kpi-foot'>PO prepayment</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>🚫 Blocked</div><div class='indus-kpi-value'>₹ {blocked_total:,.2f}</div><div class='indus-kpi-foot'>{blocked_count:,} ERS / Invoice blocked</div></div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -3257,26 +3260,93 @@ if is_indus:
         st.markdown(
             """<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;
             padding:14px 18px;margin-bottom:16px;color:#9a3412;font-weight:800;">
-            🚫 Blocked records are completely excluded from Invoice Total, TDS, Payment,
-            Settlement and Outstanding calculations.
+            🚫 Blocked ERS / Invoice are completely excluded from Total Invoice, TDS,
+            Net Receivable, Payment, Settlement and Outstanding calculations.
             </div>""",
             unsafe_allow_html=True,
         )
 
+        blocked_data = [{
+            "ERS No": r.get("ers_no") or "",
+            "Invoice No": r.get("invoice_no") or "",
+            "Invoice Date": format_date(r.get("invoice_date")),
+            "Receipt No": r.get("receipt_no") or "",
+            "PO Number": r.get("po_number") or "",
+            "Invoice Amount": abs(indus_number(r.get("invoice_amount"))),
+            "TDS": abs(indus_number(r.get("tds_amount"))),
+            "Payment Status": r.get("payment_status") or "",
+            "Invoice Status": r.get("invoice_status") or "",
+            "Block Remark": r.get("block_remark") or "",
+            "Blocked By": r.get("blocked_by") or "",
+            "Blocked At": format_date(r.get("blocked_at")),
+            "_id": r.get("id"),
+        } for r in blocked_invoice_rows]
+
+        blocked_df = pd.DataFrame(blocked_data)
+
+        c1, c2 = st.columns([5, 1.6])
+        with c1:
+            bq = st.text_input(
+                "Search blocked",
+                placeholder="Search ERS / Invoice / Receipt / PO / Remark...",
+                key="indus_blocked_search",
+                label_visibility="collapsed",
+            )
+
+        display_blocked_df = blocked_df.drop(columns=["_id"], errors="ignore")
+        filtered_blocked_df = indus_search_df(display_blocked_df, bq)
+
+        with c2:
+            st.download_button(
+                "Download Excel",
+                indus_excel_bytes(filtered_blocked_df, "Blocked ERS"),
+                f"Indus_Blocked_ERS_{today:%Y%m%d}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="indus_blocked_download",
+                use_container_width=True,
+            )
+
+        _indus_table(
+            "🚫 Blocked ERS / Invoice Register",
+            "Excluded from all financial calculations",
+            (
+                f"Blocked ₹ {filtered_blocked_df['Invoice Amount'].sum():,.2f} | "
+                f"{len(filtered_blocked_df):,} record(s)"
+                if not filtered_blocked_df.empty
+                else "Blocked ₹ 0.00 | 0 record(s)"
+            ),
+            filtered_blocked_df,
+            money_cols={"Invoice Amount", "TDS"},
+            status_cols={"Payment Status", "Invoice Status"},
+            chip_cols={"ERS No", "Invoice No", "Receipt No", "PO Number"},
+        )
+
         if blocked_invoice_rows:
-            for rec in blocked_invoice_rows:
-                c1, c2, c3, c4, c5 = st.columns([2.1, 2.2, 1.5, 3.0, 1.1])
-                c1.markdown(f"**{rec.get('ers_no') or '-'}**")
-                c2.markdown(f"**{rec.get('invoice_no') or '-'}**")
-                c3.markdown(f"₹ {indus_number(rec.get('invoice_amount')):,.2f}")
-                c4.markdown(str(rec.get("block_remark") or "-"))
-                with c5:
-                    if st.button("Unblock", key=f"indus_unblock_{rec.get('id')}", use_container_width=True):
-                        indus_unblock_invoice(rec.get("id"))
+            st.markdown("#### ♻️ Unblock ERS / Invoice")
+            unblock_map = {
+                f"{r.get('ers_no') or r.get('invoice_no') or '-'} | ₹ {abs(indus_number(r.get('invoice_amount'))):,.2f}": r
+                for r in blocked_invoice_rows
+            }
+            uc1, uc2 = st.columns([5, 1.3])
+            with uc1:
+                selected_unblock = st.selectbox(
+                    "Select blocked ERS / Invoice",
+                    ["-- Select --"] + list(unblock_map.keys()),
+                    key="indus_unblock_select",
+                    label_visibility="collapsed",
+                )
+            with uc2:
+                if st.button(
+                    "UNBLOCK",
+                    key="indus_unblock_selected_btn",
+                    use_container_width=True,
+                ):
+                    if selected_unblock == "-- Select --":
+                        st.warning("Blocked ERS / Invoice select karo.")
+                    else:
+                        indus_unblock_invoice(unblock_map[selected_unblock].get("id"))
                         st.success("Record unblocked.")
                         st.rerun()
-        else:
-            st.info("Abhi koi Blocked ERS / Invoice nahi hai.")
 
     elif st.session_state.indus_active_view == "Payments":
         st.markdown(
