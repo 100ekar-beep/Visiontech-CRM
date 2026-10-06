@@ -2459,10 +2459,24 @@ def edit_invoice_dialog(row_data, table_name):
             try:
                 # FIX: PostgreSQL timestamp/date columns do not accept blank string "".
                 # Convert blank strings to NULL before sending the update to Supabase.
-                clean_update_data = {
-                    col: (None if isinstance(val, str) and val.strip() == "" else val)
-                    for col, val in update_data.items()
-                }
+                clean_update_data = {}
+                for col, val in update_data.items():
+                    # Pandas/Numpy NaN/NaT cannot be sent as JSON.
+                    try:
+                        if pd.isna(val):
+                            clean_update_data[col] = None
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+
+                    # Python float NaN/Infinity also cannot be sent as JSON.
+                    if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                        clean_update_data[col] = None
+                    elif isinstance(val, str) and val.strip().lower() in ("", "nan", "nat", "none", "null"):
+                        clean_update_data[col] = None
+                    else:
+                        clean_update_data[col] = val
+
                 supabase.table(table_name).update(clean_update_data).eq("id", row_data['id']).execute()
                 st.success("✅ Invoice Updated Successfully!")
                 get_table_df.clear()
