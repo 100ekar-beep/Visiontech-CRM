@@ -60,7 +60,7 @@ MATERIAL_VENDORS = {
     },
 }
 
-MAIN_ACCOUNT_TABS = list(ACCOUNTS.keys()) + ["Material"]
+MAIN_ACCOUNT_TABS = list(ACCOUNTS.keys()) + ["Material", "INDUS"]
 
 
 st.markdown(
@@ -499,6 +499,7 @@ def parse_statement(file_bytes: bytes, sheet_name: str, account_label: str, file
 
     account = ACCOUNTS[account_label]
     records = []
+    seen_hashes = set()
     for row_index in range(header_row + 1, len(raw)):
         row = raw.iloc[row_index]
         txn_date = to_date(row.iloc[column_map["date"]])
@@ -519,6 +520,11 @@ def parse_statement(file_bytes: bytes, sheet_name: str, account_label: str, file
             ]
         )
         transaction_hash = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+
+        # Same file me exact same transaction repeat ho to ek hi baar lo.
+        if transaction_hash in seen_hashes:
+            continue
+        seen_hashes.add(transaction_hash)
 
         records.append(
             {
@@ -706,6 +712,83 @@ def fetch_transactions(account_key: str, status: str):
     )
     return query.execute().data or []
 
+
+
+def get_bank_last_data_date(account_key: str):
+    """Latest transaction date already saved for this bank account."""
+    try:
+        response = (
+            supabase.table("bank_transactions")
+            .select("transaction_date")
+            .eq("workspace", ALLOWED_WORKSPACE)
+            .eq("account_key", account_key)
+            .order("transaction_date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return to_date(response.data[0].get("transaction_date"))
+    except Exception:
+        pass
+    return None
+
+
+def render_last_data_date_card(last_date, source_name="STATEMENT"):
+    """Large premium reminder card shown above upload area."""
+    if last_date:
+        date_big = last_date.strftime("%d %b %Y").upper()
+        next_date = last_date + datetime.timedelta(days=1)
+        next_text = next_date.strftime("%d %b %Y").upper()
+        st.markdown(
+            f"""
+            <div style="
+                margin:8px 0 20px 0;
+                padding:18px 24px;
+                border-radius:18px;
+                background:linear-gradient(100deg,#0f172a 0%,#312e81 45%,#6d28d9 100%);
+                border:1px solid rgba(255,255,255,.16);
+                box-shadow:0 14px 32px rgba(49,46,129,.24);
+                display:flex;justify-content:space-between;align-items:center;
+                gap:18px;flex-wrap:wrap;">
+                <div>
+                    <div style="color:#c7d2fe;font-size:.72rem;font-weight:900;
+                                letter-spacing:1.5px;text-transform:uppercase;">
+                        📅 LAST {html.escape(source_name)} DATA DATE
+                    </div>
+                    <div style="color:#ffffff;font-size:2rem;font-weight:950;
+                                letter-spacing:.5px;line-height:1.15;margin-top:5px;">
+                        {date_big}
+                    </div>
+                </div>
+                <div style="
+                    background:rgba(255,255,255,.12);
+                    border:1px solid rgba(255,255,255,.18);
+                    padding:11px 16px;border-radius:12px;
+                    color:#ffffff;font-weight:800;">
+                    Next data download from
+                    <span style="color:#fde68a;font-size:1.05rem;"> {next_text}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+            <div style="
+                margin:8px 0 20px 0;padding:17px 22px;border-radius:18px;
+                background:linear-gradient(100deg,#0f172a,#312e81,#6d28d9);
+                color:white;box-shadow:0 14px 32px rgba(49,46,129,.22);">
+                <div style="font-size:.72rem;font-weight:900;letter-spacing:1.5px;color:#c7d2fe;">
+                    📅 LAST {html.escape(source_name)} DATA DATE
+                </div>
+                <div style="font-size:1.35rem;font-weight:950;margin-top:5px;">
+                    NO DATA UPLOADED YET
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 def refresh_material_payment_details(transaction_ids):
     clean_ids = [int(value) for value in transaction_ids]
@@ -1790,200 +1873,214 @@ with st.container(key="banking_account_nav"):
                 st.session_state.banking_active_account = account_name
                 st.rerun()
 
+is_indus = st.session_state.banking_active_account == "INDUS"
 is_material = st.session_state.banking_active_account == "Material"
-if is_material:
-    with st.container(key="banking_material_vendor_nav"):
-        vendor_columns = st.columns(len(MATERIAL_VENDORS))
-        for vendor_column, vendor_name in zip(vendor_columns, MATERIAL_VENDORS.keys()):
-            with vendor_column:
-                vendor_active = st.session_state.banking_active_material_vendor == vendor_name
-                if st.button(
-                    vendor_name,
-                    key=f"material_vendor_nav_{MATERIAL_VENDORS[vendor_name]['key']}",
-                    type="primary" if vendor_active else "secondary",
-                    use_container_width=True,
-                ):
-                    st.session_state.banking_active_material_vendor = vendor_name
-                    st.rerun()
-    active_account_label = st.session_state.banking_active_material_vendor
-    active_account_data = MATERIAL_VENDORS[active_account_label]
-    active_account_heading = f"Material — {html.escape(active_account_label)}"
-else:
-    active_account_label = st.session_state.banking_active_account
-    active_account_data = ACCOUNTS[active_account_label]
-    active_account_heading = html.escape(active_account_label)
-
-st.markdown(
-    f"""
-    <div class="bank-title">
-        <h1>🏦 {active_account_heading}</h1>
-        <p>{'Material invoice upload, allocation and payment approval' if is_material else 'Statement upload, Team/Vendor allocation and payment approval'}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-with st.expander("Expense Category Master — नया खर्च जोड़ें"):
-    st.caption("यहाँ जो category add करेंगे, वही Other Expense dropdown में दिखेगी।")
-    with st.form("add_expense_category_form", clear_on_submit=True):
-        new_expense_category = st.text_input(
-            "New Expense Category",
-            placeholder="Example: Office Rent, EMI, GST Paid",
-        )
-        add_category_clicked = st.form_submit_button(
-            "Add Category",
-            type="primary",
-        )
-    if add_category_clicked:
-        try:
-            add_expense_category(new_expense_category)
-            st.success("Expense category add हो गई।")
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-
-    try:
-        active_expenses = load_expense_categories()
-        if active_expenses:
-            st.write("Active Categories: " + ", ".join(active_expenses))
-    except Exception as exc:
-        st.warning(f"Expense categories load नहीं हुईं: {exc}")
-
-for account_label, account in [(active_account_label, active_account_data)]:
-    with st.container():
-        st.subheader(account_label)
-        workflow_views = [
-            ("Assign & Approve", "✅ Assign & Approve"),
-            ("Approved Payments", "💳 Approved Payments"),
-            ("Suspense", "⏳ Suspense"),
-            ("Other Expenses", "🧾 Other Expenses"),
-        ]
-        with st.container(key="banking_view_nav"):
-            view_columns = st.columns(len(workflow_views))
-            for view_column, (view_key, view_label) in zip(view_columns, workflow_views):
-                with view_column:
-                    view_active = st.session_state.banking_active_view == view_key
+if not is_indus:
+    if is_material:
+        with st.container(key="banking_material_vendor_nav"):
+            vendor_columns = st.columns(len(MATERIAL_VENDORS))
+            for vendor_column, vendor_name in zip(vendor_columns, MATERIAL_VENDORS.keys()):
+                with vendor_column:
+                    vendor_active = st.session_state.banking_active_material_vendor == vendor_name
                     if st.button(
-                        view_label,
-                        key=f"bank_view_nav_{view_key}",
-                        type="primary" if view_active else "secondary",
+                        vendor_name,
+                        key=f"material_vendor_nav_{MATERIAL_VENDORS[vendor_name]['key']}",
+                        type="primary" if vendor_active else "secondary",
                         use_container_width=True,
                     ):
-                        st.session_state.banking_active_view = view_key
+                        st.session_state.banking_active_material_vendor = vendor_name
                         st.rerun()
+        active_account_label = st.session_state.banking_active_material_vendor
+        active_account_data = MATERIAL_VENDORS[active_account_label]
+        active_account_heading = f"Material — {html.escape(active_account_label)}"
+    else:
+        active_account_label = st.session_state.banking_active_account
+        active_account_data = ACCOUNTS[active_account_label]
+        active_account_heading = html.escape(active_account_label)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### Step 1: Material Invoice Upload" if is_material else "#### Step 1: Statement Upload")
-        if is_material:
-            manual_column, template_column, blank_column = st.columns([1.5, 1.9, 3.6])
-            with manual_column:
-                if st.button(
-                    "➕ Manual Add Entry",
-                    key=f"manual_material_entry_{account['key']}",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    manual_material_invoice_dialog(account_label)
-            with template_column:
-                st.download_button(
-                    "⬇️ Download Material Excel Format",
-                    data=material_upload_template_excel(),
-                    file_name="Material_Statement_Upload_Template.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"download_material_template_{account['key']}",
-                    use_container_width=True,
+    st.markdown(
+        f"""
+        <div class="bank-title">
+            <h1>🏦 {active_account_heading}</h1>
+            <p>{'Material invoice upload, allocation and payment approval' if is_material else 'Statement upload, Team/Vendor allocation and payment approval'}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Expense Category Master — नया खर्च जोड़ें"):
+        st.caption("यहाँ जो category add करेंगे, वही Other Expense dropdown में दिखेगी।")
+        with st.form("add_expense_category_form", clear_on_submit=True):
+            new_expense_category = st.text_input(
+                "New Expense Category",
+                placeholder="Example: Office Rent, EMI, GST Paid",
+            )
+            add_category_clicked = st.form_submit_button(
+                "Add Category",
+                type="primary",
+            )
+        if add_category_clicked:
+            try:
+                add_expense_category(new_expense_category)
+                st.success("Expense category add हो गई।")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+        try:
+            active_expenses = load_expense_categories()
+            if active_expenses:
+                st.write("Active Categories: " + ", ".join(active_expenses))
+        except Exception as exc:
+            st.warning(f"Expense categories load नहीं हुईं: {exc}")
+
+    for account_label, account in [(active_account_label, active_account_data)]:
+        with st.container():
+            st.subheader(account_label)
+
+            # Material ko chhodkar har banking account par latest saved data date.
+            if not is_material:
+                render_last_data_date_card(
+                    get_bank_last_data_date(account["key"]),
+                    "BANK STATEMENT",
                 )
-        uploaded = st.file_uploader(
-            "Upload material statement (.xls or .xlsx)" if is_material else "Upload bank statement (.xls or .xlsx)",
-            type=["xls", "xlsx"],
-            key=f"upload_{account['key']}",
-        )
 
-        if uploaded is not None:
-            try:
-                file_bytes = uploaded.getvalue()
-                sheet_names = workbook_sheet_names(file_bytes)
-                selected_sheet = st.selectbox(
-                    "Excel Sheet",
-                    options=sheet_names,
-                    key=f"sheet_{account['key']}",
-                )
-                if is_material:
-                    preview_records = parse_material_statement(
-                        file_bytes,
-                        selected_sheet,
-                        account_label,
-                        uploaded.name,
-                    )
-                    st.info(f"Preview: {len(preview_records)} material invoices मिले। Existing duplicate invoices import नहीं होंगे।")
-                else:
-                    preview_records = parse_statement(
-                        file_bytes,
-                        selected_sheet,
-                        account_label,
-                        uploaded.name,
-                    )
-                    st.info(f"Preview: {len(preview_records)} withdrawal transactions मिले। Deposit और Closing Balance शामिल नहीं हैं।")
+            workflow_views = [
+                ("Assign & Approve", "✅ Assign & Approve"),
+                ("Approved Payments", "💳 Approved Payments"),
+                ("Suspense", "⏳ Suspense"),
+                ("Other Expenses", "🧾 Other Expenses"),
+            ]
+            with st.container(key="banking_view_nav"):
+                view_columns = st.columns(len(workflow_views))
+                for view_column, (view_key, view_label) in zip(view_columns, workflow_views):
+                    with view_column:
+                        view_active = st.session_state.banking_active_view == view_key
+                        if st.button(
+                            view_label,
+                            key=f"bank_view_nav_{view_key}",
+                            type="primary" if view_active else "secondary",
+                            use_container_width=True,
+                        ):
+                            st.session_state.banking_active_view = view_key
+                            st.rerun()
 
-                preview_df = pd.DataFrame(preview_records)[
-                    ["transaction_date", "narration", "reference_no", "withdrawal_amount"]
-                ].sort_values("transaction_date", ascending=False)
-                preview_df.columns = [
-                    "Invoice Date" if is_material else "Date",
-                    "Narration",
-                    "Invoice No." if is_material else "Chq./Ref.No.",
-                    "Invoice Amount" if is_material else "Withdrawal Amt.",
-                ]
-                date_column = "Invoice Date" if is_material else "Date"
-                amount_column = "Invoice Amount" if is_material else "Withdrawal Amt."
-                preview_df[date_column] = pd.to_datetime(preview_df[date_column]).dt.strftime("%d-%b-%Y")
-                preview_df[amount_column] = preview_df[amount_column].apply(format_amount)
-                render_statement_preview(preview_df)
-
-                if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
-                    before = sum(
-                        len(fetch_transactions(account["key"], status))
-                        for status in ("Pending", "Approved", "Suspense", "Other Expense")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### Step 1: Material Invoice Upload" if is_material else "#### Step 1: Statement Upload")
+            if is_material:
+                manual_column, template_column, blank_column = st.columns([1.5, 1.9, 3.6])
+                with manual_column:
+                    if st.button(
+                        "➕ Manual Add Entry",
+                        key=f"manual_material_entry_{account['key']}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        manual_material_invoice_dialog(account_label)
+                with template_column:
+                    st.download_button(
+                        "⬇️ Download Material Excel Format",
+                        data=material_upload_template_excel(),
+                        file_name="Material_Statement_Upload_Template.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"download_material_template_{account['key']}",
+                        use_container_width=True,
                     )
-                    supabase.table("bank_transactions").upsert(
-                        preview_records,
-                        on_conflict="workspace,account_key,transaction_hash",
-                        ignore_duplicates=True,
-                    ).execute()
-                    after = sum(
-                        len(fetch_transactions(account["key"], status))
-                        for status in ("Pending", "Approved", "Suspense", "Other Expense")
-                    )
-                    st.success(f"Import completed. New entries: {max(0, after - before)} | Duplicate skipped: {max(0, len(preview_records) - max(0, after - before))}")
-                    st.rerun()
-            except Exception as exc:
-                st.error(f"Statement save नहीं हुआ: {exc}")
+            uploaded = st.file_uploader(
+                "Upload material statement (.xls or .xlsx)" if is_material else "Upload bank statement (.xls or .xlsx)",
+                type=["xls", "xlsx"],
+                key=f"upload_{account['key']}",
+            )
 
-        if st.session_state.banking_active_view == "Assign & Approve":
-            try:
-                pending_records = fetch_transactions(account["key"], "Pending")
-                render_bulk_search_and_move(pending_records, account["key"])
-                render_pending(pending_records, account["key"], "Pending")
-            except Exception as exc:
-                st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
-        elif st.session_state.banking_active_view == "Approved Payments":
-            try:
-                render_approved(fetch_transactions(account["key"], "Approved"), account["key"])
-            except Exception as exc:
-                st.warning(f"Approved payments load नहीं हुए: {exc}")
-        elif st.session_state.banking_active_view == "Suspense":
-            try:
-                render_pending(fetch_transactions(account["key"], "Suspense"), account["key"], "Suspense")
-            except Exception as exc:
-                st.warning(f"Suspense transactions load नहीं हुए: {exc}")
-        elif st.session_state.banking_active_view == "Other Expenses":
-            try:
-                render_other_expenses(
-                    fetch_transactions(account["key"], "Other Expense"),
-                    account["key"],
-                )
-            except Exception as exc:
-                st.warning(f"Other Expenses load नहीं हुए: {exc}")
+            if uploaded is not None:
+                try:
+                    file_bytes = uploaded.getvalue()
+                    sheet_names = workbook_sheet_names(file_bytes)
+                    selected_sheet = st.selectbox(
+                        "Excel Sheet",
+                        options=sheet_names,
+                        key=f"sheet_{account['key']}",
+                    )
+                    if is_material:
+                        preview_records = parse_material_statement(
+                            file_bytes,
+                            selected_sheet,
+                            account_label,
+                            uploaded.name,
+                        )
+                        st.info(f"Preview: {len(preview_records)} material invoices मिले। Existing duplicate invoices import नहीं होंगे।")
+                    else:
+                        preview_records = parse_statement(
+                            file_bytes,
+                            selected_sheet,
+                            account_label,
+                            uploaded.name,
+                        )
+                        st.info(
+                            f"Preview: {len(preview_records)} unique withdrawal transactions मिले। "
+                            "Same-file और already-saved duplicate transactions import नहीं होंगे। "
+                            "Deposit और Closing Balance शामिल नहीं हैं।"
+                        )
+
+                    preview_df = pd.DataFrame(preview_records)[
+                        ["transaction_date", "narration", "reference_no", "withdrawal_amount"]
+                    ].sort_values("transaction_date", ascending=False)
+                    preview_df.columns = [
+                        "Invoice Date" if is_material else "Date",
+                        "Narration",
+                        "Invoice No." if is_material else "Chq./Ref.No.",
+                        "Invoice Amount" if is_material else "Withdrawal Amt.",
+                    ]
+                    date_column = "Invoice Date" if is_material else "Date"
+                    amount_column = "Invoice Amount" if is_material else "Withdrawal Amt."
+                    preview_df[date_column] = pd.to_datetime(preview_df[date_column]).dt.strftime("%d-%b-%Y")
+                    preview_df[amount_column] = preview_df[amount_column].apply(format_amount)
+                    render_statement_preview(preview_df)
+
+                    if st.button("Save Transactions & Continue", key=f"import_{account['key']}", type="primary"):
+                        before = sum(
+                            len(fetch_transactions(account["key"], status))
+                            for status in ("Pending", "Approved", "Suspense", "Other Expense")
+                        )
+                        supabase.table("bank_transactions").upsert(
+                            preview_records,
+                            on_conflict="workspace,account_key,transaction_hash",
+                            ignore_duplicates=True,
+                        ).execute()
+                        after = sum(
+                            len(fetch_transactions(account["key"], status))
+                            for status in ("Pending", "Approved", "Suspense", "Other Expense")
+                        )
+                        st.success(f"Import completed. New entries: {max(0, after - before)} | Duplicate skipped: {max(0, len(preview_records) - max(0, after - before))}")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Statement save नहीं हुआ: {exc}")
+
+            if st.session_state.banking_active_view == "Assign & Approve":
+                try:
+                    pending_records = fetch_transactions(account["key"], "Pending")
+                    render_bulk_search_and_move(pending_records, account["key"])
+                    render_pending(pending_records, account["key"], "Pending")
+                except Exception as exc:
+                    st.warning(f"Supabase connect नहीं हुआ, इसलिए Team/Vendor dropdown अभी नहीं दिख सकता: {exc}")
+            elif st.session_state.banking_active_view == "Approved Payments":
+                try:
+                    render_approved(fetch_transactions(account["key"], "Approved"), account["key"])
+                except Exception as exc:
+                    st.warning(f"Approved payments load नहीं हुए: {exc}")
+            elif st.session_state.banking_active_view == "Suspense":
+                try:
+                    render_pending(fetch_transactions(account["key"], "Suspense"), account["key"], "Suspense")
+                except Exception as exc:
+                    st.warning(f"Suspense transactions load नहीं हुए: {exc}")
+            elif st.session_state.banking_active_view == "Other Expenses":
+                try:
+                    render_other_expenses(
+                        fetch_transactions(account["key"], "Other Expense"),
+                        account["key"],
+                    )
+                except Exception as exc:
+                    st.warning(f"Other Expenses load नहीं हुए: {exc}")
 
 # =============================================================================
 # INDUS RECEIVABLES — Invoice / Payments / Prepayment / Credit Note
@@ -2328,6 +2425,38 @@ def indus_import_tsv(df, file_name):
     return counts
 
 
+
+def get_indus_last_data_date():
+    """
+    Latest business-data date in INDUS tables.
+    Uses invoice/credit/prepayment/debit date, not browser upload time.
+    """
+    candidates = []
+    checks = [
+        ("indus_invoices", "invoice_date"),
+        ("indus_credit_memos", "credit_memo_date"),
+        ("indus_prepayments", "prepayment_date"),
+        ("indus_debit_memos", "debit_memo_date"),
+    ]
+    for table_name, date_col in checks:
+        try:
+            response = (
+                supabase.table(table_name)
+                .select(date_col)
+                .eq("workspace", ALLOWED_WORKSPACE)
+                .not_.is_(date_col, "null")
+                .order(date_col, desc=True)
+                .limit(1)
+                .execute()
+            )
+            if response.data:
+                parsed = to_date(response.data[0].get(date_col))
+                if parsed:
+                    candidates.append(parsed)
+        except Exception:
+            pass
+    return max(candidates) if candidates else None
+
 def indus_excel_bytes(df, sheet_name):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -2379,104 +2508,254 @@ def indus_count_card(label, value, sub=""):
         unsafe_allow_html=True,
     )
 
+if is_indus:
+    if "indus_active_view" not in st.session_state:
+        st.session_state.indus_active_view = "Invoice"
 
-st.markdown(
-    """<div class="indus-hero">
-        <h2>🏢 INDUS RECEIVABLES</h2>
-        <p>Invoice • Payment • Prepayment • TDS / Credit Note — Receipt based smart tracking</p>
-    </div>""",
-    unsafe_allow_html=True,
-)
+    st.markdown("""
+    <style>
+    .st-key-indus_view_nav div[data-testid="stHorizontalBlock"] {
+        gap: 14px !important; flex-wrap: wrap !important;
+    }
+    .st-key-indus_view_nav button {
+        font-size: 1.05rem !important; font-weight: 800 !important;
+        min-height: 58px !important; padding: 14px 12px !important;
+        border-radius: 13px !important; white-space: nowrap !important;
+        transition: all .25s ease !important;
+    }
+    .st-key-indus_view_nav button[kind="secondary"] {
+        background:#fff !important; color:#475569 !important;
+        border:1.5px solid rgba(15,23,42,.12) !important;
+        box-shadow:0 3px 8px rgba(15,23,42,.08) !important;
+    }
+    .st-key-indus_view_nav button[kind="primary"] {
+        background:linear-gradient(90deg,#3b82f6 0%,#8b5cf6 100%) !important;
+        color:#fff !important; border:none !important;
+        box-shadow:0 7px 18px rgba(79,70,229,.38) !important;
+    }
+    .indus-kpi-grid {
+        display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
+        gap:14px; margin:4px 0 22px;
+    }
+    .indus-kpi {
+        position:relative; background:#fff; border-radius:16px; padding:18px 18px 16px;
+        border:1px solid #e0e7ff; overflow:hidden;
+        box-shadow:0 12px 28px -14px rgba(79,70,229,.35);
+    }
+    .indus-kpi:before {
+        content:""; position:absolute; left:0; right:0; top:0; height:4px;
+        background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);
+    }
+    .indus-kpi-label {font-size:.70rem;font-weight:900;letter-spacing:1.1px;text-transform:uppercase;color:#64748b;}
+    .indus-kpi-value {font-size:1.48rem;font-weight:950;color:#0f172a;margin-top:8px;}
+    .indus-kpi-foot {font-size:.74rem;color:#94a3b8;font-weight:650;margin-top:4px;}
 
-upload_col, refresh_col = st.columns([5, 1.2])
-with upload_col:
-    indus_upload = st.file_uploader(
-        "⬆️ Upload Latest Indus TSV Export",
-        type=["tsv", "txt"],
-        key="indus_receivable_tsv_upload",
-        help="Same export बार-बार upload कर सकते हैं. Receipt Number के आधार पर Standard invoice update होगा.",
-    )
-with refresh_col:
-    st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
-    if st.button("🔄 Refresh", key="indus_refresh", use_container_width=True):
-        st.rerun()
+    .indus-table-box {
+        background:#fff; border:1px solid #e0e7ff; border-top:none;
+        border-radius:0 0 18px 18px; overflow:auto; max-height:68vh;
+        box-shadow:0 24px 48px -24px rgba(30,27,75,.38);
+    }
+    .indus-table {border-collapse:separate;border-spacing:0;width:100%;min-width:1450px;font-size:.82rem;}
+    .indus-table thead th {
+        position:sticky;top:0;z-index:4;
+        background:linear-gradient(90deg,#312e81,#4338ca,#6d28d9);
+        color:#fff;padding:13px 11px;text-align:left;white-space:nowrap;
+        font-size:.69rem;font-weight:900;letter-spacing:.8px;text-transform:uppercase;
+        border-right:1px solid rgba(255,255,255,.15);border-bottom:3px solid #f59e0b;
+    }
+    .indus-table tbody td {
+        padding:10px 11px;border-right:1px solid #f1f5f9;border-bottom:1px solid #f1f5f9;
+        color:#334155;white-space:nowrap;vertical-align:middle;
+    }
+    .indus-table tbody tr:nth-child(odd){background:#fff;}
+    .indus-table tbody tr:nth-child(even){background:#fafaff;}
+    .indus-table tbody tr:hover{background:#eef2ff;box-shadow:inset 4px 0 0 #6366f1;}
+    .indus-chip {
+        display:inline-block;font-family:ui-monospace,Consolas,monospace;
+        background:#eef2ff;border:1px solid #c7d2fe;color:#4338ca;
+        padding:3px 8px;border-radius:6px;font-weight:800;
+    }
+    .indus-money {font-weight:900;color:#334155;font-variant-numeric:tabular-nums;}
+    .indus-money.green{color:#059669}.indus-money.red{color:#dc2626}.indus-money.amber{color:#d97706}
+    .indus-status {
+        display:inline-flex;padding:4px 10px;border-radius:999px;font-size:.69rem;
+        font-weight:900;letter-spacing:.35px;text-transform:uppercase;border:1px solid;
+    }
+    .indus-status.green{background:#dcfce7;color:#15803d;border-color:#bbf7d0}
+    .indus-status.red{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
+    .indus-status.amber{background:#fef3c7;color:#b45309;border-color:#fde68a}
+    .indus-status.blue{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
+    .indus-foot {
+        display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+        padding:14px 20px;background:linear-gradient(90deg,#f5f3ff,#eef2ff);
+        border:1px solid #e0e7ff;border-top:2px solid #c7d2fe;border-radius:0 0 18px 18px;
+        font-weight:900;color:#312e81;margin-bottom:18px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-if indus_upload is not None:
-    try:
-        indus_preview = indus_read_tsv(indus_upload.getvalue())
-        type_counts = indus_preview["Type"].value_counts().to_dict()
-        st.info(
-            f"File Rows: {len(indus_preview):,} | "
-            f"Standard: {type_counts.get('Standard',0):,} | "
-            f"Credit Memo: {type_counts.get('Credit Memo',0):,} | "
-            f"Debit Memo: {type_counts.get('Debit Memo',0):,} | "
-            f"Prepayment: {type_counts.get('Prepayment',0):,}"
-        )
-        preview_cols = [c for c in [
-            "Invoice", "Invoice Date", "Type", "Amount", "Due",
-            "Payment Status", "Due Date", "Payment", "PO Number",
-            "Receipt", "Invoice Status", "Payment UTR#"
-        ] if c in indus_preview.columns]
-        st.dataframe(indus_preview[preview_cols].head(100), use_container_width=True, hide_index=True)
-
-        if st.button(
-            "🚀 Import / Update Indus Data",
-            key="indus_import_update",
-            type="primary",
-            use_container_width=True,
-        ):
-            with st.spinner("Indus data import/update हो रहा है..."):
-                result = indus_import_tsv(indus_preview, indus_upload.name)
-            st.success(
-                f"Import completed ✅  Standard {result['standard']:,} | "
-                f"Credit Memo {result['credit']:,} | Debit Memo {result['debit']:,} | "
-                f"Prepayment {result['prepayment']:,} | "
-                f"New Standard {result['inserted']:,} | Updated Standard {result['updated']:,}"
+    def _indus_status_html(v):
+        s = str(v or "").strip()
+        sl = s.lower()
+        cls = "green" if sl in ("paid","approved","processed","active") else (
+            "red" if sl in ("rejected","cancelled","not paid") else (
+                "amber" if "partial" in sl or "pending" in sl or "hold" in sl else "blue"
             )
-            st.rerun()
+        )
+        return f"<span class='indus-status {cls}'>{html.escape(s or '-')}</span>"
+
+    def _indus_money_html(v, cls=""):
+        return f"<span class='indus-money {cls}'>₹ {indus_number(v):,.2f}</span>"
+
+    def _indus_chip_html(v):
+        return f"<span class='indus-chip'>{html.escape(str(v or '-'))}</span>"
+
+    def _indus_table(title, subtitle, badge, df, money_cols=None, status_cols=None, chip_cols=None):
+        money_cols = set(money_cols or [])
+        status_cols = set(status_cols or [])
+        chip_cols = set(chip_cols or [])
+        st.markdown(
+            f"<div class='slux-head-bar'><div class='slux-title'>{html.escape(title)}"
+            f"<span>{html.escape(subtitle)}</span></div>"
+            f"<div class='slux-badge'>{html.escape(str(badge))}</div></div>",
+            unsafe_allow_html=True,
+        )
+        if df is None or df.empty:
+            st.markdown("<div class='slux-empty'><div>🗂️</div>No records found</div>", unsafe_allow_html=True)
+            return
+        parts = ["<div class='indus-table-box'><table class='indus-table'><thead><tr>"]
+        for col in df.columns:
+            parts.append(f"<th>{html.escape(str(col))}</th>")
+        parts.append("</tr></thead><tbody>")
+        for _, row in df.iterrows():
+            parts.append("<tr>")
+            for col in df.columns:
+                val = row.get(col, "")
+                if col in money_cols:
+                    cls = "red" if col in ("Outstanding","Due") and indus_number(val) > 0 else (
+                        "green" if col in ("Payment Received","Balance Advance") else (
+                            "amber" if col in ("TDS","TDS Amount") else ""
+                        )
+                    )
+                    cell_html = _indus_money_html(val, cls)
+                elif col in status_cols:
+                    cell_html = _indus_status_html(val)
+                elif col in chip_cols:
+                    cell_html = _indus_chip_html(val)
+                else:
+                    cell_html = html.escape(str(val if val not in (None, "") else "-"))
+                parts.append(f"<td>{cell_html}</td>")
+            parts.append("</tr>")
+        parts.append("</tbody></table></div>")
+        st.markdown("".join(parts), unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='indus-foot'><span>{len(df):,} record(s)</span><span>{html.escape(str(badge))}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        """<div class="bank-title">
+            <h1>🏢 INDUS RECEIVABLES</h1>
+            <p>Invoice, Payment, Prepayment and TDS / Credit Note Management</p>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Latest INDUS business date — clearly visible before navigation.
+    render_last_data_date_card(get_indus_last_data_date(), "INDUS")
+
+    indus_views = [
+        ("Invoice", "📄 Invoice"),
+        ("Payments", "💰 Payments"),
+        ("Prepayment", "💵 Prepayment"),
+        ("Credit Note", "🧾 Credit Note"),
+    ]
+    with st.container(key="indus_view_nav"):
+        nav_cols = st.columns(len(indus_views))
+        for col, (view_key, view_label) in zip(nav_cols, indus_views):
+            with col:
+                active = st.session_state.indus_active_view == view_key
+                if st.button(
+                    view_label,
+                    key=f"indus_view_{view_key}",
+                    type="primary" if active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.indus_active_view = view_key
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Upload is kept on the Invoice page only.
+    if st.session_state.indus_active_view == "Invoice":
+        upload_col, refresh_col = st.columns([5, 1.2])
+        with upload_col:
+            indus_upload = st.file_uploader(
+                "⬆️ Upload Latest Indus TSV Export",
+                type=["tsv", "txt"],
+                key="indus_receivable_tsv_upload",
+                help="Same export repeat upload kar sakte hain. Receipt Number ke basis par Standard invoice update hoga.",
+            )
+        with refresh_col:
+            st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
+            if st.button("🔄 Refresh", key="indus_refresh", use_container_width=True):
+                st.rerun()
+
+        if indus_upload is not None:
+            try:
+                indus_preview = indus_read_tsv(indus_upload.getvalue())
+                type_counts = indus_preview["Type"].value_counts().to_dict()
+                st.info(
+                    f"Rows: {len(indus_preview):,} | Standard: {type_counts.get('Standard',0):,} | "
+                    f"Credit Memo: {type_counts.get('Credit Memo',0):,} | "
+                    f"Debit Memo: {type_counts.get('Debit Memo',0):,} | "
+                    f"Prepayment: {type_counts.get('Prepayment',0):,}"
+                )
+                if st.button("🚀 Import / Update Indus Data", key="indus_import_update",
+                             type="primary", use_container_width=True):
+                    with st.spinner("Indus data import/update ho raha hai..."):
+                        result = indus_import_tsv(indus_preview, indus_upload.name)
+                    st.success(
+                        f"Import complete ✅ Standard {result['standard']:,} | Credit Memo {result['credit']:,} | "
+                        f"Debit Memo {result['debit']:,} | Prepayment {result['prepayment']:,} | "
+                        f"New {result['inserted']:,} | Updated {result['updated']:,}"
+                    )
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Indus TSV error: {exc}")
+
+    try:
+        invoice_rows = indus_fetch_all("indus_invoices", "invoice_date", True)
+        credit_rows = indus_fetch_all("indus_credit_memos", "credit_memo_date", True)
+        prepayment_rows = indus_fetch_all("indus_prepayments", "prepayment_date", True)
+        debit_rows = indus_fetch_all("indus_debit_memos", "debit_memo_date", True)
     except Exception as exc:
-        st.error(f"Indus TSV read/import error: {exc}")
+        st.error(f"Indus tables load nahi hui: {exc}")
+        invoice_rows, credit_rows, prepayment_rows, debit_rows = [], [], [], []
 
-try:
-    invoice_rows = indus_fetch_all("indus_invoices", "invoice_date", True)
-    credit_rows = indus_fetch_all("indus_credit_memos", "credit_memo_date", True)
-    prepayment_rows = indus_fetch_all("indus_prepayments", "prepayment_date", True)
-    debit_rows = indus_fetch_all("indus_debit_memos", "debit_memo_date", True)
-except Exception as exc:
-    st.error(f"Indus tables load नहीं हुईं: {exc}")
-    invoice_rows, credit_rows, prepayment_rows, debit_rows = [], [], [], []
+    invoice_total = sum(indus_number(r.get("invoice_amount")) for r in invoice_rows)
+    tds_total = sum(indus_number(r.get("tds_amount")) for r in invoice_rows)
+    net_total = max(0.0, invoice_total - tds_total)
+    received_total = sum(indus_number(r.get("payment_received")) for r in invoice_rows)
+    outstanding_total = sum(indus_number(r.get("outstanding_amount")) for r in invoice_rows)
+    advance_total = sum(indus_number(r.get("balance_amount")) for r in prepayment_rows)
 
-invoice_total = sum(indus_number(r.get("invoice_amount")) for r in invoice_rows)
-tds_total = sum(indus_number(r.get("tds_amount")) for r in invoice_rows)
-net_total = max(0.0, invoice_total - tds_total)
-received_total = sum(indus_number(r.get("payment_received")) for r in invoice_rows)
-outstanding_total = sum(indus_number(r.get("outstanding_amount")) for r in invoice_rows)
-advance_total = sum(indus_number(r.get("balance_amount")) for r in prepayment_rows)
+    st.markdown(
+        "<div class='indus-kpi-grid'>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>Total Invoice</div><div class='indus-kpi-value'>₹ {invoice_total:,.2f}</div><div class='indus-kpi-foot'>{len(invoice_rows):,} invoices</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>TDS</div><div class='indus-kpi-value'>₹ {tds_total:,.2f}</div><div class='indus-kpi-foot'>Credit Memo mapped</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>Net Receivable</div><div class='indus-kpi-value'>₹ {net_total:,.2f}</div><div class='indus-kpi-foot'>Invoice - TDS</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>Payment Received</div><div class='indus-kpi-value'>₹ {received_total:,.2f}</div><div class='indus-kpi-foot'>Settled receipts</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>Outstanding</div><div class='indus-kpi-value'>₹ {outstanding_total:,.2f}</div><div class='indus-kpi-foot'>Current due</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>Advance Balance</div><div class='indus-kpi-value'>₹ {advance_total:,.2f}</div><div class='indus-kpi-foot'>PO prepayment</div></div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
-today = datetime.date.today()
-overdue_total = 0.0
-for r in invoice_rows:
-    d = to_date(r.get("due_date"))
-    due = indus_number(r.get("outstanding_amount"))
-    if d and d < today and due > 0:
-        overdue_total += due
+    today = datetime.date.today()
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-with k1: indus_money_card("Total Invoice", invoice_total, f"{len(invoice_rows):,} Standard invoices")
-with k2: indus_money_card("TDS", tds_total, "Credit Memo mapped")
-with k3: indus_money_card("Net Receivable", net_total, "Invoice - TDS")
-with k4: indus_money_card("Payment Received", received_total, "Net received")
-with k5: indus_money_card("Outstanding", outstanding_total, f"Overdue {format_amount(overdue_total)}")
-with k6: indus_money_card("Advance Balance", advance_total, "PO wise prepayment")
-
-invoice_tab, payment_tab, prepayment_tab, credit_tab = st.tabs(
-    ["📄 Invoice", "💰 Payments", "💵 Prepayment", "🧾 Credit Note"]
-)
-
-with invoice_tab:
-    invoice_data = []
-    for r in invoice_rows:
-        invoice_data.append({
+    if st.session_state.indus_active_view == "Invoice":
+        data = [{
             "Receipt No": r.get("receipt_no") or "",
             "ERS No": r.get("ers_no") or "",
             "Invoice No": r.get("invoice_no") or "",
@@ -2492,232 +2771,144 @@ with invoice_tab:
             "Due Date": format_date(r.get("due_date")),
             "Payment Ref": r.get("payment_reference") or "",
             "UTR": r.get("payment_utr") or "",
-        })
-    invoice_df = pd.DataFrame(invoice_data)
-    s1, s2, s3 = st.columns([3.7, 1.5, 1.5])
-    with s1:
-        invoice_search = st.text_input(
-            "Search Invoice",
-            placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status / Amount...",
-            key="indus_invoice_search",
-            label_visibility="collapsed",
-        )
-    with s2:
-        status_filter = st.selectbox(
-            "Payment Status",
-            ["All"] + sorted({str(r.get("payment_status") or "") for r in invoice_rows if r.get("payment_status")}),
-            key="indus_invoice_status_filter",
-            label_visibility="collapsed",
-        )
-    filtered_invoice_df = indus_search_df(invoice_df, invoice_search)
-    if status_filter != "All" and not filtered_invoice_df.empty:
-        filtered_invoice_df = filtered_invoice_df[filtered_invoice_df["Payment Status"] == status_filter]
-    with s3:
-        st.download_button(
-            "📥 Download Excel",
-            data=indus_excel_bytes(filtered_invoice_df, "Invoices"),
-            file_name=f"Indus_Invoices_{today:%Y%m%d}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="indus_invoice_download",
-            use_container_width=True,
-        )
-    st.caption(f"Showing {len(filtered_invoice_df):,} of {len(invoice_df):,} invoices")
-    st.dataframe(
-        filtered_invoice_df,
-        use_container_width=True,
-        hide_index=True,
-        height=620,
-        column_config={
-            "Invoice Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-            "TDS": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Net Receivable": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Payment Received": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Outstanding": st.column_config.NumberColumn(format="₹ %.2f"),
-        },
-    )
-
-with payment_tab:
-    payment_data = []
-    for r in invoice_rows:
-        received = indus_number(r.get("payment_received"))
-        payment_ref = r.get("payment_reference") or ""
-        utr = r.get("payment_utr") or ""
-        if received > 0 or payment_ref or utr or str(r.get("payment_status") or "").lower() in {"paid", "partially paid"}:
-            payment_data.append({
-                "Invoice No": r.get("invoice_no") or r.get("ers_no") or "",
-                "Receipt No": r.get("receipt_no") or "",
-                "PO Number": r.get("po_number") or "",
-                "Invoice Amount": indus_number(r.get("invoice_amount")),
-                "TDS": indus_number(r.get("tds_amount")),
-                "Payment Received": received,
-                "Outstanding": indus_number(r.get("outstanding_amount")),
-                "Payment Ref": payment_ref,
-                "UTR": utr,
-                "Payment Status": r.get("payment_status") or "",
-            })
-    payment_df = pd.DataFrame(payment_data)
-    p1, p2 = st.columns([5, 1.6])
-    with p1:
-        payment_search = st.text_input(
-            "Search Payment",
-            placeholder="🔍 Invoice / Receipt / PO / Payment Ref / UTR...",
-            key="indus_payment_search",
-            label_visibility="collapsed",
-        )
-    filtered_payment_df = indus_search_df(payment_df, payment_search)
-    with p2:
-        st.download_button(
-            "📥 Download Excel",
-            data=indus_excel_bytes(filtered_payment_df, "Payments"),
-            file_name=f"Indus_Payments_{today:%Y%m%d}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="indus_payment_download",
-            use_container_width=True,
-        )
-    st.caption(f"Showing {len(filtered_payment_df):,} payment-linked invoices")
-    st.dataframe(
-        filtered_payment_df,
-        use_container_width=True,
-        hide_index=True,
-        height=620,
-        column_config={
-            "Invoice Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-            "TDS": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Payment Received": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Outstanding": st.column_config.NumberColumn(format="₹ %.2f"),
-        },
-    )
-
-with prepayment_tab:
-    prepayment_data = [{
-        "Prepayment Ref": r.get("prepayment_ref") or "",
-        "PO Number": r.get("po_number") or "",
-        "Date": format_date(r.get("prepayment_date")),
-        "Advance Amount": indus_number(r.get("advance_amount")),
-        "Adjusted Amount": indus_number(r.get("adjusted_amount")),
-        "Balance Advance": indus_number(r.get("balance_amount")),
-        "Status": r.get("status") or "",
-    } for r in prepayment_rows]
-    prepayment_df = pd.DataFrame(prepayment_data)
-    a1, a2 = st.columns([5, 1.6])
-    with a1:
-        prepayment_search = st.text_input(
-            "Search Prepayment",
-            placeholder="🔍 PO Number / Advance Ref / Status...",
-            key="indus_prepayment_search",
-            label_visibility="collapsed",
-        )
-    filtered_prepayment_df = indus_search_df(prepayment_df, prepayment_search)
-    with a2:
-        st.download_button(
-            "📥 Download Excel",
-            data=indus_excel_bytes(filtered_prepayment_df, "Prepayment"),
-            file_name=f"Indus_Prepayment_{today:%Y%m%d}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="indus_prepayment_download",
-            use_container_width=True,
-        )
-    st.dataframe(
-        filtered_prepayment_df,
-        use_container_width=True,
-        hide_index=True,
-        height=560,
-        column_config={
-            "Advance Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Adjusted Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-            "Balance Advance": st.column_config.NumberColumn(format="₹ %.2f"),
-        },
-    )
-
-with credit_tab:
-    credit_mode = st.radio(
-        "Adjustment Type",
-        ["TDS Credit Memo", "Debit Memo"],
-        horizontal=True,
-        key="indus_credit_mode",
-    )
-    if credit_mode == "TDS Credit Memo":
-        credit_data = []
-        invoice_lookup = {str(r.get("invoice_no") or ""): r for r in invoice_rows}
-        for r in credit_rows:
-            original = r.get("original_invoice_no") or ""
-            inv = invoice_lookup.get(original, {})
-            invoice_amount = indus_number(inv.get("invoice_amount"))
-            tds = indus_number(r.get("tds_amount"))
-            credit_data.append({
-                "Credit Memo No": r.get("credit_memo_no") or "",
-                "Original Invoice": original,
-                "Date": format_date(r.get("credit_memo_date")),
-                "Invoice Amount": invoice_amount,
-                "TDS Amount": tds,
-                "TDS %": round((tds / invoice_amount * 100), 3) if invoice_amount else 0,
-                "Status": r.get("status") or "",
-            })
-        credit_df = pd.DataFrame(credit_data)
-        c1, c2 = st.columns([5, 1.6])
+        } for r in invoice_rows]
+        df = pd.DataFrame(data)
+        c1, c2, c3 = st.columns([3.6,1.5,1.5])
         with c1:
-            credit_search = st.text_input(
-                "Search Credit Memo",
-                placeholder="🔍 Credit Memo / Original Invoice / Status...",
-                key="indus_credit_search",
-                label_visibility="collapsed",
-            )
-        filtered_credit_df = indus_search_df(credit_df, credit_search)
+            q = st.text_input("Search", placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status...",
+                              key="indus_invoice_search", label_visibility="collapsed")
         with c2:
-            st.download_button(
-                "📥 Download Excel",
-                data=indus_excel_bytes(filtered_credit_df, "TDS Credit Memo"),
-                file_name=f"Indus_TDS_Credit_Memo_{today:%Y%m%d}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="indus_credit_download",
-                use_container_width=True,
-            )
-        st.dataframe(
-            filtered_credit_df,
-            use_container_width=True,
-            hide_index=True,
-            height=560,
-            column_config={
-                "Invoice Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-                "TDS Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-                "TDS %": st.column_config.NumberColumn(format="%.3f %%"),
-            },
-        )
-    else:
-        debit_data = [{
-            "Debit Memo No": r.get("debit_memo_no") or "",
-            "Date": format_date(r.get("debit_memo_date")),
-            "Amount": indus_number(r.get("amount")),
-            "Due": indus_number(r.get("due_amount")),
-            "Status": r.get("status") or "",
-            "Description": r.get("description") or "",
-        } for r in debit_rows]
-        debit_df = pd.DataFrame(debit_data)
-        d1, d2 = st.columns([5, 1.6])
-        with d1:
-            debit_search = st.text_input(
-                "Search Debit Memo",
-                placeholder="🔍 Debit Memo / Status / Description...",
-                key="indus_debit_search",
-                label_visibility="collapsed",
-            )
-        filtered_debit_df = indus_search_df(debit_df, debit_search)
-        with d2:
-            st.download_button(
-                "📥 Download Excel",
-                data=indus_excel_bytes(filtered_debit_df, "Debit Memo"),
-                file_name=f"Indus_Debit_Memo_{today:%Y%m%d}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="indus_debit_download",
-                use_container_width=True,
-            )
-        st.dataframe(
-            filtered_debit_df,
-            use_container_width=True,
-            hide_index=True,
-            height=560,
-            column_config={
-                "Amount": st.column_config.NumberColumn(format="₹ %.2f"),
-                "Due": st.column_config.NumberColumn(format="₹ %.2f"),
-            },
-        )
+            statuses = ["All"] + sorted({str(r.get("payment_status") or "") for r in invoice_rows if r.get("payment_status")})
+            sf = st.selectbox("Status", statuses, key="indus_invoice_status_filter", label_visibility="collapsed")
+        fdf = indus_search_df(df, q)
+        if sf != "All" and not fdf.empty:
+            fdf = fdf[fdf["Payment Status"] == sf]
+        with c3:
+            st.download_button("📥 Download Excel", indus_excel_bytes(fdf, "Invoices"),
+                               f"Indus_Invoices_{today:%Y%m%d}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="indus_invoice_download", use_container_width=True)
+        _indus_table("📄 Invoice Register", "Receipt based ERS → Invoice tracking",
+                     f"Outstanding ₹ {fdf['Outstanding'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
+                     fdf,
+                     money_cols={"Invoice Amount","TDS","Net Receivable","Payment Received","Outstanding"},
+                     status_cols={"Payment Status","Invoice Status"},
+                     chip_cols={"Receipt No","ERS No","Invoice No","PO Number","UTR"})
+
+    elif st.session_state.indus_active_view == "Payments":
+        data = []
+        for r in invoice_rows:
+            received = indus_number(r.get("payment_received"))
+            if received > 0 or r.get("payment_reference") or r.get("payment_utr") or str(r.get("payment_status") or "").lower() in ("paid","partially paid"):
+                data.append({
+                    "Invoice No": r.get("invoice_no") or r.get("ers_no") or "",
+                    "Receipt No": r.get("receipt_no") or "",
+                    "PO Number": r.get("po_number") or "",
+                    "Invoice Amount": indus_number(r.get("invoice_amount")),
+                    "TDS": indus_number(r.get("tds_amount")),
+                    "Payment Received": received,
+                    "Outstanding": indus_number(r.get("outstanding_amount")),
+                    "Payment Ref": r.get("payment_reference") or "",
+                    "UTR": r.get("payment_utr") or "",
+                    "Payment Status": r.get("payment_status") or "",
+                })
+        df = pd.DataFrame(data)
+        c1,c2 = st.columns([5,1.6])
+        with c1:
+            q = st.text_input("Search", placeholder="🔍 Invoice / Receipt / PO / Payment Ref / UTR...",
+                              key="indus_payment_search", label_visibility="collapsed")
+        fdf = indus_search_df(df,q)
+        with c2:
+            st.download_button("📥 Download Excel", indus_excel_bytes(fdf,"Payments"),
+                               f"Indus_Payments_{today:%Y%m%d}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="indus_payment_download",use_container_width=True)
+        _indus_table("💰 Payment Register","payment reference & UTR wise",
+                     f"Received ₹ {fdf['Payment Received'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
+                     fdf,money_cols={"Invoice Amount","TDS","Payment Received","Outstanding"},
+                     status_cols={"Payment Status"},chip_cols={"Invoice No","Receipt No","PO Number","Payment Ref","UTR"})
+
+    elif st.session_state.indus_active_view == "Prepayment":
+        data = [{
+            "Prepayment Ref":r.get("prepayment_ref") or "",
+            "PO Number":r.get("po_number") or "",
+            "Date":format_date(r.get("prepayment_date")),
+            "Advance Amount":indus_number(r.get("advance_amount")),
+            "Adjusted Amount":indus_number(r.get("adjusted_amount")),
+            "Balance Advance":indus_number(r.get("balance_amount")),
+            "Status":r.get("status") or "",
+        } for r in prepayment_rows]
+        df=pd.DataFrame(data)
+        c1,c2=st.columns([5,1.6])
+        with c1:
+            q=st.text_input("Search",placeholder="🔍 PO Number / Advance Ref / Status...",
+                            key="indus_prepayment_search",label_visibility="collapsed")
+        fdf=indus_search_df(df,q)
+        with c2:
+            st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"Prepayment"),
+                               f"Indus_Prepayment_{today:%Y%m%d}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="indus_prepayment_download",use_container_width=True)
+        _indus_table("💵 Prepayment / Advance Register","PO wise advance tracking",
+                     f"Balance ₹ {fdf['Balance Advance'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
+                     fdf,money_cols={"Advance Amount","Adjusted Amount","Balance Advance"},
+                     status_cols={"Status"},chip_cols={"Prepayment Ref","PO Number"})
+
+    elif st.session_state.indus_active_view == "Credit Note":
+        credit_mode = st.radio("Credit Note Type",["TDS Credit Memo","Debit Memo"],
+                               horizontal=True,key="indus_credit_mode")
+        if credit_mode == "TDS Credit Memo":
+            lookup={str(r.get("invoice_no") or ""):r for r in invoice_rows}
+            data=[]
+            for r in credit_rows:
+                original=r.get("original_invoice_no") or ""
+                inv=lookup.get(original,{})
+                inv_amt=indus_number(inv.get("invoice_amount"))
+                tds=indus_number(r.get("tds_amount"))
+                data.append({
+                    "Credit Memo No":r.get("credit_memo_no") or "",
+                    "Original Invoice":original,
+                    "Date":format_date(r.get("credit_memo_date")),
+                    "Invoice Amount":inv_amt,
+                    "TDS Amount":tds,
+                    "TDS %":round((tds/inv_amt*100),3) if inv_amt else 0,
+                    "Status":r.get("status") or "",
+                })
+            df=pd.DataFrame(data)
+            c1,c2=st.columns([5,1.6])
+            with c1:
+                q=st.text_input("Search",placeholder="🔍 Credit Memo / Original Invoice / Status...",
+                                key="indus_credit_search",label_visibility="collapsed")
+            fdf=indus_search_df(df,q)
+            with c2:
+                st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"TDS Credit Memo"),
+                                   f"Indus_TDS_Credit_Memo_{today:%Y%m%d}.xlsx",
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   key="indus_credit_download",use_container_width=True)
+            _indus_table("🧾 TDS Credit Memo","Invoice number based automatic mapping",
+                         f"TDS ₹ {fdf['TDS Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
+                         fdf,money_cols={"Invoice Amount","TDS Amount"},status_cols={"Status"},
+                         chip_cols={"Credit Memo No","Original Invoice"})
+        else:
+            data=[{
+                "Debit Memo No":r.get("debit_memo_no") or "",
+                "Date":format_date(r.get("debit_memo_date")),
+                "Amount":indus_number(r.get("amount")),
+                "Due":indus_number(r.get("due_amount")),
+                "Status":r.get("status") or "",
+                "Description":r.get("description") or "",
+            } for r in debit_rows]
+            df=pd.DataFrame(data)
+            c1,c2=st.columns([5,1.6])
+            with c1:
+                q=st.text_input("Search",placeholder="🔍 Debit Memo / Status / Description...",
+                                key="indus_debit_search",label_visibility="collapsed")
+            fdf=indus_search_df(df,q)
+            with c2:
+                st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"Debit Memo"),
+                                   f"Indus_Debit_Memo_{today:%Y%m%d}.xlsx",
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   key="indus_debit_download",use_container_width=True)
+            _indus_table("🧾 Debit Memo","separate debit adjustment register",
+                         f"Amount ₹ {fdf['Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
+                         fdf,money_cols={"Amount","Due"},status_cols={"Status"},chip_cols={"Debit Memo No"})
