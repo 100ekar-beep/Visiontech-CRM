@@ -2137,11 +2137,21 @@ def indus_clean_text(value):
 def indus_number(value, default=0.0):
     if value is None or pd.isna(value) or str(value).strip() == "":
         return float(default)
-    cleaned = re.sub(r"[^0-9.\-]", "", str(value).replace(",", ""))
+
+    raw = str(value).strip().replace(",", "")
+    trailing_minus = raw.endswith("-")
+    if trailing_minus:
+        raw = raw[:-1].strip()
+
+    cleaned = re.sub(r"[^0-9.\-]", "", raw)
     if cleaned in {"", "-", ".", "-."}:
         return float(default)
+
     try:
-        return round(float(cleaned), 2)
+        number = float(cleaned)
+        if trailing_minus:
+            number = -abs(number)
+        return round(number, 2)
     except Exception:
         return float(default)
 
@@ -2459,22 +2469,92 @@ def get_indus_last_data_date():
 
 
 def indus_read_payment_tsv(file_bytes):
-    """Read Indus day-wise Payment TSV export."""
-    raw = pd.read_csv(io.BytesIO(file_bytes), sep="\t", dtype=str, keep_default_na=False)
-    raw.columns = [str(c).strip() for c in raw.columns]
+    """
+    Read Indus Oracle day-wise Payment TSV.
 
+    Oracle format:
+      Row 1: Payment Date / Method / Status ...
+      Row 2: payment header values
+      blank rows
+      later row: Invoice / Invoice Date / Invoice Type / ... / Receipt
+      following rows: actual allocations
+    """
+    import csv
+
+    decoded = file_bytes.decode("utf-8-sig", errors="replace")
+    rows = list(csv.reader(io.StringIO(decoded), delimiter="\t"))
+
+    if not rows:
+        raise ValueError("Payment TSV empty hai.")
+
+    # ---- Payment Date from the top payment-summary section ----
+    payment_date = ""
+    top_header = [str(x).strip().strip('"') for x in rows[0]]
+    if "Payment Date" in top_header and len(rows) > 1:
+        idx = top_header.index("Payment Date")
+        if idx < len(rows[1]):
+            payment_date = str(rows[1][idx]).strip().strip('"')
+
+    # ---- Find the real invoice table header ----
+    invoice_header_index = None
+    for i, row in enumerate(rows):
+        cleaned = [str(x).strip().strip('"') for x in row]
+        if (
+            "Invoice" in cleaned
+            and "Invoice Date" in cleaned
+            and "Invoice Type" in cleaned
+            and "Payment Amount" in cleaned
+        ):
+            invoice_header_index = i
+            break
+
+    if invoice_header_index is None:
+        raise ValueError(
+            "Payment file me Invoice table header nahi mila. "
+            "Expected columns: Invoice, Invoice Date, Invoice Type, Payment Amount."
+        )
+
+    headers = [str(x).strip().strip('"') for x in rows[invoice_header_index]]
     wanted = [
         "Payment Date", "Invoice", "Invoice Date", "Invoice Type", "Currency",
         "Amount", "Status", "Payment Status", "Payment Amount", "PO Number", "Receipt"
     ]
-    for col in wanted:
-        if col not in raw.columns:
-            raw[col] = ""
 
-    # Some Oracle exports show Payment Date once and leave subsequent rows blank.
-    raw["Payment Date"] = raw["Payment Date"].replace("", pd.NA).ffill().fillna("")
-    return raw[wanted].copy()
+    records = []
+    for row in rows[invoice_header_index + 1:]:
+        values = [str(x).strip().strip('"') for x in row]
 
+        # Skip fully blank lines.
+        if not any(values):
+            continue
+
+        # Pad short rows.
+        if len(values) < len(headers):
+            values += [""] * (len(headers) - len(values))
+
+        rec = dict(zip(headers, values))
+        invoice_no = str(rec.get("Invoice", "")).strip()
+        if not invoice_no:
+            continue
+
+        records.append({
+            "Payment Date": payment_date,
+            "Invoice": invoice_no,
+            "Invoice Date": str(rec.get("Invoice Date", "")).strip(),
+            "Invoice Type": str(rec.get("Invoice Type", "")).strip(),
+            "Currency": str(rec.get("Currency", "")).strip(),
+            "Amount": str(rec.get("Amount", "")).strip(),
+            "Status": str(rec.get("Status", "")).strip(),
+            "Payment Status": str(rec.get("Payment Status", "")).strip(),
+            "Payment Amount": str(rec.get("Payment Amount", "")).strip(),
+            "PO Number": str(rec.get("PO Number", "")).strip(),
+            "Receipt": str(rec.get("Receipt", "")).strip(),
+        })
+
+    if not records:
+        raise ValueError("Payment file me koi invoice/payment row nahi mili.")
+
+    return pd.DataFrame(records, columns=wanted)
 
 def indus_payment_key(row):
     """Stable duplicate key for one payment allocation line."""
@@ -2698,6 +2778,20 @@ if is_indus:
         border-radius: 13px !important; white-space: nowrap !important;
         transition: all .25s ease !important;
     }
+    .st-key-indus_view_nav button p,
+    .st-key-indus_view_nav button span,
+    .st-key-indus_view_nav button div {
+        display: inline-flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: auto !important;
+        max-width: none !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: nowrap !important;
+        font-size: 1.05rem !important;
+        font-weight: 800 !important;
+    }
     .st-key-indus_view_nav button[kind="secondary"] {
         background:#fff !important; color:#475569 !important;
         border:1.5px solid rgba(15,23,42,.12) !important;
@@ -2840,20 +2934,21 @@ if is_indus:
     render_last_data_date_card(get_indus_last_data_date(), "INDUS")
 
     indus_views = [
-        ("Invoice", "Invoice"),
-        ("Payments", "Payments"),
-        ("Prepayment", "Prepayment"),
-        ("Credit Note", "Credit Note"),
+        ("Invoice", "Invoice", ":material/description:"),
+        ("Payments", "Payments", ":material/payments:"),
+        ("Prepayment", "Prepayment", ":material/account_balance_wallet:"),
+        ("Credit Note", "Credit Note", ":material/receipt_long:"),
     ]
     with st.container(key="indus_view_nav"):
         nav_cols = st.columns(len(indus_views))
-        for col, (view_key, view_label) in zip(nav_cols, indus_views):
+        for col, (view_key, view_label, view_icon) in zip(nav_cols, indus_views):
             with col:
                 active = st.session_state.indus_active_view == view_key
                 if st.button(
                     view_label,
                     key=f"indus_view_{view_key}",
                     type="primary" if active else "secondary",
+                    icon=view_icon,
                     use_container_width=True,
                 ):
                     st.session_state.indus_active_view = view_key
@@ -3177,4 +3272,3 @@ if is_indus:
             _indus_table("🧾 Debit Memo","separate debit adjustment register",
                          f"Amount ₹ {fdf['Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                          fdf,money_cols={"Amount","Due"},status_cols={"Status"},chip_cols={"Debit Memo No"})
-        
