@@ -770,6 +770,17 @@ get_table_df.clear = _fetch_table_data.clear
 def field_widget(col_name, value, key, container):
     """Renders the right input widget for a column based on its name, returns the value to save."""
     cl = col_name.lower()
+    if cl == 'sub_status':
+        current = "" if value is None else str(value).strip()
+        options = ["", "Submitted"]
+        if current and current not in options:
+            options.append(current)
+        return container.selectbox(
+            col_name.replace("_", " ").title(),
+            options,
+            index=options.index(current) if current in options else 0,
+            key=key
+        )
     if 'date' in cl:
         parsed = parse_date_safely(value) if value not in (None, '') else None
         raw = container.date_input(col_name.replace("_", " ").title(), value=parsed, key=key)
@@ -2268,7 +2279,7 @@ def add_invoice_dialog(table_name, prefix, workspace=None):
         with c14: receipt_number = st.text_input("Receipt_number", placeholder="Receipt No")
         with c15: percentage_amount = st.number_input("%Amount", value=0.0, format="%.2f")
 
-        sub_status = st.text_input("Sub_status", placeholder="Sub Status")
+        sub_status = st.selectbox("Sub_status", ["", "Submitted"], key="add_substatus")
 
         st.markdown('<div class="modal-section-title">💳 PAYMENTS & BALANCE</div>', unsafe_allow_html=True)
         p1, p2, p3, p4, p5, p6 = st.columns(6)
@@ -2365,7 +2376,16 @@ def edit_invoice_dialog(row_data, table_name):
         with c14: receipt_number = st.text_input("Receipt_number", value=str(row_data.get('receipt_number', '')), key="ed_receipt")
         with c15: percentage_amount = st.number_input("%Amount", value=float(row_data.get('percentage_amount', 0.0) or 0.0), format="%.2f", key="ed_pct")
 
-        sub_status = st.text_input("Sub_status", value=str(row_data.get('Sub_status', '')), key="ed_substatus")
+        current_sub_status = str(row_data.get('Sub_status', '') or '').strip()
+        sub_status_options = ["", "Submitted"]
+        if current_sub_status and current_sub_status not in sub_status_options:
+            sub_status_options.append(current_sub_status)
+        sub_status = st.selectbox(
+            "Sub_status",
+            sub_status_options,
+            index=sub_status_options.index(current_sub_status) if current_sub_status in sub_status_options else 0,
+            key="ed_substatus"
+        )
 
         st.markdown('<div class="modal-section-title">💳 PAYMENTS & BALANCE</div>', unsafe_allow_html=True)
         p1, p2, p3, p4, p5, p6 = st.columns(6)
