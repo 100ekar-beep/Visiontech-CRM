@@ -2597,6 +2597,15 @@ def indus_import_payment_tsv(df, file_name):
         receipt = indus_clean_text(row.get("Receipt"))
         po_no = indus_clean_text(row.get("PO Number"))
         pdate = indus_date(row.get("Payment Date"))
+        # indus_date may return date/datetime OR already-normalized ISO text.
+        if pdate:
+            if hasattr(pdate, "isoformat"):
+                pdate_db = pdate.isoformat()
+            else:
+                pdate_db = str(pdate).strip()
+        else:
+            pdate_db = None
+
         pkey = indus_payment_key(row)
 
         # Database unique payment_key is the final duplicate guard.
@@ -2617,7 +2626,7 @@ def indus_import_payment_tsv(df, file_name):
             "invoice_no": original_invoice,
             "receipt_no": receipt or None,
             "po_number": po_no or None,
-            "payment_date": pdate.isoformat() if pdate else None,
+            "payment_date": pdate_db,
             "payment_amount": payment_amount,
             "payment_reference": invoice_text,  # preserves Standard/TDS source row
             "utr_no": None,
