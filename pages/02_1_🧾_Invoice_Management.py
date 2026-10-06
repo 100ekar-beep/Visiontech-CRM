@@ -855,7 +855,13 @@ def generic_edit_dialog(table_name, row_data, columns, prefix):
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 Update Record", type="primary", use_container_width=True, key=f"{prefix}_edit_save_{rid}"):
         try:
-            supabase.table(table_name).update(values).eq("id", rid).execute()
+            # FIX: PostgreSQL timestamp/date columns do not accept blank string "".
+            # Convert blank strings to NULL before sending the update to Supabase.
+            clean_values = {
+                col: (None if isinstance(val, str) and val.strip() == "" else val)
+                for col, val in values.items()
+            }
+            supabase.table(table_name).update(clean_values).eq("id", rid).execute()
             st.success("✅ Updated Successfully!")
             get_table_df.clear()
             st.rerun()
@@ -2412,7 +2418,13 @@ def edit_invoice_dialog(row_data, table_name):
                 "remark": remark
             }
             try:
-                supabase.table(table_name).update(update_data).eq("id", row_data['id']).execute()
+                # FIX: PostgreSQL timestamp/date columns do not accept blank string "".
+                # Convert blank strings to NULL before sending the update to Supabase.
+                clean_update_data = {
+                    col: (None if isinstance(val, str) and val.strip() == "" else val)
+                    for col, val in update_data.items()
+                }
+                supabase.table(table_name).update(clean_update_data).eq("id", row_data['id']).execute()
                 st.success("✅ Invoice Updated Successfully!")
                 get_table_df.clear()
                 st.rerun()
