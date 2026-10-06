@@ -2609,13 +2609,32 @@ def indus_current_user_value():
 def indus_import_payment_tsv(df, file_name):
     """
     Import actual day-wise payment allocation.
-    Standard = cash/invoice payment.
-    Credit Memo = TDS settlement, mapped to original invoice.
-    Same payment key can never be inserted twice.
+
+    CRITICAL RULE:
+    Payment sirf tab save hoga jab uska ORIGINAL invoice already
+    indus_invoices table me present ho.
+
+    Standard row:
+        Invoice itself must exist.
+
+    Credit Memo / TDS row:
+        '-TDS-CM-' ke pehle wala original invoice must exist.
+
+    Isse 01-Jan-2026 se pehle ke old invoices ki later payments
+    portal me accidentally enter nahi hongi.
     """
     inserted = 0
     skipped = 0
+    skipped_invoice_not_found = 0
     touched_invoices = set()
+
+    # Load all portal invoice numbers once for fast & reliable matching.
+    existing_invoice_rows = indus_fetch_all("indus_invoices", "invoice_date", True)
+    existing_invoice_map = {
+        indus_clean_text(r.get("invoice_no")).upper(): r
+        for r in existing_invoice_rows
+        if indus_clean_text(r.get("invoice_no"))
+    }
 
     for _, row in df.iterrows():
         invoice_text = indus_clean_text(row.get("Invoice"))
@@ -2626,16 +2645,33 @@ def indus_import_payment_tsv(df, file_name):
         payment_amount_raw = indus_number(row.get("Payment Amount"))
         payment_amount = abs(payment_amount_raw)
 
+        # TDS/Credit Memo ko original Standard Invoice se map karo.
         original_invoice = (
             indus_original_invoice_from_credit_memo(invoice_text)
             if inv_type.lower() == "credit memo"
             else invoice_text
         )
+        original_invoice = indus_clean_text(original_invoice)
 
-        receipt = indus_clean_text(row.get("Receipt"))
-        po_no = indus_clean_text(row.get("PO Number"))
+        # --------------------------------------------------------
+        # IMPORTANT: Invoice portal me nahi hai => payment SKIP.
+        # --------------------------------------------------------
+        matched_invoice = existing_invoice_map.get(original_invoice.upper())
+        if not matched_invoice:
+            skipped_invoice_not_found += 1
+            continue
+
+        # Prefer master invoice's PO/Receipt if payment row is blank.
+        receipt = (
+            indus_clean_text(row.get("Receipt"))
+            or indus_clean_text(matched_invoice.get("receipt_no"))
+        )
+        po_no = (
+            indus_clean_text(row.get("PO Number"))
+            or indus_clean_text(matched_invoice.get("po_number"))
+        )
+
         pdate = indus_date(row.get("Payment Date"))
-        # indus_date may return date/datetime OR already-normalized ISO text.
         if pdate:
             if hasattr(pdate, "isoformat"):
                 pdate_db = pdate.isoformat()
@@ -2646,7 +2682,7 @@ def indus_import_payment_tsv(df, file_name):
 
         pkey = indus_payment_key(row)
 
-        # Database unique payment_key is the final duplicate guard.
+        # Duplicate payment allocation never insert twice.
         exists = (
             supabase.table("indus_payments")
             .select("id")
@@ -2666,23 +2702,30 @@ def indus_import_payment_tsv(df, file_name):
             "po_number": po_no or None,
             "payment_date": pdate_db,
             "payment_amount": payment_amount,
-            "payment_reference": invoice_text,  # preserves Standard/TDS source row
+            # Preserve actual payment-export invoice text.
+            # TDS rows therefore retain the -TDS-CM- reference.
+            "payment_reference": invoice_text,
             "utr_no": None,
             "payment_status": indus_clean_text(row.get("Payment Status")),
             "source_file_name": file_name,
             "payment_key": pkey,
             "created_by": indus_current_user_value(),
         }
+
         supabase.table("indus_payments").insert(payload).execute()
         inserted += 1
-        if original_invoice:
-            touched_invoices.add(original_invoice)
+        touched_invoices.add(original_invoice)
 
-    # Recalculate each affected invoice from actual payment rows.
+    # Recalculate only invoices that genuinely exist in our portal.
     for invoice_no in touched_invoices:
         indus_recalculate_invoice_from_payments(invoice_no)
 
-    return {"inserted": inserted, "skipped": skipped, "touched": len(touched_invoices)}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "skipped_invoice_not_found": skipped_invoice_not_found,
+        "touched": len(touched_invoices),
+    }
 
 
 def indus_recalculate_invoice_from_payments(invoice_no):
@@ -3173,6 +3216,7 @@ if is_indus:
                     st.success(
                         f"Payment import complete ✅ New: {result['inserted']:,} | "
                         f"Duplicate skipped: {result['skipped']:,} | "
+                        f"Invoice not in portal skipped: {result['skipped_invoice_not_found']:,} | "
                         f"Invoices recalculated: {result['touched']:,}"
                     )
                     st.rerun()
