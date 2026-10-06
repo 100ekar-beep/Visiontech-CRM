@@ -2568,6 +2568,23 @@ def indus_payment_key(row):
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+
+def indus_current_user_value():
+    """Return JSON-safe current user text whether current_user is a function or value."""
+    try:
+        value = current_user() if callable(current_user) else current_user
+    except Exception:
+        value = ""
+    if isinstance(value, dict):
+        value = (
+            value.get("username")
+            or value.get("name")
+            or value.get("email")
+            or value.get("user")
+            or ""
+        )
+    return str(value or "").strip() or "System"
+
 def indus_import_payment_tsv(df, file_name):
     """
     Import actual day-wise payment allocation.
@@ -2633,7 +2650,7 @@ def indus_import_payment_tsv(df, file_name):
             "payment_status": indus_clean_text(row.get("Payment Status")),
             "source_file_name": file_name,
             "payment_key": pkey,
-            "created_by": current_user,
+            "created_by": indus_current_user_value(),
         }
         supabase.table("indus_payments").insert(payload).execute()
         inserted += 1
@@ -2702,7 +2719,7 @@ def indus_recalculate_invoice_from_payments(invoice_no):
         "outstanding_amount": round(outstanding, 2),
         "payment_status": payment_status,
         "last_updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "updated_by": current_user,
+        "updated_by": indus_current_user_value(),
     }).eq("id", inv["id"]).execute()
 
 
