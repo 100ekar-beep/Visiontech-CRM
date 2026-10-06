@@ -3177,3 +3177,4 @@ if is_indus:
             _indus_table("🧾 Debit Memo","separate debit adjustment register",
                          f"Amount ₹ {fdf['Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                          fdf,money_cols={"Amount","Due"},status_cols={"Status"},chip_cols={"Debit Memo No"})
+        
