@@ -2940,12 +2940,21 @@ if is_indus:
         display:block !important;
     }
     .indus-kpi-grid {
-        display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
-        gap:14px; margin:4px 0 22px;
+        display:grid;
+        grid-template-columns:repeat(8,minmax(0,1fr));
+        gap:12px;
+        margin:4px 0 20px;
+        align-items:stretch;
     }
     .indus-kpi {
-        position:relative; background:#fff; border-radius:16px; padding:18px 18px 16px;
-        border:1px solid #e0e7ff; overflow:hidden;
+        position:relative;
+        background:#fff;
+        border-radius:16px;
+        padding:16px 14px 14px;
+        min-width:0;
+        min-height:112px;
+        border:1px solid #e0e7ff;
+        overflow:hidden;
         box-shadow:0 12px 28px -14px rgba(79,70,229,.35);
     }
     .indus-kpi:before {
@@ -2953,8 +2962,24 @@ if is_indus:
         background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899);
     }
     .indus-kpi-label {font-size:.70rem;font-weight:900;letter-spacing:1.1px;text-transform:uppercase;color:#64748b;}
-    .indus-kpi-value {font-size:1.48rem;font-weight:950;color:#0f172a;margin-top:8px;}
-    .indus-kpi-foot {font-size:.74rem;color:#94a3b8;font-weight:650;margin-top:4px;}
+    .indus-kpi-value {
+        font-size:1.28rem;
+        font-weight:950;
+        color:#0f172a;
+        margin-top:8px;
+        white-space:nowrap;
+        letter-spacing:-.35px;
+    }
+    .indus-kpi-foot {
+        font-size:.70rem;
+        color:#94a3b8;
+        font-weight:700;
+        margin-top:5px;
+        white-space:nowrap;
+    }
+    @media (max-width:1500px) {
+        .indus-kpi-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
+    }
 
     .indus-table-box {
         background:#fff; border:1px solid #e0e7ff; border-top:none;
@@ -3189,7 +3214,6 @@ if is_indus:
     st.markdown(
         "<div class='indus-kpi-grid'>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Total Invoice</div><div class='indus-kpi-value'>₹ {invoice_total:,.2f}</div><div class='indus-kpi-foot'>{len(invoice_rows):,} invoices</div></div>"
-        f"<div class='indus-kpi'><div class='indus-kpi-label'>TDS</div><div class='indus-kpi-value'>₹ {tds_total:,.2f}</div><div class='indus-kpi-foot'>Credit Memo mapped</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Net Receivable</div><div class='indus-kpi-value'>₹ {net_total:,.2f}</div><div class='indus-kpi-foot'>Invoice - TDS</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Payment Received</div><div class='indus-kpi-value'>₹ {received_total:,.2f}</div><div class='indus-kpi-foot'>Settled receipts</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Outstanding</div><div class='indus-kpi-value'>₹ {outstanding_total:,.2f}</div><div class='indus-kpi-foot'>Current due</div></div>"
