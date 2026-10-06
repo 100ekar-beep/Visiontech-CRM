@@ -3163,6 +3163,29 @@ if is_indus:
     blocked_total = sum(abs(indus_number(r.get("invoice_amount"))) for r in blocked_invoice_rows)
     blocked_count = len(blocked_invoice_rows)
 
+    # REJECTED: only active Standard/ERS invoice records.
+    # Credit Memo / TDS records are never counted here.
+    rejected_rows = [
+        r for r in active_invoice_rows
+        if str(r.get("invoice_status") or "").strip().lower() == "rejected"
+        and str(r.get("source_type") or "Standard").strip().lower() == "standard"
+    ]
+    rejected_total = sum(abs(indus_number(r.get("invoice_amount"))) for r in rejected_rows)
+    rejected_count = len(rejected_rows)
+
+    # PENDING SUBMISSION: ONLY ERS/Standard rows.
+    # Actual TDS/Credit Memo rows must never enter this KPI.
+    pending_submission_rows = [
+        r for r in active_invoice_rows
+        if str(r.get("invoice_status") or "").strip().lower() == "pending submission"
+        and str(r.get("source_type") or "Standard").strip().lower() == "standard"
+        and bool(indus_clean_text(r.get("ers_no")))
+    ]
+    pending_submission_total = sum(
+        abs(indus_number(r.get("invoice_amount"))) for r in pending_submission_rows
+    )
+    pending_submission_count = len(pending_submission_rows)
+
     st.markdown(
         "<div class='indus-kpi-grid'>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Total Invoice</div><div class='indus-kpi-value'>₹ {invoice_total:,.2f}</div><div class='indus-kpi-foot'>{len(invoice_rows):,} invoices</div></div>"
@@ -3172,6 +3195,8 @@ if is_indus:
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Outstanding</div><div class='indus-kpi-value'>₹ {outstanding_total:,.2f}</div><div class='indus-kpi-foot'>Current due</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>Advance Balance</div><div class='indus-kpi-value'>₹ {advance_total:,.2f}</div><div class='indus-kpi-foot'>PO prepayment</div></div>"
         f"<div class='indus-kpi'><div class='indus-kpi-label'>🚫 Blocked</div><div class='indus-kpi-value'>₹ {blocked_total:,.2f}</div><div class='indus-kpi-foot'>{blocked_count:,} ERS / Invoice blocked</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>❌ Rejected</div><div class='indus-kpi-value'>₹ {rejected_total:,.2f}</div><div class='indus-kpi-foot'>{rejected_count:,} invoice(s)</div></div>"
+        f"<div class='indus-kpi'><div class='indus-kpi-label'>⏳ Pending Submission</div><div class='indus-kpi-value'>₹ {pending_submission_total:,.2f}</div><div class='indus-kpi-foot'>{pending_submission_count:,} ERS only</div></div>"
         "</div>",
         unsafe_allow_html=True,
     )
