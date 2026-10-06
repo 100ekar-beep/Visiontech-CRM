@@ -3203,21 +3203,66 @@ if is_indus:
             "UTR": r.get("payment_utr") or "",
         } for r in active_invoice_rows]
         df = pd.DataFrame(data)
-        c1, c2, c3 = st.columns([3.6,1.5,1.5])
+        # Invoice Status counts for dropdown.
+        invoice_status_counts = {}
+        if not df.empty and "Invoice Status" in df.columns:
+            for _status in df["Invoice Status"].fillna("").astype(str).str.strip():
+                if _status:
+                    invoice_status_counts[_status] = invoice_status_counts.get(_status, 0) + 1
+
+        c1, c2, c3, c4 = st.columns([3.2,1.65,1.65,1.45])
         with c1:
-            q = st.text_input("Search", placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status...",
-                              key="indus_invoice_search", label_visibility="collapsed")
+            q = st.text_input(
+                "Search",
+                placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status...",
+                key="indus_invoice_search",
+                label_visibility="collapsed",
+            )
+
         with c2:
-            statuses = ["All"] + sorted({str(r.get("payment_status") or "") for r in active_invoice_rows if r.get("payment_status")})
-            sf = st.selectbox("Status", statuses, key="indus_invoice_status_filter", label_visibility="collapsed")
+            payment_statuses = ["All"] + sorted({
+                str(r.get("payment_status") or "").strip()
+                for r in active_invoice_rows
+                if str(r.get("payment_status") or "").strip()
+            })
+            sf = st.selectbox(
+                "Payment Status",
+                payment_statuses,
+                key="indus_invoice_status_filter",
+                label_visibility="collapsed",
+            )
+
+        with c3:
+            invoice_status_options = ["All"] + sorted(invoice_status_counts.keys())
+            invoice_status_selected = st.selectbox(
+                "Invoice Status",
+                invoice_status_options,
+                key="indus_invoice_invoice_status_filter",
+                format_func=lambda x: (
+                    f"All Invoice Status ({len(df):,})"
+                    if x == "All"
+                    else f"{x} ({invoice_status_counts.get(x, 0):,})"
+                ),
+                label_visibility="collapsed",
+            )
+
         fdf = indus_search_df(df, q)
+
         if sf != "All" and not fdf.empty:
             fdf = fdf[fdf["Payment Status"] == sf]
-        with c3:
-            st.download_button("📥 Download Excel", indus_excel_bytes(fdf, "Invoices"),
-                               f"Indus_Invoices_{today:%Y%m%d}.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="indus_invoice_download", use_container_width=True)
+
+        if invoice_status_selected != "All" and not fdf.empty:
+            fdf = fdf[fdf["Invoice Status"] == invoice_status_selected]
+
+        with c4:
+            st.download_button(
+                "📥 Download Excel",
+                indus_excel_bytes(fdf, "Invoices"),
+                f"Indus_Invoices_{today:%Y%m%d}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="indus_invoice_download",
+                use_container_width=True,
+            )
 
         st.markdown("#### 🚫 Block ERS / Invoice")
         block_candidates = {
