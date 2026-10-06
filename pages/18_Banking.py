@@ -2907,14 +2907,37 @@ if is_indus:
         font-weight: 800 !important;
     }
     .st-key-indus_view_nav button[kind="secondary"] {
-        background:#fff !important; color:#475569 !important;
+        background:#ffffff !important;
+        color:#334155 !important;
         border:1.5px solid rgba(15,23,42,.12) !important;
         box-shadow:0 3px 8px rgba(15,23,42,.08) !important;
     }
+    .st-key-indus_view_nav button[kind="secondary"] p,
+    .st-key-indus_view_nav button[kind="secondary"] span,
+    .st-key-indus_view_nav button[kind="secondary"] div {
+        color:#334155 !important;
+        -webkit-text-fill-color:#334155 !important;
+    }
+
     .st-key-indus_view_nav button[kind="primary"] {
         background:linear-gradient(90deg,#3b82f6 0%,#8b5cf6 100%) !important;
-        color:#fff !important; border:none !important;
+        color:#ffffff !important;
+        border:none !important;
         box-shadow:0 7px 18px rgba(79,70,229,.38) !important;
+    }
+    .st-key-indus_view_nav button[kind="primary"] p,
+    .st-key-indus_view_nav button[kind="primary"] span,
+    .st-key-indus_view_nav button[kind="primary"] div {
+        color:#ffffff !important;
+        -webkit-text-fill-color:#ffffff !important;
+    }
+
+    /* Streamlit BaseWeb inner wrappers: never inherit transparent text */
+    .st-key-indus_view_nav button [data-testid="stMarkdownContainer"],
+    .st-key-indus_view_nav button [data-testid="stMarkdownContainer"] p {
+        visibility:visible !important;
+        opacity:1 !important;
+        display:block !important;
     }
     .indus-kpi-grid {
         display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr));
@@ -3048,22 +3071,21 @@ if is_indus:
     render_last_data_date_card(get_indus_last_data_date(), "INDUS")
 
     indus_views = [
-        ("Invoice", "Invoice", ":material/description:"),
-        ("Blocked ERS", "Blocked ERS", ":material/block:"),
-        ("Payments", "Payments", ":material/payments:"),
-        ("Prepayment", "Prepayment", ":material/account_balance_wallet:"),
-        ("Credit Note", "Credit Note", ":material/receipt_long:"),
+        ("Invoice", "INVOICE"),
+        ("Blocked ERS", "BLOCKED ERS"),
+        ("Payments", "PAYMENTS"),
+        ("Prepayment", "PREPAYMENT"),
+        ("Credit Note", "CREDIT NOTE"),
     ]
     with st.container(key="indus_view_nav"):
         nav_cols = st.columns(len(indus_views))
-        for col, (view_key, view_label, view_icon) in zip(nav_cols, indus_views):
+        for col, (view_key, view_label) in zip(nav_cols, indus_views):
             with col:
                 active = st.session_state.indus_active_view == view_key
                 if st.button(
                     view_label,
                     key=f"indus_view_{view_key}",
                     type="primary" if active else "secondary",
-                    icon=view_icon,
                     use_container_width=True,
                 ):
                     st.session_state.indus_active_view = view_key
