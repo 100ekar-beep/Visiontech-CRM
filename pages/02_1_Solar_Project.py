@@ -1,23 +1,367 @@
 import streamlit as st
 import pandas as pd
+import math
 import io
-import re
+import datetime
+import os
 from html import escape
-from datetime import date, datetime
+from collections import defaultdict
 from supabase import create_client, Client
+from st_keyup import st_keyup
 
-# ============================================================
-# 1. PAGE CONFIG
-# ============================================================
-st.set_page_config(
-    page_title="SRN Pending",
-    page_icon="📦",
-    layout="wide"
-)
+# --- Crash-proof import for fpdf (Add 'fpdf' to requirements.txt in GitHub) ---
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None
 
-# ============================================================
-# 2. SUPABASE CONNECTION
-# ============================================================
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(page_title="Solar Project Hub", page_icon="☀️", layout="wide")
+
+# ================================================================
+# --- 📌 STICKY HEADER + BOLD HEADER COLOR + 100 ROWS (all tables) ---
+# ================================================================
+def rows_per_page_picker(key, page_state_key=None, default=100):
+    """Chhota 'Rows per page' dropdown (default 100). Badalne par page 1 par wapas."""
+    if key not in st.session_state:
+        st.session_state[key] = default
+    def _reset_page():
+        if page_state_key:
+            st.session_state[page_state_key] = 1
+    _rpp_space, _rpp_col = st.columns([6, 1.3])
+    with _rpp_col:
+        st.selectbox("Rows per page", [25, 50, 100, 200], key=key, on_change=_reset_page,
+                     help="Ek page par kitni lines dikhni chahiye (default 100).")
+    return int(st.session_state[key])
+
+
+st.markdown("""
+<style>
+/* FIX: table box khud scroll karta hai (78% screen height) — header isi box ke top par chipka rahe */
+.stApp div[class*="_table_wrap"] { max-height: 78vh !important; overflow: auto !important; }
+.stApp div[class*="_table_wrap"] > div[class*="st-key-solhead_"],
+.stApp div[class*="_table_wrap"] > div:has(div[class*="st-key-solhead_"]) {
+    position: sticky !important; top: 0 !important; z-index: 20 !important;
+}
+/* Header: alag gehra color + bold safed text + amber underline */
+.stApp div[class*="st-key-solhead_"] {
+    background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important;
+    border-bottom: 3px solid #f59e0b !important;
+    box-shadow: 0 8px 14px -8px rgba(30, 27, 75, .55) !important;
+    padding: 14px 0 !important;
+}
+.stApp div[class*="st-key-solhead_"] [data-testid="stColumn"], .stApp div[class*="st-key-solhead_"] [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
+.stApp div[class*="st-key-solhead_"] .slux-th, .stApp div[class*="st-key-solhead_"] p {
+    color: #ffffff !important; font-size: .76rem !important; font-weight: 900 !important;
+    letter-spacing: 1.2px !important; text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# --- INIT SESSION STATE ---
+if 'solar_current_page' not in st.session_state:
+    st.session_state.solar_current_page = 1
+
+if 'solar_active_page' not in st.session_state:
+    st.session_state.solar_active_page = "sites"
+
+# --- MOBILE VIEW TOGGLE STATES (one per tab, independent of each other) ---
+if 'solar_sites_view' not in st.session_state:
+    st.session_state.solar_sites_view = "table"
+if 'solar_ledger_view' not in st.session_state:
+    st.session_state.solar_ledger_view = "table"
+if 'solar_payments_view' not in st.session_state:
+    st.session_state.solar_payments_view = "table"
+
+# --- 2. CSS (✨ LAVISH LIGHT THEME — Quotation / Site Data jaisa) ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0f172a; font-family: 'Inter', sans-serif; }
+
+    div.stButton > button {
+        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%);
+        color: white !important;
+        border: none;
+        border-radius: 8px;
+        font-weight: 800 !important;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25);
+    }
+    .page-count { text-align: center; font-size: 1rem; font-weight: 800; color: #4338ca; margin-top: 10px; }
+    div.stButton > button p, div.stButton > button span, div.stButton > button div {
+        color: #ffffff !important; font-weight: 800 !important;
+    }
+
+    /* Dialogs — light glass */
+    div[data-testid="stDialog"] > div {
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 {
+        color: #0f172a !important; font-weight: 800 !important; letter-spacing: 0.5px;
+    }
+    div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p, div[data-testid="stDialog"] p {
+        color: #1e293b !important;
+    }
+    div[data-testid="stDialog"] button[kind="icon"] svg { fill: #0f172a !important; }
+    .modal-section-title {
+        color: #4338ca; font-size: 0.85rem; font-weight: 800; letter-spacing: 1px;
+        margin-top: 15px; margin-bottom: 10px;
+        border-bottom: 2px solid #e0e7ff; padding-bottom: 6px;
+    }
+    label p, label[data-testid="stWidgetLabel"] p {
+        color: #0f172a !important; font-weight: 700 !important; letter-spacing: 0.5px;
+    }
+    div[data-testid="stTextInput"] input:disabled {
+        color: #000000 !important; font-weight: 700 !important; -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Sidebar (kept dark, same as other pages) */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebarNav"] a {
+        padding: 0.85rem 1.2rem !important; margin: 0.5rem 1rem !important; border-radius: 12px !important;
+        background: rgba(255, 255, 255, 0.03) !important; color: #cbd5e1 !important;
+        font-weight: 600 !important; font-size: 1.05rem !important; transition: all 0.3s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important; display: flex !important;
+        align-items: center !important; gap: 12px !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(255, 255, 255, 0.1) !important; transform: translateX(4px) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important; color: #ffffff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] {
+        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important;
+        color: #ffffff !important; border-color: transparent !important;
+        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4) !important;
+    }
+    [data-testid="stSidebarNav"] a span { color: inherit !important; }
+
+    /* ================= PAGE NAVIGATION BAR (Sites / Ledger / Payments) ================= */
+    .st-key-solar_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
+    .st-key-solar_nav_bar button {
+        font-size: 1.05rem !important; font-weight: 800 !important; padding: 16px 10px !important;
+        height: auto !important; border-radius: 12px !important; transition: all 0.25s ease !important;
+        white-space: nowrap !important;
+    }
+    .st-key-solar_nav_bar button[kind="secondary"] {
+        background: #ffffff !important; color: #475569 !important;
+        border: 1.5px solid rgba(0,0,0,0.12) !important; box-shadow: 0 2px 4px rgba(15,23,42,0.05) !important;
+    }
+    .st-key-solar_nav_bar button[kind="secondary"]:hover {
+        background: #fff7ed !important; border-color: #fdba74 !important; transform: translateY(-2px) !important;
+    }
+    .st-key-solar_nav_bar button[kind="secondary"] p,
+    .st-key-solar_nav_bar button[kind="secondary"] span,
+    .st-key-solar_nav_bar button[kind="secondary"] div { color: #475569 !important; font-weight: 800 !important; font-size: 1.05rem !important; }
+    .st-key-solar_nav_bar button[kind="primary"] {
+        background: linear-gradient(90deg, #f59e0b 0%, #ec4899 100%) !important; color: #ffffff !important;
+        border: none !important; box-shadow: 0 6px 18px rgba(245, 158, 11, 0.45) !important;
+    }
+    .st-key-solar_nav_bar button[kind="primary"] p,
+    .st-key-solar_nav_bar button[kind="primary"] span,
+    .st-key-solar_nav_bar button[kind="primary"] div { color: #ffffff !important; font-weight: 800 !important; font-size: 1.05rem !important; }
+
+    /* ================= KPI CARDS ================= */
+    .lux-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 4px 0 22px; }
+    .lux-kpi {
+        position: relative; background: #ffffff; border-radius: 16px; padding: 18px 20px 16px;
+        border: 1px solid #e0e7ff; overflow: hidden;
+        box-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.35);
+        transition: transform .25s ease, box-shadow .25s ease;
+    }
+    .lux-kpi:hover { transform: translateY(-3px); box-shadow: 0 18px 34px -14px rgba(79, 70, 229, 0.45); }
+    .lux-kpi::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--accent); }
+    .lux-kpi-icon {
+        position: absolute; right: 16px; top: 16px; width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center; font-size: 1.3rem; background: var(--soft);
+    }
+    .lux-kpi-label { font-size: .7rem; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: #64748b; padding-right: 48px; }
+    .lux-kpi-value { font-size: 1.55rem; font-weight: 900; color: #0f172a; margin-top: 8px; line-height: 1.1; }
+    .lux-kpi-value.green { color: #059669; }
+    .lux-kpi-value.red { color: #dc2626; }
+    .lux-kpi-foot { font-size: .75rem; color: #94a3b8; font-weight: 600; margin-top: 4px; }
+
+    /* ================= TABLE TITLE BAR ================= */
+    .slux-head-bar {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 16px 22px; border-radius: 18px 18px 0 0;
+        background: linear-gradient(100deg, #1e1b4b 0%, #312e81 45%, #5b21b6 100%);
+    }
+    .slux-title { color: #ffffff; font-weight: 900; font-size: 1.05rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .slux-title span { color: #c7d2fe; font-weight: 600; font-size: .8rem; letter-spacing: .5px; text-transform: none; margin-left: 8px; }
+    .slux-badge {
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fde68a;
+        padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: .78rem; letter-spacing: .5px;
+    }
+
+    /* ================= SCROLLING TABLE BODIES (all 4 tables) ================= */
+    .st-key-solar_table_wrap, .st-key-ledger_table_wrap, .st-key-payments_table_wrap, .st-key-site_ledger_table_wrap {
+        background: #ffffff !important; overflow: auto !important; padding: 0 !important;
+        border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important;
+        border-radius: 0 !important;
+    }
+    .st-key-solar_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-ledger_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-payments_table_wrap [data-testid="stVerticalBlock"],
+    .st-key-site_ledger_table_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
+    .st-key-solar_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-payments_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-site_ledger_table_wrap [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important;
+    }
+    .st-key-solar_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-solar_table_wrap div[class*="st-key-solhead_"], .st-key-solar_table_wrap div[class*="st-key-solrow_"],
+    .st-key-site_ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-site_ledger_table_wrap div[class*="st-key-solhead_"], .st-key-site_ledger_table_wrap div[class*="st-key-solrow_"] { min-width: 1900px !important; }
+    .st-key-ledger_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-ledger_table_wrap div[class*="st-key-solhead_"], .st-key-ledger_table_wrap div[class*="st-key-solrow_"] { min-width: 1100px !important; }
+    .st-key-payments_table_wrap [data-testid="stHorizontalBlock"],
+    .st-key-payments_table_wrap div[class*="st-key-solhead_"], .st-key-payments_table_wrap div[class*="st-key-solrow_"] { min-width: 1000px !important; }
+
+    .st-key-solar_table_wrap [data-testid="stColumn"], .st-key-solar_table_wrap [data-testid="column"],
+    .st-key-ledger_table_wrap [data-testid="stColumn"], .st-key-ledger_table_wrap [data-testid="column"],
+    .st-key-payments_table_wrap [data-testid="stColumn"], .st-key-payments_table_wrap [data-testid="column"],
+    .st-key-site_ledger_table_wrap [data-testid="stColumn"], .st-key-site_ledger_table_wrap [data-testid="column"] {
+        padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9;
+    }
+
+    /* Sticky header rows */
+    div[class*="st-key-solhead_"] {
+        position: sticky !important; top: 0 !important; z-index: 5 !important;
+        background: #eef2ff !important; border-bottom: 2px solid #c7d2fe !important; padding: 13px 0 !important;
+    }
+    div[class*="st-key-solhead_"] [data-testid="stColumn"], div[class*="st-key-solhead_"] [data-testid="column"] { border-right: 1px solid #dfe4fb !important; }
+    .slux-th { color: #3730a3; font-size: .68rem; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; white-space: nowrap; }
+    .slux-th.c { text-align: center; }
+    .slux-th.r { text-align: right; }
+
+    /* Data rows */
+    div[class*="st-key-solrow_"] {
+        padding: 9px 0 !important; background: #ffffff;
+        border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease;
+    }
+    div[class*="st-key-solrow_odd"] { background: #fafaff; }
+    div[class*="st-key-solrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
+    div[class*="st-key-solrow_"] p { margin: 0 !important; }
+
+    .slux-cell { font-size: .86rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+    .slux-strong { font-weight: 700; color: #0f172a; }
+    .slux-soft { color: #475569; font-weight: 600; }
+    .slux-muted { color: #cbd5e1; }
+    .slux-num {
+        display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+        align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff;
+        font-weight: 800; font-size: .75rem; box-shadow: 0 4px 10px -3px rgba(99,102,241,.6);
+    }
+    .slux-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #f8fafc; border: 1px solid #e2e8f0; color: #334155;
+        padding: 3px 8px; border-radius: 6px; font-size: .78rem; font-weight: 700; white-space: nowrap;
+    }
+    .slux-chip.proj { background: #eef2ff; border-color: #c7d2fe; color: #4338ca; }
+    .slux-pill {
+        display: inline-block; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+        background: linear-gradient(90deg, #e0f2fe, #ede9fe); color: #4338ca;
+        border: 1px solid #ddd6fe; font-weight: 800; font-size: .7rem; letter-spacing: .6px; text-transform: uppercase;
+    }
+    .sol-team { font-weight: 800; color: #b45309; }
+    .sol-mini {
+        display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+        font-size: .64rem; font-weight: 800; letter-spacing: .4px; vertical-align: middle;
+    }
+    .sol-mini.done { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .sol-mini.pend { background: #fef9c3; color: #a16207; border: 1px solid #fde68a; }
+    .sol-amt { text-align: right; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums; }
+    .sol-amt.zero { color: #cbd5e1; font-weight: 600; }
+    .sol-amt.strong { color: #4f46e5; font-weight: 900; font-size: .92rem; }
+    .sol-amt.amber { color: #d97706; font-weight: 900; font-size: .92rem; }
+    .sol-amt.paid { color: #059669; font-weight: 900; }
+    .sol-amt.due { color: #dc2626; font-weight: 900; }
+
+    /* Status pills */
+    .status-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 11px; border-radius: 999px; border: 1px solid transparent;
+        font-size: .7rem; font-weight: 800; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .85; }
+    .status-green  { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+    .status-blue   { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-yellow { background: #fef9c3; color: #a16207; border-color: #fde68a; }
+    .status-red    { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .status-grey   { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+    /* Inline row buttons */
+    div[class*="st-key-solar_mgr_"] button, div[class*="st-key-ledger_view_"] button, div[class*="st-key-delpay_"] button {
+        width: 38px !important; max-width: 38px !important; height: 34px !important; min-height: 34px !important;
+        padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
+        box-shadow: none !important; font-size: 1rem !important; transition: all .2s ease !important;
+    }
+    div[class*="st-key-solar_mgr_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
+    div[class*="st-key-solar_mgr_"] button:hover { background: #3b82f6 !important; border-color: #60a5fa !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(59,130,246,.6) !important; }
+    div[class*="st-key-ledger_view_"] button { background: rgba(99,102,241,0.15) !important; border: 1px solid rgba(99,102,241,0.3) !important; }
+    div[class*="st-key-ledger_view_"] button:hover { background: #6366f1 !important; border-color: #818cf8 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(99,102,241,.6) !important; }
+    div[class*="st-key-delpay_"] button { background: rgba(239,68,68,0.12) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
+    div[class*="st-key-delpay_"] button:hover { background: #ef4444 !important; border-color: #f87171 !important; transform: translateY(-2px) !important; box-shadow: 0 6px 14px -4px rgba(239,68,68,.6) !important; }
+
+    /* Footer bar */
+    .slux-foot {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+        padding: 14px 22px; background: linear-gradient(90deg, #f5f3ff, #eef2ff);
+        border: 1px solid #e0e7ff; border-top: 2px solid #c7d2fe; border-radius: 0 0 18px 18px;
+        box-shadow: 0 24px 48px -22px rgba(30, 27, 75, 0.45);
+        font-weight: 900; color: #312e81; text-transform: uppercase; letter-spacing: 1px; font-size: .78rem;
+    }
+    .slux-foot small { color: #6366f1; font-weight: 700; letter-spacing: .5px; margin-left: 10px; text-transform: none; font-size: .8rem; }
+    .slux-foot-amts { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; text-transform: none; letter-spacing: 0; }
+    .slux-foot-amts span { font-size: .95rem; }
+    .slux-foot-badge {
+        background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; padding: 5px 14px;
+        border-radius: 999px; font-size: .75rem; letter-spacing: .5px;
+    }
+
+    .slux-empty {
+        background: #fff; border: 1px dashed #c7d2fe; border-radius: 18px; padding: 48px 20px;
+        text-align: center; color: #64748b; font-weight: 600;
+    }
+    .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
+
+    /* ================= MOBILE CARD VIEW (light) ================= */
+    .solar-mcard-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
+    .solar-mcard-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+    .solar-mcard-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.85rem; gap: 10px; }
+    .solar-mcard-row:last-child { border-bottom: none; }
+    .solar-mcard-label { color: #64748b; font-weight: 700; white-space: nowrap; text-transform: uppercase; font-size: .75rem; }
+    .solar-mcard-value { color: #0f172a; font-weight: 600; text-align: right; }
+    .solar-mcard-value.paid { color: #059669; font-weight: 800; }
+    .solar-mcard-value.pending { color: #dc2626; font-weight: 800; }
+    .solar-mcard-value.amber { color: #d97706; font-weight: 800; }
+
+    /* Detail dialog mini tables */
+    .sol-dlg-head { color: #4338ca; font-size: .72rem; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+    .sol-dlg-cell { color: #1e293b; font-size: .88rem; }
+    .sol-dlg-muted { color: #64748b; font-size: .85rem; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 3. SUPABASE CONNECTION ---
+# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
+# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
+# Supabase project se automatically connect ho jaate hain.
 @st.cache_resource
 def init_connection():
     try:
@@ -31,1095 +375,1156 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# ============================================================
-# 3. CONSTANTS
-# ============================================================
-SRN_TABLE = "srn_pending"
-ESCALATION_TABLE = "Excalation Matrix"
-
-REQUIRED_UPLOAD_COLUMNS = [
-    "Site ID",
-    "Project Number",
-    "Item Description",
-    "BOQ Quantity",
-    "Dispatch Date",
-    "Item Cat 2",
-    "Ageing Date",
-    "Ageing Slab",
-]
-
-SCREEN_COLUMNS = [
-    "Site ID",
-    "Site Name",
-    "Cluster",
-    "Technician Detail",
-    "Item Cat 2",
-    "Ageing Slab",
-    "Project Number",
-    "Item Description",
-    "BOQ Quantity",
-    "Team Name",
-    "SRN Status",
-    "SRN Date",
-    "SRN From",
-    "POD Status",
-    "Remark",
-]
-
-SRN_STATUS_OPTIONS = ["Done", "Pending", "Issue"]
-POD_STATUS_OPTIONS = ["Received", "Pending"]
-SRN_FROM_OPTIONS = []
-
-# ============================================================
-# 4. ACCESS GATE - SAME WORKSPACE RULE AS OLD PAGE
-# ============================================================
-if st.session_state.get("active_workspace", "VISPL") == "RAJKUMAR KALYA":
-    st.error("🚫 Access Restricted!")
-    st.warning("Ye module exclusively VISPL / BHAGYASHREE workspaces ke liye available hai.")
-    st.stop()
-
-active_ws = st.session_state.get("active_workspace", "VISPL")
-
-# ============================================================
-# 5. STYLING
-# ============================================================
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
-        border-right: 1px solid rgba(255,255,255,0.05);
-    }
-
-    [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255,255,255,0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.02rem !important;
-        transition: all 0.25s ease !important;
-        border: 1px solid rgba(255,255,255,0.05) !important;
-    }
-
-    [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255,255,255,0.10) !important;
-        transform: translateX(4px);
-        color: #ffffff !important;
-    }
-
-    [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
-        box-shadow: 0 4px 15px rgba(59,130,246,0.35);
-    }
-
-    .srn-banner {
-        background: linear-gradient(90deg, #0f172a 0%, #1d4ed8 48%, #7c3aed 100%);
-        padding: 16px 22px;
-        border-radius: 14px;
-        margin-bottom: 18px;
-        box-shadow: 0 8px 24px rgba(15,23,42,0.20);
-    }
-
-    .srn-banner h1 {
-        color: white !important;
-        margin: 0;
-        font-size: 2.05rem;
-        font-weight: 900;
-        letter-spacing: 1.5px;
-    }
-
-    .srn-banner p {
-        color: #dbeafe !important;
-        margin: 5px 0 0 0;
-        font-weight: 600;
-    }
-
-    .metric-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 13px;
-        padding: 14px 16px;
-        box-shadow: 0 4px 12px rgba(15,23,42,0.06);
-        min-height: 92px;
-    }
-
-    .metric-title {
-        color: #64748b;
-        font-size: 0.76rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .7px;
-    }
-
-    .metric-value {
-        color: #0f172a;
-        font-size: 1.7rem;
-        font-weight: 900;
-        margin-top: 5px;
-    }
-
-    div[data-testid="stExpander"] {
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 12px !important;
-        overflow: hidden;
-        background: #ffffff;
-        box-shadow: 0 3px 10px rgba(15,23,42,0.05);
-        margin-bottom: 10px;
-    }
-
-    div[data-testid="stExpander"] summary {
-        font-weight: 800 !important;
-        color: #0f172a !important;
-    }
-
-    [data-testid="stDataFrame"] {
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        overflow: hidden;
-    }
-
-    .small-note {
-        color: #64748b;
-        font-size: .84rem;
-        font-weight: 600;
-    }
-
-    .site-meta {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 10px 12px;
-        margin-bottom: 10px;
-        color: #334155;
-        font-size: .88rem;
-        font-weight: 650;
-    }
-
-    .stButton > button {
-        font-weight: 800 !important;
-        border-radius: 9px !important;
-    }
-
-    div[data-testid="stDownloadButton"] button {
-        font-weight: 800 !important;
-        border-radius: 9px !important;
-    }
-
-    .stApp { background: linear-gradient(135deg,#f8fafc 0%,#e2e8f0 100%); color:#0f172a; font-family:'Inter',sans-serif; }
-    div.stButton > button { background:linear-gradient(90deg,#f59e0b 0%,#ec4899 100%) !important; color:#fff !important; border:none !important; border-radius:8px !important; font-weight:800 !important; box-shadow:0 4px 8px rgba(0,0,0,.14); }
-    div.stButton > button:hover { transform:translateY(-2px); box-shadow:0 9px 16px rgba(0,0,0,.20); }
-    div[data-testid="stDialog"] > div { background:rgba(255,255,255,.99); border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,.25); }
-    .slux-head-bar { display:flex; justify-content:space-between; padding:16px 22px; border-radius:18px 18px 0 0; background:linear-gradient(100deg,#1e1b4b 0%,#312e81 45%,#5b21b6 100%); }
-    .slux-title { color:#fff; font-weight:900; font-size:1.05rem; letter-spacing:1.3px; text-transform:uppercase; }
-    .slux-title span { color:#c7d2fe; font-size:.8rem; margin-left:8px; text-transform:none; }
-    .slux-badge { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); color:#fde68a; padding:5px 12px; border-radius:999px; font-weight:800; }
-    .st-key-srn_lux_table { background:#fff; overflow:auto !important; max-height:72vh !important; padding:0 !important; border:1px solid #e0e7ff; }
-    .st-key-srn_lux_table [data-testid="stHorizontalBlock"] { min-width:2450px !important; flex-wrap:nowrap !important; gap:0 !important; align-items:center !important; }
-    .st-key-srn_lux_table [data-testid="stColumn"] { padding:0 10px !important; min-width:0 !important; border-right:1px solid #f1f5f9; }
-    div[class*="st-key-srnhead_"] { position:sticky !important; top:0 !important; z-index:20 !important; background:linear-gradient(90deg,#312e81,#4338ca,#6d28d9) !important; border-bottom:3px solid #f59e0b; padding:13px 0 !important; }
-    .slux-th { color:#fff; font-size:.69rem; font-weight:900; letter-spacing:.9px; text-transform:uppercase; white-space:nowrap; }
-    div[class*="st-key-srnrow_"] { padding:8px 0 !important; background:#fff; border-bottom:1px solid #f1f5f9; }
-    div[class*="st-key-srnrow_odd"] { background:#fafaff; }
-    div[class*="st-key-srnrow_"]:hover { background:#eef2ff; box-shadow:inset 4px 0 0 #6366f1; }
-    .slux-cell { font-size:.84rem; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; }
-    .slux-strong { font-weight:800; color:#0f172a; }
-    .slux-muted { color:#cbd5e1; }
-    .slux-chip { font-family:ui-monospace,Consolas,monospace; background:#f8fafc; border:1px solid #e2e8f0; color:#334155; padding:3px 7px; border-radius:6px; font-size:.76rem; font-weight:700; }
-    .slux-chip.proj { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; }
-    .slux-pill { display:inline-block; padding:4px 10px; border-radius:999px; background:linear-gradient(90deg,#e0f2fe,#ede9fe); color:#4338ca; border:1px solid #ddd6fe; font-weight:800; font-size:.68rem; }
-    .status-badge { display:inline-flex; padding:4px 10px; border-radius:999px; font-size:.69rem; font-weight:900; border:1px solid transparent; }
-    .status-green{background:#dcfce7;color:#15803d;border-color:#bbf7d0}.status-yellow{background:#fef9c3;color:#a16207;border-color:#fde68a}.status-red{background:#fee2e2;color:#b91c1c;border-color:#fecaca}.status-blue{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
-    div[class*="st-key-srnedit_"] button { width:38px !important; height:34px !important; padding:0 !important; background:rgba(59,130,246,.15) !important; border:1px solid rgba(59,130,246,.3) !important; color:#1d4ed8 !important; box-shadow:none !important; }
-    div[class*="st-key-srnedit_"] button:hover { background:#3b82f6 !important; color:#fff !important; }
-    .slux-foot { padding:14px 22px; background:linear-gradient(90deg,#f5f3ff,#eef2ff); border:1px solid #e0e7ff; border-top:2px solid #c7d2fe; border-radius:0 0 18px 18px; font-weight:900; color:#312e81; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ============================================================
-# 6. HELPERS
-# ============================================================
-def clean_text(value):
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except Exception:
-        pass
-    text = str(value).strip()
-    if text.lower() in {"nan", "none", "nat"}:
-        return ""
-    return text
-
-
-def normalize_col_name(name):
-    return re.sub(r"[^a-z0-9]+", " ", str(name).strip().lower()).strip()
-
-
-def find_column(columns, candidates):
-    normalized = {normalize_col_name(c): c for c in columns}
-
-    # Exact normalized match first
-    for candidate in candidates:
-        key = normalize_col_name(candidate)
-        if key in normalized:
-            return normalized[key]
-
-    # Then contains match
-    for candidate in candidates:
-        key = normalize_col_name(candidate)
-        for norm_col, original in normalized.items():
-            if key and (key in norm_col or norm_col in key):
-                return original
-
-    return None
-
-
-def safe_date_string(value):
-    if value is None or clean_text(value) == "":
-        return None
-
-    try:
-        dt = pd.to_datetime(value, errors="coerce")
-        if pd.isna(dt):
-            return None
-        return dt.date().isoformat()
-    except Exception:
-        return None
-
-
-def display_date(value):
-    if value is None or clean_text(value) == "":
-        return ""
-    try:
-        dt = pd.to_datetime(value, errors="coerce")
-        if pd.isna(dt):
-            return clean_text(value)
-        return dt.strftime("%d-%m-%Y")
-    except Exception:
-        return clean_text(value)
-
-
-def safe_float(value):
-    try:
-        if value is None or clean_text(value) == "":
-            return None
-        return float(value)
-    except Exception:
-        return None
-
-
-def make_line_key(site_id, project_number, item_description, item_cat_2):
-    """
-    Upload sheet me line number nahi hai.
-    Isliye same pending line ko next upload me identify karne ke liye
-    Site ID + Project Number + Item Description + Item Cat 2 use ho raha hai.
-    """
-    parts = [
-        clean_text(site_id).upper(),
-        clean_text(project_number).upper(),
-        clean_text(item_description).upper(),
-        clean_text(item_cat_2).upper(),
-    ]
-    return "||".join(parts)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_srn_data(workspace):
-    try:
-        response = (
-            supabase.table(SRN_TABLE)
-            .select("*")
-            .eq("workspace", workspace)
-            .order("site_id")
-            .execute()
-        )
-        return response.data or []
-    except Exception as e:
-        st.error(f"❌ SRN data load error: {e}")
-        return []
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_escalation_matrix():
-    try:
-        response = supabase.table(ESCALATION_TABLE).select("*").execute()
-        return response.data or []
-    except Exception as e:
-        st.error(f"❌ '{ESCALATION_TABLE}' load error: {e}")
-        return []
-
-
-def clear_srn_cache():
-    fetch_srn_data.clear()
-
-
-def prepare_escalation_lookup(records):
-    """
-    Excalation Matrix ke exact column names alag hone par bhi common
-    naming variants se Site ID / Site Name / Cluster / Technician Detail
-    identify karne ki koshish karega.
-    """
-    if not records:
-        return {}
-
-    edf = pd.DataFrame(records)
-    if edf.empty:
-        return {}
-
-    site_col = find_column(
-        edf.columns,
-        [
-            "Site ID",
-            "Indus ID",
-            "Indus Site ID",
-            "Site Id",
-            "SiteID",
-        ],
-    )
-
-    site_name_col = find_column(
-        edf.columns,
-        [
-            "Site Name",
-            "SiteName",
-            "Indus Site Name",
-        ],
-    )
-
-    cluster_col = find_column(
-        edf.columns,
-        [
-            "Cluster",
-            "Cluster Name",
-        ],
-    )
-
-    tech_col = find_column(
-        edf.columns,
-        [
-            "Technician Detail",
-            "Technician Details",
-            "Technician",
-            "Technician Name",
-            "Technician Name & Number",
-            "Technician Name and Number",
-            "Technician Contact",
-            "Technician Mobile",
-            "Technician Number",
-        ],
-    )
-
-    if not site_col:
-        st.warning(
-            f"⚠️ '{ESCALATION_TABLE}' me Site ID/Indus ID column auto-detect nahi hua. "
-            f"Available columns: {', '.join(map(str, edf.columns))}"
-        )
-        return {}
-
-    lookup = {}
-
-    for _, row in edf.iterrows():
-        sid = clean_text(row.get(site_col)).upper()
-        if not sid:
-            continue
-
-        # First useful row wins, but blank values can be filled by later duplicate rows.
-        if sid not in lookup:
-            lookup[sid] = {
-                "Site Name": "",
-                "Cluster": "",
-                "Technician Detail": "",
-            }
-
-        if site_name_col and not lookup[sid]["Site Name"]:
-            lookup[sid]["Site Name"] = clean_text(row.get(site_name_col))
-
-        if cluster_col and not lookup[sid]["Cluster"]:
-            lookup[sid]["Cluster"] = clean_text(row.get(cluster_col))
-
-        if tech_col and not lookup[sid]["Technician Detail"]:
-            lookup[sid]["Technician Detail"] = clean_text(row.get(tech_col))
-
-    return lookup
-
-
-def excel_bytes(df, sheet_name="SRN Pending"):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
-        ws = writer.book[sheet_name[:31]]
-
-        # Useful widths
-        widths = {
-            "A": 16, "B": 30, "C": 20, "D": 34, "E": 18,
-            "F": 16, "G": 24, "H": 55, "I": 14, "J": 24,
-            "K": 16, "L": 14, "M": 20, "N": 16, "O": 35,
-        }
-        for col, width in widths.items():
-            ws.column_dimensions[col].width = width
-
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-
-    return output.getvalue()
-
-
-def build_display_df(raw_records, escalation_lookup):
-    if not raw_records:
-        return pd.DataFrame(columns=SCREEN_COLUMNS + ["id", "line_key"])
-
-    rdf = pd.DataFrame(raw_records)
-
-    rename_map = {
-        "site_id": "Site ID",
-        "item_cat_2": "Item Cat 2",
-        "ageing_slab": "Ageing Slab",
-        "project_number": "Project Number",
-        "item_description": "Item Description",
-        "boq_quantity": "BOQ Quantity",
-        "dispatch_date": "Dispatch Date",
-        "ageing_date": "Ageing Date",
-        "team_name": "Team Name",
-        "srn_status": "SRN Status",
-        "srn_date": "SRN Date",
-        "srn_from": "SRN From",
-        "pod_status": "POD Status",
-        "remark": "Remark",
-    }
-    rdf = rdf.rename(columns=rename_map)
-
-    for col in [
-        "Site ID", "Item Cat 2", "Ageing Slab", "Project Number",
-        "Item Description", "BOQ Quantity", "Dispatch Date", "Ageing Date",
-        "Team Name", "SRN Status", "SRN Date", "SRN From",
-        "POD Status", "Remark", "id", "line_key"
-    ]:
-        if col not in rdf.columns:
-            rdf[col] = ""
-
-    # Enrich from Excalation Matrix
-    rdf["Site Name"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Site Name", "")
-    )
-    rdf["Cluster"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Cluster", "")
-    )
-    rdf["Technician Detail"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Technician Detail", "")
-    )
-
-    # Defaults for operational columns
-    rdf["SRN Status"] = rdf["SRN Status"].apply(lambda x: clean_text(x) or "Pending")
-    rdf["POD Status"] = rdf["POD Status"].apply(lambda x: clean_text(x) or "Pending")
-
-    # Date display
-    rdf["SRN Date"] = rdf["SRN Date"].apply(display_date)
-
-    # Keep internal columns at end
-    ordered = SCREEN_COLUMNS + ["Dispatch Date", "Ageing Date", "id", "line_key"]
-    return rdf[ordered].copy()
-
-
-def validate_upload_df(upload_df):
-    missing = [c for c in REQUIRED_UPLOAD_COLUMNS if c not in upload_df.columns]
-    return missing
-
-
-def upload_new_srn_data(upload_df, workspace):
-    """
-    Existing line ko line_key se update karta hai.
-    New line insert hoti hai.
-    Manual SRN Status / Date / From / POD / Remark / Team Name preserve rehte hain.
-    """
-    missing = validate_upload_df(upload_df)
-    if missing:
-        raise ValueError(
-            "Excel me ye required columns missing hain: " + ", ".join(missing)
-        )
-
-    existing = fetch_srn_data(workspace)
-    existing_by_key = {
-        clean_text(r.get("line_key")): r
-        for r in existing
-        if clean_text(r.get("line_key"))
-    }
-
-    payload = []
-    skipped_blank_site = 0
-    line_key_occurrence_counter = {}
-
-    for _, row in upload_df.iterrows():
-        site_id = clean_text(row.get("Site ID"))
-        if not site_id:
-            skipped_blank_site += 1
-            continue
-
-        project_number = clean_text(row.get("Project Number"))
-        item_description = clean_text(row.get("Item Description"))
-        item_cat_2 = clean_text(row.get("Item Cat 2"))
-
-        # Same Site/Project/Item genuine multiple times aa sakta hai.
-        # Base key ke saath occurrence number add karte hain so every Excel line
-        # is preserved, while re-uploading the same sheet updates the same rows.
-        base_line_key = make_line_key(
-            site_id,
-            project_number,
-            item_description,
-            item_cat_2,
-        )
-
-        occurrence_no = line_key_occurrence_counter.get(base_line_key, 0) + 1
-        line_key_occurrence_counter[base_line_key] = occurrence_no
-        line_key = f"{base_line_key}||ROW{occurrence_no}"
-
-        old = existing_by_key.get(line_key, {})
-
-        record = {
-            "workspace": workspace,
-            "line_key": line_key,
-            "site_id": site_id,
-            "project_number": project_number,
-            "item_description": item_description,
-            "boq_quantity": safe_float(row.get("BOQ Quantity")),
-            "dispatch_date": safe_date_string(row.get("Dispatch Date")),
-            "item_cat_2": item_cat_2,
-            "ageing_date": safe_date_string(row.get("Ageing Date")),
-            "ageing_slab": clean_text(row.get("Ageing Slab")),
-
-            # Preserve manually maintained values on repeat upload
-            "team_name": clean_text(old.get("team_name")),
-            "srn_status": clean_text(old.get("srn_status")) or "Pending",
-            "srn_date": old.get("srn_date") or None,
-            "srn_from": clean_text(old.get("srn_from")),
-            "pod_status": clean_text(old.get("pod_status")) or "Pending",
-            "remark": clean_text(old.get("remark")),
-            "updated_at": datetime.now().isoformat(),
-        }
-
-        payload.append(record)
-
-    if not payload:
-        return 0, skipped_blank_site
-
-    # Upsert in batches
-    batch_size = 250
-    for start in range(0, len(payload), batch_size):
-        batch = payload[start:start + batch_size]
-        (
-            supabase.table(SRN_TABLE)
-            .upsert(batch, on_conflict="workspace,line_key")
-            .execute()
-        )
-
-    clear_srn_cache()
-    return len(payload), skipped_blank_site
-
-
-
 @st.cache_data(ttl=60, show_spinner=False)
 def get_all_dropdowns():
     try:
         res = supabase.table("dropdown_master").select("*").execute()
-        return res.data or []
+        return res.data if res.data else []
     except Exception:
         return []
 
-def dropdown_values(category, fallback=None):
-    all_dd = get_all_dropdowns()
-    vals = []
-    for r in all_dd:
-        if clean_text(r.get("category")).lower() == category.lower():
-            v = clean_text(r.get("option_value"))
-            if v and v not in vals:
-                vals.append(v)
-    if fallback:
-        for v in fallback:
-            if v not in vals:
-                vals.append(v)
-    return vals
+def get_opts(category, all_data):
+    opts = [row["option_value"] for row in all_data if row["category"] == category]
+    return ["Select"] + opts
 
-def add_dropdown_value(category, value):
-    value = clean_text(value)
-    if not value:
-        return False, "Blank value add nahi ho sakti."
+def get_simple_opts(category, all_data, fallback):
+    opts = [row["option_value"] for row in all_data if row["category"] == category]
+    return opts if opts else fallback
+
+def num(v):
     try:
-        existing = supabase.table("dropdown_master").select("*").eq("category", category).eq("option_value", value).execute()
-        if existing.data:
-            return True, "Already available."
-        supabase.table("dropdown_master").insert({
-            "category": category,
-            "option_value": value
-        }).execute()
-        get_all_dropdowns.clear()
-        return True, f"{value} added."
-    except Exception as e:
-        return False, str(e)
+        return float(v) if v not in (None, "", "None") else 0.0
+    except Exception:
+        return 0.0
 
-def _muted():
-    return "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
+# --- SMALL HELPER TO RENDER THE "TABLE / MOBILE" TOGGLE BUTTON ---
+def render_view_toggle(state_key, button_key):
+    toggle_label = "📱 Mobile View" if st.session_state[state_key] == "table" else "🖥️ Table View"
+    if st.button(toggle_label, use_container_width=True, key=button_key):
+        st.session_state[state_key] = "cards" if st.session_state[state_key] == "table" else "table"
+        st.rerun()
 
-def _txt(v, strong=False):
-    x=clean_text(v)
-    if not x: return _muted()
-    cls=" slux-strong" if strong else ""
-    return f"<div class='slux-cell{cls}' title='{escape(x)}'>{escape(x)}</div>"
+# ================================================================
+# --- ✨ LAVISH TABLE RENDER HELPERS ---
+# ================================================================
+_MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
 
-def _chip(v, proj=False):
-    x=clean_text(v)
-    if not x: return _muted()
-    cls=" proj" if proj else ""
-    return f"<div class='slux-cell'><span class='slux-chip{cls}'>{escape(x)}</span></div>"
+def _clean(v):
+    s = str(v if v is not None else "").strip()
+    return "" if s.lower() in ("nan", "none", "null", "-") else s
+
+def _txt(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell {extra_cls}' title='{escape(s)}'>{escape(s)}</div>"
+
+def _chip(v, extra_cls=""):
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-chip {extra_cls}'>{escape(s)}</span></div>"
 
 def _pill(v):
-    x=clean_text(v)
-    if not x: return _muted()
-    return f"<div class='slux-cell'><span class='slux-pill'>{escape(x)}</span></div>"
+    s = _clean(v)
+    if not s:
+        return _MUTED
+    return f"<div class='slux-cell'><span class='slux-pill'>{escape(s)}</span></div>"
 
-def _status(v):
-    x=clean_text(v)
-    if not x: return _muted()
-    xl=x.lower()
-    if xl in ("done","received"): cls="status-green"
-    elif xl=="issue": cls="status-red"
-    elif xl=="pending": cls="status-yellow"
-    else: cls="status-blue"
-    return f"<div class='slux-cell'><span class='status-badge {cls}'>{escape(x)}</span></div>"
+def _money(v, style=""):
+    val = num(v)
+    cls = "zero" if val == 0 and not style else style
+    return f"<div class='slux-cell sol-amt {cls}'>₹ {val:,.0f}</div>"
 
-def _qty(v):
-    try:
-        n=float(v)
-        out=f"{n:g}"
-    except:
-        out=clean_text(v) or "-"
-    return f"<div class='slux-cell slux-strong'>{escape(out)}</div>"
+def _team_cell(name, status):
+    n = _clean(name)
+    if not n:
+        return _MUTED
+    mini = "<span class='sol-mini done'>✓ DONE</span>" if status == "Completed" else "<span class='sol-mini pend'>⏳ PENDING</span>"
+    return f"<div class='slux-cell' title='{escape(n)}'><span class='sol-team'>{escape(n)}</span>{mini}</div>"
 
-def table_header_row(key, ratios, labels):
+def status_badge(val):
+    v = _clean(val)
+    if not v:
+        return _MUTED
+    vl = v.lower()
+    if vl == "not required":
+        cls = "status-grey"
+    elif "not" in vl and ("received" in vl or "available" in vl):
+        cls = "status-red"
+    elif any(k in vl for k in ["completed", "approved", "done", "available"]):
+        cls = "status-green"
+    elif any(k in vl for k in ["hold", "progress"]):
+        cls = "status-blue"
+    elif any(k in vl for k in ["pending", "awaiting", "required"]):
+        cls = "status-yellow"
+    elif any(k in vl for k in ["cancel", "reject"]):
+        cls = "status-red"
+    else:
+        cls = "status-grey"
+    return f"<div class='slux-cell'><span class='status-badge {cls}'>{escape(v)}</span></div>"
+
+def kpi_card(icon, label, value, foot="", accent="linear-gradient(90deg,#6366f1,#8b5cf6)", soft="#eef2ff", value_cls=""):
+    return (
+        f'<div class="lux-kpi" style="--accent:{accent};--soft:{soft};">'
+        f'<div class="lux-kpi-icon">{icon}</div><div class="lux-kpi-label">{label}</div>'
+        f'<div class="lux-kpi-value {value_cls}">{value}</div><div class="lux-kpi-foot">{foot}</div></div>'
+    )
+
+KPI_INDIGO = ("linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+KPI_GREEN = ("linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5")
+KPI_AMBER = ("linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+KPI_PINK = ("linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
+KPI_BLUE = ("linear-gradient(90deg,#3b82f6,#06b6d4)", "#eff6ff")
+KPI_RED = ("linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2")
+
+def table_title_bar(title, subtitle, badge):
+    st.markdown(
+        '<div class="slux-head-bar">'
+        f'<div class="slux-title">{title}<span>{subtitle}</span></div>'
+        f'<div class="slux-badge">{badge}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+def table_header_row(key, ratios, labels, center_idx=(), right_idx=()):
     with st.container(key=key):
-        cols=st.columns(ratios, vertical_alignment="center")
-        for c,label in zip(cols,labels):
-            c.markdown(f"<div class='slux-th'>{label}</div>", unsafe_allow_html=True)
+        h_cols = st.columns(ratios, vertical_alignment="center")
+        for i, (h_col, label) in enumerate(zip(h_cols, labels)):
+            cls = " c" if i in center_idx else (" r" if i in right_idx else "")
+            h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
 
-@st.dialog("➕ Add New Dropdown Option")
-def add_option_dialog():
-    category = st.selectbox("Add option in", ["SRN Status", "SRN From", "POD Status"])
-    new_value = st.text_input("New Option", placeholder="Type new status / SRN From...")
-    if st.button("➕ Add Option", type="primary", use_container_width=True):
-        ok,msg=add_dropdown_value(category,new_value)
-        if ok:
-            st.success("✅ "+msg)
-            st.rerun()
-        else:
-            st.error("❌ "+msg)
+def empty_state(msg):
+    st.markdown(f'<div class="slux-empty"><div>🗂️</div>{escape(msg)}</div>', unsafe_allow_html=True)
 
-@st.dialog("✏️ Edit SRN Record", width="large")
-def edit_srn_dialog(row_data):
-    rid = row_data.get("id")
-    st.caption("Team / SRN / POD details update karein")
+# --- 4. MANAGE TEAMS DIALOG (amount-only, no payment status) ---
+@st.dialog("⚙️ Manage Solar Teams & Charges", width="large")
+def manage_solar_teams_dialog(site_row, alloc_row):
+    st.caption("Civil / Electrical / Transporter teams ke charges yahan manage karein")
 
-    c1,c2,c3,c4=st.columns(4)
-    c1.text_input("SITE ID", value=clean_text(row_data.get("Site ID")), disabled=True)
-    c2.text_input("SITE NAME", value=clean_text(row_data.get("Site Name")), disabled=True)
-    c3.text_input("CLUSTER", value=clean_text(row_data.get("Cluster")), disabled=True)
-    c4.text_input("PROJECT NUMBER", value=clean_text(row_data.get("Project Number")), disabled=True)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.text_input("PROJECT ID", value=site_row.get("Project ID", ""), disabled=True)
+    with c2: st.text_input("SITE ID", value=site_row.get("Site ID", ""), disabled=True)
+    with c3: st.text_input("SITE NAME", value=site_row.get("Site Name", ""), disabled=True)
+    with c4: st.text_input("CLUSTER", value=site_row.get("Cluster", ""), disabled=True)
 
-    team_opts = dropdown_values("Team Name")
-    current_team=clean_text(row_data.get("Team Name"))
-    if current_team and current_team not in team_opts: team_opts.insert(0,current_team)
-    team_opts=["Select"]+team_opts
-    team_name=st.selectbox("TEAM NAME", team_opts, index=(team_opts.index(current_team) if current_team in team_opts else 0))
+    all_dd = get_all_dropdowns()
+    team_opts = get_opts("Team Name", all_dd)
 
-    srn_opts=dropdown_values("SRN Status", ["Done","Pending","Issue"])
-    cur_srn=clean_text(row_data.get("SRN Status")) or "Pending"
-    if cur_srn not in srn_opts: srn_opts.insert(0,cur_srn)
+    def get_idx(val, opt_list):
+        return opt_list.index(val) if val in opt_list else 0
 
-    from_opts=dropdown_values("SRN From")
-    cur_from=clean_text(row_data.get("SRN From"))
-    if cur_from and cur_from not in from_opts: from_opts.insert(0,cur_from)
-    from_opts=["Manual"] + [x for x in from_opts if x!="Manual"]
-
-    pod_opts=dropdown_values("POD Status", ["Received","Pending"])
-    cur_pod=clean_text(row_data.get("POD Status")) or "Pending"
-    if cur_pod not in pod_opts: pod_opts.insert(0,cur_pod)
-
-    x1,x2,x3=st.columns(3)
-    with x1:
-        srn_status=st.selectbox("SRN STATUS", srn_opts, index=srn_opts.index(cur_srn))
-    with x2:
-        raw_date=pd.to_datetime(row_data.get("SRN Date"), errors="coerce", dayfirst=True)
-        date_val=raw_date.date() if not pd.isna(raw_date) else None
-        srn_date=st.date_input("SRN DATE", value=date_val, format="DD-MM-YYYY")
-    with x3:
-        pod_status=st.selectbox("POD STATUS", pod_opts, index=pod_opts.index(cur_pod))
-
-    y1,y2=st.columns([1,2])
-    with y1:
-        srn_from_choice=st.selectbox("SRN FROM", from_opts, index=(from_opts.index(cur_from) if cur_from in from_opts else 0))
-    with y2:
-        if srn_from_choice=="Manual":
-            srn_from=st.text_input("MANUAL SRN FROM", value=(cur_from if cur_from and cur_from!="Manual" else ""), placeholder="Type SRN From...")
-        else:
-            srn_from=srn_from_choice
-
-    remark=st.text_area("REMARK", value=clean_text(row_data.get("Remark")), placeholder="Enter remark...", height=90)
-
-    bc1,bc2=st.columns([1,3])
-    with bc1:
-        if st.button("➕ Add Dropdown Option", use_container_width=True):
-            add_option_dialog()
-    with bc2:
-        if st.button("💾 Save Update", type="primary", use_container_width=True):
-            try:
-                payload={
-                    "team_name": "" if team_name=="Select" else team_name,
-                    "srn_status": srn_status,
-                    "srn_date": srn_date.isoformat() if srn_date else None,
-                    "srn_from": clean_text(srn_from),
-                    "pod_status": pod_status,
-                    "remark": clean_text(remark),
-                    "updated_at": datetime.now().isoformat(),
-                }
-                supabase.table(SRN_TABLE).update(payload).eq("id",rid).execute()
-                clear_srn_cache()
-                st.success("✅ SRN record updated.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Update failed: {e}")
-
-# ============================================================
-# 7. HEADER
-# ============================================================
-st.markdown(
-    f"""
-    <div class="srn-banner">
-        <h1>📦 SRN Pending Dashboard</h1>
-        <p>Active Workspace: {active_ws} • Excel Upload + Site-wise Group View</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ============================================================
-# 8. LOAD EXCALATION MATRIX + CURRENT SRN DATA
-# ============================================================
-escalation_records = fetch_escalation_matrix()
-escalation_lookup = prepare_escalation_lookup(escalation_records)
-
-raw_srn_records = fetch_srn_data(active_ws)
-df = build_display_df(raw_srn_records, escalation_lookup)
-
-# ============================================================
-# 9. UPLOAD NEW DATA
-# ============================================================
-with st.expander("⬆️ Upload New SRN Pending Data", expanded=(len(df) == 0)):
-    st.markdown(
-        """
-        <div class="small-note">
-        Upload Excel file. Existing matching material lines update hongi aur
-        manually maintained Team/SRN/POD/Remark details preserve rahengi.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    uploaded_file = st.file_uploader(
-        "Choose SRN Pending Excel",
-        type=["xlsx", "xls"],
-        key="srn_pending_upload",
-    )
-
-    if uploaded_file is not None:
-        try:
-            upload_preview = pd.read_excel(uploaded_file)
-
-            st.write(
-                f"**Rows:** {len(upload_preview):,} | "
-                f"**Columns:** {len(upload_preview.columns)}"
+    def team_section(label, key_prefix, alloc):
+        st.markdown(f'<div class="modal-section-title">👷 {label} TEAM</div>', unsafe_allow_html=True)
+        tc1, tc2, tc3 = st.columns(3)
+        with tc1:
+            t_name = st.selectbox(
+                f"{label} TEAM NAME", team_opts,
+                index=get_idx(alloc.get(f"{key_prefix}_team_name", ""), team_opts),
+                key=f"solar_{key_prefix}_team"
             )
+        with tc2:
+            status_opts = ["Pending", "Completed"]
+            t_status = st.selectbox(
+                f"{label} STATUS", status_opts,
+                index=(1 if alloc.get(f"{key_prefix}_status") == "Completed" else 0),
+                key=f"solar_{key_prefix}_status"
+            )
+        with tc3:
+            t_charge = st.number_input(
+                f"{label} CHARGE AMOUNT (₹)", min_value=0.0, step=100.0,
+                value=num(alloc.get(f"{key_prefix}_charge_amount", 0)),
+                key=f"solar_{key_prefix}_charge"
+            )
+        tc4, tc5 = st.columns([1, 2])
+        with tc4:
+            t_appr_amt = st.number_input(
+                f"{label} EXTRA APPROVAL AMOUNT (₹)", min_value=0.0, step=100.0,
+                value=num(alloc.get(f"{key_prefix}_extra_approval_amount", 0)),
+                key=f"solar_{key_prefix}_apprvamt"
+            )
+        with tc5:
+            t_appr_remark = st.text_input(
+                f"{label} EXTRA APPROVAL REMARK (kis baat ka approval hai)",
+                value=alloc.get(f"{key_prefix}_extra_approval_remark", ""),
+                placeholder="Amount > 0 hai to yeh likhna compulsory hai",
+                key=f"solar_{key_prefix}_apprvremark"
+            )
+        return {
+            f"{key_prefix}_team_name": t_name if t_name != "Select" else "",
+            f"{key_prefix}_status": t_status,
+            f"{key_prefix}_charge_amount": t_charge,
+            f"{key_prefix}_extra_approval_amount": t_appr_amt,
+            f"{key_prefix}_extra_approval_remark": t_appr_remark,
+        }
 
-            missing_cols = validate_upload_df(upload_preview)
+    civil_data = team_section("CIVIL", "civil", alloc_row)
+    electrical_data = team_section("ELECTRICAL", "electrical", alloc_row)
+    transport_data = team_section("TRANSPORTER", "transport", alloc_row)
 
-            if missing_cols:
-                st.error(
-                    "❌ Excel format mismatch. Missing columns: "
-                    + ", ".join(missing_cols)
-                )
+    st.markdown('<div class="modal-section-title">📝 REMARKS</div>', unsafe_allow_html=True)
+    remarks = st.text_area("REMARKS", value=alloc_row.get("remarks", ""), key="solar_remarks", height=80)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_btn1, col_btn2 = st.columns([8, 2])
+    with col_btn2:
+        save_clicked = st.button("💾 Save Allocation", type="primary", use_container_width=True)
+
+    if save_clicked:
+        has_error = False
+        for label, data, key_prefix in [("CIVIL", civil_data, "civil"), ("ELECTRICAL", electrical_data, "electrical"), ("TRANSPORTER", transport_data, "transport")]:
+            amt = num(data.get(f"{key_prefix}_extra_approval_amount", 0))
+            rmk = str(data.get(f"{key_prefix}_extra_approval_remark", "")).strip()
+            if amt > 0 and not rmk:
+                st.error(f"⚠️ {label} Extra Approval Amount ₹{amt:,.0f} diya hai, iske liye Remark likhna compulsory hai (kis baat ka approval hai)!")
+                has_error = True
+
+        if has_error:
+            st.stop()
+
+        payload = {
+            "workspace": st.session_state.get('active_workspace', 'VISPL'),
+            "Project ID": site_row.get("Project ID", ""),
+            "Site ID": site_row.get("Site ID", ""),
+            "Site Name": site_row.get("Site Name", ""),
+            "Cluster": site_row.get("Cluster", ""),
+            "remarks": remarks,
+        }
+        payload.update(civil_data)
+        payload.update(electrical_data)
+        payload.update(transport_data)
+
+        try:
+            existing = supabase.table("solar_team_allocation") \
+                .select("id") \
+                .eq("workspace", payload["workspace"]) \
+                .eq("Project ID", payload["Project ID"]) \
+                .execute()
+            if existing.data:
+                supabase.table("solar_team_allocation").update(payload).eq("id", existing.data[0]["id"]).execute()
             else:
-                st.dataframe(
-                    upload_preview.head(20),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-                if st.button(
-                    "🚀 Upload / Update Data",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    with st.spinner("SRN pending data upload ho raha hai..."):
-                        processed, skipped = upload_new_srn_data(
-                            upload_preview,
-                            active_ws,
-                        )
-
-                    st.success(
-                        f"✅ {processed:,} line(s) uploaded/updated successfully."
-                    )
-                    if skipped:
-                        st.warning(
-                            f"⚠️ {skipped} row(s) blank Site ID ke karan skip hui."
-                        )
-                    st.rerun()
-
+                supabase.table("solar_team_allocation").insert(payload).execute()
+            st.success("✅ Solar Team Allocation Saved!")
+            fetch_solar_data_cached.clear()
+            st.rerun()
         except Exception as e:
-            st.error(f"❌ Excel read/upload error: {e}")
+            err_str = str(e)
+            if "schema cache" in err_str.lower() or "PGRST204" in err_str:
+                st.error("❌ Database mein zaroori columns nahi mile. Kripya 'solar_setup.sql' script Supabase SQL Editor mein (dobara) run karein, phir 30 second wait karke retry karein.")
+            else:
+                st.error(f"❌ Error saving allocation: {e}")
 
-# Refresh after possible upload state
-raw_srn_records = fetch_srn_data(active_ws)
-df = build_display_df(raw_srn_records, escalation_lookup)
+# --- 5. VIEW TEAM SITE DETAILS DIALOG (Ledger tab) ---
+@st.dialog("🧾 Team Site-wise & Payment Detail", width="large")
+def view_team_detail_dialog(team_name, entries, payments):
+    st.caption(f"Team '{team_name}' ke saare Solar sites aur payments ka detailed hisaab")
 
-# ============================================================
-# 10. KPI CARDS
-# ============================================================
-total_lines = len(df)
-total_sites = df["Site ID"].replace("", pd.NA).dropna().nunique() if not df.empty else 0
-pending_sites = (
-    df.loc[df["SRN Status"].astype(str).str.lower() == "pending", "Site ID"].nunique()
-    if not df.empty else 0
+    st.markdown('<div class="modal-section-title">🏗️ WORK DONE (SITE-WISE)</div>', unsafe_allow_html=True)
+    h1, h2, h3, h4, h5, h6, h7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
+    for c, label in zip([h1, h2, h3, h4, h5, h6, h7],
+                         ["SITE ID", "PROJECT ID", "ROLE", "STATUS", "CHARGE (₹)", "APPROVAL (₹)", "APPROVAL REMARK"]):
+        c.markdown(f"<span class='sol-dlg-head'>{label}</span>", unsafe_allow_html=True)
+    st.markdown("<hr style='border:none; border-top:2px solid #e0e7ff; margin:6px 0;'>", unsafe_allow_html=True)
+    for e in entries:
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([1.3, 1.3, 0.9, 0.9, 1.0, 1.0, 2.0])
+        c1.markdown(f"<span class='slux-chip'>{escape(str(e['site_id']))}</span>", unsafe_allow_html=True)
+        c2.markdown(f"<span class='slux-chip proj'>{escape(str(e['project_id']))}</span>", unsafe_allow_html=True)
+        c3.markdown(f"<span class='sol-dlg-cell'>{e['role']}</span>", unsafe_allow_html=True)
+        status_cls = "status-green" if e.get('status') == "Completed" else "status-yellow"
+        c4.markdown(f"<span class='status-badge {status_cls}'>{e.get('status','Pending')}</span>", unsafe_allow_html=True)
+        c5.markdown(f"<span class='sol-dlg-cell'>{e['charge']:,.0f}</span>", unsafe_allow_html=True)
+        c6.markdown(f"<span class='sol-dlg-cell'>{e['approval']:,.0f}</span>", unsafe_allow_html=True)
+        c7.markdown(f"<span class='sol-dlg-muted'>{escape(str(e['approval_remark'] or '-'))}</span>", unsafe_allow_html=True)
+    st.caption("💡 Sirf 'Completed' status wale kaam ka amount Total Billed / Balance mein count hota hai.")
+
+    st.markdown('<div class="modal-section-title">💰 PAYMENTS RECEIVED</div>', unsafe_allow_html=True)
+    if payments:
+        p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
+        for c, label in zip([p1, p2, p3, p4, p5], ["DATE", "PAID FROM", "TYPE", "AMOUNT (₹)", "REMARK"]):
+            c.markdown(f"<span class='sol-dlg-head'>{label}</span>", unsafe_allow_html=True)
+        st.markdown("<hr style='border:none; border-top:2px solid #e0e7ff; margin:6px 0;'>", unsafe_allow_html=True)
+        for p in payments:
+            p1, p2, p3, p4, p5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.2])
+            p1.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_date','')))}</span>", unsafe_allow_html=True)
+            p2.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_from','')))}</span>", unsafe_allow_html=True)
+            p3.markdown(f"<span class='sol-dlg-cell'>{escape(str(p.get('pay_type','')))}</span>", unsafe_allow_html=True)
+            p4.markdown(f"<span style='color:#059669; font-weight:800;'>{num(p.get('amount')):,.0f}</span>", unsafe_allow_html=True)
+            p5.markdown(f"<span class='sol-dlg-muted'>{escape(str(p.get('remark','') or '-'))}</span>", unsafe_allow_html=True)
+    else:
+        st.info("Is team ko abhi tak koi payment nahi kiya gaya.")
+
+    completed_entries = [e for e in entries if e.get("status") == "Completed"]
+    total_billed = sum(e['charge'] + e['approval'] for e in completed_entries)
+    total_paid = sum(num(p.get('amount')) for p in payments)
+    balance = total_billed - total_paid
+    st.markdown(f"""
+        <div style="background: linear-gradient(90deg, #f5f3ff, #eef2ff); border: 1px solid #c7d2fe; padding: 14px 20px; border-radius: 12px; margin-top:15px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <div style="color:#312e81; font-weight:800;">Total Billed: <span style="color:#4f46e5;">₹ {total_billed:,.0f}</span></div>
+            <div style="color:#312e81; font-weight:800;">Total Paid: <span style="color:#059669;">₹ {total_paid:,.0f}</span></div>
+            <div style="color:#312e81; font-weight:800;">Balance: <span style="color:{'#dc2626' if balance>0 else '#059669'};">₹ {balance:,.0f}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    def generate_team_pdf():
+        if FPDF is None:
+            raise Exception("fpdf library is missing. Please add 'fpdf' to your requirements.txt file.")
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.add_page()
+
+        if os.path.exists("logo (1).png"):
+            pdf.image("logo (1).png", x=75, y=10, w=60)
+            pdf.ln(28)
+
+        primary_color = (15, 23, 42)
+        secondary_color = (245, 158, 11)
+        green_color = (16, 185, 129)
+        red_color = (239, 68, 68)
+
+        pdf.set_text_color(*primary_color)
+        pdf.set_font("Arial", 'B', 18)
+        pdf.cell(190, 10, "VISIONTECH INFRA SOLUTION PVT. LTD.", ln=True, align='C')
+
+        pdf.set_text_color(*secondary_color)
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(190, 8, "SOLAR PROJECT - TEAM LEDGER", ln=True, align='C')
+
+        pdf.set_text_color(100, 116, 139)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(190, 8, f"Team: {team_name}", ln=True, align='C')
+        pdf.ln(4)
+
+        def draw_table(title, cols, col_widths, rows, header_color):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.set_text_color(*header_color)
+            pdf.cell(190, 8, title, ln=True, align='L')
+
+            pdf.set_fill_color(*header_color)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("Arial", 'B', 8)
+            for i, col in enumerate(cols):
+                pdf.cell(col_widths[i], 8, col, border=1, align='C', fill=True)
+            pdf.ln()
+
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Arial", '', 8)
+            fill = False
+            for row in rows:
+                pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
+                for i, val in enumerate(row):
+                    pdf.cell(col_widths[i], 7, str(val), border=1, align='L', fill=fill)
+                pdf.ln()
+                fill = not fill
+            pdf.ln(6)
+
+        # --- SITE-WISE WORK TABLE ---
+        site_rows_pdf = [
+            [e['site_id'], e['project_id'], e['site_name'], e.get('status', 'Pending'),
+             f"Rs. {e['charge']:,.0f}", f"Rs. {e['approval']:,.0f}",
+             f"Rs. {(e['charge'] + e['approval']):,.0f}" if e.get('status') == "Completed" else "-"]
+            for e in entries
+        ]
+        draw_table("SITE-WISE WORK DONE", ["Site ID", "Project ID", "Site Name", "Status", "Charge Amt", "Extra Approval", "Total"],
+                   [20, 22, 42, 22, 26, 28, 30], site_rows_pdf, secondary_color)
+
+        # --- PAYMENTS TABLE ---
+        payment_rows_pdf = [
+            [p.get('pay_date', ''), p.get('pay_from', ''), f"Rs. {num(p.get('amount')):,.0f}"]
+            for p in payments
+        ]
+        if payment_rows_pdf:
+            draw_table("PAYMENTS RECEIVED", ["Payment Date", "Paid From", "Amount"],
+                       [45, 55, 90], payment_rows_pdf, green_color)
+
+        # --- TOTALS ---
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(203, 213, 225)
+        pdf.rect(10, pdf.get_y(), 190, 28, 'FD')
+        pdf.set_y(pdf.get_y() + 5)
+
+        pdf.set_font("Arial", 'B', 11)
+        pdf.set_text_color(*secondary_color)
+        pdf.cell(190, 8, f"Total Site Amount: Rs. {total_billed:,.0f}", ln=True, align='L')
+
+        pdf.set_text_color(*green_color)
+        pdf.cell(190, 8, f"Total Paid Amount: Rs. {total_paid:,.0f}", ln=True, align='L')
+
+        bal_color = red_color if balance > 0 else green_color
+        pdf.set_text_color(*bal_color)
+        pdf.cell(190, 8, f"Total Balance: Rs. {balance:,.0f}", ln=True, align='L')
+
+        pdf_output = pdf.output(dest='S')
+        if isinstance(pdf_output, (bytes, bytearray)):
+            return bytes(pdf_output)
+        return pdf_output.encode('latin1')
+
+    col_dl, col_close = st.columns(2)
+    with col_dl:
+        try:
+            pdf_bytes = generate_team_pdf()
+            st.download_button(
+                "📄 Download PDF", data=pdf_bytes,
+                file_name=f"{team_name}_Solar_Ledger.pdf", mime="application/pdf",
+                use_container_width=True, type="primary"
+            )
+        except Exception as e:
+            st.error(str(e))
+    with col_close:
+        if st.button("Close", use_container_width=True):
+            st.rerun()
+
+# --- TOP BANNER ---
+active_ws_display = st.session_state.get('active_workspace', 'VISPL')
+st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #f59e0b 0%, #ec4899 50%, #8b5cf6 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
+        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
+            ☀️ SOLAR PROJECT — {active_ws_display}
+        </h1>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- 6. FETCH SOLAR SITES (Project Name = Solar) FROM site_data ---
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_solar_data_cached(workspace):
+    """Bundles the 3 core Solar Project queries into one cached call.
+    Previously these ran unconditionally on EVERY rerun (every search
+    keystroke, every tab switch, every dialog interaction) — now they're
+    reused for 30s. Call fetch_solar_data_cached.clear() before st.rerun()
+    after saving/deleting a team allocation or a payment."""
+    try:
+        site_res = supabase.table("site_data").select("*").eq("workspace", workspace).ilike("Project Name", "%solar%").execute()
+        site_data_ = site_res.data if site_res.data else []
+        site_data_ = [r for r in site_data_ if str(r.get("Project Name", "")).strip().lower() == "solar"]
+    except Exception:
+        site_data_ = []
+
+    try:
+        alloc_res = supabase.table("solar_team_allocation").select("*").eq("workspace", workspace).execute()
+        alloc_data_ = alloc_res.data if alloc_res.data else []
+    except Exception:
+        alloc_data_ = []
+
+    try:
+        pay_res = supabase.table("solar_payments").select("*").eq("workspace", workspace).order("id", desc=True).execute()
+        solar_payments_data_ = pay_res.data if pay_res.data else []
+    except Exception:
+        solar_payments_data_ = []
+
+    return site_data_, alloc_data_, solar_payments_data_
+
+
+active_ws = st.session_state.get('active_workspace', 'VISPL')
+site_data, alloc_data, solar_payments_data = fetch_solar_data_cached(active_ws)
+
+if not site_data:
+    try:
+        all_ws_res = supabase.table("site_data").select("Project Name").eq("workspace", active_ws).execute()
+        distinct_pn = sorted(set(str(r.get("Project Name", "")).strip() for r in (all_ws_res.data or []) if str(r.get("Project Name", "")).strip()))
+        if distinct_pn:
+            st.info(f"ℹ️ Koi 'Solar' site nahi mili. Aapke workspace mein 'Project Name' column ki actual values hain: {', '.join(distinct_pn)}")
+    except Exception:
+        pass
+
+alloc_map = {row.get("Project ID", ""): row for row in alloc_data}
+
+df = pd.DataFrame(site_data) if site_data else pd.DataFrame(
+    columns=["id", "Project ID", "Site ID", "Site Name", "Cluster", "Site Status"]
 )
-submitted_sites = (
-    df.loc[df["SRN Status"].astype(str).str.lower() == "submitted", "Site ID"].nunique()
-    if not df.empty else 0
-)
 
-m1, m2, m3, m4 = st.columns(4)
+if 'created_at' in df.columns and not df.empty:
+    df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
+    df = df.sort_values(by='created_at_dt', ascending=False).drop(columns=['created_at_dt']).reset_index(drop=True)
+elif not df.empty:
+    df = df.iloc[::-1].reset_index(drop=True)
 
-with m1:
-    st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Total Sites</div>'
-        f'<div class="metric-value">{total_sites:,}</div></div>',
-        unsafe_allow_html=True,
-    )
+# --- Build team_entries (used by Ledger + Payments tabs) ---
+team_entries = defaultdict(list)
+for a in alloc_data:
+    for role, role_label in [("civil", "Civil"), ("electrical", "Electrical"), ("transport", "Transporter")]:
+        t_name = str(a.get(f"{role}_team_name", "")).strip()
+        if not t_name:
+            continue
+        team_entries[t_name].append({
+            "site_id": a.get("Site ID", ""),
+            "project_id": a.get("Project ID", ""),
+            "site_name": a.get("Site Name", ""),
+            "role": role_label,
+            "status": a.get(f"{role}_status", "Pending"),
+            "charge": num(a.get(f"{role}_charge_amount")),
+            "approval": num(a.get(f"{role}_extra_approval_amount")),
+            "approval_remark": a.get(f"{role}_extra_approval_remark", ""),
+        })
 
-with m2:
-    st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Total Material Lines</div>'
-        f'<div class="metric-value">{total_lines:,}</div></div>',
-        unsafe_allow_html=True,
-    )
+payments_by_team = defaultdict(list)
+for p in solar_payments_data:
+    payments_by_team[str(p.get("team_name", "")).strip()].append(p)
 
-with m3:
-    st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Pending Sites</div>'
-        f'<div class="metric-value">{pending_sites:,}</div></div>',
-        unsafe_allow_html=True,
-    )
+solar_team_names = sorted(set(team_entries.keys()) | set(payments_by_team.keys()))
 
-with m4:
-    st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Submitted Sites</div>'
-        f'<div class="metric-value">{submitted_sites:,}</div></div>',
-        unsafe_allow_html=True,
-    )
+# ================================================================
+# --- NAVIGATION BAR: SOLAR SITES | TEAM LEDGER | PAYMENTS ---
+# (custom buttons, replaces st.tabs for guaranteed styling)
+# ================================================================
+SOLAR_NAV_PAGES = [
+    ("sites", "📍 Solar Sites"),
+    ("ledger", "🧾 Team Ledger"),
+    ("payments", "💳 Payments"),
+]
+
+with st.container(key="solar_nav_bar"):
+    nav_cols = st.columns(len(SOLAR_NAV_PAGES))
+    for nav_col, (page_id, page_label) in zip(nav_cols, SOLAR_NAV_PAGES):
+        is_active = st.session_state.solar_active_page == page_id
+        with nav_col:
+            if st.button(page_label, key=f"solar_nav_{page_id}", use_container_width=True, type=("primary" if is_active else "secondary")):
+                st.session_state.solar_active_page = page_id
+                st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ============================================================
-# 11. SEARCH + FILTERS + DOWNLOAD
-# ============================================================
-if df.empty:
-    st.info("ℹ️ Abhi SRN Pending data nahi hai. Upar se Excel upload karein.")
-    st.stop()
-
-cluster_options = sorted(
-    [x for x in df["Cluster"].dropna().astype(str).unique().tolist() if clean_text(x)]
-)
-team_options = sorted(
-    [x for x in df["Team Name"].dropna().astype(str).unique().tolist() if clean_text(x)]
-)
-
-f1, f2, f3, f4 = st.columns([3.2, 1.7, 1.7, 1.6])
-
-with f1:
-    search_text = st.text_input(
-        "Search",
-        placeholder="🔍 Search Site ID, Site Name, Project Number, Item, Technician...",
-        label_visibility="collapsed",
+# ================================================================
+# PAGE 1: SOLAR SITES
+# ================================================================
+if st.session_state.solar_active_page == "sites":
+    total_sites = len(df)
+    civil_total = sum(num(a.get("civil_charge_amount")) for a in alloc_data)
+    electrical_total = sum(num(a.get("electrical_charge_amount")) for a in alloc_data)
+    transport_total = sum(num(a.get("transport_charge_amount")) for a in alloc_data)
+    approval_total = sum(
+        num(a.get("civil_extra_approval_amount")) + num(a.get("electrical_extra_approval_amount")) + num(a.get("transport_extra_approval_amount"))
+        for a in alloc_data
     )
 
-with f2:
-    cluster_filter = st.selectbox(
-        "Cluster",
-        ["All Cluster"] + cluster_options,
-        label_visibility="collapsed",
+    st.markdown(
+        '<div class="lux-kpi-grid">'
+        + kpi_card("☀️", "Total Solar Sites", f"{total_sites:,}", "Project Name = Solar", *KPI_INDIGO)
+        + kpi_card("🧱", "Civil Charges", f"₹ {civil_total:,.0f}", "All civil teams", *KPI_AMBER)
+        + kpi_card("⚡", "Electrical Charges", f"₹ {electrical_total:,.0f}", "All electrical teams", *KPI_BLUE)
+        + kpi_card("🚚", "Transport Charges", f"₹ {transport_total:,.0f}", "All transporters", *KPI_GREEN)
+        + kpi_card("📝", "Total Extra Approval", f"₹ {approval_total:,.0f}", "Across all teams", *KPI_PINK)
+        + '</div>',
+        unsafe_allow_html=True,
     )
 
-with f3:
-    team_filter = st.selectbox(
-        "Team",
-        ["All Team"] + team_options,
-        label_visibility="collapsed",
-    )
+    col_title, col_search, col_export, col_toggle = st.columns([4, 2.5, 1.3, 1.5])
+    with col_title:
+        st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Solar Project Sites</h5>", unsafe_allow_html=True)
+    with col_search:
+        search_query = st_keyup("Search", placeholder="🔍 Search solar sites...", label_visibility="collapsed", key="solar_search")
+    with col_export:
+        export_clicked = st.button("📥 Export", use_container_width=True, key="solar_export_btn")
+    with col_toggle:
+        render_view_toggle("solar_sites_view", "solar_sites_view_toggle")
 
-filtered_df = df.copy()
+    df_view = df.copy()
+    if search_query and not df_view.empty:
+        mask = df_view.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
+        df_view = df_view[mask]
 
-if search_text:
-    search_cols = [
-        "Site ID",
-        "Site Name",
-        "Cluster",
-        "Technician Detail",
-        "Item Cat 2",
-        "Ageing Slab",
-        "Project Number",
-        "Item Description",
-        "Team Name",
-        "SRN Status",
-        "SRN From",
-        "POD Status",
-        "Remark",
-    ]
-    mask = filtered_df[search_cols].astype(str).apply(
-        lambda col: col.str.contains(
-            search_text,
-            case=False,
-            na=False,
-            regex=False,
+    if export_clicked and not df_view.empty:
+        rows = []
+        for _, r in df_view.iterrows():
+            a = alloc_map.get(r.get("Project ID", ""), {})
+            rows.append({
+                "Project ID": r.get("Project ID", ""),
+                "Site ID": r.get("Site ID", ""),
+                "Site Name": r.get("Site Name", ""),
+                "Cluster": r.get("Cluster", ""),
+                "Site Status": r.get("Site Status", ""),
+                "Civil Team": a.get("civil_team_name", ""),
+                "Civil Status": a.get("civil_status", "Pending"),
+                "Civil Charge": num(a.get("civil_charge_amount")),
+                "Civil Extra Approval": num(a.get("civil_extra_approval_amount")),
+                "Civil Approval Remark": a.get("civil_extra_approval_remark", ""),
+                "Electrical Team": a.get("electrical_team_name", ""),
+                "Electrical Status": a.get("electrical_status", "Pending"),
+                "Electrical Charge": num(a.get("electrical_charge_amount")),
+                "Electrical Extra Approval": num(a.get("electrical_extra_approval_amount")),
+                "Electrical Approval Remark": a.get("electrical_extra_approval_remark", ""),
+                "Transport Team": a.get("transport_team_name", ""),
+                "Transport Status": a.get("transport_status", "Pending"),
+                "Transport Charge": num(a.get("transport_charge_amount")),
+                "Transport Extra Approval": num(a.get("transport_extra_approval_amount")),
+                "Transport Approval Remark": a.get("transport_extra_approval_remark", ""),
+                "Remarks": a.get("remarks", ""),
+            })
+        export_df = pd.DataFrame(rows)
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            export_df.to_excel(writer, index=False, sheet_name='Solar Project')
+        st.download_button(
+            label="📊 Download Solar_Project_Export.xlsx",
+            data=buffer.getvalue(),
+            file_name="Solar_Project_Export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary",
+            key="solar_export_dl"
         )
-    ).any(axis=1)
-    filtered_df = filtered_df[mask]
 
-if cluster_filter != "All Cluster":
-    filtered_df = filtered_df[
-        filtered_df["Cluster"].astype(str) == cluster_filter
-    ]
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-if team_filter != "All Team":
-    filtered_df = filtered_df[
-        filtered_df["Team Name"].astype(str) == team_filter
-    ]
+    rows_per_page = rows_per_page_picker("solar_rows_per_page", "solar_current_page")
+    total_rows = len(df_view)
+    total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
 
-export_df = filtered_df[SCREEN_COLUMNS].copy()
+    if st.session_state.solar_current_page > total_pages:
+        st.session_state.solar_current_page = total_pages
+    elif st.session_state.solar_current_page < 1:
+        st.session_state.solar_current_page = 1
 
-with f4:
-    st.download_button(
-        "📥 Download Excel",
-        data=excel_bytes(export_df),
-        file_name=f"SRN_Pending_{active_ws}_{date.today().isoformat()}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    start_idx = (st.session_state.solar_current_page - 1) * rows_per_page
+    end_idx = start_idx + rows_per_page
+    df_page = df_view.iloc[start_idx:end_idx].copy()
 
-filtered_sites = (
-    filtered_df["Site ID"].replace("", pd.NA).dropna().nunique()
-    if not filtered_df.empty else 0
-)
+    if df_page.empty:
+        empty_state("Koi Solar site nahi mili. Site Data Hub mein 'Project Name' = Solar select karke site add karein.")
 
-st.caption(
-    f"Showing **{filtered_sites:,} Site ID group(s)** / "
-    f"**{len(filtered_df):,} material line(s)**"
-)
+    elif st.session_state.solar_sites_view == "cards":
+        # ---------------------------------------------------------------
+        # MOBILE CARD VIEW - Solar Sites
+        # ---------------------------------------------------------------
+        for page_pos, (_, row) in enumerate(df_page.iterrows()):
+            row_dict = row.to_dict()
+            proj_id = str(row_dict.get("Project ID", ""))
+            alloc = alloc_map.get(proj_id, {})
+            serial_no = start_idx + page_pos + 1
 
-# ============================================================
-# 12. LAVISH PROPER TABLE VIEW
-# ============================================================
-if not filtered_df.empty:
-    # Team-wise A-Z sequence; blank Team Name always last.
-    filtered_df = filtered_df.copy()
-    filtered_df["_team_blank"] = filtered_df["Team Name"].fillna("").astype(str).str.strip().eq("")
-    filtered_df["_team_sort"] = filtered_df["Team Name"].fillna("").astype(str).str.strip().str.lower()
-    filtered_df["_site_sort"] = filtered_df["Site ID"].fillna("").astype(str).str.strip().str.lower()
-    filtered_df["_project_sort"] = filtered_df["Project Number"].fillna("").astype(str).str.strip().str.lower()
-    filtered_df = (
-        filtered_df.sort_values(
-            by=["_team_blank", "_team_sort", "_site_sort", "_project_sort"],
-            ascending=[True, True, True, True],
-            kind="stable"
+            civil_charge = num(alloc.get("civil_charge_amount"))
+            electrical_charge = num(alloc.get("electrical_charge_amount"))
+            transport_charge = num(alloc.get("transport_charge_amount"))
+            total_charge = civil_charge + electrical_charge + transport_charge
+            total_approval = (
+                num(alloc.get("civil_extra_approval_amount")) +
+                num(alloc.get("electrical_extra_approval_amount")) +
+                num(alloc.get("transport_extra_approval_amount"))
+            )
+
+            def status_tag(prefix):
+                s = alloc.get(f"{prefix}_status", "Pending")
+                return " ✅" if s == "Completed" else (" ⏳" if alloc.get(f"{prefix}_team_name") else "")
+
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="solar-mcard-title">#{serial_no} — {row_dict.get('Site ID','') or '-'} | {row_dict.get('Site Name','') or '-'}</div>
+                    <div class="solar-mcard-sub">{proj_id or '-'} • {row_dict.get('Cluster','') or '-'}</div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Site Status</span><span class="solar-mcard-value">{row_dict.get('Site Status','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Civil Team</span><span class="solar-mcard-value">{(alloc.get('civil_team_name','') or '-')}{status_tag('civil')} (₹{civil_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Electrical Team</span><span class="solar-mcard-value">{(alloc.get('electrical_team_name','') or '-')}{status_tag('electrical')} (₹{electrical_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Transport Team</span><span class="solar-mcard-value">{(alloc.get('transport_team_name','') or '-')}{status_tag('transport')} (₹{transport_charge:,.0f})</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Total Charge</span><span class="solar-mcard-value amber">₹ {total_charge:,.0f}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Total Approval</span><span class="solar-mcard-value">₹ {total_approval:,.0f}</span></div>
+                """, unsafe_allow_html=True)
+                if st.button("⚙️ Manage Teams", key=f"card_solar_mgr_{row_dict.get('id')}", use_container_width=True):
+                    manage_solar_teams_dialog(row_dict, alloc)
+
+    else:
+        # ---------------------------------------------------------------
+        # ✨ LAVISH DESKTOP TABLE VIEW
+        # ---------------------------------------------------------------
+        COL_RATIOS = [0.5, 0.45, 1.1, 1.5, 1.0, 1.2, 1.0,
+                      1.6, 0.9, 1.6, 0.9, 1.6, 0.9,
+                      1.1, 1.1]
+        COL_LABELS = ["⚙️", "#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID", "STATUS",
+                      "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
+                      "TOTAL CHARGE", "TOTAL APPROVAL"]
+
+        # Total charge of ALL filtered sites (for badge + footer)
+        view_total_charge = 0.0
+        for _pid in df_view["Project ID"].astype(str) if "Project ID" in df_view.columns else []:
+            _a = alloc_map.get(_pid, {})
+            view_total_charge += num(_a.get("civil_charge_amount")) + num(_a.get("electrical_charge_amount")) + num(_a.get("transport_charge_amount"))
+
+        table_title_bar("☀️ Solar Site Register", "newest first • scroll right for more →", f"₹ {view_total_charge:,.0f}")
+
+        with st.container(key="solar_table_wrap"):
+            table_header_row("solhead_sites", COL_RATIOS, COL_LABELS, center_idx=(0, 1), right_idx=(8, 10, 12, 13, 14))
+
+            for page_pos, (_, row) in enumerate(df_page.iterrows()):
+                row_dict = row.to_dict()
+                proj_id = str(row_dict.get("Project ID", ""))
+                alloc = alloc_map.get(proj_id, {})
+                serial_no = start_idx + page_pos + 1
+                rid = row_dict.get("id")
+                row_key = rid if (rid is not None and str(rid).strip() not in ("", "nan", "None")) else f"s{serial_no}"
+
+                civil_charge = num(alloc.get("civil_charge_amount"))
+                electrical_charge = num(alloc.get("electrical_charge_amount"))
+                transport_charge = num(alloc.get("transport_charge_amount"))
+                total_charge = civil_charge + electrical_charge + transport_charge
+
+                total_approval = (
+                    num(alloc.get("civil_extra_approval_amount")) +
+                    num(alloc.get("electrical_extra_approval_amount")) +
+                    num(alloc.get("transport_extra_approval_amount"))
+                )
+
+                parity = "odd" if serial_no % 2 else "even"
+                with st.container(key=f"solrow_{parity}_site_{row_key}"):
+                    rcols = st.columns(COL_RATIOS, vertical_alignment="center")
+                    with rcols[0]:
+                        if st.button("⚙️", key=f"solar_mgr_{row_key}", help="Manage Teams"):
+                            manage_solar_teams_dialog(row_dict, alloc)
+                    rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
+                    rcols[2].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
+                    rcols[3].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
+                    rcols[4].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
+                    rcols[5].markdown(_chip(proj_id, "proj"), unsafe_allow_html=True)
+                    rcols[6].markdown(status_badge(row_dict.get('Site Status')), unsafe_allow_html=True)
+                    rcols[7].markdown(_team_cell(alloc.get('civil_team_name'), alloc.get('civil_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[8].markdown(_money(civil_charge), unsafe_allow_html=True)
+                    rcols[9].markdown(_team_cell(alloc.get('electrical_team_name'), alloc.get('electrical_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[10].markdown(_money(electrical_charge), unsafe_allow_html=True)
+                    rcols[11].markdown(_team_cell(alloc.get('transport_team_name'), alloc.get('transport_status', 'Pending')), unsafe_allow_html=True)
+                    rcols[12].markdown(_money(transport_charge), unsafe_allow_html=True)
+                    rcols[13].markdown(_money(total_charge, "strong"), unsafe_allow_html=True)
+                    rcols[14].markdown(_money(total_approval), unsafe_allow_html=True)
+
+        shown_from = start_idx + 1 if total_rows else 0
+        shown_to = min(end_idx, total_rows)
+        st.markdown(
+            '<div class="slux-foot">'
+            f'<div>Total {total_rows:,} solar site{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
+            f'<div class="slux-foot-amts"><span>Total Charge: <b style="color:#4f46e5;">₹ {view_total_charge:,.0f}</b></span>'
+            f'<span class="slux-foot-badge">Page {st.session_state.solar_current_page} of {total_pages}</span></div>'
+            '</div>',
+            unsafe_allow_html=True,
         )
-        .drop(columns=["_team_blank", "_team_sort", "_site_sort", "_project_sort"])
-        .reset_index(drop=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
+    with col_p1:
+        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.solar_current_page == 1), key="solar_prev"):
+            st.session_state.solar_current_page -= 1
+            st.rerun()
+    with col_p2:
+        st.markdown(f"<div class='page-count'>Page {st.session_state.solar_current_page} of {total_pages} (Total Solar Sites: {total_rows})</div>", unsafe_allow_html=True)
+    with col_p3:
+        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.solar_current_page == total_pages), key="solar_next"):
+            st.session_state.solar_current_page += 1
+            st.rerun()
+
+# ================================================================
+# PAGE 2: TEAM LEDGER (Team-wise + Site-wise toggle)
+# ================================================================
+elif st.session_state.solar_active_page == "ledger":
+    ledger_view_mode = st.radio("Ledger View:", ["👷 Team Wise", "📍 Site Wise"], horizontal=True, key="ledger_view_mode")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if ledger_view_mode == "👷 Team Wise":
+        ledger_rows = []
+        for t_name in solar_team_names:
+            entries = team_entries.get(t_name, [])
+            completed_entries = [e for e in entries if e.get("status") == "Completed"]
+            payments = payments_by_team.get(t_name, [])
+            site_ids = set(e["project_id"] for e in completed_entries)
+            total_charge = sum(e["charge"] for e in completed_entries)
+            total_approval = sum(e["approval"] for e in completed_entries)
+            total_billed = total_charge + total_approval
+            total_paid = sum(num(p.get("amount")) for p in payments)
+            balance = total_billed - total_paid
+            ledger_rows.append({
+                "Team Name": t_name,
+                "Sites Worked": len(site_ids),
+                "Total Charge (₹)": total_charge,
+                "Total Approval (₹)": total_approval,
+                "Total Billed (₹)": total_billed,
+                "Total Paid (₹)": total_paid,
+                "Balance (₹)": balance,
+                "_entries": entries,
+                "_payments": payments,
+            })
+
+        ledger_rows.sort(key=lambda r: r["Balance (₹)"], reverse=True)
+
+        grand_billed = sum(r["Total Billed (₹)"] for r in ledger_rows)
+        grand_paid = sum(r["Total Paid (₹)"] for r in ledger_rows)
+        grand_balance = sum(r["Balance (₹)"] for r in ledger_rows)
+
+        st.markdown(
+            '<div class="lux-kpi-grid">'
+            + kpi_card("👷", "Total Teams", f"{len(ledger_rows):,}", "Civil + Electrical + Transport", *KPI_INDIGO)
+            + kpi_card("🧾", "Total Billed", f"₹ {grand_billed:,.0f}", "Completed work only", *KPI_AMBER)
+            + kpi_card("💰", "Total Paid", f"₹ {grand_paid:,.0f}", "All payments", *KPI_GREEN, value_cls="green")
+            + kpi_card("⏳", "Total Balance", f"₹ {grand_balance:,.0f}", "Billed − Paid", *KPI_RED, value_cls="red")
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+
+        col_title, col_search, col_toggle = st.columns([4.5, 3, 1.5])
+        with col_title:
+            st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Team-wise Hisaab (Civil + Electrical + Transporter combined)</h5>", unsafe_allow_html=True)
+        with col_search:
+            ledger_search = st_keyup("Search", placeholder="🔍 Search team...", label_visibility="collapsed", key="ledger_search")
+        with col_toggle:
+            render_view_toggle("solar_ledger_view", "solar_ledger_view_toggle_team")
+
+        display_rows = ledger_rows
+        if ledger_search:
+            display_rows = [r for r in ledger_rows if ledger_search.lower() in r["Team Name"].lower()]
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+        if not display_rows:
+            empty_state("Abhi tak kisi bhi team ko Solar site allocate nahi hui. 'Solar Sites' tab se ⚙️ Manage Teams se allocation karein.")
+
+        elif st.session_state.solar_ledger_view == "cards":
+            # ---------------------------------------------------------------
+            # MOBILE CARD VIEW - Team Ledger (Team Wise)
+            # ---------------------------------------------------------------
+            for r in display_rows:
+                with st.container(border=True):
+                    st.markdown(f"""
+                        <div class="solar-mcard-title">👷 {r['Team Name']}</div>
+                        <div class="solar-mcard-sub">{r['Sites Worked']} site(s) worked</div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Charge</span><span class="solar-mcard-value">₹ {r['Total Charge (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Approval</span><span class="solar-mcard-value">₹ {r['Total Approval (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Billed</span><span class="solar-mcard-value amber">₹ {r['Total Billed (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Paid</span><span class="solar-mcard-value paid">₹ {r['Total Paid (₹)']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Balance</span><span class="solar-mcard-value pending">₹ {r['Balance (₹)']:,.0f}</span></div>
+                    """, unsafe_allow_html=True)
+                    if st.button("👁️ View Detail", key=f"card_ledger_view_{r['Team Name']}", use_container_width=True):
+                        view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+
+        else:
+            LCOL_RATIOS = [0.55, 0.5, 2.0, 0.8, 1.2, 1.2, 1.3, 1.2, 1.3]
+            LCOL_LABELS = ["👁️", "#", "TEAM NAME", "SITES", "CHARGE", "APPROVAL", "TOTAL BILLED", "PAID", "BALANCE"]
+
+            table_title_bar("🧾 Team Ledger", "highest balance first", f"Balance ₹ {grand_balance:,.0f}")
+
+            with st.container(key="ledger_table_wrap"):
+                table_header_row("solhead_ledger", LCOL_RATIOS, LCOL_LABELS, center_idx=(0, 1, 3), right_idx=(4, 5, 6, 7, 8))
+
+                for idx, r in enumerate(display_rows, start=1):
+                    parity = "odd" if idx % 2 else "even"
+                    with st.container(key=f"solrow_{parity}_ledger_{idx}"):
+                        rcols = st.columns(LCOL_RATIOS, vertical_alignment="center")
+                        with rcols[0]:
+                            if st.button("👁️", key=f"ledger_view_{r['Team Name']}", help="View Detail"):
+                                view_team_detail_dialog(r["Team Name"], r["_entries"], r["_payments"])
+                        rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                        rcols[2].markdown(f"<div class='slux-cell'><span class='sol-team'>👷 {escape(r['Team Name'])}</span></div>", unsafe_allow_html=True)
+                        rcols[3].markdown(f"<div style='text-align:center;'><span class='slux-pill'>{r['Sites Worked']}</span></div>", unsafe_allow_html=True)
+                        rcols[4].markdown(_money(r['Total Charge (₹)']), unsafe_allow_html=True)
+                        rcols[5].markdown(_money(r['Total Approval (₹)']), unsafe_allow_html=True)
+                        rcols[6].markdown(_money(r['Total Billed (₹)'], "strong"), unsafe_allow_html=True)
+                        rcols[7].markdown(_money(r['Total Paid (₹)'], "paid"), unsafe_allow_html=True)
+                        rcols[8].markdown(_money(r['Balance (₹)'], "due" if r['Balance (₹)'] > 0 else "paid"), unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="slux-foot">'
+                f'<div>{len(display_rows):,} team{"s" if len(display_rows) != 1 else ""}</div>'
+                '<div class="slux-foot-amts">'
+                f'<span>Billed: <b style="color:#4f46e5;">₹ {grand_billed:,.0f}</b></span>'
+                f'<span>Paid: <b style="color:#059669;">₹ {grand_paid:,.0f}</b></span>'
+                f'<span>Balance: <b style="color:#dc2626;">₹ {grand_balance:,.0f}</b></span>'
+                '</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    else:
+        # ---- SITE WISE VIEW ----
+        col_title2, col_search2, col_toggle2 = st.columns([4.5, 3, 1.5])
+        with col_title2:
+            st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Site-wise Hisaab (Kis site pe kaunsi team, kitna amount)</h5>", unsafe_allow_html=True)
+        with col_search2:
+            site_search = st_keyup("Search", placeholder="🔍 Search site...", label_visibility="collapsed", key="site_ledger_search")
+        with col_toggle2:
+            render_view_toggle("solar_ledger_view", "solar_ledger_view_toggle_site")
+
+        site_rows = []
+        for _, r in df.iterrows():
+            proj_id = str(r.get("Project ID", ""))
+            a = alloc_map.get(proj_id, {})
+            civil_status = a.get("civil_status", "Pending")
+            electrical_status = a.get("electrical_status", "Pending")
+            transport_status = a.get("transport_status", "Pending")
+
+            civil_charge = num(a.get("civil_charge_amount")) if civil_status == "Completed" else 0.0
+            electrical_charge = num(a.get("electrical_charge_amount")) if electrical_status == "Completed" else 0.0
+            transport_charge = num(a.get("transport_charge_amount")) if transport_status == "Completed" else 0.0
+            total_approval = (
+                (num(a.get("civil_extra_approval_amount")) if civil_status == "Completed" else 0.0) +
+                (num(a.get("electrical_extra_approval_amount")) if electrical_status == "Completed" else 0.0) +
+                (num(a.get("transport_extra_approval_amount")) if transport_status == "Completed" else 0.0)
+            )
+            total_charge = civil_charge + electrical_charge + transport_charge
+
+            def tag(name, status):
+                if not name or name == "-":
+                    return "-"
+                return f"{name} ✅" if status == "Completed" else f"{name} ⏳"
+
+            site_rows.append({
+                "Site ID": r.get("Site ID", "") or "-",
+                "Site Name": r.get("Site Name", "") or "-",
+                "Cluster": r.get("Cluster", "") or "-",
+                "Project ID": proj_id or "-",
+                "Civil Team": tag(a.get("civil_team_name", ""), civil_status),
+                "Civil Amt": civil_charge,
+                "Electrical Team": tag(a.get("electrical_team_name", ""), electrical_status),
+                "Electrical Amt": electrical_charge,
+                "Transport Team": tag(a.get("transport_team_name", ""), transport_status),
+                "Transport Amt": transport_charge,
+                "Total Charge": total_charge,
+                "Total Approval": total_approval,
+                "Grand Total": total_charge + total_approval,
+                "_civil": (a.get("civil_team_name", ""), civil_status),
+                "_electrical": (a.get("electrical_team_name", ""), electrical_status),
+                "_transport": (a.get("transport_team_name", ""), transport_status),
+            })
+
+        st.caption("💡 Sirf ✅ Completed status wale kaam ka amount yahan count hota hai. ⏳ = Pending (abhi count nahi hoga).")
+
+        if site_search:
+            site_rows = [
+                sr for sr in site_rows
+                if site_search.lower() in " ".join(str(v) for k, v in sr.items() if not k.startswith("_")).lower()
+            ]
+
+        if not site_rows:
+            empty_state("Koi Solar site data nahi mila.")
+
+        elif st.session_state.solar_ledger_view == "cards":
+            # ---------------------------------------------------------------
+            # MOBILE CARD VIEW - Team Ledger (Site Wise)
+            # ---------------------------------------------------------------
+            for idx, sr in enumerate(site_rows, start=1):
+                with st.container(border=True):
+                    st.markdown(f"""
+                        <div class="solar-mcard-title">#{idx} — {sr['Site ID']} | {sr['Site Name']}</div>
+                        <div class="solar-mcard-sub">{sr['Project ID']} • {sr['Cluster']}</div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Civil Team</span><span class="solar-mcard-value">{sr['Civil Team']} (₹{sr['Civil Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Electrical Team</span><span class="solar-mcard-value">{sr['Electrical Team']} (₹{sr['Electrical Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Transport Team</span><span class="solar-mcard-value">{sr['Transport Team']} (₹{sr['Transport Amt']:,.0f})</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Charge</span><span class="solar-mcard-value">₹ {sr['Total Charge']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Total Approval</span><span class="solar-mcard-value">₹ {sr['Total Approval']:,.0f}</span></div>
+                        <div class="solar-mcard-row"><span class="solar-mcard-label">Grand Total</span><span class="solar-mcard-value amber">₹ {sr['Grand Total']:,.0f}</span></div>
+                    """, unsafe_allow_html=True)
+
+        else:
+            SCOL_RATIOS = [0.45, 1.1, 1.5, 1.0, 1.2, 1.6, 0.9, 1.6, 0.9, 1.6, 0.9, 1.1, 1.1, 1.1]
+            SCOL_LABELS = ["#", "SITE ID", "SITE NAME", "CLUSTER", "PROJECT ID",
+                           "CIVIL TEAM", "AMT (₹)", "ELECTRICAL TEAM", "AMT (₹)", "TRANSPORT TEAM", "AMT (₹)",
+                           "TOTAL CHARGE", "TOTAL APPROVAL", "GRAND TOTAL"]
+
+            site_grand_total = sum(sr["Grand Total"] for sr in site_rows)
+            table_title_bar("📍 Site-wise Ledger", "completed work only • scroll right →", f"₹ {site_grand_total:,.0f}")
+
+            with st.container(key="site_ledger_table_wrap"):
+                table_header_row("solhead_siteledger", SCOL_RATIOS, SCOL_LABELS, center_idx=(0,), right_idx=(6, 8, 10, 11, 12, 13))
+
+                for idx, sr in enumerate(site_rows, start=1):
+                    parity = "odd" if idx % 2 else "even"
+                    with st.container(key=f"solrow_{parity}_siteledger_{idx}"):
+                        rcols = st.columns(SCOL_RATIOS, vertical_alignment="center")
+                        rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                        rcols[1].markdown(_chip(sr['Site ID']), unsafe_allow_html=True)
+                        rcols[2].markdown(_txt(sr['Site Name'], "slux-strong"), unsafe_allow_html=True)
+                        rcols[3].markdown(_pill(sr['Cluster']), unsafe_allow_html=True)
+                        rcols[4].markdown(_chip(sr['Project ID'], "proj"), unsafe_allow_html=True)
+                        rcols[5].markdown(_team_cell(*sr['_civil']), unsafe_allow_html=True)
+                        rcols[6].markdown(_money(sr['Civil Amt']), unsafe_allow_html=True)
+                        rcols[7].markdown(_team_cell(*sr['_electrical']), unsafe_allow_html=True)
+                        rcols[8].markdown(_money(sr['Electrical Amt']), unsafe_allow_html=True)
+                        rcols[9].markdown(_team_cell(*sr['_transport']), unsafe_allow_html=True)
+                        rcols[10].markdown(_money(sr['Transport Amt']), unsafe_allow_html=True)
+                        rcols[11].markdown(_money(sr['Total Charge']), unsafe_allow_html=True)
+                        rcols[12].markdown(_money(sr['Total Approval']), unsafe_allow_html=True)
+                        rcols[13].markdown(_money(sr['Grand Total'], "amber"), unsafe_allow_html=True)
+
+            st.markdown(
+                '<div class="slux-foot">'
+                f'<div>{len(site_rows):,} solar site{"s" if len(site_rows) != 1 else ""}</div>'
+                f'<div class="slux-foot-amts"><span>Grand Total: <b style="color:#d97706;">₹ {site_grand_total:,.0f}</b></span></div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+# ================================================================
+# PAGE 3: PAYMENTS
+# ================================================================
+elif st.session_state.solar_active_page == "payments":
+    st.markdown("<h5 style='margin:0 0 10px 0; color:#0f172a;'>💳 Solar Team Payment Entry</h5>", unsafe_allow_html=True)
+
+    if not solar_team_names:
+        st.info("Abhi tak koi team Solar site pe allocate nahi hui. Pehle 'Solar Sites' tab se ⚙️ Manage Teams se team allocate karein, phir yahan payment kar sakte ho.")
+    else:
+        all_dd = get_all_dropdowns()
+        pay_from_opts = get_simple_opts("Payment From", all_dd, ["Bank", "Cash"])
+        pay_type_opts = get_simple_opts("Payment Type", all_dd, ["NEFT", "RTGS", "UPI"])
+
+        with st.form("solar_payment_form", clear_on_submit=True):
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                pay_team = st.selectbox("Pay To (Solar Team) *", solar_team_names)
+            with f2:
+                pay_from = st.selectbox("Payment From *", pay_from_opts)
+            with f3:
+                pay_type = st.selectbox("Payment Type *", pay_type_opts)
+
+            f4, f5, f6 = st.columns(3)
+            with f4:
+                pay_amount = st.number_input("Amount (₹)", min_value=0.0, step=100.0, value=0.0)
+            with f5:
+                pay_date = st.date_input("Payment Date", value=datetime.date.today(), format="DD/MM/YYYY")
+            with f6:
+                pay_remark = st.text_input("Remark", placeholder="e.g. Civil work advance")
+
+            submitted = st.form_submit_button("💾 Save Payment", type="primary", use_container_width=True)
+
+            if submitted:
+                if pay_amount <= 0:
+                    st.error("⚠️ Amount 0 se zyada hona chahiye!")
+                else:
+                    try:
+                        ws = st.session_state.get('active_workspace', 'VISPL')
+
+                        # 1. Mirror into main Team & Vendor Billing (billing_payments) so it shows there too
+                        billing_payload = {
+                            "workspace": ws,
+                            "pay_from": pay_from,
+                            "pay_to": pay_team,
+                            "pay_type": pay_type,
+                            "amount": pay_amount,
+                            "date": str(pay_date),
+                            "remark": f"[Solar] {pay_remark}".strip(),
+                            "mode": "Team",
+                        }
+                        billing_res = supabase.table("billing_payments").insert(billing_payload).execute()
+                        billing_id = billing_res.data[0].get("id") if (hasattr(billing_res, 'data') and billing_res.data) else None
+
+                        # 2. Save into solar_payments (for Solar Ledger reporting)
+                        solar_payload = {
+                            "workspace": ws,
+                            "team_name": pay_team,
+                            "pay_from": pay_from,
+                            "pay_type": pay_type,
+                            "amount": pay_amount,
+                            "pay_date": str(pay_date),
+                            "remark": pay_remark,
+                            "billing_payment_id": billing_id,
+                        }
+                        supabase.table("solar_payments").insert(solar_payload).execute()
+
+                        st.success(f"✅ Payment Saved! Yeh Team Billing page ke Payment Entry mein bhi save ho gaya hai.")
+                        fetch_solar_data_cached.clear()
+                        st.rerun()
+                    except Exception as e:
+                        err_str = str(e)
+                        if "schema cache" in err_str.lower() or "PGRST204" in err_str or "does not exist" in err_str.lower():
+                            st.error("❌ 'solar_payments' table nahi mila. Kripya 'solar_setup.sql' script Supabase mein run karein.")
+                        else:
+                            st.error(f"❌ Error saving payment: {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<h5 style='margin:0 0 10px 0; color:#0f172a;'>🗄️ Solar Payment History</h5>", unsafe_allow_html=True)
+
+    pcol_search, pcol_export, pcol_toggle = st.columns([5.5, 2, 2])
+    with pcol_search:
+        payment_search = st_keyup("Search", placeholder="🔍 Search payments...", label_visibility="collapsed", key="solar_payment_search")
+    with pcol_export:
+        payment_export_clicked = st.button("📥 Export", use_container_width=True, key="solar_payment_export_btn")
+    with pcol_toggle:
+        render_view_toggle("solar_payments_view", "solar_payments_view_toggle")
+
+    pdf_view = pd.DataFrame(solar_payments_data) if solar_payments_data else pd.DataFrame(
+        columns=["id", "team_name", "pay_from", "pay_type", "amount", "pay_date", "remark"]
     )
+    if payment_search and not pdf_view.empty:
+        mask = pdf_view.astype(str).apply(lambda x: x.str.contains(payment_search, case=False, na=False)).any(axis=1)
+        pdf_view = pdf_view[mask]
 
-if filtered_df.empty:
-    st.warning("⚠️ Search/filter ke hisab se koi record nahi mila.")
-    st.stop()
+    if payment_export_clicked and not pdf_view.empty:
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            pdf_view.drop(columns=[c for c in ["id", "billing_payment_id", "created_at"] if c in pdf_view.columns]).to_excel(writer, index=False, sheet_name='Solar Payments')
+        st.download_button(
+            label="📊 Download Solar_Payments.xlsx",
+            data=buffer.getvalue(),
+            file_name="Solar_Payments.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary",
+            key="solar_payment_export_dl"
+        )
 
-# Top Add Option button
-ta,tb=st.columns([6,1.4])
-with ta:
-    st.markdown("<h4 style='margin:0;color:#0f172a;'>📋 SRN Pending Register</h4>", unsafe_allow_html=True)
-with tb:
-    if st.button("➕ Add Status / From", use_container_width=True):
-        add_option_dialog()
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-rows_per_page=50
-total_rows=len(filtered_df)
-total_pages=max(1, math.ceil(total_rows/rows_per_page))
-if "srn_lux_page" not in st.session_state: st.session_state.srn_lux_page=1
-st.session_state.srn_lux_page=min(max(1,st.session_state.srn_lux_page),total_pages)
-start_idx=(st.session_state.srn_lux_page-1)*rows_per_page
-end_idx=start_idx+rows_per_page
-df_page=filtered_df.iloc[start_idx:end_idx].copy()
+    if pdf_view.empty:
+        empty_state("Abhi tak koi Solar payment record nahi hai.")
 
-st.markdown(
-    '<div class="slux-head-bar">'
-    '<div class="slux-title">📦 SRN Pending Details<span>scroll right for complete details →</span></div>'
-    f'<div class="slux-badge">{total_rows:,} Lines</div></div>',
-    unsafe_allow_html=True
-)
+    elif st.session_state.solar_payments_view == "cards":
+        # ---------------------------------------------------------------
+        # MOBILE CARD VIEW - Payment History
+        # ---------------------------------------------------------------
+        for _, prow in pdf_view.iterrows():
+            pd_dict = prow.to_dict()
+            with st.container(border=True):
+                st.markdown(f"""
+                    <div class="solar-mcard-title">{pd_dict.get('team_name','') or '-'}</div>
+                    <div class="solar-mcard-sub">{pd_dict.get('pay_date','') or '-'}</div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Paid From</span><span class="solar-mcard-value">{pd_dict.get('pay_from','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Type</span><span class="solar-mcard-value">{pd_dict.get('pay_type','') or '-'}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Amount</span><span class="solar-mcard-value paid">₹ {num(pd_dict.get('amount')):,.0f}</span></div>
+                    <div class="solar-mcard-row"><span class="solar-mcard-label">Remark</span><span class="solar-mcard-value">{pd_dict.get('remark','') or '-'}</span></div>
+                """, unsafe_allow_html=True)
+                if st.button("🗑️ Delete", key=f"card_delpay_{pd_dict.get('id')}", use_container_width=True):
+                    try:
+                        supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
+                        b_id = pd_dict.get("billing_payment_id")
+                        if b_id:
+                            supabase.table("billing_payments").delete().eq("id", b_id).execute()
+                        st.success("✅ Payment Deleted!")
+                        fetch_solar_data_cached.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error deleting: {e}")
 
-R=[0.45,0.48,1.15,1.45,1.0,1.25,1.0,1.35,2.1,0.8,1.0,1.6,1.0,1.15,1.0,1.6,1.7]
-L=["✏️","SR. NO.","SITE ID","SITE NAME","CLUSTER","TEAM NAME","ITEM CAT 2",
-   "PROJECT NUMBER","ITEM DESCRIPTION","BOQ QUANTITY","AGEING SLAB","TECHNICIAN DETAIL",
-   "SRN STATUS","SRN DATE","SRN FROM","POD STATUS","REMARK"]
+    else:
+        PCOL_RATIOS = [0.55, 0.5, 1.7, 1.2, 1.1, 1.0, 1.2, 2.4]
+        PCOL_LABELS = ["🗑️", "#", "TEAM NAME", "DATE", "PAID FROM", "TYPE", "AMOUNT", "REMARK"]
 
-with st.container(key="srn_lux_table"):
-    table_header_row("srnhead_main",R,L)
-    for pos,(_,row) in enumerate(df_page.iterrows()):
-        d=row.to_dict()
-        serial=start_idx+pos+1
-        rid=d.get("id")
-        key=rid if clean_text(rid) else f"r{serial}"
-        parity="odd" if serial%2 else "even"
-        with st.container(key=f"srnrow_{parity}_{key}"):
-            c=st.columns(R,vertical_alignment="center")
-            with c[0]:
-                if st.button("✏️",key=f"srnedit_{key}",help="Edit SRN details"):
-                    edit_srn_dialog(d)
-            c[1].markdown(f"<div class='slux-cell slux-strong'>{serial}</div>",unsafe_allow_html=True)
-            c[2].markdown(_chip(d.get("Site ID")),unsafe_allow_html=True)
-            c[3].markdown(_txt(d.get("Site Name"),True),unsafe_allow_html=True)
-            c[4].markdown(_pill(d.get("Cluster")),unsafe_allow_html=True)
-            c[5].markdown(_txt(d.get("Team Name"),True),unsafe_allow_html=True)
-            c[6].markdown(_pill(d.get("Item Cat 2")),unsafe_allow_html=True)
-            c[7].markdown(_chip(d.get("Project Number"),True),unsafe_allow_html=True)
-            c[8].markdown(_txt(d.get("Item Description")),unsafe_allow_html=True)
-            c[9].markdown(_qty(d.get("BOQ Quantity")),unsafe_allow_html=True)
-            c[10].markdown(_status(d.get("Ageing Slab")),unsafe_allow_html=True)
-            c[11].markdown(_txt(d.get("Technician Detail")),unsafe_allow_html=True)
-            c[12].markdown(_status(d.get("SRN Status")),unsafe_allow_html=True)
-            c[13].markdown(_txt(d.get("SRN Date")),unsafe_allow_html=True)
-            c[14].markdown(_txt(d.get("SRN From")),unsafe_allow_html=True)
-            c[15].markdown(_status(d.get("POD Status")),unsafe_allow_html=True)
-            c[16].markdown(_txt(d.get("Remark")),unsafe_allow_html=True)
+        pay_total = sum(num(v) for v in pdf_view["amount"]) if "amount" in pdf_view.columns else 0.0
+        table_title_bar("💳 Payment History", "newest first", f"₹ {pay_total:,.0f}")
 
-shown_from=start_idx+1 if total_rows else 0
-shown_to=min(end_idx,total_rows)
-st.markdown(f"<div class='slux-foot'>Total {total_rows:,} material lines &nbsp; • &nbsp; Showing {shown_from}–{shown_to} &nbsp; • &nbsp; Page {st.session_state.srn_lux_page} of {total_pages}</div>",unsafe_allow_html=True)
+        with st.container(key="payments_table_wrap"):
+            table_header_row("solhead_payments", PCOL_RATIOS, PCOL_LABELS, center_idx=(0, 1), right_idx=(6,))
 
-p1,p2,p3=st.columns([1,2,1])
-with p1:
-    if st.button("⬅️ Previous",disabled=st.session_state.srn_lux_page==1,use_container_width=True):
-        st.session_state.srn_lux_page-=1; st.rerun()
-with p2:
-    st.markdown(f"<div style='text-align:center;font-weight:800;color:#4338ca;padding-top:10px;'>Page {st.session_state.srn_lux_page} of {total_pages}</div>",unsafe_allow_html=True)
-with p3:
-    if st.button("Next ➡️",disabled=st.session_state.srn_lux_page==total_pages,use_container_width=True):
-        st.session_state.srn_lux_page+=1; st.rerun()
+            for idx, (_, prow) in enumerate(pdf_view.iterrows(), start=1):
+                pd_dict = prow.to_dict()
+                pid = pd_dict.get("id")
+                row_key = pid if (pid is not None and str(pid).strip() not in ("", "nan", "None")) else f"p{idx}"
+                parity = "odd" if idx % 2 else "even"
+                with st.container(key=f"solrow_{parity}_pay_{row_key}"):
+                    rcols = st.columns(PCOL_RATIOS, vertical_alignment="center")
+                    with rcols[0]:
+                        if st.button("🗑️", key=f"delpay_{row_key}", help="Delete"):
+                            try:
+                                supabase.table("solar_payments").delete().eq("id", pd_dict["id"]).execute()
+                                b_id = pd_dict.get("billing_payment_id")
+                                if b_id:
+                                    supabase.table("billing_payments").delete().eq("id", b_id).execute()
+                                st.success("✅ Payment Deleted!")
+                                fetch_solar_data_cached.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error deleting: {e}")
+                    rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{idx}</span></div>", unsafe_allow_html=True)
+                    team_nm = _clean(pd_dict.get('team_name'))
+                    rcols[2].markdown(f"<div class='slux-cell'><span class='sol-team'>👷 {escape(team_nm)}</span></div>" if team_nm else _MUTED, unsafe_allow_html=True)
+                    rcols[3].markdown(_txt(pd_dict.get('pay_date'), "slux-soft"), unsafe_allow_html=True)
+                    rcols[4].markdown(_pill(pd_dict.get('pay_from')), unsafe_allow_html=True)
+                    rcols[5].markdown(_chip(pd_dict.get('pay_type')), unsafe_allow_html=True)
+                    rcols[6].markdown(_money(pd_dict.get('amount'), "paid"), unsafe_allow_html=True)
+                    rcols[7].markdown(_txt(pd_dict.get('remark'), "slux-soft"), unsafe_allow_html=True)
 
+        st.markdown(
+            '<div class="slux-foot">'
+            f'<div>{len(pdf_view):,} payment{"s" if len(pdf_view) != 1 else ""}</div>'
+            f'<div class="slux-foot-amts"><span>Total Paid: <b style="color:#059669;">₹ {pay_total:,.0f}</b></span></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
