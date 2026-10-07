@@ -716,6 +716,45 @@ def parse_date_safely(val):
             continue
     return None
 
+
+def clean_supabase_payload(data):
+    """
+    Supabase/PostgreSQL-safe payload.
+    Blank strings / NaN / NaT / Infinity ko None (SQL NULL) banata hai.
+    Nested dict/list ko bhi recursively clean karta hai.
+    """
+    def _clean_value(val):
+        if isinstance(val, dict):
+            return {k: _clean_value(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_clean_value(v) for v in val]
+        if isinstance(val, tuple):
+            return [_clean_value(v) for v in val]
+
+        try:
+            if pd.isna(val):
+                return None
+        except (TypeError, ValueError):
+            pass
+
+        if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+            return None
+
+        if isinstance(val, str):
+            stripped = val.strip()
+            if stripped.lower() in ("", "nan", "nat", "none", "null"):
+                return None
+            return stripped
+
+        if isinstance(val, datetime):
+            return val.isoformat()
+        if isinstance(val, date):
+            return val.isoformat()
+
+        return val
+
+    return {col: _clean_value(val) for col, val in data.items()}
+
 # =========================================================================
 # GENERIC HELPERS (used by ERS Process & Invoice Data tabs)
 # =========================================================================
@@ -838,7 +877,7 @@ def generic_add_dialog(table_name, columns, prefix, workspace=None):
                 if workspace:
                     insert_data["workspace"] = workspace
                 try:
-                    supabase.table(table_name).insert(insert_data).execute()
+                    supabase.table(table_name).insert(clean_supabase_payload(insert_data)).execute()
                     st.success("✅ Record Added!")
                     get_table_df.clear()
                     st.session_state[f"{prefix}_page"] = 1
@@ -860,7 +899,7 @@ def generic_add_dialog(table_name, columns, prefix, workspace=None):
         if workspace:
             values["workspace"] = workspace
         try:
-            supabase.table(table_name).insert(values).execute()
+            supabase.table(table_name).insert(clean_supabase_payload(values)).execute()
             st.success("✅ Record Added!")
             get_table_df.clear()
             st.session_state[f"{prefix}_page"] = 1
@@ -891,7 +930,7 @@ def generic_edit_dialog(table_name, row_data, columns, prefix):
                 col: (None if isinstance(val, str) and val.strip() == "" else val)
                 for col, val in values.items()
             }
-            supabase.table(table_name).update(clean_values).eq("id", rid).execute()
+            supabase.table(table_name).update(clean_supabase_payload(clean_values)).eq("id", rid).execute()
             st.success("✅ Updated Successfully!")
             get_table_df.clear()
             st.rerun()
@@ -1825,7 +1864,7 @@ def bhagya_add_invoice_dialog():
                 "total": total,
             }
             try:
-                supabase.table(BHAGYA_TABLE).insert(payload).execute()
+                supabase.table(BHAGYA_TABLE).insert(clean_supabase_payload(payload)).execute()
                 st.success("✅ Invoice Saved! Neeche table me ⚙️ button se PDF download kar sakte hain.")
                 get_table_df.clear()
                 bhagya_get_site_options.clear()
@@ -2024,7 +2063,7 @@ def bhagya_edit_invoice_dialog(row_data):
                 "total": total,
             }
             try:
-                supabase.table(BHAGYA_TABLE).update(payload).eq("id", rid).execute()
+                supabase.table(BHAGYA_TABLE).update(clean_supabase_payload(payload)).eq("id", rid).execute()
                 st.success("✅ Invoice Updated Successfully!")
                 get_table_df.clear()
                 st.rerun()
@@ -2099,7 +2138,7 @@ def bhagya_bulk_hsn_dialog():
                         continue
                     try:
                         supabase.table(HSN_TABLE).upsert(
-                            {"item_code": item_code, "hsn": hsn_val}, on_conflict="item_code"
+                            clean_supabase_payload({"item_code": item_code, "hsn": hsn_val}), on_conflict="item_code"
                         ).execute()
                         upserted += 1
                     except Exception as e:
@@ -2350,7 +2389,7 @@ def add_invoice_dialog(table_name, prefix, workspace=None):
             if workspace:
                 insert_data["workspace"] = workspace
             try:
-                supabase.table(table_name).insert(insert_data).execute()
+                supabase.table(table_name).insert(clean_supabase_payload(insert_data)).execute()
                 st.success("✅ Invoice Added Successfully!")
                 get_table_df.clear()
                 st.session_state[f"{prefix}_inv_page"] = 1
@@ -2477,7 +2516,7 @@ def edit_invoice_dialog(row_data, table_name):
                     else:
                         clean_update_data[col] = val
 
-                supabase.table(table_name).update(clean_update_data).eq("id", row_data['id']).execute()
+                supabase.table(table_name).update(clean_supabase_payload(clean_update_data)).eq("id", row_data['id']).execute()
                 st.success("✅ Invoice Updated Successfully!")
                 get_table_df.clear()
                 st.rerun()
@@ -2581,7 +2620,7 @@ def bulk_upload_dialog(table_name, prefix, workspace=None):
                     insert_dict["workspace"] = workspace
 
                 try:
-                    supabase.table(table_name).insert(insert_dict).execute()
+                    supabase.table(table_name).insert(clean_supabase_payload(insert_dict)).execute()
                     added += 1
                 except:
                     pass
