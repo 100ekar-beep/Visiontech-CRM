@@ -403,29 +403,78 @@ def fetch_jms_drafts_cached(workspace):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_jms_templates_cached(workspace):
-    """Existing ground_template / ground_template_items tables, shared by this app."""
+    """Load saved JMS templates and ALL their items reliably."""
     try:
-        heads = supabase.table("ground_template").select("id,template_name").order("template_name").execute().data or []
+        heads = (
+            supabase.table("ground_template")
+            .select("id,template_name")
+            .order("template_name")
+            .execute().data or []
+        )
         if not heads:
             return []
+
         ids = [row["id"] for row in heads]
-        items = (supabase.table("ground_template_items")
-                 .select("id,template_id,item_code,item_description,sort_order")
-                 .in_("template_id", ids).order("sort_order").execute().data or [])
+
+        # IMPORTANT:
+        # Some existing ground_template_items tables do not have item_description.
+        # Selecting that column makes the whole query fail and template appears as 0 items.
+        # Fetch * so old + new schemas both work.
+        items = (
+            supabase.table("ground_template_items")
+            .select("*")
+            .in_("template_id", ids)
+            .order("sort_order")
+            .execute().data or []
+        )
+
+        # Normalize IDs because Supabase can return bigint as int/string depending on data/client.
         grouped = {str(tid): [] for tid in ids}
-        for item in items:
-            grouped.setdefault(str(item["template_id"]), []).append(item)
+
         master = get_item_master_details()
-        by_code = {code.casefold(): data for code, data in master.items()}
-        for template_items in grouped.values():
-            for item in template_items:
-                full_desc = by_code.get(_clean_text(item.get("item_code")).casefold(), {}).get("description", "")
-                if len(full_desc) > len(_clean_text(item.get("item_description"))):
-                    item["item_description"] = full_desc
-        return [{"id": row["id"], "name": row["template_name"],
-                 "line_items": grouped.get(str(row["id"]), [])} for row in heads]
+        by_code = {
+            _clean_text(code).casefold(): data
+            for code, data in master.items()
+            if _clean_text(code)
+        }
+
+        for item in items:
+            tid = str(item.get("template_id", ""))
+            item_code = _clean_text(item.get("item_code"))
+
+            # Description priority:
+            # 1) Full description from Item Code master
+            # 2) Description saved in template item (if that column exists)
+            master_desc = _clean_text(
+                by_code.get(item_code.casefold(), {}).get("description", "")
+            )
+            saved_desc = _clean_text(
+                item.get("item_description")
+                or item.get("description")
+                or item.get("Item Description")
+            )
+            description = master_desc if len(master_desc) >= len(saved_desc) else saved_desc
+
+            grouped.setdefault(tid, []).append({
+                "id": item.get("id"),
+                "template_id": item.get("template_id"),
+                "item_code": item_code,
+                "item_description": description,
+                "default_qty": item.get("default_qty"),
+                "sort_order": item.get("sort_order"),
+            })
+
+        return [
+            {
+                "id": row["id"],
+                "name": row["template_name"],
+                "line_items": grouped.get(str(row["id"]), []),
+            }
+            for row in heads
+        ]
+
     except Exception as exc:
-        st.error(f"Templates load nahi hue. ground_template_items me item_description column add karein: {exc}")
+        st.error(f"Templates load nahi hue: {exc}")
         return []
 
 
@@ -439,37 +488,74 @@ def _template_lines(lines):
 
 def save_jms_template(name, lines, template_id=None):
     clean_lines = _template_lines(lines)
+
+    def _payload_for(tid, include_description=True):
+        payload = []
+        for pos, row in enumerate(clean_lines, 1):
+            item = {
+                "template_id": tid,
+                "item_code": row["item_code"],
+                "default_qty": 0,
+                "sort_order": pos,
+            }
+            if include_description:
+                item["item_description"] = row["item_description"]
+            payload.append(item)
+        return payload
+
+    def _insert_template_items(tid):
+        payload = _payload_for(tid, include_description=True)
+        if not payload:
+            return []
+        try:
+            inserted = supabase.table("ground_template_items").insert(payload).execute()
+            return inserted.data or []
+        except Exception as first_exc:
+            # Backward compatibility: older table may not have item_description.
+            try:
+                payload = _payload_for(tid, include_description=False)
+                inserted = supabase.table("ground_template_items").insert(payload).execute()
+                return inserted.data or []
+            except Exception:
+                raise first_exc
+
     if template_id:
         tid = int(template_id)
-        old = (supabase.table("ground_template_items").select("id")
-               .eq("template_id", tid).execute().data or [])
-        # Insert replacement rows first, so a failed insert leaves existing items intact.
-        payload = [{"template_id": tid, "item_code": row["item_code"],
-                    "item_description": row["item_description"], "default_qty": 0,
-                    "sort_order": pos}
-                   for pos, row in enumerate(clean_lines, 1)]
-        inserted = supabase.table("ground_template_items").insert(payload).execute()
-        new_ids = [row["id"] for row in (inserted.data or [])]
+        old = (
+            supabase.table("ground_template_items")
+            .select("id")
+            .eq("template_id", tid)
+            .execute().data or []
+        )
+
+        # Insert replacement rows first, so failed insert leaves old items intact.
+        inserted_rows = _insert_template_items(tid)
+        new_ids = [row["id"] for row in inserted_rows if row.get("id") is not None]
+
         try:
-            supabase.table("ground_template").update({"template_name": name.strip()}).eq("id", tid).execute()
+            supabase.table("ground_template").update(
+                {"template_name": name.strip()}
+            ).eq("id", tid).execute()
+
             if old:
-                supabase.table("ground_template_items").delete().in_("id", [x["id"] for x in old]).execute()
+                old_ids = [x["id"] for x in old if x.get("id") not in new_ids]
+                if old_ids:
+                    supabase.table("ground_template_items").delete().in_("id", old_ids).execute()
         except Exception:
             if new_ids:
                 supabase.table("ground_template_items").delete().in_("id", new_ids).execute()
             raise
     else:
-        parent = supabase.table("ground_template").insert({"template_name": name.strip()}).execute()
+        parent = supabase.table("ground_template").insert(
+            {"template_name": name.strip()}
+        ).execute()
         tid = parent.data[0]["id"]
-        payload = [{"template_id": tid, "item_code": row["item_code"],
-                    "item_description": row["item_description"], "default_qty": 0,
-                    "sort_order": pos}
-                   for pos, row in enumerate(clean_lines, 1)]
         try:
-            supabase.table("ground_template_items").insert(payload).execute()
+            _insert_template_items(tid)
         except Exception:
             supabase.table("ground_template").delete().eq("id", tid).execute()
             raise
+
     fetch_jms_templates_cached.clear()
     return tid
 
@@ -1147,8 +1233,17 @@ def jms_dialog(row_data):
 
         if chosen_id:
             loaded_count = len(template_ids[chosen_id].get("line_items") or [])
-            st.success(f"✅ {template_ids[chosen_id]['name']} template selected — {loaded_count} items editor me load ho gaye.")
-            st.caption("Qty blank rahegi. Aap Qty/Remark fill karke JMS save/download kar sakte hain.")
+            if loaded_count:
+                st.success(
+                    f"✅ {template_ids[chosen_id]['name']} template selected — "
+                    f"{loaded_count} items editor me load ho gaye."
+                )
+                st.caption("Qty blank rahegi. Aap Qty/Remark fill karke JMS save/download kar sakte hain.")
+            else:
+                st.warning(
+                    f"⚠️ {template_ids[chosen_id]['name']} template ke against "
+                    "ground_template_items me koi saved item nahi mila."
+                )
         template_name = st.text_input("Current JMS items ko template naam se save karein",
                                       key=f"jmspage_template_name_{active_key}")
         if st.button("💾 Save as new template", key=f"jmspage_template_save_{active_key}"):
