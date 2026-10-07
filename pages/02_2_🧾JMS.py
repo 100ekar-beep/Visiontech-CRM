@@ -501,6 +501,15 @@ def save_jms_template(name, lines, template_id=None):
                 "remarks": "",
             })
 
+    # Strict FK check before any ground_template_items insert/update.
+    missing_master_codes = validate_template_items_in_item_master(clean_lines)
+    if missing_master_codes:
+        raise ValueError(
+            "Ye Item Code item_master me available nahi hai: "
+            + ", ".join(missing_master_codes)
+            + ". Pehle Template popup me 'Item Code master me nahi hai?' option se save karein."
+        )
+
     def _payload_for(tid, include_description=True):
         payload = []
         for pos, row in enumerate(clean_lines, 1):
@@ -727,6 +736,31 @@ def add_item_to_master(item_code, item_description):
 
     get_item_master_details.clear()
     return table_name
+
+
+def validate_template_items_in_item_master(lines):
+    """Return missing item codes that do not exist in item_master."""
+    codes = []
+    for line in lines:
+        c = _clean_text(line.get("item_code"))
+        if c and c not in codes:
+            codes.append(c)
+
+    missing = []
+    for c in codes:
+        try:
+            rows = (
+                supabase.table("item_master")
+                .select("item_code")
+                .eq("item_code", c)
+                .limit(1)
+                .execute().data or []
+            )
+            if not rows:
+                missing.append(c)
+        except Exception as exc:
+            raise RuntimeError(f"item_master verification failed for {c}: {exc}")
+    return missing
 
 
 # --- TEAM MASTER HELPERS ---
