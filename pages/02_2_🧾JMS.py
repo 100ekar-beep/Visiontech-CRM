@@ -973,9 +973,14 @@ def _clear_jms_dialog():
 # Older versions that support dismissible=False must use the Close button.
 _dialog_options = {"width": "large"}
 _dialog_parameters = inspect.signature(st.dialog).parameters
-if "on_dismiss" in _dialog_parameters:
-    _dialog_options["on_dismiss"] = _clear_jms_dialog
-elif "dismissible" in _dialog_parameters:
+
+# IMPORTANT:
+# Do not use on_dismiss here. A selectbox/template change causes a Streamlit rerun
+# and some Streamlit versions fire on_dismiss during that rerun, which clears
+# jmspage_open_row and closes the JMS popup.
+# Keep the dialog non-dismissible where supported; the existing Close button
+# inside the JMS dialog remains the proper way to close it.
+if "dismissible" in _dialog_parameters:
     _dialog_options["dismissible"] = False
 
 
@@ -1115,10 +1120,18 @@ def jms_dialog(row_data):
     with st.expander("📋 Saved template use karein / current items template me save karein"):
         templates = fetch_jms_templates_cached(workspace)
         template_ids = {str(t["id"]): t for t in templates}
+        def _keep_jms_dialog_open():
+            # Template/selectbox interaction triggers a rerun.
+            # Preserve both the URL marker and current open-row state.
+            st.query_params["jms_ctx"] = "open"
+            if st.session_state.get("jmspage_open_row") is None:
+                st.session_state.jmspage_open_row = row_data
+
         chosen_id = st.selectbox(
             "Template", [""] + list(template_ids),
             format_func=lambda tid: "-- Template select karein --" if not tid else template_ids[tid]["name"],
-            key=f"jmspage_template_choice_{active_key}")
+            key=f"jmspage_template_choice_{active_key}",
+            on_change=_keep_jms_dialog_open)
         if chosen_id:
             st.caption(f"{len(template_ids[chosen_id].get('line_items') or [])} items. Load karne par editor me template ke sabhi items aur blank Qty aayegi. Current unsaved lines replace hongi.")
         if st.button("📥 Apply template", disabled=not chosen_id,
@@ -1127,6 +1140,9 @@ def jms_dialog(row_data):
                 template_ids[chosen_id].get("line_items") or [])
             st.session_state.jmspage_last_pdf = None
             st.session_state.jmspage_add_gen += 1
+            # Explicitly preserve popup context before rerun.
+            st.session_state.jmspage_open_row = row_data
+            st.query_params["jms_ctx"] = "open"
             st.rerun()
         template_name = st.text_input("Current JMS items ko template naam se save karein",
                                       key=f"jmspage_template_name_{active_key}")
