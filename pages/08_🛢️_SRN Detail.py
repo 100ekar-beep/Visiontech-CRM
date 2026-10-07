@@ -420,9 +420,41 @@ def fetch_srn_data(workspace):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_escalation_matrix():
+    """
+    Excalation Matrix ka COMPLETE data fetch karta hai.
+
+    IMPORTANT:
+    Supabase/PostgREST ek request me aksar limited rows return karta hai.
+    Isliye 1000-1000 rows ke batches me poora master load karna zaroori hai,
+    warna baad ke Site IDs ka Site Name / Cluster / Technician blank dikhega.
+    """
     try:
-        response = supabase.table(ESCALATION_TABLE).select("*").execute()
-        return response.data or []
+        all_rows = []
+        batch_size = 1000
+        start = 0
+
+        while True:
+            response = (
+                supabase.table(ESCALATION_TABLE)
+                .select("*")
+                .range(start, start + batch_size - 1)
+                .execute()
+            )
+
+            batch = response.data or []
+            all_rows.extend(batch)
+
+            if len(batch) < batch_size:
+                break
+
+            start += batch_size
+
+            # Safety guard
+            if start >= 50000:
+                break
+
+        return all_rows
+
     except Exception as e:
         st.error(f"❌ '{ESCALATION_TABLE}' load error: {e}")
         return []
@@ -430,6 +462,15 @@ def fetch_escalation_matrix():
 
 def clear_srn_cache():
     fetch_srn_data.clear()
+    fetch_escalation_matrix.clear()
+
+
+def normalize_site_id(value):
+    """Site ID ko matching ke liye normalize karega."""
+    x = clean_text(value).upper()
+    x = x.replace("–", "-").replace("—", "-")
+    x = re.sub(r"\\s+", "", x)
+    return x
 
 
 def prepare_escalation_lookup(records):
@@ -498,7 +539,7 @@ def prepare_escalation_lookup(records):
     lookup = {}
 
     for _, row in edf.iterrows():
-        sid = clean_text(row.get(site_col)).upper()
+        sid = normalize_site_id(row.get(site_col))
         if not sid:
             continue
 
@@ -578,13 +619,13 @@ def build_display_df(raw_records, escalation_lookup):
 
     # Enrich from Excalation Matrix
     rdf["Site Name"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Site Name", "")
+        lambda x: escalation_lookup.get(normalize_site_id(x), {}).get("Site Name", "")
     )
     rdf["Cluster"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Cluster", "")
+        lambda x: escalation_lookup.get(normalize_site_id(x), {}).get("Cluster", "")
     )
     rdf["Technician Detail"] = rdf["Site ID"].apply(
-        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Technician Detail", "")
+        lambda x: escalation_lookup.get(normalize_site_id(x), {}).get("Technician Detail", "")
     )
 
     # Defaults for operational columns
