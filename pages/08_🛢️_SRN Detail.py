@@ -534,6 +534,7 @@ def upload_new_srn_data(upload_df, workspace):
 
     payload = []
     skipped_blank_site = 0
+    line_key_occurrence_counter = {}
 
     for _, row in upload_df.iterrows():
         site_id = clean_text(row.get("Site ID"))
@@ -545,12 +546,19 @@ def upload_new_srn_data(upload_df, workspace):
         item_description = clean_text(row.get("Item Description"))
         item_cat_2 = clean_text(row.get("Item Cat 2"))
 
-        line_key = make_line_key(
+        # Same Site/Project/Item genuine multiple times aa sakta hai.
+        # Base key ke saath occurrence number add karte hain so every Excel line
+        # is preserved, while re-uploading the same sheet updates the same rows.
+        base_line_key = make_line_key(
             site_id,
             project_number,
             item_description,
             item_cat_2,
         )
+
+        occurrence_no = line_key_occurrence_counter.get(base_line_key, 0) + 1
+        line_key_occurrence_counter[base_line_key] = occurrence_no
+        line_key = f"{base_line_key}||ROW{occurrence_no}"
 
         old = existing_by_key.get(line_key, {})
 
