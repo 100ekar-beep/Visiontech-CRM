@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+import math
 from html import escape
 from datetime import date, datetime
 from supabase import create_client, Client
