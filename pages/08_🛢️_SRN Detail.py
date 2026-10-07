@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_keyup import st_keyup
 import pandas as pd
 import io
 import re
@@ -956,10 +955,9 @@ team_options = sorted(
 f1, f2, f3, f4 = st.columns([3.2, 1.7, 1.7, 1.6])
 
 with f1:
-    search_text = st_keyup(
+    search_text = st.text_input(
         "Search",
         placeholder="🔍 Search Site ID, Site Name, Project Number, Item, Technician...",
-        debounce=250,
         key="srn_live_search",
         label_visibility="collapsed",
     )
