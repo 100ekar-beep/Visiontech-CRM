@@ -1325,39 +1325,6 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-col_title, col_blank, col_template, col_ref = st.columns([3.6, 1.15, 1.15, 1])
-with col_title:
-    st.markdown("<h2 style='margin:0; color:#0f172a;'>Joint Measurement Sheets</h2>", unsafe_allow_html=True)
-with col_blank:
-    if st.button("➕ Blank JMS", type="primary", use_container_width=True):
-        blank_id = f"blank-{uuid4().hex}"
-        st.session_state.jmspage_open_row = {
-            "id": blank_id,
-            "_blank_jms": True,
-            "Site Name": "",
-            "Project ID": "",
-            "Site ID": "",
-            "Cluster": "",
-            "PO No.": "",
-            "Team Name": "",
-        }
-        st.session_state.jmspage_loaded_key = None
-        st.session_state.jmspage_last_pdf = None
-        st.query_params["jms_ctx"] = "open"
-        st.rerun()
-with col_template:
-    if st.button("🧩 Template", type="primary", use_container_width=True):
-        st.session_state["jmspage_template_popup_open"] = True
-        st.rerun()
-with col_ref:
-    if st.button("🔄 Refresh", use_container_width=True):
-        clear_jms_cache()
-        st.rerun()
-
-if st.session_state.get("jmspage_template_popup_open", False):
-    template_manager_dialog()
-
-# --- TEMPLATE MANAGER POPUP ---
 @st.dialog("🧩 JMS Template Manager", width="large")
 def template_manager_dialog():
     workspace = st.session_state.get("active_workspace", "VISPL")
@@ -1549,6 +1516,41 @@ def template_manager_dialog():
             st.error(f"Template save/update nahi hua: {exc}")
 
 
+
+
+col_title, col_blank, col_template, col_ref = st.columns([3.6, 1.15, 1.15, 1])
+with col_title:
+    st.markdown("<h2 style='margin:0; color:#0f172a;'>Joint Measurement Sheets</h2>", unsafe_allow_html=True)
+with col_blank:
+    if st.button("➕ Blank JMS", type="primary", use_container_width=True):
+        blank_id = f"blank-{uuid4().hex}"
+        st.session_state.jmspage_open_row = {
+            "id": blank_id,
+            "_blank_jms": True,
+            "Site Name": "",
+            "Project ID": "",
+            "Site ID": "",
+            "Cluster": "",
+            "PO No.": "",
+            "Team Name": "",
+        }
+        st.session_state.jmspage_loaded_key = None
+        st.session_state.jmspage_last_pdf = None
+        st.query_params["jms_ctx"] = "open"
+        st.rerun()
+with col_template:
+    if st.button("🧩 Template", type="primary", use_container_width=True):
+        st.session_state["jmspage_template_popup_open"] = True
+        st.rerun()
+with col_ref:
+    if st.button("🔄 Refresh", use_container_width=True):
+        clear_jms_cache()
+        st.rerun()
+
+if st.session_state.get("jmspage_template_popup_open", False):
+    template_manager_dialog()
+
+# --- TEMPLATE MANAGER POPUP ---
 st.markdown("<br>", unsafe_allow_html=True)
 
 # --- GENERATED JMS HISTORY / DOWNLOAD ---
