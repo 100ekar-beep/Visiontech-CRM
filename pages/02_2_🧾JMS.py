@@ -1521,6 +1521,8 @@ def template_manager_dialog():
 
     if close_popup:
         st.session_state["jmspage_template_popup_open"] = False
+        # If a Blank/Site JMS was already in progress, it can safely reopen
+        # on the next rerun because Template Manager is now closed.
         st.rerun()
 
     if save_new or update_existing:
@@ -1582,6 +1584,8 @@ with col_title:
     st.markdown("<h2 style='margin:0; color:#0f172a;'>Joint Measurement Sheets</h2>", unsafe_allow_html=True)
 with col_blank:
     if st.button("➕ Blank JMS", type="primary", use_container_width=True):
+        # Only one Streamlit dialog can be active at a time.
+        st.session_state["jmspage_template_popup_open"] = False
         blank_id = f"blank-{uuid4().hex}"
         st.session_state.jmspage_open_row = {
             "id": blank_id,
@@ -1599,6 +1603,9 @@ with col_blank:
         st.rerun()
 with col_template:
     if st.button("🧩 Template", type="primary", use_container_width=True):
+        # Template Manager and JMS dialog are mutually exclusive in rendering.
+        # Keep any JMS draft state in memory, but do not render its dialog
+        # while Template Manager is open.
         st.session_state["jmspage_template_popup_open"] = True
         st.rerun()
 with col_ref:
@@ -1617,7 +1624,12 @@ active_ws = st.session_state.get('active_workspace', 'VISPL')
 jms_drafts_map = fetch_jms_drafts_cached(active_ws)
 
 # Keep the JMS dialog open across reruns while editing/saving.
-if st.session_state.get("jmspage_open_row") is not None:
+# IMPORTANT: Streamlit permits only one active dialog/layout context.
+# Never call jms_dialog while Template Manager dialog is open.
+if (
+    st.session_state.get("jmspage_open_row") is not None
+    and not st.session_state.get("jmspage_template_popup_open", False)
+):
     jms_dialog(st.session_state.jmspage_open_row)
 
 history_rows = list(jms_drafts_map.values())
