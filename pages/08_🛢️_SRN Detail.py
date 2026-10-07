@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+from html import escape
 from datetime import date, datetime
 from supabase import create_client, Client
 
@@ -65,19 +66,9 @@ SCREEN_COLUMNS = [
     "Remark",
 ]
 
-SRN_STATUS_OPTIONS = [
-    "Pending",
-    "In Process",
-    "Submitted",
-    "Not Required",
-]
-
-POD_STATUS_OPTIONS = [
-    "Pending",
-    "Available",
-    "Submitted",
-    "Not Required",
-]
+SRN_STATUS_OPTIONS = ["Done", "Pending", "Issue"]
+POD_STATUS_OPTIONS = ["Received", "Pending"]
+SRN_FROM_OPTIONS = []
 
 # ============================================================
 # 4. ACCESS GATE - SAME WORKSPACE RULE AS OLD PAGE
@@ -217,6 +208,34 @@ st.markdown(
         font-weight: 800 !important;
         border-radius: 9px !important;
     }
+
+    .stApp { background: linear-gradient(135deg,#f8fafc 0%,#e2e8f0 100%); color:#0f172a; font-family:'Inter',sans-serif; }
+    div.stButton > button { background:linear-gradient(90deg,#f59e0b 0%,#ec4899 100%) !important; color:#fff !important; border:none !important; border-radius:8px !important; font-weight:800 !important; box-shadow:0 4px 8px rgba(0,0,0,.14); }
+    div.stButton > button:hover { transform:translateY(-2px); box-shadow:0 9px 16px rgba(0,0,0,.20); }
+    div[data-testid="stDialog"] > div { background:rgba(255,255,255,.99); border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,.25); }
+    .slux-head-bar { display:flex; justify-content:space-between; padding:16px 22px; border-radius:18px 18px 0 0; background:linear-gradient(100deg,#1e1b4b 0%,#312e81 45%,#5b21b6 100%); }
+    .slux-title { color:#fff; font-weight:900; font-size:1.05rem; letter-spacing:1.3px; text-transform:uppercase; }
+    .slux-title span { color:#c7d2fe; font-size:.8rem; margin-left:8px; text-transform:none; }
+    .slux-badge { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); color:#fde68a; padding:5px 12px; border-radius:999px; font-weight:800; }
+    .st-key-srn_lux_table { background:#fff; overflow:auto !important; max-height:72vh !important; padding:0 !important; border:1px solid #e0e7ff; }
+    .st-key-srn_lux_table [data-testid="stHorizontalBlock"] { min-width:2450px !important; flex-wrap:nowrap !important; gap:0 !important; align-items:center !important; }
+    .st-key-srn_lux_table [data-testid="stColumn"] { padding:0 10px !important; min-width:0 !important; border-right:1px solid #f1f5f9; }
+    div[class*="st-key-srnhead_"] { position:sticky !important; top:0 !important; z-index:20 !important; background:linear-gradient(90deg,#312e81,#4338ca,#6d28d9) !important; border-bottom:3px solid #f59e0b; padding:13px 0 !important; }
+    .slux-th { color:#fff; font-size:.69rem; font-weight:900; letter-spacing:.9px; text-transform:uppercase; white-space:nowrap; }
+    div[class*="st-key-srnrow_"] { padding:8px 0 !important; background:#fff; border-bottom:1px solid #f1f5f9; }
+    div[class*="st-key-srnrow_odd"] { background:#fafaff; }
+    div[class*="st-key-srnrow_"]:hover { background:#eef2ff; box-shadow:inset 4px 0 0 #6366f1; }
+    .slux-cell { font-size:.84rem; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; }
+    .slux-strong { font-weight:800; color:#0f172a; }
+    .slux-muted { color:#cbd5e1; }
+    .slux-chip { font-family:ui-monospace,Consolas,monospace; background:#f8fafc; border:1px solid #e2e8f0; color:#334155; padding:3px 7px; border-radius:6px; font-size:.76rem; font-weight:700; }
+    .slux-chip.proj { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; }
+    .slux-pill { display:inline-block; padding:4px 10px; border-radius:999px; background:linear-gradient(90deg,#e0f2fe,#ede9fe); color:#4338ca; border:1px solid #ddd6fe; font-weight:800; font-size:.68rem; }
+    .status-badge { display:inline-flex; padding:4px 10px; border-radius:999px; font-size:.69rem; font-weight:900; border:1px solid transparent; }
+    .status-green{background:#dcfce7;color:#15803d;border-color:#bbf7d0}.status-yellow{background:#fef9c3;color:#a16207;border-color:#fde68a}.status-red{background:#fee2e2;color:#b91c1c;border-color:#fecaca}.status-blue{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}
+    div[class*="st-key-srnedit_"] button { width:38px !important; height:34px !important; padding:0 !important; background:rgba(59,130,246,.15) !important; border:1px solid rgba(59,130,246,.3) !important; color:#1d4ed8 !important; box-shadow:none !important; }
+    div[class*="st-key-srnedit_"] button:hover { background:#3b82f6 !important; color:#fff !important; }
+    .slux-foot { padding:14px 22px; background:linear-gradient(90deg,#f5f3ff,#eef2ff); border:1px solid #e0e7ff; border-top:2px solid #c7d2fe; border-radius:0 0 18px 18px; font-weight:900; color:#312e81; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -603,122 +622,175 @@ def upload_new_srn_data(upload_df, workspace):
     return len(payload), skipped_blank_site
 
 
-@st.dialog("✏️ Update SRN Site", width="large")
-def edit_site_dialog(site_id, site_df):
-    first = site_df.iloc[0].to_dict()
 
-    st.caption(
-        "Ye update selected Site ID ki sabhi current material lines par apply hoga."
-    )
+@st.cache_data(ttl=60, show_spinner=False)
+def get_all_dropdowns():
+    try:
+        res = supabase.table("dropdown_master").select("*").execute()
+        return res.data or []
+    except Exception:
+        return []
 
-    c1, c2 = st.columns(2)
-    with c1:
-        team_name = st.text_input(
-            "Team Name",
-            value=clean_text(first.get("Team Name")),
-            placeholder="Enter / select team name",
-        )
-    with c2:
-        current_status = clean_text(first.get("SRN Status")) or "Pending"
-        status_index = (
-            SRN_STATUS_OPTIONS.index(current_status)
-            if current_status in SRN_STATUS_OPTIONS
-            else 0
-        )
-        srn_status = st.selectbox(
-            "SRN Status",
-            SRN_STATUS_OPTIONS,
-            index=status_index,
-        )
+def dropdown_values(category, fallback=None):
+    all_dd = get_all_dropdowns()
+    vals = []
+    for r in all_dd:
+        if clean_text(r.get("category")).lower() == category.lower():
+            v = clean_text(r.get("option_value"))
+            if v and v not in vals:
+                vals.append(v)
+    if fallback:
+        for v in fallback:
+            if v not in vals:
+                vals.append(v)
+    return vals
 
-    c3, c4 = st.columns(2)
-    with c3:
-        existing_date = pd.to_datetime(
-            first.get("SRN Date"), errors="coerce", dayfirst=True
-        )
-        default_date = (
-            existing_date.date()
-            if not pd.isna(existing_date)
-            else None
-        )
-        srn_date = st.date_input(
-            "SRN Date",
-            value=default_date,
-            format="DD-MM-YYYY",
-        )
-    with c4:
-        srn_from = st.text_input(
-            "SRN From",
-            value=clean_text(first.get("SRN From")),
-            placeholder="SRN received/from detail",
-        )
+def add_dropdown_value(category, value):
+    value = clean_text(value)
+    if not value:
+        return False, "Blank value add nahi ho sakti."
+    try:
+        existing = supabase.table("dropdown_master").select("*").eq("category", category).eq("option_value", value).execute()
+        if existing.data:
+            return True, "Already available."
+        supabase.table("dropdown_master").insert({
+            "category": category,
+            "option_value": value
+        }).execute()
+        get_all_dropdowns.clear()
+        return True, f"{value} added."
+    except Exception as e:
+        return False, str(e)
 
-    c5, c6 = st.columns(2)
-    with c5:
-        current_pod = clean_text(first.get("POD Status")) or "Pending"
-        pod_index = (
-            POD_STATUS_OPTIONS.index(current_pod)
-            if current_pod in POD_STATUS_OPTIONS
-            else 0
-        )
-        pod_status = st.selectbox(
-            "POD Status",
-            POD_STATUS_OPTIONS,
-            index=pod_index,
-        )
-    with c6:
-        remark = st.text_area(
-            "Remark",
-            value=clean_text(first.get("Remark")),
-            height=100,
-        )
+def _muted():
+    return "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
 
-    st.markdown("#### Material lines in this Site ID")
-    preview_cols = [
-        "Project Number",
-        "Item Cat 2",
-        "Item Description",
-        "BOQ Quantity",
-        "Ageing Slab",
-    ]
-    st.dataframe(
-        site_df[preview_cols],
-        use_container_width=True,
-        hide_index=True,
-        height=min(300, 75 + len(site_df) * 35),
-    )
+def _txt(v, strong=False):
+    x=clean_text(v)
+    if not x: return _muted()
+    cls=" slux-strong" if strong else ""
+    return f"<div class='slux-cell{cls}' title='{escape(x)}'>{escape(x)}</div>"
 
-    if st.button(
-        "💾 Save Site Update",
-        type="primary",
-        use_container_width=True,
-    ):
-        try:
-            update_dict = {
-                "team_name": clean_text(team_name),
-                "srn_status": srn_status,
-                "srn_date": srn_date.isoformat() if srn_date else None,
-                "srn_from": clean_text(srn_from),
-                "pod_status": pod_status,
-                "remark": clean_text(remark),
-                "updated_at": datetime.now().isoformat(),
-            }
+def _chip(v, proj=False):
+    x=clean_text(v)
+    if not x: return _muted()
+    cls=" proj" if proj else ""
+    return f"<div class='slux-cell'><span class='slux-chip{cls}'>{escape(x)}</span></div>"
 
-            (
-                supabase.table(SRN_TABLE)
-                .update(update_dict)
-                .eq("workspace", active_ws)
-                .eq("site_id", site_id)
-                .execute()
-            )
+def _pill(v):
+    x=clean_text(v)
+    if not x: return _muted()
+    return f"<div class='slux-cell'><span class='slux-pill'>{escape(x)}</span></div>"
 
-            clear_srn_cache()
-            st.success("✅ Site SRN details updated successfully.")
+def _status(v):
+    x=clean_text(v)
+    if not x: return _muted()
+    xl=x.lower()
+    if xl in ("done","received"): cls="status-green"
+    elif xl=="issue": cls="status-red"
+    elif xl=="pending": cls="status-yellow"
+    else: cls="status-blue"
+    return f"<div class='slux-cell'><span class='status-badge {cls}'>{escape(x)}</span></div>"
+
+def _qty(v):
+    try:
+        n=float(v)
+        out=f"{n:g}"
+    except:
+        out=clean_text(v) or "-"
+    return f"<div class='slux-cell slux-strong'>{escape(out)}</div>"
+
+def table_header_row(key, ratios, labels):
+    with st.container(key=key):
+        cols=st.columns(ratios, vertical_alignment="center")
+        for c,label in zip(cols,labels):
+            c.markdown(f"<div class='slux-th'>{label}</div>", unsafe_allow_html=True)
+
+@st.dialog("➕ Add New Dropdown Option")
+def add_option_dialog():
+    category = st.selectbox("Add option in", ["SRN Status", "SRN From", "POD Status"])
+    new_value = st.text_input("New Option", placeholder="Type new status / SRN From...")
+    if st.button("➕ Add Option", type="primary", use_container_width=True):
+        ok,msg=add_dropdown_value(category,new_value)
+        if ok:
+            st.success("✅ "+msg)
             st.rerun()
+        else:
+            st.error("❌ "+msg)
 
-        except Exception as e:
-            st.error(f"❌ Update failed: {e}")
+@st.dialog("✏️ Edit SRN Record", width="large")
+def edit_srn_dialog(row_data):
+    rid = row_data.get("id")
+    st.caption("Team / SRN / POD details update karein")
 
+    c1,c2,c3,c4=st.columns(4)
+    c1.text_input("SITE ID", value=clean_text(row_data.get("Site ID")), disabled=True)
+    c2.text_input("SITE NAME", value=clean_text(row_data.get("Site Name")), disabled=True)
+    c3.text_input("CLUSTER", value=clean_text(row_data.get("Cluster")), disabled=True)
+    c4.text_input("PROJECT NUMBER", value=clean_text(row_data.get("Project Number")), disabled=True)
+
+    team_opts = dropdown_values("Team Name")
+    current_team=clean_text(row_data.get("Team Name"))
+    if current_team and current_team not in team_opts: team_opts.insert(0,current_team)
+    team_opts=["Select"]+team_opts
+    team_name=st.selectbox("TEAM NAME", team_opts, index=(team_opts.index(current_team) if current_team in team_opts else 0))
+
+    srn_opts=dropdown_values("SRN Status", ["Done","Pending","Issue"])
+    cur_srn=clean_text(row_data.get("SRN Status")) or "Pending"
+    if cur_srn not in srn_opts: srn_opts.insert(0,cur_srn)
+
+    from_opts=dropdown_values("SRN From")
+    cur_from=clean_text(row_data.get("SRN From"))
+    if cur_from and cur_from not in from_opts: from_opts.insert(0,cur_from)
+    from_opts=["Manual"] + [x for x in from_opts if x!="Manual"]
+
+    pod_opts=dropdown_values("POD Status", ["Received","Pending"])
+    cur_pod=clean_text(row_data.get("POD Status")) or "Pending"
+    if cur_pod not in pod_opts: pod_opts.insert(0,cur_pod)
+
+    x1,x2,x3=st.columns(3)
+    with x1:
+        srn_status=st.selectbox("SRN STATUS", srn_opts, index=srn_opts.index(cur_srn))
+    with x2:
+        raw_date=pd.to_datetime(row_data.get("SRN Date"), errors="coerce", dayfirst=True)
+        date_val=raw_date.date() if not pd.isna(raw_date) else None
+        srn_date=st.date_input("SRN DATE", value=date_val, format="DD-MM-YYYY")
+    with x3:
+        pod_status=st.selectbox("POD STATUS", pod_opts, index=pod_opts.index(cur_pod))
+
+    y1,y2=st.columns([1,2])
+    with y1:
+        srn_from_choice=st.selectbox("SRN FROM", from_opts, index=(from_opts.index(cur_from) if cur_from in from_opts else 0))
+    with y2:
+        if srn_from_choice=="Manual":
+            srn_from=st.text_input("MANUAL SRN FROM", value=(cur_from if cur_from and cur_from!="Manual" else ""), placeholder="Type SRN From...")
+        else:
+            srn_from=srn_from_choice
+
+    remark=st.text_area("REMARK", value=clean_text(row_data.get("Remark")), placeholder="Enter remark...", height=90)
+
+    bc1,bc2=st.columns([1,3])
+    with bc1:
+        if st.button("➕ Add Dropdown Option", use_container_width=True):
+            add_option_dialog()
+    with bc2:
+        if st.button("💾 Save Update", type="primary", use_container_width=True):
+            try:
+                payload={
+                    "team_name": "" if team_name=="Select" else team_name,
+                    "srn_status": srn_status,
+                    "srn_date": srn_date.isoformat() if srn_date else None,
+                    "srn_from": clean_text(srn_from),
+                    "pod_status": pod_status,
+                    "remark": clean_text(remark),
+                    "updated_at": datetime.now().isoformat(),
+                }
+                supabase.table(SRN_TABLE).update(payload).eq("id",rid).execute()
+                clear_srn_cache()
+                st.success("✅ SRN record updated.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Update failed: {e}")
 
 # ============================================================
 # 7. HEADER
@@ -955,111 +1027,99 @@ st.caption(
 )
 
 # ============================================================
-# 12. PROPER CONTINUOUS TABLE VIEW
+# 12. LAVISH PROPER TABLE VIEW
 # ============================================================
+if not filtered_df.empty:
+    # Team-wise A-Z sequence; blank Team Name always last.
+    filtered_df = filtered_df.copy()
+    filtered_df["_team_blank"] = filtered_df["Team Name"].fillna("").astype(str).str.strip().eq("")
+    filtered_df["_team_sort"] = filtered_df["Team Name"].fillna("").astype(str).str.strip().str.lower()
+    filtered_df["_site_sort"] = filtered_df["Site ID"].fillna("").astype(str).str.strip().str.lower()
+    filtered_df["_project_sort"] = filtered_df["Project Number"].fillna("").astype(str).str.strip().str.lower()
+    filtered_df = (
+        filtered_df.sort_values(
+            by=["_team_blank", "_team_sort", "_site_sort", "_project_sort"],
+            ascending=[True, True, True, True],
+            kind="stable"
+        )
+        .drop(columns=["_team_blank", "_team_sort", "_site_sort", "_project_sort"])
+        .reset_index(drop=True)
+    )
+
 if filtered_df.empty:
     st.warning("⚠️ Search/filter ke hisab se koi record nahi mila.")
     st.stop()
 
-st.markdown("### 📋 SRN Pending Details")
+# Top Add Option button
+ta,tb=st.columns([6,1.4])
+with ta:
+    st.markdown("<h4 style='margin:0;color:#0f172a;'>📋 SRN Pending Register</h4>", unsafe_allow_html=True)
+with tb:
+    if st.button("➕ Add Status / From", use_container_width=True):
+        add_option_dialog()
 
-# User-requested exact screen order
-table_columns = [
-    "Site ID",
-    "Site Name",
-    "Cluster",
-    "Technician Detail",
-    "Item Cat 2",
-    "Ageing Slab",
-    "Project Number",
-    "Item Description",
-    "BOQ Quantity",
-    "Team Name",
-    "SRN Status",
-    "SRN Date",
-    "SRN From",
-    "POD Status",
-    "Remark",
-]
+rows_per_page=50
+total_rows=len(filtered_df)
+total_pages=max(1, math.ceil(total_rows/rows_per_page))
+if "srn_lux_page" not in st.session_state: st.session_state.srn_lux_page=1
+st.session_state.srn_lux_page=min(max(1,st.session_state.srn_lux_page),total_pages)
+start_idx=(st.session_state.srn_lux_page-1)*rows_per_page
+end_idx=start_idx+rows_per_page
+df_page=filtered_df.iloc[start_idx:end_idx].copy()
 
-table_df = filtered_df[table_columns].copy()
-
-# Proper row numbering
-table_df.index = range(1, len(table_df) + 1)
-table_df.index.name = "Sr No"
-
-st.dataframe(
-    table_df,
-    use_container_width=True,
-    hide_index=False,
-    height=650,
-    column_config={
-        "Site ID": st.column_config.TextColumn(
-            "Site ID",
-            width="medium",
-        ),
-        "Site Name": st.column_config.TextColumn(
-            "Site Name",
-            width="medium",
-        ),
-        "Cluster": st.column_config.TextColumn(
-            "Cluster",
-            width="medium",
-        ),
-        "Technician Detail": st.column_config.TextColumn(
-            "Technician Detail",
-            width="large",
-        ),
-        "Item Cat 2": st.column_config.TextColumn(
-            "Item Cat 2",
-            width="medium",
-        ),
-        "Ageing Slab": st.column_config.TextColumn(
-            "Ageing Slab",
-            width="medium",
-        ),
-        "Project Number": st.column_config.TextColumn(
-            "Project Number",
-            width="medium",
-        ),
-        "Item Description": st.column_config.TextColumn(
-            "Item Description",
-            width="large",
-        ),
-        "BOQ Quantity": st.column_config.NumberColumn(
-            "BOQ Quantity",
-            format="%.4f",
-            width="small",
-        ),
-        "Team Name": st.column_config.TextColumn(
-            "Team Name",
-            width="medium",
-        ),
-        "SRN Status": st.column_config.TextColumn(
-            "SRN Status",
-            width="medium",
-        ),
-        "SRN Date": st.column_config.TextColumn(
-            "SRN Date",
-            width="medium",
-        ),
-        "SRN From": st.column_config.TextColumn(
-            "SRN From",
-            width="medium",
-        ),
-        "POD Status": st.column_config.TextColumn(
-            "POD Status",
-            width="medium",
-        ),
-        "Remark": st.column_config.TextColumn(
-            "Remark",
-            width="large",
-        ),
-    },
+st.markdown(
+    '<div class="slux-head-bar">'
+    '<div class="slux-title">📦 SRN Pending Details<span>scroll right for complete details →</span></div>'
+    f'<div class="slux-badge">{total_rows:,} Lines</div></div>',
+    unsafe_allow_html=True
 )
 
-st.caption(
-    f"Total: {len(table_df):,} material line(s) • "
-    f"{filtered_df['Site ID'].replace('', pd.NA).dropna().nunique():,} unique Site ID(s)"
-)
+R=[0.45,0.48,1.15,1.45,1.0,1.25,1.0,1.35,2.1,0.8,1.0,1.6,1.0,1.15,1.0,1.6,1.7]
+L=["✏️","SR. NO.","SITE ID","SITE NAME","CLUSTER","TEAM NAME","ITEM CAT 2",
+   "PROJECT NUMBER","ITEM DESCRIPTION","BOQ QUANTITY","AGEING SLAB","TECHNICIAN DETAIL",
+   "SRN STATUS","SRN DATE","SRN FROM","POD STATUS","REMARK"]
+
+with st.container(key="srn_lux_table"):
+    table_header_row("srnhead_main",R,L)
+    for pos,(_,row) in enumerate(df_page.iterrows()):
+        d=row.to_dict()
+        serial=start_idx+pos+1
+        rid=d.get("id")
+        key=rid if clean_text(rid) else f"r{serial}"
+        parity="odd" if serial%2 else "even"
+        with st.container(key=f"srnrow_{parity}_{key}"):
+            c=st.columns(R,vertical_alignment="center")
+            with c[0]:
+                if st.button("✏️",key=f"srnedit_{key}",help="Edit SRN details"):
+                    edit_srn_dialog(d)
+            c[1].markdown(f"<div class='slux-cell slux-strong'>{serial}</div>",unsafe_allow_html=True)
+            c[2].markdown(_chip(d.get("Site ID")),unsafe_allow_html=True)
+            c[3].markdown(_txt(d.get("Site Name"),True),unsafe_allow_html=True)
+            c[4].markdown(_pill(d.get("Cluster")),unsafe_allow_html=True)
+            c[5].markdown(_txt(d.get("Team Name"),True),unsafe_allow_html=True)
+            c[6].markdown(_pill(d.get("Item Cat 2")),unsafe_allow_html=True)
+            c[7].markdown(_chip(d.get("Project Number"),True),unsafe_allow_html=True)
+            c[8].markdown(_txt(d.get("Item Description")),unsafe_allow_html=True)
+            c[9].markdown(_qty(d.get("BOQ Quantity")),unsafe_allow_html=True)
+            c[10].markdown(_status(d.get("Ageing Slab")),unsafe_allow_html=True)
+            c[11].markdown(_txt(d.get("Technician Detail")),unsafe_allow_html=True)
+            c[12].markdown(_status(d.get("SRN Status")),unsafe_allow_html=True)
+            c[13].markdown(_txt(d.get("SRN Date")),unsafe_allow_html=True)
+            c[14].markdown(_txt(d.get("SRN From")),unsafe_allow_html=True)
+            c[15].markdown(_status(d.get("POD Status")),unsafe_allow_html=True)
+            c[16].markdown(_txt(d.get("Remark")),unsafe_allow_html=True)
+
+shown_from=start_idx+1 if total_rows else 0
+shown_to=min(end_idx,total_rows)
+st.markdown(f"<div class='slux-foot'>Total {total_rows:,} material lines &nbsp; • &nbsp; Showing {shown_from}–{shown_to} &nbsp; • &nbsp; Page {st.session_state.srn_lux_page} of {total_pages}</div>",unsafe_allow_html=True)
+
+p1,p2,p3=st.columns([1,2,1])
+with p1:
+    if st.button("⬅️ Previous",disabled=st.session_state.srn_lux_page==1,use_container_width=True):
+        st.session_state.srn_lux_page-=1; st.rerun()
+with p2:
+    st.markdown(f"<div style='text-align:center;font-weight:800;color:#4338ca;padding-top:10px;'>Page {st.session_state.srn_lux_page} of {total_pages}</div>",unsafe_allow_html=True)
+with p3:
+    if st.button("Next ➡️",disabled=st.session_state.srn_lux_page==total_pages,use_container_width=True):
+        st.session_state.srn_lux_page+=1; st.rerun()
 
