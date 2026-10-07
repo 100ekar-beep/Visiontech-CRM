@@ -905,6 +905,20 @@ def _save_jms_draft(row_data, circle, lines):
         payload, on_conflict="workspace,site_data_id"
     ).execute()
 
+
+def _delete_saved_jms(workspace, site_data_id):
+    """Delete only the saved JMS draft/history row. Site Data is untouched."""
+    result = (
+        supabase.table("jms_drafts")
+        .delete()
+        .eq("workspace", workspace)
+        .eq("site_data_id", str(site_data_id))
+        .execute()
+    )
+    fetch_jms_drafts_cached.clear()
+    _cached_jms_pdf_bytes.clear()
+    return result
+
 def _build_jms_pdf(row_data, circle, lines):
     buffer = io.BytesIO()
     workspace = st.session_state.get("active_workspace", "VISPL")
@@ -1018,19 +1032,21 @@ def _build_jms_pdf(row_data, circle, lines):
         sig_w = (iw-gap)/2
         pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
 
-        # LEFT BOX: selected Team Name + clearly marked internal-use signature.
+        # LEFT BOX: Team Name + system-generated handwritten-style name mark.
         team_name = _clean_text(row_data.get("Team Name"))
-        pdf.setFont("Helvetica-Bold", 6.5)
-        pdf.drawString(ix+5*mm, sig_y+19*mm, "Team Name :")
         pdf.setFont("Helvetica-Bold", 7.2)
-        pdf.drawString(ix+5*mm, sig_y+15*mm, (team_name or "-")[:42])
+        pdf.drawString(
+            ix+5*mm,
+            sig_y+19*mm,
+            f"Team Name :- {(team_name or '-')[:42]}"
+        )
         if team_name:
-            pdf.setFillColor(colors.HexColor("#334155"))
-            pdf.setFont("Helvetica-Oblique", 11)
-            pdf.drawString(ix+5*mm, sig_y+8*mm, _internal_signature_text(team_name)[:38])
+            pdf.setFillColor(colors.HexColor("#1e3a8a"))
+            pdf.setFont("Helvetica-Oblique", 12.5)
+            pdf.drawString(ix+5*mm, sig_y+9*mm, team_name[:38])
             pdf.setFillColor(colors.HexColor("#64748b"))
             pdf.setFont("Helvetica", 5.2)
-            pdf.drawString(ix+5*mm, sig_y+4*mm, "Internal use signature - not original signature")
+            pdf.drawString(ix+5*mm, sig_y+4*mm, "System Generated - Internal Use")
             pdf.setFillColor(colors.black)
 
         # RIGHT BOX: existing auditor area unchanged.
@@ -1729,8 +1745,8 @@ def _history_date(value):
         return _clean_text(value) or "-"
 
 # No old site_data table here. Only saved/generated JMS detail + direct PDF download.
-COL_RATIOS = [0.5, 0.55, 1.15, 1.1, 1.55, 1.0, 1.25, 1.15, 1.2]
-COL_LABELS = ["#", "PDF", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "CIRCLE", "UPDATED"]
+COL_RATIOS = [0.45, 0.6, 0.6, 1.15, 1.05, 1.45, 0.95, 1.15, 1.0, 1.15]
+COL_LABELS = ["#", "DOWNLOAD", "DELETE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "CIRCLE", "UPDATED"]
 
 if history_df.empty:
     st.markdown(
@@ -1790,18 +1806,56 @@ else:
                         st.download_button(
                             "⬇️", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
                             mime="application/pdf", key=f"jmshistorydl_{safe_key}_{pos}",
-                            help="Download JMS PDF",
+                            help="Download this saved JMS PDF",
+                            use_container_width=True,
                         )
-                    except Exception as exc:
+                    except Exception:
                         st.caption("PDF error")
 
-                rcols[2].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
-                rcols[3].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
-                rcols[4].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[5].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
-                rcols[6].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[7].markdown(_pill(draft_circle), unsafe_allow_html=True)
-                rcols[8].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
+                with rcols[2]:
+                    if st.button(
+                        "🗑️",
+                        key=f"jmshistorydelete_{safe_key}_{pos}",
+                        help="Delete this saved JMS",
+                        use_container_width=True,
+                    ):
+                        st.session_state["jmspage_delete_confirm"] = {
+                            "workspace": active_ws,
+                            "site_data_id": draft_id,
+                            "site_id": _clean_text(draft.get("site_id")),
+                            "site_name": _clean_text(draft.get("site_name")),
+                        }
+                        st.rerun()
+
+                rcols[3].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
+                rcols[4].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
+                rcols[5].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[6].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
+                rcols[7].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[8].markdown(_pill(draft_circle), unsafe_allow_html=True)
+                rcols[9].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
+
+    pending_delete = st.session_state.get("jmspage_delete_confirm")
+    if pending_delete and pending_delete.get("workspace") == active_ws:
+        site_label = pending_delete.get("site_id") or pending_delete.get("site_name") or "this JMS"
+        st.warning(f"🗑️ {site_label} ka saved JMS delete karna hai?")
+        dc1, dc2, _ = st.columns([1, 1, 4])
+        with dc1:
+            if st.button("Yes, Delete", type="primary", key="jmspage_confirm_delete"):
+                try:
+                    _delete_saved_jms(
+                        pending_delete["workspace"],
+                        pending_delete["site_data_id"],
+                    )
+                    st.session_state.pop("jmspage_delete_confirm", None)
+                    st.success("Saved JMS delete ho gaya.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"JMS delete nahi hua: {exc}")
+        with dc2:
+            if st.button("Cancel", key="jmspage_cancel_delete"):
+                st.session_state.pop("jmspage_delete_confirm", None)
+                st.rerun()
 
     st.markdown(
         '<div class="slux-foot">'
