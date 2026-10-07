@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_keyup import st_keyup
 import pandas as pd
 import io
 import re
@@ -147,6 +148,13 @@ st.markdown(
         box-shadow: 0 4px 12px rgba(15,23,42,0.06);
         min-height: 92px;
     }
+
+    .metric-card.card-blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-color:#93c5fd; }
+    .metric-card.card-purple { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); border-color:#c4b5fd; }
+    .metric-card.card-yellow { background: linear-gradient(135deg, #fef9c3 0%, #fde68a 100%); border-color:#fcd34d; }
+    .metric-card.card-green { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); border-color:#86efac; }
+    .metric-card { transition: transform .18s ease, box-shadow .18s ease; }
+    .metric-card:hover { transform: translateY(-2px); box-shadow:0 10px 22px rgba(15,23,42,.12); }
 
     .metric-title {
         color: #64748b;
@@ -903,28 +911,28 @@ m1, m2, m3, m4 = st.columns(4)
 
 with m1:
     st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Total Sites</div>'
+        f'<div class="metric-card card-blue"><div class="metric-title">Total Sites</div>'
         f'<div class="metric-value">{total_sites:,}</div></div>',
         unsafe_allow_html=True,
     )
 
 with m2:
     st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Total Material Lines</div>'
+        f'<div class="metric-card card-purple"><div class="metric-title">Total Material Lines</div>'
         f'<div class="metric-value">{total_lines:,}</div></div>',
         unsafe_allow_html=True,
     )
 
 with m3:
     st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Pending Sites</div>'
+        f'<div class="metric-card card-yellow"><div class="metric-title">Pending Sites</div>'
         f'<div class="metric-value">{pending_sites:,}</div></div>',
         unsafe_allow_html=True,
     )
 
 with m4:
     st.markdown(
-        f'<div class="metric-card"><div class="metric-title">Submitted Sites</div>'
+        f'<div class="metric-card card-green"><div class="metric-title">Submitted Sites</div>'
         f'<div class="metric-value">{submitted_sites:,}</div></div>',
         unsafe_allow_html=True,
     )
@@ -948,9 +956,11 @@ team_options = sorted(
 f1, f2, f3, f4 = st.columns([3.2, 1.7, 1.7, 1.6])
 
 with f1:
-    search_text = st.text_input(
+    search_text = st_keyup(
         "Search",
         placeholder="🔍 Search Site ID, Site Name, Project Number, Item, Technician...",
+        debounce=250,
+        key="srn_live_search",
         label_visibility="collapsed",
     )
 
