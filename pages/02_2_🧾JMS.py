@@ -1116,20 +1116,50 @@ def jms_dialog(row_data):
         with detail_bottom2:
             _readonly_detail_box("CLUSTER", blank_cluster)
 
+        # Compact controls: Team Name + Template side-by-side
         team_names = fetch_team_names_cached()
         current_team = _clean_text(st.session_state.get(f"jmspage_blank_team_{active_key}"))
         team_options = [""] + team_names
         if current_team and current_team not in team_options:
             team_options.append(current_team)
-        blank_team_name = st.selectbox(
-            "TEAM NAME",
-            team_options,
-            index=team_options.index(current_team) if current_team in team_options else 0,
-            format_func=lambda value: "-- Team Name select karein --" if not value else value,
-            key=f"jmspage_blank_team_{active_key}",
-        )
+
+        templates = fetch_jms_templates_cached(workspace)
+        template_ids = {str(t["id"]): t for t in templates}
+        template_choice_key = f"jmspage_template_choice_{active_key}"
+
+        def _auto_load_selected_template():
+            selected_template_id = st.session_state.get(template_choice_key, "")
+            if selected_template_id and selected_template_id in template_ids:
+                st.session_state.jmspage_lines = _template_lines(
+                    template_ids[selected_template_id].get("line_items") or []
+                )
+                st.session_state.jmspage_last_pdf = None
+                st.session_state.jmspage_add_gen += 1
+            st.session_state.jmspage_open_row = row_data
+            st.query_params["jms_ctx"] = "open"
+
+        team_col, template_col = st.columns(2)
+        with team_col:
+            blank_team_name = st.selectbox(
+                "TEAM NAME",
+                team_options,
+                index=team_options.index(current_team) if current_team in team_options else 0,
+                format_func=lambda value: "-- Team Name --" if not value else value,
+                key=f"jmspage_blank_team_{active_key}",
+            )
+        with template_col:
+            chosen_id = st.selectbox(
+                "TEMPLATE",
+                [""] + list(template_ids),
+                format_func=lambda tid: "-- Template --" if not tid else template_ids[tid]["name"],
+                key=template_choice_key,
+                on_change=_auto_load_selected_template,
+            )
+
         if not team_names:
             st.warning("Team Name master me active teams nahi mile. dropdown_master check karein.")
+        if chosen_id and not (template_ids[chosen_id].get("line_items") or []):
+            st.warning(f"{template_ids[chosen_id]['name']} template me koi saved item nahi mila.")
 
         if _clean_text(blank_site_id):
             if blank_site_name or blank_cluster:
@@ -1203,14 +1233,14 @@ def jms_dialog(row_data):
         else:
             st.info("Is site ke PO me item lines nahi mili. Neeche se new item add kijiye.")
 
-    with st.expander("📋 Saved template use karein / current items template me save karein"):
+    # Template selection for Blank JMS is already shown compactly beside Team Name.
+    # For normal JMS keep a simple compact template dropdown here.
+    if not is_blank_jms:
         templates = fetch_jms_templates_cached(workspace)
         template_ids = {str(t["id"]): t for t in templates}
         template_choice_key = f"jmspage_template_choice_{active_key}"
 
-        def _auto_load_selected_template():
-            # Template select karte hi uske saare items editor me turant load honge.
-            # Qty/Remarks template se inherit nahi honge; _template_lines() unhe blank rakhta hai.
+        def _auto_load_selected_template_normal():
             selected_template_id = st.session_state.get(template_choice_key, "")
             if selected_template_id and selected_template_id in template_ids:
                 st.session_state.jmspage_lines = _template_lines(
@@ -1218,46 +1248,43 @@ def jms_dialog(row_data):
                 )
                 st.session_state.jmspage_last_pdf = None
                 st.session_state.jmspage_add_gen += 1
-
-            # Selectbox rerun ke baad JMS popup open hi rehna chahiye.
             st.session_state.jmspage_open_row = row_data
             st.query_params["jms_ctx"] = "open"
 
         chosen_id = st.selectbox(
-            "Template",
+            "TEMPLATE",
             [""] + list(template_ids),
-            format_func=lambda tid: "-- Template select karein --" if not tid else template_ids[tid]["name"],
+            format_func=lambda tid: "-- Template --" if not tid else template_ids[tid]["name"],
             key=template_choice_key,
-            on_change=_auto_load_selected_template,
+            on_change=_auto_load_selected_template_normal,
         )
 
-        if chosen_id:
-            loaded_count = len(template_ids[chosen_id].get("line_items") or [])
-            if loaded_count:
-                st.success(
-                    f"✅ {template_ids[chosen_id]['name']} template selected — "
-                    f"{loaded_count} items editor me load ho gaye."
-                )
-                st.caption("Qty blank rahegi. Aap Qty/Remark fill karke JMS save/download kar sakte hain.")
-            else:
-                st.warning(
-                    f"⚠️ {template_ids[chosen_id]['name']} template ke against "
-                    "ground_template_items me koi saved item nahi mila."
-                )
-        template_name = st.text_input("Current JMS items ko template naam se save karein",
-                                      key=f"jmspage_template_name_{active_key}")
-        if st.button("💾 Save as new template", key=f"jmspage_template_save_{active_key}"):
+    # Template creation remains available, but hidden in a small expander so main form stays compact.
+    with st.expander("💾 Save Current Items as Template", expanded=False):
+        if is_blank_jms:
+            # templates/template_ids already loaded above
+            pass
+        else:
+            templates = fetch_jms_templates_cached(workspace)
+        template_name = st.text_input(
+            "Template Name",
+            key=f"jmspage_template_name_{active_key}",
+            placeholder="New template name"
+        )
+        if st.button("💾 Save Template", key=f"jmspage_template_save_{active_key}"):
             clean_name = template_name.strip()
             if not clean_name:
                 st.error("Template name bhariye.")
             elif not _template_lines(st.session_state.jmspage_lines):
                 st.error("Pehle kam se kam ek item add karein.")
             elif any(t["name"].strip().casefold() == clean_name.casefold() for t in templates):
-                st.error("Is naam ka template pehle se hai. Naya naam rakhein ya neeche manage karein.")
+                st.error("Is naam ka template pehle se hai. Naya naam rakhein.")
             else:
                 try:
                     save_jms_template(clean_name, st.session_state.jmspage_lines)
                     st.success("Template save ho gaya.")
+                    st.session_state.jmspage_open_row = row_data
+                    st.query_params["jms_ctx"] = "open"
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Template save nahi hua: {exc}")
