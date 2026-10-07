@@ -487,7 +487,19 @@ def _template_lines(lines):
 
 
 def save_jms_template(name, lines, template_id=None):
-    clean_lines = _template_lines(lines)
+    # Preserve template-manager Qty while cleaning code/description.
+    clean_lines = []
+    for line in lines:
+        item_code = _clean_text(line.get("item_code"))
+        item_description = _clean_text(line.get("item_description"))
+        if item_code or item_description:
+            clean_lines.append({
+                "item_code": item_code,
+                "item_description": item_description,
+                "qty": line.get("qty"),
+                "qty_manual": True,
+                "remarks": "",
+            })
 
     def _payload_for(tid, include_description=True):
         payload = []
@@ -495,7 +507,7 @@ def save_jms_template(name, lines, template_id=None):
             item = {
                 "template_id": tid,
                 "item_code": row["item_code"],
-                "default_qty": 0,
+                "default_qty": row.get("qty") if row.get("qty") not in (None, "") else 0,
                 "sort_order": pos,
             }
             if include_description:
@@ -1060,14 +1072,10 @@ def _clear_jms_dialog():
 _dialog_options = {"width": "large"}
 _dialog_parameters = inspect.signature(st.dialog).parameters
 
-# IMPORTANT:
-# Do not use on_dismiss here. A selectbox/template change causes a Streamlit rerun
-# and some Streamlit versions fire on_dismiss during that rerun, which clears
-# jmspage_open_row and closes the JMS popup.
-# Keep the dialog non-dismissible where supported; the existing Close button
-# inside the JMS dialog remains the proper way to close it.
-if "dismissible" in _dialog_parameters:
-    _dialog_options["dismissible"] = False
+# Keep Streamlit's normal top-right X / Esc / outside-click close behavior.
+# We intentionally do NOT use on_dismiss because some Streamlit versions
+# call it during widget reruns (e.g. template select), which used to close
+# the popup unexpectedly.
 
 
 @st.dialog("🧾 Create / Edit JMS", **_dialog_options)
@@ -1259,35 +1267,168 @@ def jms_dialog(row_data):
             on_change=_auto_load_selected_template_normal,
         )
 
-    # Template creation remains available, but hidden in a small expander so main form stays compact.
-    with st.expander("💾 Save Current Items as Template", expanded=False):
-        if is_blank_jms:
-            # templates/template_ids already loaded above
-            pass
-        else:
-            templates = fetch_jms_templates_cached(workspace)
-        template_name = st.text_input(
-            "Template Name",
-            key=f"jmspage_template_name_{active_key}",
-            placeholder="New template name"
+    # ============================================================
+    # TEMPLATE MANAGER — create/update template on this same JMS page
+    # ============================================================
+    with st.expander("🧩 Template Manager — Create / Update Template", expanded=False):
+        templates_mgr = fetch_jms_templates_cached(workspace)
+        template_mgr_map = {str(t["id"]): t for t in templates_mgr}
+        mgr_choice_key = f"jmspage_mgr_template_{active_key}"
+        mgr_editor_key = f"jmspage_mgr_editor_{active_key}"
+        mgr_loaded_key = f"jmspage_mgr_loaded_{active_key}"
+        mgr_name_key = f"jmspage_mgr_name_{active_key}"
+
+        mgr_options = ["NEW"] + list(template_mgr_map.keys())
+        mgr_choice = st.selectbox(
+            "Template",
+            mgr_options,
+            format_func=lambda value: "➕ Create New Template" if value == "NEW"
+            else template_mgr_map[value]["name"],
+            key=mgr_choice_key,
         )
-        if st.button("💾 Save Template", key=f"jmspage_template_save_{active_key}"):
-            clean_name = template_name.strip()
+
+        # Load selected template into manager only when selection changes.
+        if st.session_state.get(mgr_loaded_key) != mgr_choice:
+            if mgr_choice == "NEW":
+                st.session_state[mgr_name_key] = ""
+                st.session_state[mgr_editor_key] = pd.DataFrame(
+                    columns=["item_code", "item_description", "qty"]
+                )
+            else:
+                selected_mgr = template_mgr_map[mgr_choice]
+                st.session_state[mgr_name_key] = selected_mgr["name"]
+                rows = []
+                for item in (selected_mgr.get("line_items") or []):
+                    qty = item.get("default_qty")
+                    if qty in (None, 0, 0.0, "0", "0.0"):
+                        qty = ""
+                    rows.append({
+                        "item_code": _clean_text(item.get("item_code")),
+                        "item_description": _clean_text(item.get("item_description")),
+                        "qty": qty,
+                    })
+                st.session_state[mgr_editor_key] = pd.DataFrame(
+                    rows, columns=["item_code", "item_description", "qty"]
+                )
+            st.session_state[mgr_loaded_key] = mgr_choice
+
+        template_mgr_name = st.text_input(
+            "TEMPLATE NAME",
+            key=mgr_name_key,
+            placeholder="Example: Battery Bank"
+        )
+
+        master_mgr = get_item_master_details()
+        current_mgr_df = st.session_state.get(
+            mgr_editor_key,
+            pd.DataFrame(columns=["item_code", "item_description", "qty"])
+        )
+        if not isinstance(current_mgr_df, pd.DataFrame):
+            current_mgr_df = pd.DataFrame(
+                current_mgr_df, columns=["item_code", "item_description", "qty"]
+            )
+
+        edited_mgr = st.data_editor(
+            current_mgr_df,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "item_code": st.column_config.SelectboxColumn(
+                    "Item Code",
+                    options=sorted(master_mgr.keys()),
+                    required=False,
+                    width="medium",
+                ) if master_mgr else st.column_config.TextColumn("Item Code", width="medium"),
+                "item_description": st.column_config.TextColumn(
+                    "Description", width="large"
+                ),
+                "qty": st.column_config.TextColumn(
+                    "Qty", width="small",
+                    help="Template default Qty. Blank bhi rakh sakte hain."
+                ),
+            },
+            key=f"{mgr_editor_key}_widget",
+        )
+
+        # Auto-fill description from Item Code master where description is blank.
+        mgr_records = edited_mgr.to_dict("records")
+        for rec in mgr_records:
+            rec["item_code"] = _clean_text(rec.get("item_code"))
+            if rec["item_code"] and not _clean_text(rec.get("item_description")):
+                rec["item_description"] = _clean_text(
+                    master_mgr.get(rec["item_code"], {}).get("description", "")
+                )
+        st.session_state[mgr_editor_key] = pd.DataFrame(
+            mgr_records, columns=["item_code", "item_description", "qty"]
+        )
+
+        tm_c1, tm_c2 = st.columns(2)
+        with tm_c1:
+            save_new_clicked = st.button(
+                "💾 Save New Template",
+                use_container_width=True,
+                key=f"jmspage_mgr_save_new_{active_key}"
+            )
+        with tm_c2:
+            update_clicked = st.button(
+                "🔄 Update Selected Template",
+                use_container_width=True,
+                disabled=(mgr_choice == "NEW"),
+                key=f"jmspage_mgr_update_{active_key}"
+            )
+
+        if save_new_clicked or update_clicked:
+            clean_name = _clean_text(template_mgr_name)
+            clean_rows = []
+            for rec in mgr_records:
+                code_value = _clean_text(rec.get("item_code"))
+                desc_value = _clean_text(rec.get("item_description"))
+                raw_qty = _clean_text(rec.get("qty"))
+                qty_value = None
+                if raw_qty:
+                    try:
+                        qty_value = float(raw_qty.replace(",", ""))
+                    except ValueError:
+                        qty_value = None
+                if code_value or desc_value:
+                    clean_rows.append({
+                        "item_code": code_value,
+                        "item_description": desc_value,
+                        "qty": qty_value,
+                        "qty_manual": True,
+                        "remarks": "",
+                    })
+
             if not clean_name:
-                st.error("Template name bhariye.")
-            elif not _template_lines(st.session_state.jmspage_lines):
-                st.error("Pehle kam se kam ek item add karein.")
-            elif any(t["name"].strip().casefold() == clean_name.casefold() for t in templates):
-                st.error("Is naam ka template pehle se hai. Naya naam rakhein.")
+                st.error("Template Name bhariye.")
+            elif not clean_rows:
+                st.error("Kam se kam ek Item Code / Description add karein.")
             else:
                 try:
-                    save_jms_template(clean_name, st.session_state.jmspage_lines)
-                    st.success("Template save ho gaya.")
+                    if update_clicked:
+                        save_jms_template(clean_name, clean_rows, template_id=int(mgr_choice))
+                        st.success(f"✅ {clean_name} template update ho gaya.")
+                    else:
+                        if any(
+                            t["name"].strip().casefold() == clean_name.casefold()
+                            for t in templates_mgr
+                        ):
+                            st.error(
+                                "Is naam ka template already hai. Usko select karke "
+                                "Update Selected Template dabayein."
+                            )
+                            st.stop()
+                        save_jms_template(clean_name, clean_rows)
+                        st.success(f"✅ {clean_name} template save ho gaya.")
+
+                    fetch_jms_templates_cached.clear()
+                    st.session_state.pop(mgr_loaded_key, None)
                     st.session_state.jmspage_open_row = row_data
                     st.query_params["jms_ctx"] = "open"
                     st.rerun()
                 except Exception as exc:
-                    st.error(f"Template save nahi hua: {exc}")
+                    st.error(f"Template save/update nahi hua: {exc}")
 
     st.markdown("#### Add New Item")
     master = get_item_master_details()
