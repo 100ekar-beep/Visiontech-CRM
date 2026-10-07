@@ -524,6 +524,36 @@ def get_item_master_details():
     return mapping
 
 
+# --- TEAM MASTER HELPERS ---
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_team_names_cached():
+    try:
+        rows = (supabase.table("dropdown_master")
+                .select("option_value")
+                .eq("category", "Team Name")
+                .eq("is_active", True)
+                .order("option_value")
+                .execute().data or [])
+        return [_clean_text(r.get("option_value")) for r in rows if _clean_text(r.get("option_value"))]
+    except Exception:
+        # Some older dropdown_master tables do not have is_active.
+        try:
+            rows = (supabase.table("dropdown_master")
+                    .select("option_value")
+                    .eq("category", "Team Name")
+                    .order("option_value")
+                    .execute().data or [])
+            return [_clean_text(r.get("option_value")) for r in rows if _clean_text(r.get("option_value"))]
+        except Exception:
+            return []
+
+
+def _internal_signature_text(team_name):
+    """Internal-use signature text only; this is intentionally not a real signature."""
+    name = _clean_text(team_name) or "TEAM"
+    return f"{name} / Internal"
+
+
 # =============================================================
 # JMS BUILDER (identical logic to the Site Data page's JMS module)
 # =============================================================
@@ -776,6 +806,8 @@ def _save_jms_draft(row_data, circle, lines):
         "site_name": _clean_text(row_data.get("Site Name")),
         "company_name": JMS_COMPANY_NAMES.get(workspace, workspace),
         "circle": circle,
+        "cluster": _clean_text(row_data.get("Cluster")),
+        "team_name": _clean_text(row_data.get("Team Name")),
         "line_items": lines,
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -895,9 +927,23 @@ def _build_jms_pdf(row_data, circle, lines):
         sig_y, sig_h, gap = 12*mm, 27*mm, 6*mm
         sig_w = (iw-gap)/2
         pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
+
+        # LEFT BOX: selected Team Name + clearly marked internal-use signature.
+        team_name = _clean_text(row_data.get("Team Name"))
         pdf.setFont("Helvetica-Bold", 6.5)
-        pdf.drawString(ix+5*mm, sig_y+12*mm, "TSP Partner Name :")
-        pdf.setFont("Helvetica", 6.0); pdf.drawString(ix+5*mm, sig_y+6*mm, company.upper())
+        pdf.drawString(ix+5*mm, sig_y+19*mm, "Team Name :")
+        pdf.setFont("Helvetica-Bold", 7.2)
+        pdf.drawString(ix+5*mm, sig_y+15*mm, (team_name or "-")[:42])
+        if team_name:
+            pdf.setFillColor(colors.HexColor("#334155"))
+            pdf.setFont("Helvetica-Oblique", 11)
+            pdf.drawString(ix+5*mm, sig_y+8*mm, _internal_signature_text(team_name)[:38])
+            pdf.setFillColor(colors.HexColor("#64748b"))
+            pdf.setFont("Helvetica", 5.2)
+            pdf.drawString(ix+5*mm, sig_y+4*mm, "Internal use signature - not original signature")
+            pdf.setFillColor(colors.black)
+
+        # RIGHT BOX: existing auditor area unchanged.
         pdf.setFont("Helvetica-Bold", 6.5)
         pdf.drawString(ix+sig_w+gap+5*mm, sig_y+12*mm, "Auditor Name :-")
         pdf.drawString(ix+sig_w+gap+5*mm, sig_y+6*mm, "Audit Agency :-")
@@ -951,6 +997,7 @@ def jms_dialog(row_data):
         if is_blank_jms:
             st.session_state[f"jmspage_blank_project_{active_key}"] = _clean_text(row_data.get("Project ID"))
             st.session_state[f"jmspage_blank_site_id_{active_key}"] = _clean_text(row_data.get("Site ID"))
+            st.session_state[f"jmspage_blank_team_{active_key}"] = _clean_text(row_data.get("Team Name"))
 
     workspace = st.session_state.get("active_workspace", "VISPL")
     company = JMS_COMPANY_NAMES.get(workspace, workspace)
@@ -978,6 +1025,21 @@ def jms_dialog(row_data):
         with detail_bottom2:
             _readonly_detail_box("CLUSTER", blank_cluster)
 
+        team_names = fetch_team_names_cached()
+        current_team = _clean_text(st.session_state.get(f"jmspage_blank_team_{active_key}"))
+        team_options = [""] + team_names
+        if current_team and current_team not in team_options:
+            team_options.append(current_team)
+        blank_team_name = st.selectbox(
+            "TEAM NAME",
+            team_options,
+            index=team_options.index(current_team) if current_team in team_options else 0,
+            format_func=lambda value: "-- Team Name select karein --" if not value else value,
+            key=f"jmspage_blank_team_{active_key}",
+        )
+        if not team_names:
+            st.warning("Team Name master me active teams nahi mile. dropdown_master check karein.")
+
         if _clean_text(blank_site_id):
             if blank_site_name or blank_cluster:
                 st.success("✅ Site Name aur Cluster Excalation Matrix se mil gaye.")
@@ -988,6 +1050,7 @@ def jms_dialog(row_data):
         row_data["Site ID"] = _clean_text(blank_site_id)
         row_data["Site Name"] = _clean_text(blank_site_name)
         row_data["Cluster"] = _clean_text(blank_cluster)
+        row_data["Team Name"] = _clean_text(blank_team_name)
         st.session_state.jmspage_open_row = row_data
     else:
         st.caption(f"Site: {_clean_text(row_data.get('Site ID'))} | Project: {_clean_text(row_data.get('Project ID'))} | PO: {_clean_text(row_data.get('PO No.')) or '-'}")
@@ -1106,6 +1169,8 @@ def jms_dialog(row_data):
             clean_lines = [x for x in st.session_state.jmspage_lines if _clean_text(x.get("item_code")) or _clean_text(x.get("item_description"))]
             if not clean_lines:
                 st.error("Kam se kam ek item line required hai.")
+            elif is_blank_jms and not _clean_text(row_data.get("Team Name")):
+                st.error("Blank JMS ke liye Team Name select karein.")
             else:
                 try:
                     _save_jms_draft(row_data, circle, clean_lines)
@@ -1151,6 +1216,7 @@ with col_blank:
             "Site ID": "",
             "Cluster": "",
             "PO No.": "",
+            "Team Name": "",
         }
         st.session_state.jmspage_loaded_key = None
         st.session_state.jmspage_last_pdf = None
@@ -1251,32 +1317,30 @@ with st.expander("📋 JMS Templates — create / items add / edit", expanded=Fa
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- FETCH DATA ---
+# --- GENERATED JMS HISTORY / DOWNLOAD ---
 active_ws = st.session_state.get('active_workspace', 'VISPL')
-site_data_rows = fetch_site_data_cached(active_ws)
 jms_drafts_map = fetch_jms_drafts_cached(active_ws)
 
-columns_needed = ["id", "Site Name", "Project ID", "Site ID", "Cluster", "PO No."]
-if site_data_rows:
-    df = pd.DataFrame(site_data_rows)
-    for col in columns_needed:
-        if col not in df.columns:
-            df[col] = ""
-    if 'created_at' in df.columns:
-        df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
-        df = df.sort_values(by='created_at_dt', ascending=False).drop(columns=['created_at_dt']).reset_index(drop=True)
-else:
-    df = pd.DataFrame(columns=columns_needed)
-
-# Keep the JMS dialog open across reruns while editing/saving
+# Keep the JMS dialog open across reruns while editing/saving.
 if st.session_state.get("jmspage_open_row") is not None:
     jms_dialog(st.session_state.jmspage_open_row)
 
-# --- KPI CARDS (whole workspace) ---
-kpi_total = len(df)
-kpi_created = int(df["id"].astype(str).isin(jms_drafts_map.keys()).sum()) if not df.empty else 0
-kpi_pending = max(kpi_total - kpi_created, 0)
-kpi_pct = (kpi_created / kpi_total * 100) if kpi_total else 0.0
+history_rows = list(jms_drafts_map.values())
+if history_rows:
+    history_df = pd.DataFrame(history_rows)
+    for col in ("site_data_id", "project_id", "site_id", "site_name", "cluster", "team_name", "circle", "updated_at", "line_items"):
+        if col not in history_df.columns:
+            history_df[col] = "" if col != "line_items" else [[] for _ in range(len(history_df))]
+    history_df["updated_at_dt"] = pd.to_datetime(history_df["updated_at"], errors="coerce")
+    history_df = history_df.sort_values("updated_at_dt", ascending=False).drop(columns=["updated_at_dt"]).reset_index(drop=True)
+else:
+    history_df = pd.DataFrame(columns=["site_data_id", "project_id", "site_id", "site_name", "cluster", "team_name", "circle", "updated_at", "line_items"])
+
+# KPI is now intentionally about GENERATED JMS only; old site-data register is removed.
+kpi_created = len(history_df)
+kpi_blank = int(history_df["site_data_id"].astype(str).str.startswith("blank-").sum()) if not history_df.empty else 0
+kpi_normal = max(kpi_created - kpi_blank, 0)
+kpi_teams = history_df["team_name"].astype(str).str.strip().replace({"": pd.NA, "nan": pd.NA, "None": pd.NA}).dropna().nunique() if not history_df.empty else 0
 
 def _kpi(icon, label, value, foot, accent, soft, value_cls="", extra=""):
     return (
@@ -1287,92 +1351,75 @@ def _kpi(icon, label, value, foot, accent, soft, value_cls="", extra=""):
 
 st.markdown(
     '<div class="lux-kpi-grid">'
-    + _kpi("🏗️", "Total Sites", f"{kpi_total:,}", "In this company", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
-    + _kpi("✅", "JMS Created", f"{kpi_created:,}", "Saved drafts", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5", "green")
-    + _kpi("⭕", "JMS Pending", f"{kpi_pending:,}", "Not created yet", "linear-gradient(90deg,#ef4444,#f97316)", "#fef2f2", "red")
-    + _kpi("📈", "Completion", f"{kpi_pct:.0f}%", f"{kpi_created} of {kpi_total} sites", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb",
-           extra=f'<div class="lux-progress"><div style="width:{min(kpi_pct, 100):.1f}%;"></div></div>')
+    + _kpi("🧾", "Generated JMS", f"{kpi_created:,}", "Saved JMS in this company", "linear-gradient(90deg,#6366f1,#8b5cf6)", "#eef2ff")
+    + _kpi("📝", "Blank JMS", f"{kpi_blank:,}", "Created from Blank JMS", "linear-gradient(90deg,#f59e0b,#f97316)", "#fffbeb")
+    + _kpi("🏗️", "Site JMS", f"{kpi_normal:,}", "Created from site records", "linear-gradient(90deg,#10b981,#14b8a6)", "#ecfdf5", "green")
+    + _kpi("👷", "Teams", f"{kpi_teams:,}", "Teams used in saved JMS", "linear-gradient(90deg,#ec4899,#a855f7)", "#fdf2f8")
     + '</div>',
     unsafe_allow_html=True,
 )
 
-# --- SEARCH + STATUS FILTER ---
-col_search, col_filter = st.columns([7, 2.2])
-with col_search:
-    search_query = st_keyup("Search", placeholder="🔍 Search by Site Name / Project ID / Site ID / Cluster / PO No...", label_visibility="collapsed")
-with col_filter:
-    status_filter = st.selectbox("JMS Status", ["All Sites", "✅ Created", "⭕ Not Created"], key="jms_status_filter", label_visibility="collapsed")
-
-if search_query:
-    mask = df[columns_needed].astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-    df = df[mask]
-if status_filter != "All Sites" and not df.empty:
-    created_mask = df["id"].astype(str).isin(jms_drafts_map.keys())
-    df = df[created_mask] if status_filter == "✅ Created" else df[~created_mask]
-
-# Filter/search badalne par page 1 par wapas
-_filter_sig = f"{search_query}|{status_filter}"
-if st.session_state.get("jms_last_filter_sig") != _filter_sig:
-    st.session_state.jms_last_filter_sig = _filter_sig
-    st.session_state.jmspage_current_page = 1
+# Search only the JMS already generated/saved.
+search_query = st_keyup(
+    "Search Generated JMS",
+    placeholder="🔍 Search Generated JMS by Project ID / Site ID / Site Name / Cluster / Team Name...",
+    label_visibility="collapsed",
+    key="jms_history_search",
+)
+if search_query and not history_df.empty:
+    search_cols = [c for c in ["project_id", "site_id", "site_name", "cluster", "team_name", "circle"] if c in history_df.columns]
+    mask = history_df[search_cols].astype(str).apply(
+        lambda x: x.str.contains(search_query, case=False, na=False)
+    ).any(axis=1)
+    history_df = history_df[mask].reset_index(drop=True)
 
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-# --- PAGINATION ---
-rows_per_page = rows_per_page_picker("jms_rows_per_page", "jmspage_current_page")
-total_rows = len(df)
-total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
-if st.session_state.jmspage_current_page > total_pages:
-    st.session_state.jmspage_current_page = total_pages
-elif st.session_state.jmspage_current_page < 1:
-    st.session_state.jmspage_current_page = 1
-
-start_idx = (st.session_state.jmspage_current_page - 1) * rows_per_page
-end_idx = start_idx + rows_per_page
-df_page = df.iloc[start_idx:end_idx].copy()
-
-
-# --- LAVISH CELL HELPERS ---
 _MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
 
 def _txt(v, extra_cls=""):
-    s = _clean_text(v)
-    if not s:
+    value = _clean_text(v)
+    if not value:
         return _MUTED
-    e = html.escape(s)
-    return f"<div class='slux-cell {extra_cls}' title='{e}'>{e}</div>"
+    escaped = html.escape(value)
+    return f"<div class='slux-cell {extra_cls}' title='{escaped}'>{escaped}</div>"
 
 def _chip(v, extra_cls=""):
-    s = _clean_text(v)
-    if not s:
+    value = _clean_text(v)
+    if not value:
         return _MUTED
-    e = html.escape(s)
-    return f"<div class='slux-cell' title='{e}'><span class='slux-chip {extra_cls}'>{e}</span></div>"
+    escaped = html.escape(value)
+    return f"<div class='slux-cell' title='{escaped}'><span class='slux-chip {extra_cls}'>{escaped}</span></div>"
 
 def _pill(v):
-    s = _clean_text(v)
-    if not s:
+    value = _clean_text(v)
+    if not value:
         return _MUTED
-    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(s)}</span></div>"
+    return f"<div class='slux-cell'><span class='slux-pill'>{html.escape(value)}</span></div>"
 
+def _history_date(value):
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+        return "-" if pd.isna(parsed) else parsed.strftime("%d/%m/%Y %I:%M %p")
+    except Exception:
+        return _clean_text(value) or "-"
 
-# --- ✨ LAVISH TABLE ---
-# Action buttons row ki shuruaat me: [🧾 Create / ✏️ Edit] [⬇️ PDF]
-COL_RATIOS = [0.55, 0.55, 0.5, 1.6, 1.2, 1.1, 1.0, 1.3, 1.1]
-COL_LABELS = ["JMS", "PDF", "#", "SITE NAME", "PROJECT ID", "SITE ID", "CLUSTER", "PO NO.", "JMS STATUS"]
+# No old site_data table here. Only saved/generated JMS detail + direct PDF download.
+COL_RATIOS = [0.5, 0.55, 1.15, 1.1, 1.55, 1.0, 1.25, 1.15, 1.2]
+COL_LABELS = ["#", "PDF", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "CIRCLE", "UPDATED"]
 
-if df_page.empty:
+if history_df.empty:
     st.markdown(
-        '<div class="slux-empty"><div>🗂️</div>'
-        + ("No records match your search / filter." if (search_query or status_filter != "All Sites") else "No records found.")
+        '<div class="slux-empty"><div>🧾</div>'
+        + ("No generated JMS matches your search." if search_query else "Abhi tak koi JMS save nahi hui.")
         + '</div>',
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
         '<div class="slux-head-bar">'
-        '<div class="slux-title">🧾 JMS Register<span>newest first</span></div>'
-        f'<div class="slux-badge">✅ {kpi_created:,} / {kpi_total:,} created</div>'
+        '<div class="slux-title">🧾 Generated JMS History<span>saved JMS detail + direct download</span></div>'
+        f'<div class="slux-badge">{len(history_df):,} JMS</div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1381,83 +1428,61 @@ else:
         with st.container(key="jmshead"):
             h_cols = st.columns(COL_RATIOS, vertical_alignment="center")
             for i, (h_col, label) in enumerate(zip(h_cols, COL_LABELS)):
-                cls = " c" if i < 3 else ""
-                h_col.markdown(f"<div class='slux-th{cls}'>{label}</div>", unsafe_allow_html=True)
+                h_col.markdown(f"<div class='slux-th{' c' if i < 2 else ''}'>{label}</div>", unsafe_allow_html=True)
 
-        for page_pos, (_, row) in enumerate(df_page.iterrows()):
-            row_dict = row.to_dict()
-            rid = row_dict.get("id")
-            serial_no = start_idx + page_pos + 1
-            has_jms = str(rid) in jms_drafts_map
-            parity = "odd" if serial_no % 2 else "even"
+        for pos, (_, draft_row) in enumerate(history_df.iterrows(), 1):
+            draft = draft_row.to_dict()
+            draft_id = _clean_text(draft.get("site_data_id")) or f"draft-{pos}"
+            safe_key = "".join(ch if ch.isalnum() else "_" for ch in draft_id)
+            parity = "odd" if pos % 2 else "even"
 
-            with st.container(key=f"jmsrow_{parity}_{rid}"):
+            with st.container(key=f"jmsrow_{parity}_history_{safe_key}_{pos}"):
                 rcols = st.columns(COL_RATIOS, vertical_alignment="center")
+                rcols[0].markdown(f"<div style='text-align:center;'><span class='slux-num'>{pos}</span></div>", unsafe_allow_html=True)
 
-                with rcols[0]:
-                    if has_jms:
-                        clicked = st.button("✏️", key=f"jmsedit_{rid}", help="Edit JMS")
-                    else:
-                        clicked = st.button("🧾", key=f"jmscreate_{rid}", help="Create JMS")
-                    if clicked:
-                        st.session_state.jmspage_open_row = row_dict
-                        st.query_params["jms_ctx"] = "open"
-                        st.rerun()
+                # Rebuild exactly from the saved JMS draft, including Blank JMS Team Name/Cluster.
+                pdf_row = {
+                    "id": draft_id,
+                    "_blank_jms": str(draft_id).startswith("blank-"),
+                    "Project ID": _clean_text(draft.get("project_id")),
+                    "Site ID": _clean_text(draft.get("site_id")),
+                    "Site Name": _clean_text(draft.get("site_name")),
+                    "Cluster": _clean_text(draft.get("cluster")),
+                    "Team Name": _clean_text(draft.get("team_name")),
+                    "PO No.": "",
+                }
+                draft_circle = _clean_text(draft.get("circle")) or ("M&G" if pdf_row["_blank_jms"] else "Maharashtra")
+                draft_lines = draft.get("line_items") if isinstance(draft.get("line_items"), list) else []
+                updated_at = _clean_text(draft.get("updated_at"))
 
                 with rcols[1]:
-                    if has_jms:
-                        draft = jms_drafts_map[str(rid)]
-                        draft_circle = _clean_text(draft.get("circle")) or "Maharashtra"
-                        draft_lines = draft.get("line_items") or []
-                        updated_at = _clean_text(draft.get("updated_at"))
-                        try:
-                            pdf_bytes = _cached_jms_pdf_bytes(
-                                active_ws, str(rid), updated_at,
-                                json.dumps(row_dict, default=str), draft_circle,
-                                json.dumps(draft_lines, default=str),
-                            )
-                            safe_site = _clean_text(row_dict.get("Site ID")) or "Site"
-                            st.download_button(
-                                "⬇️", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
-                                mime="application/pdf", key=f"jmsrowdl_{rid}", help="Download JMS PDF",
-                            )
-                        except Exception:
-                            st.caption("PDF error")
-                    else:
-                        st.markdown("<div style='text-align:center;'><span class='slux-muted'>—</span></div>", unsafe_allow_html=True)
+                    try:
+                        pdf_bytes = _cached_jms_pdf_bytes(
+                            active_ws, draft_id, updated_at,
+                            json.dumps(pdf_row, default=str), draft_circle,
+                            json.dumps(draft_lines, default=str),
+                        )
+                        safe_site = _clean_text(draft.get("site_id")) or "Site"
+                        st.download_button(
+                            "⬇️", data=pdf_bytes, file_name=f"JMS_{safe_site}.pdf",
+                            mime="application/pdf", key=f"jmshistorydl_{safe_key}_{pos}",
+                            help="Download JMS PDF",
+                        )
+                    except Exception as exc:
+                        st.caption("PDF error")
 
-                rcols[2].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
-                rcols[3].markdown(_txt(row_dict.get('Site Name'), "slux-strong"), unsafe_allow_html=True)
-                rcols[4].markdown(_chip(row_dict.get('Project ID'), "proj"), unsafe_allow_html=True)
-                rcols[5].markdown(_chip(row_dict.get('Site ID')), unsafe_allow_html=True)
-                rcols[6].markdown(_pill(row_dict.get('Cluster')), unsafe_allow_html=True)
-                rcols[7].markdown(_chip(row_dict.get('PO No.')), unsafe_allow_html=True)
-                if has_jms:
-                    rcols[8].markdown("<span class='status-badge status-green'>✅ Created</span>", unsafe_allow_html=True)
-                else:
-                    rcols[8].markdown("<span class='status-badge status-grey'>⭕ Not Created</span>", unsafe_allow_html=True)
+                rcols[2].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
+                rcols[3].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
+                rcols[4].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[5].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
+                rcols[6].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[7].markdown(_pill(draft_circle), unsafe_allow_html=True)
+                rcols[8].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
 
-    shown_from = start_idx + 1 if total_rows else 0
-    shown_to = min(end_idx, total_rows)
     st.markdown(
         '<div class="slux-foot">'
-        f'<div>{total_rows:,} site{"s" if total_rows != 1 else ""}<small>Showing {shown_from}–{shown_to}</small></div>'
-        f'<div class="slux-foot-amts"><span class="slux-foot-badge">Page {st.session_state.jmspage_current_page} of {total_pages}</span></div>'
+        f'<div>{len(history_df):,} generated JMS<small>Newest saved JMS first</small></div>'
+        '<div class="slux-foot-amts"><span class="slux-foot-badge">Direct PDF Download</span></div>'
         '</div>',
         unsafe_allow_html=True,
     )
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# --- PAGINATION CONTROLS ---
-col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-with col_p1:
-    if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.jmspage_current_page == 1)):
-        st.session_state.jmspage_current_page -= 1
-        st.rerun()
-with col_p2:
-    st.markdown(f"<div class='page-count'>Page {st.session_state.jmspage_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-with col_p3:
-    if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.jmspage_current_page == total_pages)):
-        st.session_state.jmspage_current_page += 1
-        st.rerun()
