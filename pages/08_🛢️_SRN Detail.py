@@ -857,9 +857,22 @@ def edit_srn_dialog(row_data):
                     "remark": clean_text(remark),
                     "updated_at": datetime.now().isoformat(),
                 }
-                supabase.table(SRN_TABLE).update(payload).eq("id",rid).execute()
+                # Same Site ID + same Project Number = one SRN group.
+                # Team/SRN/POD/Remark values must update on ALL material lines in that group.
+                site_id = clean_text(row_data.get("Site ID"))
+                project_number = clean_text(row_data.get("Project Number"))
+
+                q = (
+                    supabase.table(SRN_TABLE)
+                    .update(payload)
+                    .eq("workspace", st.session_state.get("active_workspace", "VISPL"))
+                    .eq("site_id", site_id)
+                    .eq("project_number", project_number)
+                )
+                q.execute()
+
                 clear_srn_cache()
-                st.success("✅ SRN record updated.")
+                st.success("✅ Same Site ID + Project Number ki sabhi material lines update ho gayi.")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Update failed: {e}")
