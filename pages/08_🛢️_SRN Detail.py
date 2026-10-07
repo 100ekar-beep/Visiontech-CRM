@@ -1,16 +1,22 @@
 import streamlit as st
 import pandas as pd
-import math
 import io
+import re
+from datetime import date, datetime
 from supabase import create_client, Client
 
-# --- 1. PAGE CONFIGURATION ---
-st.set_page_config(page_title="SRN Details", page_icon="📦", layout="wide")
+# ============================================================
+# 1. PAGE CONFIG
+# ============================================================
+st.set_page_config(
+    page_title="SRN Pending",
+    page_icon="📦",
+    layout="wide"
+)
 
-# --- 2. SUPABASE CONNECTION ---
-# FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
-# ek hi jagah (Streamlit Cloud Secrets) update karke sabhi pages naye
-# Supabase project se automatically connect ho jaate hain.
+# ============================================================
+# 2. SUPABASE CONNECTION
+# ============================================================
 @st.cache_resource
 def init_connection():
     try:
@@ -24,449 +30,1025 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# -------------------------------------------------------------
-# --- EGRESS OPTIMIZATION: cached warehouse_data fetch ---
-# ⚠️ BADI WAJAH (STN Detail page jaisa hi issue): dono tabs (SRN Detail /
-# SRN Submited) apni apni ALAG, BINA CACHING wali query chalate the —
-# har keystroke (search box), har dialog open/close, har button click par
-# poori 'warehouse_data' table dobara Supabase se download ho rahi thi.
-# Ab ek hi cached fetch (30s) dono tabs ke liye reuse hota hai.
-# -------------------------------------------------------------
-@st.cache_data(ttl=30, show_spinner=False)
-def fetch_warehouse_data_cached(workspace):
-    try:
-        response = supabase.table("warehouse_data").select("*").eq("workspace", workspace).execute()
-        return response.data if response.data else []
-    except Exception:
-        return []
+# ============================================================
+# 3. CONSTANTS
+# ============================================================
+SRN_TABLE = "srn_pending"
+ESCALATION_TABLE = "Excalation Matrix"
 
-def clear_srn_cache():
-    """Call this right before st.rerun() after any insert/update/delete on warehouse_data."""
-    fetch_warehouse_data_cached.clear()
+REQUIRED_UPLOAD_COLUMNS = [
+    "Site ID",
+    "Project Number",
+    "Item Description",
+    "BOQ Quantity",
+    "Dispatch Date",
+    "Item Cat 2",
+    "Ageing Date",
+    "Ageing Slab",
+]
 
-# --- 3. SESSION STATE FOR TAB NAVIGATION ---
-if 'srn_active_view' not in st.session_state:
-    st.session_state.srn_active_view = 'SRN Detail'
-if 'srn_current_page' not in st.session_state:
-    st.session_state.srn_current_page = 1
+SCREEN_COLUMNS = [
+    "Site ID",
+    "Site Name",
+    "Cluster",
+    "Technician Detail",
+    "Item Cat 2",
+    "Ageing Slab",
+    "Project Number",
+    "Item Description",
+    "BOQ Quantity",
+    "Team Name",
+    "SRN Status",
+    "SRN Date",
+    "SRN From",
+    "POD Status",
+    "Remark",
+]
 
-def change_srn_view(view_name):
-    st.session_state.srn_active_view = view_name
-    st.session_state.srn_current_page = 1
+SRN_STATUS_OPTIONS = [
+    "Pending",
+    "In Process",
+    "Submitted",
+    "Not Required",
+]
 
-# --- 4. STYLING (Same as STN page design language) ---
-st.markdown("""
+POD_STATUS_OPTIONS = [
+    "Pending",
+    "Available",
+    "Submitted",
+    "Not Required",
+]
+
+# ============================================================
+# 4. ACCESS GATE - SAME WORKSPACE RULE AS OLD PAGE
+# ============================================================
+if st.session_state.get("active_workspace", "VISPL") == "RAJKUMAR KALYA":
+    st.error("🚫 Access Restricted!")
+    st.warning("Ye module exclusively VISPL / BHAGYASHREE workspaces ke liye available hai.")
+    st.stop()
+
+active_ws = st.session_state.get("active_workspace", "VISPL")
+
+# ============================================================
+# 5. STYLING
+# ============================================================
+st.markdown(
+    """
     <style>
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+        border-right: 1px solid rgba(255,255,255,0.05);
     }
+
     [data-testid="stSidebarNav"] a {
         padding: 0.85rem 1.2rem !important;
         margin: 0.5rem 1rem !important;
         border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
+        background: rgba(255,255,255,0.03) !important;
         color: #cbd5e1 !important;
         font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
+        font-size: 1.02rem !important;
+        transition: all 0.25s ease !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
     }
+
     [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
+        background: rgba(255,255,255,0.10) !important;
+        transform: translateX(4px);
         color: #ffffff !important;
     }
+
     [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        background: linear-gradient(90deg, #2563eb 0%, #7c3aed 100%) !important;
         color: #ffffff !important;
         border-color: transparent !important;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
-    }
-    [data-testid="stSidebarNav"] a span { color: inherit !important; }
-
-    /* Top Tab Buttons */
-    div[data-testid="stMainBlockContainer"] div.stButton > button {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 2px solid #000000 !important;
-        font-weight: 900 !important;
-        border-radius: 6px !important;
-        padding: 10px 20px !important;
-        transition: all 0.2s ease !important;
-        box-shadow: none !important;
-    }
-    div[data-testid="stMainBlockContainer"] div.stButton > button:hover {
-        background-color: #f1f5f9 !important;
-        border-color: #000000 !important;
-    }
-    div[data-testid="stMainBlockContainer"] div.stButton > button[kind="primary"] {
-        border: 4px solid #000000 !important;
-        background-color: #e2e8f0 !important;
+        box-shadow: 0 4px 15px rgba(59,130,246,0.35);
     }
 
-    /* Table wrapper */
-    .st-key-srn_table_wrap {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(0,0,0,0.15);
-        border-radius: 10px;
-        overflow: auto !important;
-        padding: 0px 0 !important;
+    .srn-banner {
+        background: linear-gradient(90deg, #0f172a 0%, #1d4ed8 48%, #7c3aed 100%);
+        padding: 16px 22px;
+        border-radius: 14px;
+        margin-bottom: 18px;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.20);
     }
-    .st-key-srn_table_wrap div[data-testid="stHorizontalBlock"] {
-        min-width: 1400px !important;
-        align-items: center !important;
-        border-bottom: 1px solid rgba(0,0,0,0.08) !important;
-        padding: 6px 0 !important;
-        flex-wrap: nowrap !important;
-    }
-    .st-key-srn_table_wrap div[data-testid="stHorizontalBlock"]:hover {
-        background: rgba(59,130,246,0.06);
-    }
-    .st-key-srn_table_wrap div[data-testid="column"] {
-        padding: 0 15px !important;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        border-right: 1px solid rgba(0,0,0,0.06);
-    }
-    .st-key-srn_table_wrap div[data-testid="column"]:last-child { border-right: none; }
 
-    .st-key-srn_table_wrap .tbl-head {
-        background: transparent;
-        font-size: 0.75rem;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        color: #334155;
-        text-transform: uppercase;
-        white-space: nowrap !important;
+    .srn-banner h1 {
+        color: white !important;
+        margin: 0;
+        font-size: 2.05rem;
+        font-weight: 900;
+        letter-spacing: 1.5px;
     }
-    .st-key-srn_table_wrap .tbl-cell {
-        color: #0f172a;
-        font-size: 0.88rem;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        width: 100%;
+
+    .srn-banner p {
+        color: #dbeafe !important;
+        margin: 5px 0 0 0;
+        font-weight: 600;
     }
-    .st-key-srn_table_wrap .tbl-serial {
+
+    .metric-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 13px;
+        padding: 14px 16px;
+        box-shadow: 0 4px 12px rgba(15,23,42,0.06);
+        min-height: 92px;
+    }
+
+    .metric-title {
         color: #64748b;
-        font-size: 0.85rem;
+        font-size: 0.76rem;
         font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .7px;
     }
 
-    .st-key-srn_table_wrap button {
-        height: 32px !important;
-        width: 100% !important;
-        max-width: 34px !important;
-        padding: 0 !important;
-        min-height: 0 !important;
-        border-radius: 6px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-shadow: none !important;
-        margin: 0 auto !important;
+    .metric-value {
+        color: #0f172a;
+        font-size: 1.7rem;
+        font-weight: 900;
+        margin-top: 5px;
     }
-    div[class*="st-key-srvbtn_"] button { background: rgba(34,197,94,0.15) !important; border: 1px solid rgba(34,197,94,0.3) !important; }
-    div[class*="st-key-srebtn_"] button { background: rgba(59,130,246,0.15) !important; border: 1px solid rgba(59,130,246,0.3) !important; }
-    div[class*="st-key-srdbtn_"] button { background: rgba(239,68,68,0.15) !important; border: 1px solid rgba(239,68,68,0.3) !important; }
 
-    .page-count { text-align: center; font-size: 1.05rem; font-weight: 600; color: #334155; margin-top: 10px; }
-    [data-testid="stDataFrame"] th { background-color: #000000 !important; color: white !important; font-weight: 700 !important; }
+    div[data-testid="stExpander"] {
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+        background: #ffffff;
+        box-shadow: 0 3px 10px rgba(15,23,42,0.05);
+        margin-bottom: 10px;
+    }
+
+    div[data-testid="stExpander"] summary {
+        font-weight: 800 !important;
+        color: #0f172a !important;
+    }
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .small-note {
+        color: #64748b;
+        font-size: .84rem;
+        font-weight: 600;
+    }
+
+    .site-meta {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        color: #334155;
+        font-size: .88rem;
+        font-weight: 650;
+    }
+
+    .stButton > button {
+        font-weight: 800 !important;
+        border-radius: 9px !important;
+    }
+
+    div[data-testid="stDownloadButton"] button {
+        font-weight: 800 !important;
+        border-radius: 9px !important;
+    }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
-if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
-    st.error("🚫 **Access Restricted!**")
-    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
-    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
-    st.stop()
+# ============================================================
+# 6. HELPERS
+# ============================================================
+def clean_text(value):
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    text = str(value).strip()
+    if text.lower() in {"nan", "none", "nat"}:
+        return ""
+    return text
 
-# --- TOP SINGLE WORKSPACE BANNER ---
-active_ws_display = st.session_state.get('active_workspace', 'VISPL')
-st.markdown(f"""
-    <div style="background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%); padding: 15px 20px; border-radius: 12px; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15);">
-        <h1 style="margin: 0; color: #ffffff !important; font-weight: 900 !important; letter-spacing: 3px; font-size: 2.5rem; text-transform: uppercase;">
-            🏢 ACTIVE WORKSPACE : {active_ws_display}
-        </h1>
-    </div>
-""", unsafe_allow_html=True)
 
-# --- 5. HELPERS ---
-def get_actual_col(df_columns, possible_names):
-    cleaned_cols = {str(col).strip().lower().replace("_", " "): col for col in df_columns}
-    for p in possible_names:
-        p_clean = p.strip().lower().replace("_", " ")
-        if p_clean in cleaned_cols:
-            return cleaned_cols[p_clean]
+def normalize_col_name(name):
+    return re.sub(r"[^a-z0-9]+", " ", str(name).strip().lower()).strip()
+
+
+def find_column(columns, candidates):
+    normalized = {normalize_col_name(c): c for c in columns}
+
+    # Exact normalized match first
+    for candidate in candidates:
+        key = normalize_col_name(candidate)
+        if key in normalized:
+            return normalized[key]
+
+    # Then contains match
+    for candidate in candidates:
+        key = normalize_col_name(candidate)
+        for norm_col, original in normalized.items():
+            if key and (key in norm_col or norm_col in key):
+                return original
+
     return None
 
-@st.dialog("👁️ View SRN Record", width="large")
-def view_srn_dialog(row_data):
-    st.caption("Read-only preview of this record")
-    c1, c2, c3 = st.columns(3)
-    with c1: st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
-    with c2: st.text_input("SITE ID", value=row_data.get('Site ID', ''), disabled=True)
-    with c3: st.text_input("SITE NAME", value=row_data.get('Site Name', ''), disabled=True)
 
-    c4, c5 = st.columns(2)
-    with c4: st.text_input("CLUSTER", value=row_data.get('Cluster', ''), disabled=True)
-    with c5: st.text_input("TEAM NAME", value=row_data.get('Team', ''), disabled=True)
+def safe_date_string(value):
+    if value is None or clean_text(value) == "":
+        return None
 
-    c6, c7 = st.columns(2)
-    with c6: st.text_input("SRN STATUS", value=row_data.get('SRN Status', ''), disabled=True)
-    with c7: st.text_input("MATERIAL STATUS", value=row_data.get('Material Status', ''), disabled=True)
-
-    if st.button("Close", use_container_width=True):
-        st.rerun()
-
-# --- EDIT DIALOG ---
-@st.dialog("✏️ Edit SRN Record", width="large")
-def edit_srn_dialog(row_data):
-    st.caption("Update this warehouse/SRN record")
-
-    c1, c2, c3 = st.columns(3)
-    with c1: proj_id = st.text_input("PROJECT ID", value=row_data.get('Project ID', ''), disabled=True)
-    with c2: site_id = st.text_input("SITE ID", value=row_data.get('Site ID', ''))
-    with c3: site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''))
-
-    c4, c5 = st.columns(2)
-    with c4: cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''))
-    with c5: team = st.text_input("TEAM NAME", value=row_data.get('Team', ''))
-
-    c6, c7 = st.columns(2)
-    with c6:
-        srn_status = st.selectbox("SRN STATUS", ["Required", "Not Required", "Submitted"],
-                                   index=["Required", "Not Required", "Submitted"].index(row_data.get('SRN Status')) if row_data.get('SRN Status') in ["Required", "Not Required", "Submitted"] else 0)
-    with c7:
-        material_status = st.selectbox("MATERIAL STATUS", ["Dispatched", "Pending", "Received"],
-                                        index=["Dispatched", "Pending", "Received"].index(row_data.get('Material Status')) if row_data.get('Material Status') in ["Dispatched", "Pending", "Received"] else 0)
-
-    st.markdown("<hr style='margin:15px 0;'>", unsafe_allow_html=True)
-    st.markdown("<p style='font-weight:700; color:#0f172a; margin-bottom:5px;'>📝 SRN DETAILS & QTY ENTRY</p>", unsafe_allow_html=True)
-    
-    # Safe handling for Qty to prevent casting errors on null/empty fields
     try:
-        default_qty = int(float(str(row_data.get('SRN Qty') or 0)))
-    except:
-        default_qty = 0
+        dt = pd.to_datetime(value, errors="coerce")
+        if pd.isna(dt):
+            return None
+        return dt.date().isoformat()
+    except Exception:
+        return None
 
-    box_c1, box_c2 = st.columns([4, 1])
-    with box_c1:
-        srn_desc_val = st.text_input("SRN DESCRIPTION / NUMBER", value=row_data.get('SRN Description', '') or '', placeholder="Enter SRN details...")
-    with box_c2:
-        srn_qty_val = st.number_input("QTY", value=default_qty, min_value=0, step=1)
 
-    st.markdown("<p style='font-weight:700; color:#0f172a; margin-top:10px; margin-bottom:5px;'>🔄 SHIFT / ACTION STATUS</p>", unsafe_allow_html=True)
-    action_options = ["-- Select Action --", "SRN Submitted"]
-    selected_action = st.selectbox("Select action to shift record", action_options, label_visibility="collapsed")
+def display_date(value):
+    if value is None or clean_text(value) == "":
+        return ""
+    try:
+        dt = pd.to_datetime(value, errors="coerce")
+        if pd.isna(dt):
+            return clean_text(value)
+        return dt.strftime("%d-%m-%Y")
+    except Exception:
+        return clean_text(value)
 
-    if st.button("💾 Update Record", type="primary", use_container_width=True):
-        try:
-            update_dict = {
-                "Site ID": site_id,
-                "Site Name": site_name,
-                "Cluster": cluster,
-                "Team": team,
-                "SRN Status": srn_status,
-                "Material Status": material_status,
-                "SRN Description": srn_desc_val,
-                "SRN Qty": srn_qty_val
-            }
 
-            if selected_action == "SRN Submitted":
-                update_dict["SRN Status"] = "Submitted"
+def safe_float(value):
+    try:
+        if value is None or clean_text(value) == "":
+            return None
+        return float(value)
+    except Exception:
+        return None
 
-            supabase.table("warehouse_data").update(update_dict).eq("id", row_data['id']).execute()
-            st.success("✅ Record Updated and Saved Successfully!")
-            clear_srn_cache()
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error updating record: {e}")
 
-@st.dialog("📥 Export SRN Data", width="large")
-def export_srn_dialog(export_df):
-    st.caption("Download filtered SRN records as Excel file.")
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        export_df.to_excel(writer, index=False, sheet_name='SRN Detail')
-    st.download_button(
-        label="📊 Download Excel File",
-        data=buffer.getvalue(),
-        file_name="SRN_Detail_Export.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        type="primary"
+def make_line_key(site_id, project_number, item_description, item_cat_2):
+    """
+    Upload sheet me line number nahi hai.
+    Isliye same pending line ko next upload me identify karne ke liye
+    Site ID + Project Number + Item Description + Item Cat 2 use ho raha hai.
+    """
+    parts = [
+        clean_text(site_id).upper(),
+        clean_text(project_number).upper(),
+        clean_text(item_description).upper(),
+        clean_text(item_cat_2).upper(),
+    ]
+    return "||".join(parts)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_srn_data(workspace):
+    try:
+        response = (
+            supabase.table(SRN_TABLE)
+            .select("*")
+            .eq("workspace", workspace)
+            .order("site_id")
+            .execute()
+        )
+        return response.data or []
+    except Exception as e:
+        st.error(f"❌ SRN data load error: {e}")
+        return []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_escalation_matrix():
+    try:
+        response = supabase.table(ESCALATION_TABLE).select("*").execute()
+        return response.data or []
+    except Exception as e:
+        st.error(f"❌ '{ESCALATION_TABLE}' load error: {e}")
+        return []
+
+
+def clear_srn_cache():
+    fetch_srn_data.clear()
+
+
+def prepare_escalation_lookup(records):
+    """
+    Excalation Matrix ke exact column names alag hone par bhi common
+    naming variants se Site ID / Site Name / Cluster / Technician Detail
+    identify karne ki koshish karega.
+    """
+    if not records:
+        return {}
+
+    edf = pd.DataFrame(records)
+    if edf.empty:
+        return {}
+
+    site_col = find_column(
+        edf.columns,
+        [
+            "Site ID",
+            "Indus ID",
+            "Indus Site ID",
+            "Site Id",
+            "SiteID",
+        ],
     )
 
-# --- 6. HEADER ---
-st.markdown("<h2 style='color:#000000; margin-bottom:20px;'>📦 SRN Details & Processing</h2>", unsafe_allow_html=True)
+    site_name_col = find_column(
+        edf.columns,
+        [
+            "Site Name",
+            "SiteName",
+            "Indus Site Name",
+        ],
+    )
 
-# --- 7. TOP NAVIGATION TABS ---
-col1, col2, empty_space = st.columns([1, 1, 5])
-with col1:
-    if st.button("1. SRN Detail", type="primary" if st.session_state.srn_active_view == 'SRN Detail' else "secondary", use_container_width=True):
-        change_srn_view('SRN Detail'); st.rerun()
-with col2:
-    if st.button("2. SRN Submited", type="primary" if st.session_state.srn_active_view == 'SRN Submited' else "secondary", use_container_width=True):
-        change_srn_view('SRN Submited'); st.rerun()
+    cluster_col = find_column(
+        edf.columns,
+        [
+            "Cluster",
+            "Cluster Name",
+        ],
+    )
 
-st.markdown("<hr style='border: 1px solid #cbd5e1; margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
+    tech_col = find_column(
+        edf.columns,
+        [
+            "Technician Detail",
+            "Technician Details",
+            "Technician",
+            "Technician Name",
+            "Technician Name & Number",
+            "Technician Name and Number",
+            "Technician Contact",
+            "Technician Mobile",
+            "Technician Number",
+        ],
+    )
 
-# --- SHARED CACHED FETCH — used by both tabs below (see fetch_warehouse_data_cached above) ---
-active_ws = st.session_state.get('active_workspace', 'VISPL')
-wh_data = fetch_warehouse_data_cached(active_ws)
+    if not site_col:
+        st.warning(
+            f"⚠️ '{ESCALATION_TABLE}' me Site ID/Indus ID column auto-detect nahi hua. "
+            f"Available columns: {', '.join(map(str, edf.columns))}"
+        )
+        return {}
 
-# =====================================================================
-# 📦 VIEW 1: SRN DETAIL
-# =====================================================================
-if st.session_state.srn_active_view == 'SRN Detail':
+    lookup = {}
 
-    if wh_data:
-        df_raw = pd.DataFrame(wh_data)
+    for _, row in edf.iterrows():
+        sid = clean_text(row.get(site_col)).upper()
+        if not sid:
+            continue
 
-        srn_col = get_actual_col(df_raw.columns, ["SRN Status", "srn_status"])
-        mat_col = get_actual_col(df_raw.columns, ["Material Status", "material_status"])
+        # First useful row wins, but blank values can be filled by later duplicate rows.
+        if sid not in lookup:
+            lookup[sid] = {
+                "Site Name": "",
+                "Cluster": "",
+                "Technician Detail": "",
+            }
 
-        if srn_col and mat_col:
-            df = df_raw[
-                (df_raw[srn_col].astype(str).str.strip().str.lower() == 'required') &
-                (df_raw[mat_col].astype(str).str.strip().str.lower() == 'dispatched')
-            ].copy()
-        else:
-            st.error("⚠️ 'SRN Status' ya 'Material Status' column table me nahi mila.")
-            df = pd.DataFrame()
-    else:
-        df = pd.DataFrame()
-        st.warning("⚠️ 'warehouse_data' table se koi record nahi mila.")
+        if site_name_col and not lookup[sid]["Site Name"]:
+            lookup[sid]["Site Name"] = clean_text(row.get(site_name_col))
 
-    # --- Search box + Export button ---
-    col_search, col_export = st.columns([4, 1])
-    with col_search:
-        search_query = st.text_input("🔍 Search within SRN Detail", placeholder="Enter Project ID, Site Name, etc...", label_visibility="collapsed")
-    with col_export:
-        export_clicked = st.button("📥 Export to Excel", use_container_width=True)
+        if cluster_col and not lookup[sid]["Cluster"]:
+            lookup[sid]["Cluster"] = clean_text(row.get(cluster_col))
 
-    if not df.empty and search_query:
-        mask = df.astype(str).apply(lambda x: x.str.contains(search_query, case=False, na=False)).any(axis=1)
-        df = df[mask]
+        if tech_col and not lookup[sid]["Technician Detail"]:
+            lookup[sid]["Technician Detail"] = clean_text(row.get(tech_col))
 
-    st.markdown(f"<p style='color:#334155; font-weight:600; margin-top:10px;'>Showing {len(df)} SRN Record(s)</p>", unsafe_allow_html=True)
+    return lookup
 
-    if export_clicked:
-        if not df.empty:
-            export_srn_dialog(df)
-        else:
-            st.warning("⚠️ Export karne ke liye koi data nahi hai.")
 
-    # --- Pagination ---
-    rows_per_page = 10
-    total_rows = len(df)
-    total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
-    if st.session_state.srn_current_page > total_pages:
-        st.session_state.srn_current_page = total_pages
-    elif st.session_state.srn_current_page < 1:
-        st.session_state.srn_current_page = 1
+def excel_bytes(df, sheet_name="SRN Pending"):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+        ws = writer.book[sheet_name[:31]]
 
-    start_idx = (st.session_state.srn_current_page - 1) * rows_per_page
-    end_idx = start_idx + rows_per_page
-    df_page = df.iloc[start_idx:end_idx].copy() if not df.empty else df
+        # Useful widths
+        widths = {
+            "A": 16, "B": 30, "C": 20, "D": 34, "E": 18,
+            "F": 16, "G": 24, "H": 55, "I": 14, "J": 24,
+            "K": 16, "L": 14, "M": 20, "N": 16, "O": 35,
+        }
+        for col, width in widths.items():
+            ws.column_dimensions[col].width = width
 
-    # --- Updated Columns including SRN Description & Qty ---
-    COL_RATIOS = [0.3, 0.35, 0.35, 0.35, 1.2, 1.0, 1.5, 1.2, 1.2, 1.8, 0.6]
-    COL_LABELS = ["#", "👁️", "✏️", "🗑️", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "SRN DESCRIPTION", "QTY"]
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
 
-    with st.container(key="srn_table_wrap", height=560):
-        if df_page.empty:
-            st.info("⚠️ Koi SRN record nahi mila (SRN Status = Required aur Material Status = Dispatched wali koi row nahi).")
-        else:
-            h_cols = st.columns(COL_RATIOS)
-            for h_col, label in zip(h_cols, COL_LABELS):
-                h_col.markdown(f"<div class='tbl-cell tbl-head'>{label}</div>", unsafe_allow_html=True)
+    return output.getvalue()
 
-            for page_pos, (_, row) in enumerate(df_page.iterrows()):
-                row_dict = row.to_dict()
-                rid = row_dict.get("id")
-                serial_no = start_idx + page_pos + 1
 
-                rcols = st.columns(COL_RATIOS)
-                rcols[0].markdown(f"<div class='tbl-cell tbl-serial'>{serial_no}</div>", unsafe_allow_html=True)
+def build_display_df(raw_records, escalation_lookup):
+    if not raw_records:
+        return pd.DataFrame(columns=SCREEN_COLUMNS + ["id", "line_key"])
 
-                with rcols[1]:
-                    if st.button("👁️", key=f"srvbtn_{rid}", help="View", use_container_width=True):
-                        view_srn_dialog(row_dict)
-                with rcols[2]:
-                    if st.button("✏️", key=f"srebtn_{rid}", help="Edit", use_container_width=True):
-                        edit_srn_dialog(row_dict)
-                with rcols[3]:
-                    if st.button("🗑️", key=f"srdbtn_{rid}", help="Delete", use_container_width=True):
-                        st.session_state[f"srn_confirm_del_{rid}"] = True
+    rdf = pd.DataFrame(raw_records)
 
-                rcols[4].markdown(f"<div class='tbl-cell'>{row_dict.get('Project ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[5].markdown(f"<div class='tbl-cell'>{row_dict.get('Site ID','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[6].markdown(f"<div class='tbl-cell'>{row_dict.get('Site Name','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[7].markdown(f"<div class='tbl-cell'>{row_dict.get('Cluster','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[8].markdown(f"<div class='tbl-cell'>{row_dict.get('Team','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[9].markdown(f"<div class='tbl-cell'>{row_dict.get('SRN Description','') or '-'}</div>", unsafe_allow_html=True)
-                rcols[10].markdown(f"<div class='tbl-cell'>{row_dict.get('SRN Qty','') or '-'}</div>", unsafe_allow_html=True)
+    rename_map = {
+        "site_id": "Site ID",
+        "item_cat_2": "Item Cat 2",
+        "ageing_slab": "Ageing Slab",
+        "project_number": "Project Number",
+        "item_description": "Item Description",
+        "boq_quantity": "BOQ Quantity",
+        "dispatch_date": "Dispatch Date",
+        "ageing_date": "Ageing Date",
+        "team_name": "Team Name",
+        "srn_status": "SRN Status",
+        "srn_date": "SRN Date",
+        "srn_from": "SRN From",
+        "pod_status": "POD Status",
+        "remark": "Remark",
+    }
+    rdf = rdf.rename(columns=rename_map)
 
-                if st.session_state.get(f"srn_confirm_del_{rid}"):
-                    wc1, wc2, wc3 = st.columns([6, 1, 1])
-                    with wc1:
-                        st.warning(f"Delete record for Site ID '{row_dict.get('Site ID','')}'? This cannot be undone.")
-                    with wc2:
-                        if st.button("✅ Confirm", key=f"srn_confirm_yes_{rid}", use_container_width=True):
-                            try:
-                                supabase.table("warehouse_data").delete().eq("id", rid).execute()
-                                st.session_state[f"srn_confirm_del_{rid}"] = False
-                                st.success("✅ Record Deleted!")
-                                clear_srn_cache()
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error deleting record: {e}")
-                    with wc3:
-                        if st.button("❌ Cancel", key=f"srn_confirm_no_{rid}", use_container_width=True):
-                            st.session_state[f"srn_confirm_del_{rid}"] = False
-                            st.rerun()
+    for col in [
+        "Site ID", "Item Cat 2", "Ageing Slab", "Project Number",
+        "Item Description", "BOQ Quantity", "Dispatch Date", "Ageing Date",
+        "Team Name", "SRN Status", "SRN Date", "SRN From",
+        "POD Status", "Remark", "id", "line_key"
+    ]:
+        if col not in rdf.columns:
+            rdf[col] = ""
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_p1, col_p2, col_p3 = st.columns([1, 2, 1])
-    with col_p1:
-        if st.button("⬅️ Previous Page", use_container_width=True, disabled=(st.session_state.srn_current_page == 1)):
-            st.session_state.srn_current_page -= 1
+    # Enrich from Excalation Matrix
+    rdf["Site Name"] = rdf["Site ID"].apply(
+        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Site Name", "")
+    )
+    rdf["Cluster"] = rdf["Site ID"].apply(
+        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Cluster", "")
+    )
+    rdf["Technician Detail"] = rdf["Site ID"].apply(
+        lambda x: escalation_lookup.get(clean_text(x).upper(), {}).get("Technician Detail", "")
+    )
+
+    # Defaults for operational columns
+    rdf["SRN Status"] = rdf["SRN Status"].apply(lambda x: clean_text(x) or "Pending")
+    rdf["POD Status"] = rdf["POD Status"].apply(lambda x: clean_text(x) or "Pending")
+
+    # Date display
+    rdf["SRN Date"] = rdf["SRN Date"].apply(display_date)
+
+    # Keep internal columns at end
+    ordered = SCREEN_COLUMNS + ["Dispatch Date", "Ageing Date", "id", "line_key"]
+    return rdf[ordered].copy()
+
+
+def validate_upload_df(upload_df):
+    missing = [c for c in REQUIRED_UPLOAD_COLUMNS if c not in upload_df.columns]
+    return missing
+
+
+def upload_new_srn_data(upload_df, workspace):
+    """
+    Existing line ko line_key se update karta hai.
+    New line insert hoti hai.
+    Manual SRN Status / Date / From / POD / Remark / Team Name preserve rehte hain.
+    """
+    missing = validate_upload_df(upload_df)
+    if missing:
+        raise ValueError(
+            "Excel me ye required columns missing hain: " + ", ".join(missing)
+        )
+
+    existing = fetch_srn_data(workspace)
+    existing_by_key = {
+        clean_text(r.get("line_key")): r
+        for r in existing
+        if clean_text(r.get("line_key"))
+    }
+
+    payload = []
+    skipped_blank_site = 0
+
+    for _, row in upload_df.iterrows():
+        site_id = clean_text(row.get("Site ID"))
+        if not site_id:
+            skipped_blank_site += 1
+            continue
+
+        project_number = clean_text(row.get("Project Number"))
+        item_description = clean_text(row.get("Item Description"))
+        item_cat_2 = clean_text(row.get("Item Cat 2"))
+
+        line_key = make_line_key(
+            site_id,
+            project_number,
+            item_description,
+            item_cat_2,
+        )
+
+        old = existing_by_key.get(line_key, {})
+
+        record = {
+            "workspace": workspace,
+            "line_key": line_key,
+            "site_id": site_id,
+            "project_number": project_number,
+            "item_description": item_description,
+            "boq_quantity": safe_float(row.get("BOQ Quantity")),
+            "dispatch_date": safe_date_string(row.get("Dispatch Date")),
+            "item_cat_2": item_cat_2,
+            "ageing_date": safe_date_string(row.get("Ageing Date")),
+            "ageing_slab": clean_text(row.get("Ageing Slab")),
+
+            # Preserve manually maintained values on repeat upload
+            "team_name": clean_text(old.get("team_name")),
+            "srn_status": clean_text(old.get("srn_status")) or "Pending",
+            "srn_date": old.get("srn_date") or None,
+            "srn_from": clean_text(old.get("srn_from")),
+            "pod_status": clean_text(old.get("pod_status")) or "Pending",
+            "remark": clean_text(old.get("remark")),
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        payload.append(record)
+
+    if not payload:
+        return 0, skipped_blank_site
+
+    # Upsert in batches
+    batch_size = 250
+    for start in range(0, len(payload), batch_size):
+        batch = payload[start:start + batch_size]
+        (
+            supabase.table(SRN_TABLE)
+            .upsert(batch, on_conflict="workspace,line_key")
+            .execute()
+        )
+
+    clear_srn_cache()
+    return len(payload), skipped_blank_site
+
+
+@st.dialog("✏️ Update SRN Site", width="large")
+def edit_site_dialog(site_id, site_df):
+    first = site_df.iloc[0].to_dict()
+
+    st.caption(
+        "Ye update selected Site ID ki sabhi current material lines par apply hoga."
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        team_name = st.text_input(
+            "Team Name",
+            value=clean_text(first.get("Team Name")),
+            placeholder="Enter / select team name",
+        )
+    with c2:
+        current_status = clean_text(first.get("SRN Status")) or "Pending"
+        status_index = (
+            SRN_STATUS_OPTIONS.index(current_status)
+            if current_status in SRN_STATUS_OPTIONS
+            else 0
+        )
+        srn_status = st.selectbox(
+            "SRN Status",
+            SRN_STATUS_OPTIONS,
+            index=status_index,
+        )
+
+    c3, c4 = st.columns(2)
+    with c3:
+        existing_date = pd.to_datetime(
+            first.get("SRN Date"), errors="coerce", dayfirst=True
+        )
+        default_date = (
+            existing_date.date()
+            if not pd.isna(existing_date)
+            else None
+        )
+        srn_date = st.date_input(
+            "SRN Date",
+            value=default_date,
+            format="DD-MM-YYYY",
+        )
+    with c4:
+        srn_from = st.text_input(
+            "SRN From",
+            value=clean_text(first.get("SRN From")),
+            placeholder="SRN received/from detail",
+        )
+
+    c5, c6 = st.columns(2)
+    with c5:
+        current_pod = clean_text(first.get("POD Status")) or "Pending"
+        pod_index = (
+            POD_STATUS_OPTIONS.index(current_pod)
+            if current_pod in POD_STATUS_OPTIONS
+            else 0
+        )
+        pod_status = st.selectbox(
+            "POD Status",
+            POD_STATUS_OPTIONS,
+            index=pod_index,
+        )
+    with c6:
+        remark = st.text_area(
+            "Remark",
+            value=clean_text(first.get("Remark")),
+            height=100,
+        )
+
+    st.markdown("#### Material lines in this Site ID")
+    preview_cols = [
+        "Project Number",
+        "Item Cat 2",
+        "Item Description",
+        "BOQ Quantity",
+        "Ageing Slab",
+    ]
+    st.dataframe(
+        site_df[preview_cols],
+        use_container_width=True,
+        hide_index=True,
+        height=min(300, 75 + len(site_df) * 35),
+    )
+
+    if st.button(
+        "💾 Save Site Update",
+        type="primary",
+        use_container_width=True,
+    ):
+        try:
+            update_dict = {
+                "team_name": clean_text(team_name),
+                "srn_status": srn_status,
+                "srn_date": srn_date.isoformat() if srn_date else None,
+                "srn_from": clean_text(srn_from),
+                "pod_status": pod_status,
+                "remark": clean_text(remark),
+                "updated_at": datetime.now().isoformat(),
+            }
+
+            (
+                supabase.table(SRN_TABLE)
+                .update(update_dict)
+                .eq("workspace", active_ws)
+                .eq("site_id", site_id)
+                .execute()
+            )
+
+            clear_srn_cache()
+            st.success("✅ Site SRN details updated successfully.")
             st.rerun()
-    with col_p2:
-        st.markdown(f"<div class='page-count'>Page {st.session_state.srn_current_page} of {total_pages} (Total Records: {total_rows})</div>", unsafe_allow_html=True)
-    with col_p3:
-        if st.button("Next Page ➡️", use_container_width=True, disabled=(st.session_state.srn_current_page == total_pages)):
-            st.session_state.srn_current_page += 1
-            st.rerun()
 
-# =====================================================================
-# 📦 VIEW 2: SRN SUBMITED
-# =====================================================================
-elif st.session_state.srn_active_view == 'SRN Submited':
-    st.markdown("### ✅ Submitted SRN Records")
+        except Exception as e:
+            st.error(f"❌ Update failed: {e}")
 
-    # FIX: pehle yahan alag se ek uncached query chalti thi. Ab shared
-    # cached 'wh_data' (upar fetch hua) ko hi locally filter kar rahe hain.
-    if wh_data:
-        df_all = pd.DataFrame(wh_data)
-        srn_col = get_actual_col(df_all.columns, ["SRN Status", "srn_status"])
-        if srn_col:
-            df_sub = df_all[df_all[srn_col].astype(str).str.strip().str.lower() == 'submitted'].copy()
-        else:
-            df_sub = pd.DataFrame()
-    else:
-        df_sub = pd.DataFrame()
 
-    if not df_sub.empty:
-        st.dataframe(df_sub, use_container_width=True, hide_index=True)
-    else:
-        st.info("No submitted SRN records found.")
+# ============================================================
+# 7. HEADER
+# ============================================================
+st.markdown(
+    f"""
+    <div class="srn-banner">
+        <h1>📦 SRN Pending Dashboard</h1>
+        <p>Active Workspace: {active_ws} • Excel Upload + Site-wise Group View</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ============================================================
+# 8. LOAD EXCALATION MATRIX + CURRENT SRN DATA
+# ============================================================
+escalation_records = fetch_escalation_matrix()
+escalation_lookup = prepare_escalation_lookup(escalation_records)
+
+raw_srn_records = fetch_srn_data(active_ws)
+df = build_display_df(raw_srn_records, escalation_lookup)
+
+# ============================================================
+# 9. UPLOAD NEW DATA
+# ============================================================
+with st.expander("⬆️ Upload New SRN Pending Data", expanded=(len(df) == 0)):
+    st.markdown(
+        """
+        <div class="small-note">
+        Upload Excel file. Existing matching material lines update hongi aur
+        manually maintained Team/SRN/POD/Remark details preserve rahengi.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    uploaded_file = st.file_uploader(
+        "Choose SRN Pending Excel",
+        type=["xlsx", "xls"],
+        key="srn_pending_upload",
+    )
+
+    if uploaded_file is not None:
+        try:
+            upload_preview = pd.read_excel(uploaded_file)
+
+            st.write(
+                f"**Rows:** {len(upload_preview):,} | "
+                f"**Columns:** {len(upload_preview.columns)}"
+            )
+
+            missing_cols = validate_upload_df(upload_preview)
+
+            if missing_cols:
+                st.error(
+                    "❌ Excel format mismatch. Missing columns: "
+                    + ", ".join(missing_cols)
+                )
+            else:
+                st.dataframe(
+                    upload_preview.head(20),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                if st.button(
+                    "🚀 Upload / Update Data",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    with st.spinner("SRN pending data upload ho raha hai..."):
+                        processed, skipped = upload_new_srn_data(
+                            upload_preview,
+                            active_ws,
+                        )
+
+                    st.success(
+                        f"✅ {processed:,} line(s) uploaded/updated successfully."
+                    )
+                    if skipped:
+                        st.warning(
+                            f"⚠️ {skipped} row(s) blank Site ID ke karan skip hui."
+                        )
+                    st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ Excel read/upload error: {e}")
+
+# Refresh after possible upload state
+raw_srn_records = fetch_srn_data(active_ws)
+df = build_display_df(raw_srn_records, escalation_lookup)
+
+# ============================================================
+# 10. KPI CARDS
+# ============================================================
+total_lines = len(df)
+total_sites = df["Site ID"].replace("", pd.NA).dropna().nunique() if not df.empty else 0
+pending_sites = (
+    df.loc[df["SRN Status"].astype(str).str.lower() == "pending", "Site ID"].nunique()
+    if not df.empty else 0
+)
+submitted_sites = (
+    df.loc[df["SRN Status"].astype(str).str.lower() == "submitted", "Site ID"].nunique()
+    if not df.empty else 0
+)
+
+m1, m2, m3, m4 = st.columns(4)
+
+with m1:
+    st.markdown(
+        f'<div class="metric-card"><div class="metric-title">Total Sites</div>'
+        f'<div class="metric-value">{total_sites:,}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+with m2:
+    st.markdown(
+        f'<div class="metric-card"><div class="metric-title">Total Material Lines</div>'
+        f'<div class="metric-value">{total_lines:,}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+with m3:
+    st.markdown(
+        f'<div class="metric-card"><div class="metric-title">Pending Sites</div>'
+        f'<div class="metric-value">{pending_sites:,}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+with m4:
+    st.markdown(
+        f'<div class="metric-card"><div class="metric-title">Submitted Sites</div>'
+        f'<div class="metric-value">{submitted_sites:,}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ============================================================
+# 11. SEARCH + FILTERS + DOWNLOAD
+# ============================================================
+if df.empty:
+    st.info("ℹ️ Abhi SRN Pending data nahi hai. Upar se Excel upload karein.")
+    st.stop()
+
+cluster_options = sorted(
+    [x for x in df["Cluster"].dropna().astype(str).unique().tolist() if clean_text(x)]
+)
+team_options = sorted(
+    [x for x in df["Team Name"].dropna().astype(str).unique().tolist() if clean_text(x)]
+)
+
+f1, f2, f3, f4 = st.columns([3.2, 1.7, 1.7, 1.6])
+
+with f1:
+    search_text = st.text_input(
+        "Search",
+        placeholder="🔍 Search Site ID, Site Name, Project Number, Item, Technician...",
+        label_visibility="collapsed",
+    )
+
+with f2:
+    cluster_filter = st.selectbox(
+        "Cluster",
+        ["All Cluster"] + cluster_options,
+        label_visibility="collapsed",
+    )
+
+with f3:
+    team_filter = st.selectbox(
+        "Team",
+        ["All Team"] + team_options,
+        label_visibility="collapsed",
+    )
+
+filtered_df = df.copy()
+
+if search_text:
+    search_cols = [
+        "Site ID",
+        "Site Name",
+        "Cluster",
+        "Technician Detail",
+        "Item Cat 2",
+        "Ageing Slab",
+        "Project Number",
+        "Item Description",
+        "Team Name",
+        "SRN Status",
+        "SRN From",
+        "POD Status",
+        "Remark",
+    ]
+    mask = filtered_df[search_cols].astype(str).apply(
+        lambda col: col.str.contains(
+            search_text,
+            case=False,
+            na=False,
+            regex=False,
+        )
+    ).any(axis=1)
+    filtered_df = filtered_df[mask]
+
+if cluster_filter != "All Cluster":
+    filtered_df = filtered_df[
+        filtered_df["Cluster"].astype(str) == cluster_filter
+    ]
+
+if team_filter != "All Team":
+    filtered_df = filtered_df[
+        filtered_df["Team Name"].astype(str) == team_filter
+    ]
+
+export_df = filtered_df[SCREEN_COLUMNS].copy()
+
+with f4:
+    st.download_button(
+        "📥 Download Excel",
+        data=excel_bytes(export_df),
+        file_name=f"SRN_Pending_{active_ws}_{date.today().isoformat()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+filtered_sites = (
+    filtered_df["Site ID"].replace("", pd.NA).dropna().nunique()
+    if not filtered_df.empty else 0
+)
+
+st.caption(
+    f"Showing **{filtered_sites:,} Site ID group(s)** / "
+    f"**{len(filtered_df):,} material line(s)**"
+)
+
+# ============================================================
+# 12. SITE-ID GROUP VIEW
+# ============================================================
+if filtered_df.empty:
+    st.warning("⚠️ Search/filter ke hisab se koi record nahi mila.")
+    st.stop()
+
+site_ids = (
+    filtered_df["Site ID"]
+    .dropna()
+    .astype(str)
+    .drop_duplicates()
+    .tolist()
+)
+
+for site_id in site_ids:
+    site_df = filtered_df[
+        filtered_df["Site ID"].astype(str) == str(site_id)
+    ].copy()
+
+    first = site_df.iloc[0]
+
+    site_name = clean_text(first.get("Site Name")) or "-"
+    cluster = clean_text(first.get("Cluster")) or "-"
+    technician = clean_text(first.get("Technician Detail")) or "-"
+    team_name = clean_text(first.get("Team Name")) or "-"
+    srn_status = clean_text(first.get("SRN Status")) or "Pending"
+    ageing = clean_text(first.get("Ageing Slab")) or "-"
+    line_count = len(site_df)
+
+    expander_title = (
+        f"📍 {site_id}  |  {site_name}  |  Cluster: {cluster}  |  "
+        f"Team: {team_name}  |  SRN: {srn_status}  |  "
+        f"{line_count} Line(s)"
+    )
+
+    with st.expander(expander_title, expanded=False):
+        st.markdown(
+            f"""
+            <div class="site-meta">
+                <b>Site ID:</b> {site_id}
+                &nbsp;&nbsp; | &nbsp;&nbsp;
+                <b>Site Name:</b> {site_name}
+                &nbsp;&nbsp; | &nbsp;&nbsp;
+                <b>Cluster:</b> {cluster}
+                &nbsp;&nbsp; | &nbsp;&nbsp;
+                <b>Technician:</b> {technician}
+                <br>
+                <b>Team:</b> {team_name}
+                &nbsp;&nbsp; | &nbsp;&nbsp;
+                <b>SRN Status:</b> {srn_status}
+                &nbsp;&nbsp; | &nbsp;&nbsp;
+                <b>Ageing:</b> {ageing}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        display_site_df = site_df[SCREEN_COLUMNS].copy()
+
+        st.dataframe(
+            display_site_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(460, 78 + (len(display_site_df) * 36)),
+            column_config={
+                "BOQ Quantity": st.column_config.NumberColumn(
+                    "BOQ Quantity",
+                    format="%.4f",
+                ),
+                "Item Description": st.column_config.TextColumn(
+                    "Item Description",
+                    width="large",
+                ),
+                "Technician Detail": st.column_config.TextColumn(
+                    "Technician Detail",
+                    width="medium",
+                ),
+                "Remark": st.column_config.TextColumn(
+                    "Remark",
+                    width="medium",
+                ),
+            },
+        )
+
+        b1, b2 = st.columns([1.2, 4.8])
+
+        with b1:
+            if st.button(
+                "✏️ Update SRN",
+                key=f"edit_site_{site_id}",
+                use_container_width=True,
+                type="primary",
+            ):
+                edit_site_dialog(site_id, site_df)
+
+        with b2:
+            site_export = display_site_df.copy()
+            st.download_button(
+                "📥 Download This Site",
+                data=excel_bytes(site_export, sheet_name="Site SRN"),
+                file_name=f"SRN_{site_id}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"download_site_{site_id}",
+                use_container_width=True,
+            )
