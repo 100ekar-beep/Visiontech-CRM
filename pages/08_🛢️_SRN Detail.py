@@ -244,6 +244,70 @@ st.markdown(
     div[class*="st-key-srnedit_"] button { width:38px !important; height:34px !important; padding:0 !important; background:rgba(59,130,246,.15) !important; border:1px solid rgba(59,130,246,.3) !important; color:#1d4ed8 !important; box-shadow:none !important; }
     div[class*="st-key-srnedit_"] button:hover { background:#3b82f6 !important; color:#fff !important; }
     .slux-foot { padding:14px 22px; background:linear-gradient(90deg,#f5f3ff,#eef2ff); border:1px solid #e0e7ff; border-top:2px solid #c7d2fe; border-radius:0 0 18px 18px; font-weight:900; color:#312e81; }
+
+    /* ================= SRN EDIT POPUP — HIGH CONTRAST ================= */
+    div[data-testid="stDialog"] > div {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        border: 2px solid #c7d2fe !important;
+    }
+    div[data-testid="stDialog"] h1,
+    div[data-testid="stDialog"] h2,
+    div[data-testid="stDialog"] h3 {
+        color: #111827 !important;
+        font-weight: 900 !important;
+    }
+    div[data-testid="stDialog"] p,
+    div[data-testid="stDialog"] span,
+    div[data-testid="stDialog"] label,
+    div[data-testid="stDialog"] label p,
+    div[data-testid="stDialog"] [data-testid="stWidgetLabel"] p {
+        color: #111827 !important;
+        font-weight: 800 !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p {
+        color: #475569 !important;
+        font-weight: 700 !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stDialog"] input,
+    div[data-testid="stDialog"] textarea {
+        color: #0f172a !important;
+        font-weight: 800 !important;
+        -webkit-text-fill-color: #0f172a !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stDialog"] input::placeholder,
+    div[data-testid="stDialog"] textarea::placeholder {
+        color: #64748b !important;
+        font-weight: 700 !important;
+        opacity: 1 !important;
+        -webkit-text-fill-color: #64748b !important;
+    }
+    div[data-testid="stDialog"] input:disabled {
+        background: #e2e8f0 !important;
+        color: #1e293b !important;
+        font-weight: 900 !important;
+        -webkit-text-fill-color: #1e293b !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stDialog"] [data-baseweb="select"] > div,
+    div[data-testid="stDialog"] [data-baseweb="input"] > div,
+    div[data-testid="stDialog"] [data-baseweb="textarea"] > div {
+        background: #f8fafc !important;
+        border-color: #cbd5e1 !important;
+        color: #0f172a !important;
+    }
+    div[data-testid="stDialog"] [data-baseweb="select"] * {
+        color: #0f172a !important;
+        font-weight: 800 !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stDialog"] svg {
+        fill: #0f172a !important;
+        color: #0f172a !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
