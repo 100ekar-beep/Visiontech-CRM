@@ -623,7 +623,7 @@ def get_item_master_details():
 
 
 def add_item_to_master(item_code, item_description):
-    """Add a new Item Code directly from Template popup into the JMS Item Code master."""
+    """Add a new Item Code to the SAME primary master used by JMS."""
     clean_code = _clean_text(item_code)
     clean_desc = _clean_text(item_description)
 
@@ -632,45 +632,84 @@ def add_item_to_master(item_code, item_description):
     if not clean_desc:
         raise ValueError("Item Description required hai.")
 
-    # JMS already reads its primary master from these tables in this order.
-    # Save to the first available master table, preferring the existing "Item Code" table.
+    # IMPORTANT:
+    # Do not guess columns/table names while inserting.
+    # First read the real table rows/schema shape, then use the description
+    # column that actually exists in that table.
     last_error = None
+
     for table_name in ("Item Code", "item_code", "item_master"):
         try:
-            # Check duplicate first.
+            sample_rows = (
+                supabase.table(table_name)
+                .select("*")
+                .limit(1)
+                .execute().data or []
+            )
+
+            # If table exists but is empty, use the canonical columns used by
+            # get_item_master_details for that table family.
+            available_columns = set(sample_rows[0].keys()) if sample_rows else set()
+
+            # Duplicate check works only on the actual code column used by JMS.
+            code_column = None
+            for candidate in ("item_code", "Item Code", "code", "Code"):
+                if not available_columns or candidate in available_columns:
+                    code_column = candidate
+                    break
+            if not code_column:
+                continue
+
             existing = (
                 supabase.table(table_name)
                 .select("*")
-                .eq("item_code", clean_code)
+                .eq(code_column, clean_code)
                 .limit(1)
                 .execute().data or []
             )
             if existing:
                 raise ValueError(f"Item Code {clean_code} already master me available hai.")
 
-            # Existing deployments can use different description column names.
-            # Try the common schemas without changing any existing table/logic.
-            payloads = [
-                {"item_code": clean_code, "item_description": clean_desc},
-                {"item_code": clean_code, "description": clean_desc},
-                {"item_code": clean_code, "Item Description": clean_desc},
-            ]
-            insert_error = None
-            for payload in payloads:
-                try:
-                    supabase.table(table_name).insert(payload).execute()
-                    get_item_master_details.clear()
-                    return table_name
-                except Exception as exc:
-                    insert_error = exc
-            last_error = insert_error
+            desc_column = None
+            for candidate in ("item_description", "description", "Description", "Item Description"):
+                if candidate in available_columns:
+                    desc_column = candidate
+                    break
+
+            # For an empty table, use the standard snake_case schema.
+            if not available_columns:
+                desc_column = "item_description"
+
+            if not desc_column:
+                # This table is not the actual writable JMS master.
+                continue
+
+            payload = {
+                code_column: clean_code,
+                desc_column: clean_desc,
+            }
+
+            # Preserve common required/default master fields only when those
+            # columns really exist.
+            if "stn_status" in available_columns:
+                payload["stn_status"] = "Required"
+            if "material_of" in available_columns:
+                payload["material_of"] = "Indus"
+
+            supabase.table(table_name).insert(payload).execute()
+            get_item_master_details.clear()
+            return table_name
+
         except ValueError:
             raise
         except Exception as exc:
             last_error = exc
             continue
 
-    raise RuntimeError(f"Item master me save nahi hua: {last_error}")
+    raise RuntimeError(
+        "JMS ka writable Item Master table/description column detect nahi hua. "
+        f"Last error: {last_error}"
+    )
 
 
 # --- TEAM MASTER HELPERS ---
