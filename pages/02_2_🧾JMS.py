@@ -1044,9 +1044,6 @@ def _build_jms_pdf(row_data, circle, lines):
             pdf.setFillColor(colors.HexColor("#1e3a8a"))
             pdf.setFont("Helvetica-Oblique", 12.5)
             pdf.drawString(ix+5*mm, sig_y+9*mm, team_name[:38])
-            pdf.setFillColor(colors.HexColor("#64748b"))
-            pdf.setFont("Helvetica", 5.2)
-            pdf.drawString(ix+5*mm, sig_y+4*mm, "System Generated - Internal Use")
             pdf.setFillColor(colors.black)
 
         # RIGHT BOX: existing auditor area unchanged.
