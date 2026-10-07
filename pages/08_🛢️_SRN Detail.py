@@ -955,108 +955,111 @@ st.caption(
 )
 
 # ============================================================
-# 12. SITE-ID GROUP VIEW
+# 12. PROPER CONTINUOUS TABLE VIEW
 # ============================================================
 if filtered_df.empty:
     st.warning("⚠️ Search/filter ke hisab se koi record nahi mila.")
     st.stop()
 
-site_ids = (
-    filtered_df["Site ID"]
-    .dropna()
-    .astype(str)
-    .drop_duplicates()
-    .tolist()
+st.markdown("### 📋 SRN Pending Details")
+
+# User-requested exact screen order
+table_columns = [
+    "Site ID",
+    "Site Name",
+    "Cluster",
+    "Technician Detail",
+    "Item Cat 2",
+    "Ageing Slab",
+    "Project Number",
+    "Item Description",
+    "BOQ Quantity",
+    "Team Name",
+    "SRN Status",
+    "SRN Date",
+    "SRN From",
+    "POD Status",
+    "Remark",
+]
+
+table_df = filtered_df[table_columns].copy()
+
+# Proper row numbering
+table_df.index = range(1, len(table_df) + 1)
+table_df.index.name = "Sr No"
+
+st.dataframe(
+    table_df,
+    use_container_width=True,
+    hide_index=False,
+    height=650,
+    column_config={
+        "Site ID": st.column_config.TextColumn(
+            "Site ID",
+            width="medium",
+        ),
+        "Site Name": st.column_config.TextColumn(
+            "Site Name",
+            width="medium",
+        ),
+        "Cluster": st.column_config.TextColumn(
+            "Cluster",
+            width="medium",
+        ),
+        "Technician Detail": st.column_config.TextColumn(
+            "Technician Detail",
+            width="large",
+        ),
+        "Item Cat 2": st.column_config.TextColumn(
+            "Item Cat 2",
+            width="medium",
+        ),
+        "Ageing Slab": st.column_config.TextColumn(
+            "Ageing Slab",
+            width="medium",
+        ),
+        "Project Number": st.column_config.TextColumn(
+            "Project Number",
+            width="medium",
+        ),
+        "Item Description": st.column_config.TextColumn(
+            "Item Description",
+            width="large",
+        ),
+        "BOQ Quantity": st.column_config.NumberColumn(
+            "BOQ Quantity",
+            format="%.4f",
+            width="small",
+        ),
+        "Team Name": st.column_config.TextColumn(
+            "Team Name",
+            width="medium",
+        ),
+        "SRN Status": st.column_config.TextColumn(
+            "SRN Status",
+            width="medium",
+        ),
+        "SRN Date": st.column_config.TextColumn(
+            "SRN Date",
+            width="medium",
+        ),
+        "SRN From": st.column_config.TextColumn(
+            "SRN From",
+            width="medium",
+        ),
+        "POD Status": st.column_config.TextColumn(
+            "POD Status",
+            width="medium",
+        ),
+        "Remark": st.column_config.TextColumn(
+            "Remark",
+            width="large",
+        ),
+    },
 )
 
-for site_id in site_ids:
-    site_df = filtered_df[
-        filtered_df["Site ID"].astype(str) == str(site_id)
-    ].copy()
+st.caption(
+    f"Total: {len(table_df):,} material line(s) • "
+    f"{filtered_df['Site ID'].replace('', pd.NA).dropna().nunique():,} unique Site ID(s)"
+)
 
-    first = site_df.iloc[0]
-
-    site_name = clean_text(first.get("Site Name")) or "-"
-    cluster = clean_text(first.get("Cluster")) or "-"
-    technician = clean_text(first.get("Technician Detail")) or "-"
-    team_name = clean_text(first.get("Team Name")) or "-"
-    srn_status = clean_text(first.get("SRN Status")) or "Pending"
-    ageing = clean_text(first.get("Ageing Slab")) or "-"
-    line_count = len(site_df)
-
-    expander_title = (
-        f"📍 {site_id}  |  {site_name}  |  Cluster: {cluster}  |  "
-        f"Team: {team_name}  |  SRN: {srn_status}  |  "
-        f"{line_count} Line(s)"
-    )
-
-    with st.expander(expander_title, expanded=False):
-        st.markdown(
-            f"""
-            <div class="site-meta">
-                <b>Site ID:</b> {site_id}
-                &nbsp;&nbsp; | &nbsp;&nbsp;
-                <b>Site Name:</b> {site_name}
-                &nbsp;&nbsp; | &nbsp;&nbsp;
-                <b>Cluster:</b> {cluster}
-                &nbsp;&nbsp; | &nbsp;&nbsp;
-                <b>Technician:</b> {technician}
-                <br>
-                <b>Team:</b> {team_name}
-                &nbsp;&nbsp; | &nbsp;&nbsp;
-                <b>SRN Status:</b> {srn_status}
-                &nbsp;&nbsp; | &nbsp;&nbsp;
-                <b>Ageing:</b> {ageing}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        display_site_df = site_df[SCREEN_COLUMNS].copy()
-
-        st.dataframe(
-            display_site_df,
-            use_container_width=True,
-            hide_index=True,
-            height=min(460, 78 + (len(display_site_df) * 36)),
-            column_config={
-                "BOQ Quantity": st.column_config.NumberColumn(
-                    "BOQ Quantity",
-                    format="%.4f",
-                ),
-                "Item Description": st.column_config.TextColumn(
-                    "Item Description",
-                    width="large",
-                ),
-                "Technician Detail": st.column_config.TextColumn(
-                    "Technician Detail",
-                    width="medium",
-                ),
-                "Remark": st.column_config.TextColumn(
-                    "Remark",
-                    width="medium",
-                ),
-            },
-        )
-
-        b1, b2 = st.columns([1.2, 4.8])
-
-        with b1:
-            if st.button(
-                "✏️ Update SRN",
-                key=f"edit_site_{site_id}",
-                use_container_width=True,
-                type="primary",
-            ):
-                edit_site_dialog(site_id, site_df)
-
-        with b2:
-            site_export = display_site_df.copy()
-            st.download_button(
-                "📥 Download This Site",
-                data=excel_bytes(site_export, sheet_name="Site SRN"),
-                file_name=f"SRN_{site_id}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"download_site_{site_id}",
-                use_container_width=True,
-            )
