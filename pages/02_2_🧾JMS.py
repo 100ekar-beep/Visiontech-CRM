@@ -593,6 +593,23 @@ def get_opts(category, all_data):
     return ["Select"] + opts
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_team_names_cached():
+    """Load Team Name options from dropdown_master."""
+    try:
+        all_data = get_all_dropdowns()
+        values = get_opts("Team Name", all_data)
+        # get_opts() includes the generic "Select" placeholder.
+        return [
+            _clean_text(value)
+            for value in values
+            if _clean_text(value) and _clean_text(value).casefold() != "select"
+        ]
+    except Exception as exc:
+        st.warning(f"Team Name load nahi hue: {exc}")
+        return []
+
+
 def get_item_master_details():
     """
     JMS Item source is ONLY Supabase table: "Item Code".
