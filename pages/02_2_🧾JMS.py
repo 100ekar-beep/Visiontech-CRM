@@ -1032,19 +1032,9 @@ def _build_jms_pdf(row_data, circle, lines):
         sig_w = (iw-gap)/2
         pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
 
-        # LEFT BOX: Team Name + system-generated handwritten-style name mark.
-        team_name = _clean_text(row_data.get("Team Name"))
+        # LEFT BOX: only the Team Name label.
         pdf.setFont("Helvetica-Bold", 7.2)
-        pdf.drawString(
-            ix+5*mm,
-            sig_y+19*mm,
-            f"Team Name :- {(team_name or '-')[:42]}"
-        )
-        if team_name:
-            pdf.setFillColor(colors.HexColor("#1e3a8a"))
-            pdf.setFont("Helvetica-Oblique", 12.5)
-            pdf.drawString(ix+5*mm, sig_y+9*mm, team_name[:38])
-            pdf.setFillColor(colors.black)
+        pdf.drawString(ix+5*mm, sig_y+19*mm, "Team Name")
 
         # RIGHT BOX: existing auditor area unchanged.
         pdf.setFont("Helvetica-Bold", 6.5)
