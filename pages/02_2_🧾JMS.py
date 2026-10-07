@@ -623,7 +623,13 @@ def get_item_master_details():
 
 
 def add_item_to_master(item_code, item_description):
-    """Add a new Item Code to the SAME primary master used by JMS."""
+    """
+    Add a new Item Code to item_master.
+
+    IMPORTANT:
+    ground_template_items.item_code has a foreign key to item_master.item_code,
+    so every new template item MUST exist in item_master first.
+    """
     clean_code = _clean_text(item_code)
     clean_desc = _clean_text(item_description)
 
@@ -632,84 +638,95 @@ def add_item_to_master(item_code, item_description):
     if not clean_desc:
         raise ValueError("Item Description required hai.")
 
-    # IMPORTANT:
-    # Do not guess columns/table names while inserting.
-    # First read the real table rows/schema shape, then use the description
-    # column that actually exists in that table.
-    last_error = None
+    table_name = "item_master"
 
-    for table_name in ("Item Code", "item_code", "item_master"):
-        try:
-            sample_rows = (
-                supabase.table(table_name)
-                .select("*")
-                .limit(1)
-                .execute().data or []
-            )
+    # Read one row so we use the REAL description column of item_master.
+    try:
+        sample_rows = (
+            supabase.table(table_name)
+            .select("*")
+            .limit(1)
+            .execute().data or []
+        )
+    except Exception as exc:
+        raise RuntimeError(f"item_master table read nahi hua: {exc}")
 
-            # If table exists but is empty, use the canonical columns used by
-            # get_item_master_details for that table family.
-            available_columns = set(sample_rows[0].keys()) if sample_rows else set()
+    available_columns = set(sample_rows[0].keys()) if sample_rows else set()
 
-            # Duplicate check works only on the actual code column used by JMS.
-            code_column = None
-            for candidate in ("item_code", "Item Code", "code", "Code"):
-                if not available_columns or candidate in available_columns:
-                    code_column = candidate
-                    break
-            if not code_column:
-                continue
+    # FK error confirms item_master.item_code is the required key.
+    code_column = "item_code"
 
-            existing = (
-                supabase.table(table_name)
-                .select("*")
-                .eq(code_column, clean_code)
-                .limit(1)
-                .execute().data or []
-            )
-            if existing:
-                raise ValueError(f"Item Code {clean_code} already master me available hai.")
+    try:
+        existing = (
+            supabase.table(table_name)
+            .select("*")
+            .eq(code_column, clean_code)
+            .limit(1)
+            .execute().data or []
+        )
+    except Exception as exc:
+        raise RuntimeError(f"item_master duplicate check nahi hua: {exc}")
 
-            desc_column = None
-            for candidate in ("item_description", "description", "Description", "Item Description"):
-                if candidate in available_columns:
-                    desc_column = candidate
-                    break
+    if existing:
+        # Item already exists: this is valid for template use.
+        get_item_master_details.clear()
+        return table_name
 
-            # For an empty table, use the standard snake_case schema.
-            if not available_columns:
-                desc_column = "item_description"
+    # Detect the actual description column from the real item_master schema.
+    desc_column = None
+    for candidate in (
+        "item_description",
+        "description",
+        "Description",
+        "item_desc",
+        "ItemDescription",
+    ):
+        if candidate in available_columns:
+            desc_column = candidate
+            break
 
-            if not desc_column:
-                # This table is not the actual writable JMS master.
-                continue
+    if not desc_column:
+        # Do NOT guess "Item Description" because that already failed in this DB.
+        raise RuntimeError(
+            "item_master ka Description column detect nahi hua. "
+            f"Available columns: {', '.join(sorted(available_columns))}"
+        )
 
-            payload = {
-                code_column: clean_code,
-                desc_column: clean_desc,
-            }
+    payload = {
+        code_column: clean_code,
+        desc_column: clean_desc,
+    }
 
-            # Preserve common required/default master fields only when those
-            # columns really exist.
-            if "stn_status" in available_columns:
-                payload["stn_status"] = "Required"
-            if "material_of" in available_columns:
-                payload["material_of"] = "Indus"
+    # Fill common fields only when they really exist in item_master.
+    if "stn_status" in available_columns:
+        payload["stn_status"] = "Required"
+    if "material_of" in available_columns:
+        payload["material_of"] = "Indus"
 
-            supabase.table(table_name).insert(payload).execute()
-            get_item_master_details.clear()
-            return table_name
+    try:
+        supabase.table(table_name).insert(payload).execute()
+    except Exception as exc:
+        raise RuntimeError(f"item_master me Item save nahi hua: {exc}")
 
-        except ValueError:
-            raise
-        except Exception as exc:
-            last_error = exc
-            continue
+    # Verify that the FK parent row really exists before allowing template save.
+    try:
+        verify = (
+            supabase.table(table_name)
+            .select("*")
+            .eq(code_column, clean_code)
+            .limit(1)
+            .execute().data or []
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Item save verification nahi hua: {exc}")
 
-    raise RuntimeError(
-        "JMS ka writable Item Master table/description column detect nahi hua. "
-        f"Last error: {last_error}"
-    )
+    if not verify:
+        raise RuntimeError(
+            f"{clean_code} item_master me verify nahi hua. Template me add nahi kiya gaya."
+        )
+
+    get_item_master_details.clear()
+    return table_name
 
 
 # --- TEAM MASTER HELPERS ---
@@ -1536,7 +1553,7 @@ def template_manager_dialog():
                     st.session_state["jmspage_popup_items"] = rows
 
                 st.session_state["jmspage_popup_gen"] = gen + 1
-                st.success(f"✅ {_clean_text(new_master_code)} master me save ho gaya aur template me add ho gaya.")
+                st.success(f"✅ {_clean_text(new_master_code)} item_master me save ho gaya aur template me add ho gaya.")
                 st.rerun()
             except Exception as exc:
                 st.error(str(exc))
