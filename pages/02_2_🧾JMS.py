@@ -1120,30 +1120,35 @@ def jms_dialog(row_data):
     with st.expander("📋 Saved template use karein / current items template me save karein"):
         templates = fetch_jms_templates_cached(workspace)
         template_ids = {str(t["id"]): t for t in templates}
-        def _keep_jms_dialog_open():
-            # Template/selectbox interaction triggers a rerun.
-            # Preserve both the URL marker and current open-row state.
-            st.query_params["jms_ctx"] = "open"
-            if st.session_state.get("jmspage_open_row") is None:
-                st.session_state.jmspage_open_row = row_data
+        template_choice_key = f"jmspage_template_choice_{active_key}"
 
-        chosen_id = st.selectbox(
-            "Template", [""] + list(template_ids),
-            format_func=lambda tid: "-- Template select karein --" if not tid else template_ids[tid]["name"],
-            key=f"jmspage_template_choice_{active_key}",
-            on_change=_keep_jms_dialog_open)
-        if chosen_id:
-            st.caption(f"{len(template_ids[chosen_id].get('line_items') or [])} items. Load karne par editor me template ke sabhi items aur blank Qty aayegi. Current unsaved lines replace hongi.")
-        if st.button("📥 Apply template", disabled=not chosen_id,
-                     key=f"jmspage_template_apply_{active_key}"):
-            st.session_state.jmspage_lines = _template_lines(
-                template_ids[chosen_id].get("line_items") or [])
-            st.session_state.jmspage_last_pdf = None
-            st.session_state.jmspage_add_gen += 1
-            # Explicitly preserve popup context before rerun.
+        def _auto_load_selected_template():
+            # Template select karte hi uske saare items editor me turant load honge.
+            # Qty/Remarks template se inherit nahi honge; _template_lines() unhe blank rakhta hai.
+            selected_template_id = st.session_state.get(template_choice_key, "")
+            if selected_template_id and selected_template_id in template_ids:
+                st.session_state.jmspage_lines = _template_lines(
+                    template_ids[selected_template_id].get("line_items") or []
+                )
+                st.session_state.jmspage_last_pdf = None
+                st.session_state.jmspage_add_gen += 1
+
+            # Selectbox rerun ke baad JMS popup open hi rehna chahiye.
             st.session_state.jmspage_open_row = row_data
             st.query_params["jms_ctx"] = "open"
-            st.rerun()
+
+        chosen_id = st.selectbox(
+            "Template",
+            [""] + list(template_ids),
+            format_func=lambda tid: "-- Template select karein --" if not tid else template_ids[tid]["name"],
+            key=template_choice_key,
+            on_change=_auto_load_selected_template,
+        )
+
+        if chosen_id:
+            loaded_count = len(template_ids[chosen_id].get("line_items") or [])
+            st.success(f"✅ {template_ids[chosen_id]['name']} template selected — {loaded_count} items editor me load ho gaye.")
+            st.caption("Qty blank rahegi. Aap Qty/Remark fill karke JMS save/download kar sakte hain.")
         template_name = st.text_input("Current JMS items ko template naam se save karein",
                                       key=f"jmspage_template_name_{active_key}")
         if st.button("💾 Save as new template", key=f"jmspage_template_save_{active_key}"):
