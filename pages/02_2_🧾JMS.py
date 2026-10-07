@@ -763,6 +763,49 @@ def validate_template_items_in_item_master(lines):
     return missing
 
 
+def add_all_missing_items_to_item_master(lines):
+    """
+    Add every missing template Item Code to item_master in one action.
+    Uses each editor row's description. Blank-description items are skipped
+    and reported so bad master rows are not created.
+    """
+    # Keep first useful description per code.
+    wanted = {}
+    for line in lines:
+        item_code = _clean_text(line.get("item_code"))
+        item_description = _clean_text(line.get("item_description"))
+        if item_code:
+            if item_code not in wanted or len(item_description) > len(wanted[item_code]):
+                wanted[item_code] = item_description
+
+    if not wanted:
+        return {"added": [], "already": [], "skipped": []}
+
+    missing = set(validate_template_items_in_item_master(
+        [{"item_code": c} for c in wanted]
+    ))
+    already = [c for c in wanted if c not in missing]
+    added = []
+    skipped = []
+
+    for item_code in wanted:
+        if item_code not in missing:
+            continue
+
+        item_description = wanted[item_code]
+        if not item_description:
+            skipped.append(item_code)
+            continue
+
+        # Reuse the strict single-item function. It writes only to item_master
+        # and verifies the FK parent row before returning.
+        add_item_to_master(item_code, item_description)
+        added.append(item_code)
+
+    get_item_master_details.clear()
+    return {"added": added, "already": already, "skipped": skipped}
+
+
 # --- TEAM MASTER HELPERS ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_team_names_cached():
@@ -1549,6 +1592,63 @@ def template_manager_dialog():
                 row["item_description"] = _clean_text(match.get("description"))
 
     st.session_state["jmspage_popup_items"] = changed_rows
+
+    # ------------------------------------------------------------
+    # ONE-CLICK: add every missing template item to item_master
+    # ------------------------------------------------------------
+    current_missing_codes = []
+    try:
+        current_missing_codes = validate_template_items_in_item_master(changed_rows)
+    except Exception as exc:
+        st.error(f"item_master check nahi hua: {exc}")
+
+    if current_missing_codes:
+        st.markdown(
+            f"""
+            <div style="padding:12px 14px;margin:8px 0 10px 0;border-radius:12px;
+                        background:#fff7ed;border:1px solid #fdba74;">
+                <div style="font-weight:900;color:#9a3412;">
+                    ⚠️ {len(current_missing_codes)} Item Code item_master me missing hain
+                </div>
+                <div style="font-size:.82rem;color:#7c2d12;margin-top:3px;">
+                    Ek click me sabhi missing items master me add kar sakte hain.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if st.button(
+            f"➕ Add All {len(current_missing_codes)} Missing Items to Master",
+            type="primary",
+            use_container_width=True,
+            key=f"jmspage_add_all_missing_{workspace}_{selection}_{gen}",
+        ):
+            try:
+                result = add_all_missing_items_to_item_master(changed_rows)
+                added_count = len(result["added"])
+                skipped = result["skipped"]
+
+                fetch_jms_templates_cached.clear()
+                get_item_master_details.clear()
+
+                if added_count:
+                    st.success(f"✅ {added_count} missing Item Code item_master me add ho gaye.")
+                if skipped:
+                    st.warning(
+                        "In Item Codes ki Description blank hai, isliye add nahi kiye: "
+                        + ", ".join(skipped)
+                    )
+
+                # Keep popup data intact and refresh FK status.
+                st.session_state["jmspage_popup_items"] = changed_rows
+                st.session_state["jmspage_popup_gen"] = gen + 1
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Missing items master me add nahi hue: {exc}")
+    else:
+        if changed_rows:
+            st.success("✅ Template ke sabhi Item Codes item_master me available hain.")
 
     # New Item Code can be created in Supabase master from this same popup.
     with st.expander("➕ Item Code master me nahi hai? Yahin Add karein", expanded=False):
