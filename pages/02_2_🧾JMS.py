@@ -622,6 +622,57 @@ def get_item_master_details():
     return mapping
 
 
+def add_item_to_master(item_code, item_description):
+    """Add a new Item Code directly from Template popup into the JMS Item Code master."""
+    clean_code = _clean_text(item_code)
+    clean_desc = _clean_text(item_description)
+
+    if not clean_code:
+        raise ValueError("Item Code required hai.")
+    if not clean_desc:
+        raise ValueError("Item Description required hai.")
+
+    # JMS already reads its primary master from these tables in this order.
+    # Save to the first available master table, preferring the existing "Item Code" table.
+    last_error = None
+    for table_name in ("Item Code", "item_code", "item_master"):
+        try:
+            # Check duplicate first.
+            existing = (
+                supabase.table(table_name)
+                .select("*")
+                .eq("item_code", clean_code)
+                .limit(1)
+                .execute().data or []
+            )
+            if existing:
+                raise ValueError(f"Item Code {clean_code} already master me available hai.")
+
+            # Existing deployments can use different description column names.
+            # Try the common schemas without changing any existing table/logic.
+            payloads = [
+                {"item_code": clean_code, "item_description": clean_desc},
+                {"item_code": clean_code, "description": clean_desc},
+                {"item_code": clean_code, "Item Description": clean_desc},
+            ]
+            insert_error = None
+            for payload in payloads:
+                try:
+                    supabase.table(table_name).insert(payload).execute()
+                    get_item_master_details.clear()
+                    return table_name
+                except Exception as exc:
+                    insert_error = exc
+            last_error = insert_error
+        except ValueError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    raise RuntimeError(f"Item master me save nahi hua: {last_error}")
+
+
 # --- TEAM MASTER HELPERS ---
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_team_names_cached():
@@ -1408,6 +1459,48 @@ def template_manager_dialog():
                 row["item_description"] = _clean_text(match.get("description"))
 
     st.session_state["jmspage_popup_items"] = changed_rows
+
+    # New Item Code can be created in Supabase master from this same popup.
+    with st.expander("➕ Item Code master me nahi hai? Yahin Add karein", expanded=False):
+        nm1, nm2 = st.columns([1.2, 2.8])
+        with nm1:
+            new_master_code = st.text_input(
+                "NEW ITEM CODE",
+                key=f"jmspage_new_master_code_{workspace}",
+                placeholder="Item Code"
+            )
+        with nm2:
+            new_master_desc = st.text_input(
+                "ITEM DESCRIPTION",
+                key=f"jmspage_new_master_desc_{workspace}",
+                placeholder="Item Description"
+            )
+
+        if st.button(
+            "➕ Save Item to Master",
+            type="primary",
+            use_container_width=True,
+            key=f"jmspage_save_master_item_{workspace}",
+        ):
+            try:
+                saved_table = add_item_to_master(new_master_code, new_master_desc)
+
+                # Also add the newly created item directly into the current template editor.
+                rows = changed.to_dict("records")
+                present = {_clean_text(r.get("item_code")).casefold() for r in rows}
+                if _clean_text(new_master_code).casefold() not in present:
+                    rows.append({
+                        "item_code": _clean_text(new_master_code),
+                        "item_description": _clean_text(new_master_desc),
+                        "qty": "",
+                    })
+                    st.session_state["jmspage_popup_items"] = rows
+
+                st.session_state["jmspage_popup_gen"] = gen + 1
+                st.success(f"✅ {_clean_text(new_master_code)} master me save ho gaya aur template me add ho gaya.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
     add1, add2 = st.columns([4, 1])
     with add1:
