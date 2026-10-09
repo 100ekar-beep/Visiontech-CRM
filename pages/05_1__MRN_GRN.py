@@ -576,29 +576,16 @@ def fetch_po_line_items(po_no, site_id, proj_id):
             )
             return pd.DataFrame()
 
-        s_target = _clean_number(site_id) if str(site_id).strip() != "" else str(site_id).strip().lower()
-        p_target = str(proj_id).strip().lower()
-
-        mask = pd.Series([False] * len(df_filtered), index=df_filtered.index)
-        filter_applied = False
-
-        if site_col and str(site_id).strip() != "":
-            df_filtered['clean_site'] = df_filtered[site_col].apply(_clean_number)
-            mask = mask | (df_filtered['clean_site'] == s_target)
-            filter_applied = True
-
-        if proj_col and p_target != "":
-            df_filtered['clean_proj'] = df_filtered[proj_col].astype(str).str.strip().str.lower()
-            df_filtered['clean_proj'] = df_filtered['clean_proj'].str.replace(r'\.0$', '', regex=True)
-            mask = mask | (df_filtered['clean_proj'] == p_target)
-            filter_applied = True
-
-        if filter_applied:
-            final_df = df_filtered[mask].copy()
-            if final_df.empty:
-                final_df = df_filtered.copy()
-        else:
-            final_df = df_filtered.copy()
+        # STRICT: PO belongs to this exact Project ID, never merely to the Site ID.
+        if not proj_col or not str(proj_id).strip():
+            st.error("Project ID / Project Name column missing in PO Working. MRN blocked.")
+            return pd.DataFrame()
+        p_target = _clean_code_for_db(proj_id).strip().casefold()
+        project_values = df_filtered[proj_col].apply(lambda v: _clean_code_for_db(v).strip().casefold())
+        final_df = df_filtered[project_values == p_target].copy()
+        if final_df.empty:
+            st.warning(f"PO {po_no} is not assigned to Project ID {proj_id} in PO Working. Skipped.")
+            return pd.DataFrame()
 
         used_map = fetch_mrn_used_qty_map(po_no, ws, proj_id)
 
@@ -755,35 +742,19 @@ def add_mrn_dialog():
         site_status = proj_data.get("Site Status", "")
         team_name = proj_data.get("Team Name", "")
         
-        po_str = str(proj_data.get("PO No.", ""))
-        if po_str and po_str.lower() != "nan":
-            po_list = [p.strip() for p in po_str.split(",") if p.strip()]
-            
+        # STRICT: derive selectable POs only from PO Working's exact Project Name.
+        # Site Data PO No. may be stale or shared across projects; do not trust it.
         ws_act = active_mrn_company()
-        try:
-            all_po_data = get_unlimited_po_working(ws_act)
-            p_target = str(selected_proj).strip().lower()
-            s_target = str(site_id).strip().lower()
-            
-            for row in all_po_data:
-                match = False
-                
-                pn_val = str(row.get("Project Name", "")).strip().lower()
-                if pn_val.endswith(".0"): pn_val = pn_val[:-2]
-                if pn_val == p_target: match = True
-                
-                sid_val = str(row.get("Site ID", "")).strip().lower()
-                if sid_val.endswith(".0"): sid_val = sid_val[:-2]
-                if s_target and sid_val == s_target: match = True
-                
-                if match:
-                    pn = str(row.get("PO Number", "")).strip()
-                    if pn.endswith(".0"): pn = pn[:-2]
-                    if pn and pn.lower() != "nan" and pn not in po_list:
-                        po_list.append(pn)
-        except Exception as e:
-            pass
-        
+        all_po_data = get_unlimited_po_working(ws_act)
+        p_target = _clean_code_for_db(selected_proj).strip().casefold()
+        for row in all_po_data:
+            row_project = _clean_code_for_db(row.get("Project Name", "")).strip().casefold()
+            if not p_target or row_project != p_target:
+                continue
+            pn = _clean_number(row.get("PO Number", ""))
+            if pn and pn not in po_list:
+                po_list.append(pn)
+
         team_percent = fetch_team_percentage(team_name)
 
     c1, c2, c3 = st.columns(3)
@@ -1092,6 +1063,34 @@ def add_mrn_dialog():
                 st.error("⚠️ Team Name is required! Please assign a team to this project in Site Data before generating MRN.")
                 return
                 
+            # Revalidate against fresh database rows before writing anything.
+            try:
+                valid_pos_now = set()
+                offset = 0
+                while True:
+                    result = (supabase.table("po_working")
+                              .select('"PO Number","Project Name"')
+                              .eq("workspace", active_mrn_company())
+                              .range(offset, offset + 999).execute())
+                    batch = result.data or []
+                    for rec in batch:
+                        if (_clean_code_for_db(rec.get("Project Name", "")).strip().casefold()
+                                == _clean_code_for_db(selected_proj).strip().casefold()):
+                            valid_pos_now.add(_clean_number(rec.get("PO Number", "")))
+                    if len(batch) < 1000:
+                        break
+                    offset += len(batch)
+                invalid_pos = [po for po in selected_pos if _clean_number(po) not in valid_pos_now]
+                if invalid_pos:
+                    st.error(f"❌ Wrong Project ID PO blocked: {', '.join(invalid_pos)}. Refresh and select again.")
+                    return
+                if any(po not in all_po_dfs for po in selected_pos):
+                    st.error("❌ Selected PO lines could not be verified. MRN blocked.")
+                    return
+            except Exception as verify_error:
+                st.error(f"❌ PO ownership verification failed; MRN blocked: {verify_error}")
+                return
+
             valid_extra_items = [x for x in extra_items_to_save if x["Item Code"] and x["User Qty"] > 0]
             if not selected_pos and not valid_extra_items:
                 st.error("⚠️ Please select at least one PO or add one Extra Item with Qty greater than 0.")
