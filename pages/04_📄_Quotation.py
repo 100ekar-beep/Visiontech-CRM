@@ -1332,13 +1332,40 @@ if st.session_state.get("quotation_item_saved"):
 if st.button("➕ Add New Item", key="quotation_add_master_item"):
     add_master_item_dialog()
 
-quotation_section = st.radio(
-    "Quotation Setup", ["📄 Quotation List", "📋 Quotation Templates"],
-    horizontal=True, key="quotation_setup_section", label_visibility="collapsed"
-)
-if quotation_section == "📋 Quotation Templates":
+# Templates are managed directly on this same Quotation page.
+# Existing template dialog retains Add/Edit/Save and item-master integrations.
+with st.expander("📋 QUOTATION TEMPLATES — Add / Edit Template & Line Items", expanded=True):
+    st.caption("Yahin template banayein, line items add/edit karein aur saved items dekhein. Separate Template page ki zarurat nahi.")
     render_quotation_templates()
-    st.stop()
+
+    st.markdown("#### 🔎 Saved Template Line Items")
+    _inline_templates = fetch_templates()
+    if _inline_templates.empty:
+        st.info("Abhi koi quotation template nahi mila. Upar Add Template dabayein.")
+    else:
+        _inline_records = _inline_templates.to_dict("records")
+        _inline_labels = [
+            f"{r.get('Template Name', 'Unnamed')}  |  {r.get('workspace') or 'Common'}  |  ID {r.get('id', i)}"
+            for i, r in enumerate(_inline_records)
+        ]
+        _inline_selected = st.selectbox("Template choose karke uske saare items dekhein", _inline_labels, key="quotation_inline_template_preview")
+        _inline_row = _inline_records[_inline_labels.index(_inline_selected)]
+        _raw_items = _inline_row.get("Items Data") or []
+        try:
+            _line_items = json.loads(_raw_items) if isinstance(_raw_items, str) else _raw_items
+            if not isinstance(_line_items, list):
+                _line_items = []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            _line_items = []
+        if _line_items:
+            _view_df = pd.DataFrame(_line_items)
+            _view_cols = [c for c in ("Item Code", "Description", "Qty", "Price") if c in _view_df.columns]
+            st.dataframe(_view_df[_view_cols] if _view_cols else _view_df, use_container_width=True, hide_index=True, height=min(450, 45 + 36 * len(_line_items)))
+            st.caption(f"Total {len(_line_items)} line items. Edit ke liye upar template row ka ⚙️ button dabayein.")
+        else:
+            st.warning("Is template mein koi saved line item nahi hai. ⚙️ Edit Template se add karein.")
+
+st.divider()
 
 # --- 7. TOP HEADER & FILTERS ---
 if st.session_state.get("quo_bulk_results"):
