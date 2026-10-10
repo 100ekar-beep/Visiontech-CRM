@@ -347,12 +347,51 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 🛑 --- STRICT SECURITY GATE FOR VISPL / BHAGYASHREE ONLY --- 🛑
-if st.session_state.get('active_workspace', 'VISPL') == 'RAJKUMAR KALYA':
-    st.error("🚫 **Access Restricted!**")
-    st.warning("Ye module exclusively **VISPL** aur **BHAGYASHREE** workspaces ke liye available hai.")
-    st.info("💡 Kripya 'Home' page (app.py) par ja kar apna Master Workspace change karein.")
-    st.stop()
+# --- COMPANY SWITCHER: same shared workspace mapping as JMS ---
+SITE_COMPANIES = [
+    ("VISPL", "VISPL"),
+    ("Bhagyashree", "Bhagyashree"),
+    ("Sai Tele", "Sai Tele"),
+]
+SITE_COMPANY_WORKSPACE_MAP = {
+    "VISPL": "VISPL",
+    "Bhagyashree": "BHAGYASHREE",
+    "Sai Tele": "SAI TELE SERVICES",
+}
+
+# Respect the workspace already selected on Home/JMS/Site Data.
+current_ws = str(st.session_state.get("active_workspace", "VISPL")).strip().upper()
+if "site_active_company" not in st.session_state or (
+    SITE_COMPANY_WORKSPACE_MAP.get(st.session_state.site_active_company, "").upper() != current_ws
+):
+    st.session_state.site_active_company = next(
+        (name for name, ws in SITE_COMPANY_WORKSPACE_MAP.items() if ws.upper() == current_ws),
+        "VISPL",
+    )
+st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[st.session_state.site_active_company]
+
+st.markdown("""
+<style>
+.st-key-quotation_company_nav_bar div[data-testid="stHorizontalBlock"] {gap:12px !important;}
+.st-key-quotation_company_nav_bar button {font-weight:800 !important; border-radius:12px !important; min-height:50px !important;}
+.st-key-quotation_company_nav_bar button[kind="primary"] {background:linear-gradient(90deg,#3b82f6,#8b5cf6) !important; color:white !important;}
+.st-key-quotation_company_nav_bar button[kind="secondary"] {background:white !important; color:#475569 !important; border:1px solid #cbd5e1 !important;}
+</style>
+""", unsafe_allow_html=True)
+
+with st.container(key="quotation_company_nav_bar"):
+    nav_cols = st.columns(3)
+    for nav_col, (company_id, company_label) in zip(nav_cols, SITE_COMPANIES):
+        with nav_col:
+            if st.button(
+                company_label,
+                key=f"quotation_nav_{company_id}",
+                use_container_width=True,
+                type="primary" if st.session_state.site_active_company == company_id else "secondary",
+            ):
+                st.session_state.site_active_company = company_id
+                st.session_state.active_workspace = SITE_COMPANY_WORKSPACE_MAP[company_id]
+                st.rerun()
 
 # --- TOP SINGLE WORKSPACE BANNER ---
 active_ws_display = st.session_state.get('active_workspace', 'VISPL')
