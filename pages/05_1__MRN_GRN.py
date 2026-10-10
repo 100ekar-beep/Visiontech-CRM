@@ -666,7 +666,7 @@ def edit_mrn_dialog(row_data):
         st.error(f"Billing status could not be verified; editing blocked: {exc}")
         return
     if billed:
-        st.error("This MRN already has a billing invoice. Editing is locked to prevent mismatch. Reverse/correct the invoice through your billing workflow first.")
+        st.error("This MRN already has an approved billing invoice. Re-approval requires the Team Billing approval workflow and schema; do not remove this lock until those are connected.")
         return
 
     def money(v):
