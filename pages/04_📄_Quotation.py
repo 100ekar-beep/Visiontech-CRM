@@ -431,26 +431,26 @@ def fetch_item_master():
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _fetch_templates_cached(active_ws):
+    """Show saved templates across VISPL/Bhagyshree workspaces.
+    Templates are reusable; quotation records remain workspace-specific.
+    """
     try:
-        res = supabase.table("quotation_templates").select("*").eq("workspace", active_ws).execute()
-        
-        # Fallback if old data doesn't have workspace
-        if not res.data:
-            res = supabase.table("quotation_templates").select("*").is_("workspace", "null").execute()
-            
-        if res.data:
-            return pd.DataFrame(res.data)
+        all_rows = []
+        offset = 0
+        while True:
+            response = (supabase.table("quotation_templates")
+                        .select("*")
+                        .range(offset, offset + 499).execute())
+            batch = response.data or []
+            all_rows.extend(batch)
+            if len(batch) < 500:
+                break
+            offset += 500
+        if all_rows:
+            return pd.DataFrame(all_rows)
     except Exception as e:
-        # FIX: Agar database me workspace column nahi hai toh bina workspace ke fetch karega
-        error_str = str(e)
-        if 'PGRST204' in error_str or 'workspace' in error_str:
-            try:
-                res_fallback = supabase.table("quotation_templates").select("*").execute()
-                if res_fallback.data:
-                    return pd.DataFrame(res_fallback.data)
-            except Exception:
-                pass
-    return pd.DataFrame(columns=["id", "Template Name", "Items Data"])
+        st.warning(f"Quotation templates could not be loaded: {e}")
+    return pd.DataFrame(columns=["id", "Template Name", "Items Data", "workspace"])
 
 def fetch_templates():
     return _fetch_templates_cached(st.session_state.get('active_workspace', 'VISPL'))
@@ -529,7 +529,18 @@ else:
     display_to_price = {}
 
 templates_data = fetch_quotation_templates()
-template_names = [t["Template Name"] for t in templates_data]
+# Workspace label avoids collisions when different companies have same template name.
+template_lookup = {}
+for i, template in enumerate(templates_data):
+    name = str(template.get("Template Name") or "").strip()
+    if not name:
+        continue
+    ws = str(template.get("workspace") or "Shared").strip()
+    label = f"{name} ({ws})"
+    if label in template_lookup:
+        label = f"{label} [#{template.get('id', i)}]"
+    template_lookup[label] = template
+template_names = list(template_lookup.keys())
 
 # --- 5. INITIALIZE SESSION STATE ---
 st.session_state.quotations_df = fetch_quotations()
@@ -644,7 +655,7 @@ def quotation_dialog(quotation_data=None):
 
     if selected_template and selected_template != "-- Select Template --":
         for t in templates_data:
-            if t["Template Name"] == selected_template:
+            if t is template_lookup.get(selected_template):
                 try:
                     raw_items = json.loads(t["Items Data"]) if isinstance(t["Items Data"], str) else t["Items Data"]
                     loaded_rows = []
