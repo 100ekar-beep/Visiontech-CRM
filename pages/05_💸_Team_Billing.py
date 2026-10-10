@@ -394,6 +394,33 @@ def init_connection():
 
 supabase: Client = init_connection()
 
+# --- SHARED MRN APPROVAL VALIDATION ---
+def approve_pending_mrn(pending_id, workspace):
+    rows = (supabase.table("pending_billing_invoices").select("*")
+            .eq("id", pending_id).eq("workspace", workspace).limit(1).execute()).data or []
+    if not rows:
+        raise ValueError("Pending MRN not found; refresh the page")
+    payload = dict(rows[0])
+    number = str(payload.get("invoice_no") or "").strip()
+    if not number:
+        raise ValueError("MRN number missing")
+    existing = (supabase.table("billing_invoices").select("id")
+                .eq("workspace", workspace).eq("invoice_no", number).limit(1).execute()).data or []
+    if existing:
+        raise ValueError("Invoice already exists; duplicate approval blocked")
+    items = fetch_mrn_items(number, workspace)
+    if items:
+        amount = round(sum(float(item.get("Total") or 0) for item in items), 2)
+        pending = round(float(payload.get("basic_amount") or 0), 2)
+        if abs(amount - pending) > 0.01:
+            raise ValueError(f"MRN lines {amount} != pending amount {pending}")
+    payload.pop("id", None)
+    supabase.table("billing_invoices").insert(payload).execute()
+    supabase.table("pending_billing_invoices").delete().eq("id", pending_id).eq("workspace", workspace).execute()
+    fetch_billing_invoices_cached.clear()
+    fetch_pending_mrn_cached.clear()
+    return number
+
 # --- INTERAKT WHATSAPP API SETUP ---
 INTERAKT_API_KEY = "S2pFcE5ETjE2NDhiQ1VIMEFjMVA5a3ZwdHB6X0diYXpRM2I2SWRxbGJWYzo="
 
@@ -2496,16 +2523,7 @@ elif st.session_state.billing_active_page == "mrn":
                             failure = None
                             for rid in confirm_ids:
                                 try:
-                                    # Refetch each pending row in the active workspace before moving it.
-                                    fresh = (supabase.table("pending_billing_invoices").select("*")
-                                             .eq("id", rid).eq("workspace", active_ws).execute())
-                                    if not fresh.data:
-                                        raise ValueError("Pending MRN no longer exists in this workspace")
-                                    full_row = dict(fresh.data[0])
-                                    full_row.pop("id", None)
-                                    supabase.table("billing_invoices").insert(full_row).execute()
-                                    (supabase.table("pending_billing_invoices").delete()
-                                     .eq("id", rid).eq("workspace", active_ws).execute())
+                                    approve_pending_mrn(rid, active_ws)
                                     st.session_state[mrn_keys[rid]] = False
                                     approved += 1
                                 except Exception as e:
@@ -2551,10 +2569,7 @@ elif st.session_state.billing_active_page == "mrn":
                             with bc1:
                                 if st.button("✅ Approve", key=f"mrnc_app_{rid}", type="primary", use_container_width=True):
                                     try:
-                                        full_row = dict(row_dict)
-                                        full_row.pop("id", None)
-                                        supabase.table("billing_invoices").insert(full_row).execute()
-                                        supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                        approve_pending_mrn(rid, active_ws)
                                         st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
                                         fetch_billing_invoices_cached.clear()
                                         fetch_pending_mrn_cached.clear()
@@ -2596,10 +2611,7 @@ elif st.session_state.billing_active_page == "mrn":
                                 with rcols[1]:
                                     if st.button("✅", key=f"mrn_app_{rid}", help="Approve MRN"):
                                         try:
-                                            full_row = dict(row_dict)
-                                            full_row.pop("id", None)
-                                            supabase.table("billing_invoices").insert(full_row).execute()
-                                            supabase.table("pending_billing_invoices").delete().eq("id", rid).execute()
+                                            approve_pending_mrn(rid, active_ws)
                                             st.success("✅ MRN Approved and Moved to Main Billing Ledger!")
                                             fetch_billing_invoices_cached.clear()
                                             fetch_pending_mrn_cached.clear()
