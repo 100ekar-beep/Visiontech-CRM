@@ -642,68 +642,160 @@ def delete_mrn_dialog(rid, mrn_no):
             except Exception as e:
                 st.error(f"❌ Error Deleting Record: {e}")
 
-@st.dialog("✏️ Edit MRN Details", width="large")
+@st.dialog("✏️ Edit MRN — Qty / Add / Delete", width="large")
 def edit_mrn_dialog(row_data):
-    mrn_no = row_data.get("MRN Number", "")
-    st.caption(f"Editing MRN: {mrn_no} (Amounts & Items are auto-linked with Billing and cannot be changed here)")
-    
-    st.markdown('<div class="modal-section-title">🏢 MRN HEADER</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    with c1: st.text_input("MRN NUMBER", value=mrn_no, disabled=True)
-    with c2: st.text_input("PROJECT ID", value=row_data.get("Project ID", ""), disabled=True)
-    with c3: st.text_input("SITE ID", value=row_data.get("Site ID", ""), disabled=True)
-    
-    c4, c5, c6 = st.columns(3)
-    with c4: st.text_input("TEAM NAME", value=row_data.get("Team Name", ""), disabled=True)
-    with c5:
-        _basic_v = pd.to_numeric(row_data.get('Basic Amount', 0), errors='coerce')
-        st.text_input("BASIC AMOUNT", value=f"₹ {(0 if pd.isna(_basic_v) else _basic_v):,.2f}", disabled=True)
-    with c6:
-        st.text_input("TEAM RATE %", value=f"{row_data.get('Team Percent', 100)} %", disabled=True)
-
-    c_date, c_desc = st.columns([1, 2])
-    with c_date:
-        def_date_str = row_data.get("Date", str(datetime.date.today().strftime("%d-%m-%Y")))
-        try:
-            def_date = pd.to_datetime(def_date_str, format="%d-%m-%Y").date()
-        except:
-            def_date = datetime.date.today()
-        new_date = st.date_input("DATE", value=def_date, format="DD/MM/YYYY")
-    with c_desc:
-        st.text_area("DESCRIPTION / REMARKS", value=row_data.get("Description", ""), disabled=True, height=68)
-        
-    st.markdown('<div class="modal-section-title">📦 MRN LINE ITEMS (READ-ONLY)</div>', unsafe_allow_html=True)
+    ws = active_mrn_company()
+    mrn_no = str(row_data.get("MRN Number", ""))
+    project_id = str(row_data.get("Project ID", ""))
+    st.caption(f"MRN: {mrn_no} | Project: {project_id} | Company: {ws}")
+    st.info("Edit Qty/Price, tick Delete for unwanted lines, or add a new line. Changes are saved only after confirmation.")
     try:
-        res = supabase.table("mrn_items").select("*").eq("MRN Number", mrn_no).eq("workspace", active_mrn_company()).execute()
-        if res.data:
-            items_df = pd.DataFrame(res.data)
-            display_cols = []
-            for col in ['PO Number', 'Item Code', 'Description', 'User Qty', 'Adjusted Price', 'Total']:
-                if col in items_df.columns:
-                    display_cols.append(col)
-            st.dataframe(items_df[display_cols], hide_index=True, use_container_width=True)
-        else:
-            st.info("No line items found for this MRN.")
-    except Exception:
-        st.info("Could not fetch line items.")
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_save1, col_save2 = st.columns([8, 2])
-    with col_save2:
-        if st.button("💾 Update MRN", type="primary", use_container_width=True):
-            new_date_str = new_date.strftime("%d-%m-%Y")
-            new_bill_date_str = str(new_date)
-            try:
-                ws = active_mrn_company()
-                supabase.table("mrn_data").update({"Date": new_date_str}).eq("id", row_data["id"]).eq("workspace", ws).execute()
-                supabase.table("pending_billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
-                supabase.table("billing_invoices").update({"date": new_bill_date_str}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
-                
-                st.success("✅ MRN Date Updated Successfully!")
-                fetch_mrn_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error Updating MRN: {e}")
+        existing = (supabase.table("mrn_items").select("*")
+                    .eq("MRN Number", mrn_no).eq("workspace", ws).execute()).data or []
+    except Exception as exc:
+        st.error(f"Unable to load MRN items: {exc}")
+        return
+    if not existing:
+        st.warning("No existing lines found. You may add a new item below.")
+
+    # Do not silently change invoices that have already entered billing.
+    try:
+        billed = (supabase.table("billing_invoices").select("invoice_no")
+                  .eq("invoice_no", mrn_no).eq("workspace", ws).limit(1).execute()).data or []
+    except Exception as exc:
+        st.error(f"Billing status could not be verified; editing blocked: {exc}")
+        return
+    if billed:
+        st.error("This MRN already has a billing invoice. Editing is locked to prevent mismatch. Reverse/correct the invoice through your billing workflow first.")
+        return
+
+    def money(v):
+        try:
+            n = float(v or 0)
+            return n if math.isfinite(n) else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    keybase = f"edit_mrn_{ws}_{mrn_no}_"
+    original_ids = {str(x.get("id")) for x in existing}
+    new_key = keybase + "new_count"
+    if new_key not in st.session_state:
+        st.session_state[new_key] = 0
+
+    st.markdown("#### Existing line items")
+    changes = []
+    for ix, item in enumerate(existing):
+        item_id = item.get("id")
+        with st.container(border=True):
+            st.caption(f"Line {ix+1} • PO: {item.get('PO Number', '')} • Code: {item.get('Item Code', '')}")
+            st.write(str(item.get("Description", "")))
+            c1, c2, c3 = st.columns([1, 1, 1])
+            with c1:
+                qty = st.number_input("Qty", min_value=0.0, value=money(item.get("User Qty")),
+                                      step=0.01, format="%.3f", key=keybase+f"qty_{item_id}")
+            with c2:
+                price = st.number_input("Adjusted Price ₹", min_value=0.0,
+                                        value=money(item.get("Adjusted Price")), step=0.01,
+                                        key=keybase+f"price_{item_id}")
+            with c3:
+                remove = st.checkbox("Delete line", key=keybase+f"del_{item_id}")
+            st.caption(f"Line Total: ₹ {0 if remove else qty*price:,.2f}")
+            changes.append({"id": item_id, "delete": remove, "qty": round(qty, 3),
+                            "price": price, "total": round(qty*price, 2), "old": item})
+
+    st.markdown("#### Add new line")
+    if st.button("➕ Add Item Line", key=keybase+"add"):
+        st.session_state[new_key] += 1
+        st.rerun()
+    lookup = fetch_item_lookup(ws)
+    choices = sorted([v["code"] for v in lookup.values()], key=str)
+    new_items = []
+    for n in range(st.session_state[new_key]):
+        with st.container(border=True):
+            st.caption(f"New line {n+1}")
+            cc1, cc2 = st.columns([2, 1])
+            with cc1:
+                code = st.selectbox("Item Code", [""] + choices, key=keybase+f"code_{n}")
+            with cc2:
+                po = st.text_input("PO Number (NON-PO if extra)", value="NON-PO", key=keybase+f"po_{n}")
+            info = lookup.get(str(code).strip().lower(), {})
+            desc = st.text_input("Description", value=str(info.get("description", "")),
+                                 key=keybase+f"desc_{n}")
+            nc1, nc2 = st.columns(2)
+            with nc1:
+                qty = st.number_input("New Qty", min_value=0.0, step=0.01,
+                                      key=keybase+f"newqty_{n}")
+            with nc2:
+                price = st.number_input("New Adjusted Price ₹", min_value=0.0, step=0.01,
+                                        value=money(info.get("price")) * money(row_data.get("Team Percent", 100))/100,
+                                        key=keybase+f"newprice_{n}")
+            if code and qty > 0:
+                new_items.append({"workspace": ws, "MRN Number": mrn_no,
+                                  "PO Number": po.strip() or "NON-PO", "Project ID": project_id,
+                                  "Item Code": _clean_code_for_db(code), "Description": desc.strip(),
+                                  "User Qty": round(qty, 3), "Adjusted Price": price,
+                                  "Total": round(qty*price, 2)})
+
+    final_total = round(sum(x["total"] for x in changes if not x["delete"]) +
+                        sum(x["Total"] for x in new_items), 2)
+    st.metric("Revised MRN Total", f"₹ {final_total:,.2f}")
+    if st.button("💾 Save MRN Changes", type="primary", use_container_width=True,
+                 key=keybase+"save"):
+        if final_total <= 0:
+            st.error("MRN must contain at least one positive-quantity line.")
+            return
+        if any(not x["delete"] and x["qty"] <= 0 for x in changes):
+            st.error("Qty zero hai: either enter a positive Qty or tick Delete line.")
+            return
+        if any(not x["delete"] and x["price"] <= 0 for x in changes) or any(x["Adjusted Price"] <= 0 for x in new_items):
+            st.error("All retained items must have a positive price.")
+            return
+        if any(not x["Description"] for x in new_items):
+            st.error("New line description is required.")
+            return
+        # Validate selected PO against this project's PO Working, never another project.
+        nonpo = {"NON-PO", ""}
+        po_codes = {(str(r.get("PO Number", "")).strip(),
+                     _clean_code_for_db(r.get("Item Num", "")).strip().lower())
+                    for r in get_unlimited_po_working(ws)
+                    if _clean_code_for_db(r.get("Project Name", "")).strip().casefold() == project_id.strip().casefold()}
+        for item in new_items:
+            if item["PO Number"].upper() not in nonpo and (item["PO Number"], item["Item Code"].lower()) not in po_codes:
+                st.error(f"PO / Item Code not matched to Project ID: {item['PO Number']} / {item['Item Code']}")
+                return
+        try:
+            latest = (supabase.table("mrn_items").select("id")
+                      .eq("MRN Number", mrn_no).eq("workspace", ws).execute()).data or []
+            if {str(x["id"]) for x in latest} != original_ids:
+                st.error("MRN lines changed in another session. Close and reopen editor.")
+                return
+            billed_now = (supabase.table("billing_invoices").select("invoice_no")
+                          .eq("invoice_no", mrn_no).eq("workspace", ws).limit(1).execute()).data or []
+            if billed_now:
+                st.error("MRN has now entered billing. Changes blocked.")
+                return
+            # Mutations are individual Supabase calls: errors must be surfaced, not hidden.
+            for x in changes:
+                q = supabase.table("mrn_items")
+                if x["delete"]:
+                    q.delete().eq("id", x["id"]).eq("workspace", ws).eq("MRN Number", mrn_no).execute()
+                else:
+                    q.update({"User Qty": x["qty"], "Adjusted Price": x["price"],
+                              "Total": x["total"]}).eq("id", x["id"]).eq("workspace", ws).eq("MRN Number", mrn_no).execute()
+            if new_items:
+                supabase.table("mrn_items").insert(new_items).execute()
+            saved = (supabase.table("mrn_items").select('"Total"')
+                     .eq("MRN Number", mrn_no).eq("workspace", ws).execute()).data or []
+            actual = round(sum(money(x.get("Total")) for x in saved), 2)
+            supabase.table("mrn_data").update({"Basic Amount": actual, "Total Amount": actual}).eq("id", row_data["id"]).eq("workspace", ws).execute()
+            supabase.table("pending_billing_invoices").update({"amount": actual, "basic_amount": actual}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
+            fetch_mrn_data.clear()
+            fetch_mrn_used_qty_map.clear()
+            st.session_state[new_key] = 0
+            st.success(f"MRN updated. Revised amount: ₹ {actual:,.2f}")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"MRN update incomplete: {exc}. Please verify MRN and billing before retrying.")
 
 @st.dialog("📦 Create New MRN / GRN", width="large")
 def add_mrn_dialog():
@@ -1495,7 +1587,7 @@ else:
                 with rcols[0]:
                     with st.container(key=f"mrnpop_{rk}"):
                         with st.popover("⚙️"):
-                            if st.button("✏️ Edit Date / View Items", key=f"edit_{rid}", use_container_width=True):
+                            if st.button("✏️ Edit MRN Lines / Qty", key=f"edit_{rid}", use_container_width=True):
                                 edit_mrn_dialog(row_dict)
                             if st.button("🗑️ Delete MRN & Auto-Bill", key=f"del_{rid}", use_container_width=True):
                                 delete_mrn_dialog(rid, mrn_no)
