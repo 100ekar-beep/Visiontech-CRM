@@ -658,16 +658,15 @@ def edit_mrn_dialog(row_data):
     if not existing:
         st.warning("No existing lines found. You may add a new item below.")
 
-    # Do not silently change invoices that have already entered billing.
+    # Billing re-approval is handled atomically by the Supabase RPC at save time.
     try:
-        billed = (supabase.table("billing_invoices").select("invoice_no")
+        billed = (supabase.table("billing_invoices").select("id")
                   .eq("invoice_no", mrn_no).eq("workspace", ws).limit(1).execute()).data or []
     except Exception as exc:
-        st.error(f"Billing status could not be verified; editing blocked: {exc}")
+        st.error(f"Billing status could not be verified: {exc}")
         return
     if billed:
-        st.error("This MRN already has an approved billing invoice. Re-approval requires the Team Billing approval workflow and schema; do not remove this lock until those are connected.")
-        return
+        st.warning("Approved invoice detected. Saving will move it back to Pending MRN Approval. Payments must be reconciled first.")
 
     def money(v):
         try:
@@ -769,30 +768,22 @@ def edit_mrn_dialog(row_data):
             if {str(x["id"]) for x in latest} != original_ids:
                 st.error("MRN lines changed in another session. Close and reopen editor.")
                 return
-            billed_now = (supabase.table("billing_invoices").select("invoice_no")
-                          .eq("invoice_no", mrn_no).eq("workspace", ws).limit(1).execute()).data or []
-            if billed_now:
-                st.error("MRN has now entered billing. Changes blocked.")
-                return
-            # Mutations are individual Supabase calls: errors must be surfaced, not hidden.
-            for x in changes:
-                q = supabase.table("mrn_items")
-                if x["delete"]:
-                    q.delete().eq("id", x["id"]).eq("workspace", ws).eq("MRN Number", mrn_no).execute()
-                else:
-                    q.update({"User Qty": x["qty"], "Adjusted Price": x["price"],
-                              "Total": x["total"]}).eq("id", x["id"]).eq("workspace", ws).eq("MRN Number", mrn_no).execute()
-            if new_items:
-                supabase.table("mrn_items").insert(new_items).execute()
-            saved = (supabase.table("mrn_items").select('"Total"')
-                     .eq("MRN Number", mrn_no).eq("workspace", ws).execute()).data or []
-            actual = round(sum(money(x.get("Total")) for x in saved), 2)
-            supabase.table("mrn_data").update({"Basic Amount": actual, "Total Amount": actual}).eq("id", row_data["id"]).eq("workspace", ws).execute()
-            supabase.table("pending_billing_invoices").update({"amount": actual, "basic_amount": actual}).eq("invoice_no", mrn_no).eq("workspace", ws).execute()
+            # Single database transaction: line edits, totals, and invoice re-approval.
+            # Requires the companion SQL function in MRN_Reapproval_SQL.sql.
+            result = supabase.rpc("revise_mrn_and_reapprove", {
+                "p_workspace": ws,
+                "p_mrn": mrn_no,
+                "p_mrn_id": row_data["id"],
+                "p_expected_ids": [int(v) for v in original_ids],
+                "p_changes": [{"id": x["id"], "delete": x["delete"],
+                               "qty": x["qty"], "price": x["price"]} for x in changes],
+                "p_new_items": new_items,
+            }).execute()
+            actual = float(result.data)
             fetch_mrn_data.clear()
             fetch_mrn_used_qty_map.clear()
             st.session_state[new_key] = 0
-            st.success(f"MRN updated. Revised amount: ₹ {actual:,.2f}")
+            st.success(f"MRN updated ₹ {actual:,.2f}. Invoice sent back for approval.")
             st.rerun()
         except Exception as exc:
             st.error(f"MRN update incomplete: {exc}. Please verify MRN and billing before retrying.")
