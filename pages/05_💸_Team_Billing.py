@@ -1151,11 +1151,64 @@ def vendor_invoice_dialog(row_data=None):
         </div>
     """, unsafe_allow_html=True)
     
+    # Cable FIFO Phase 1: invoice line detail (no automatic credits yet).
+    existing_lines = []
+    if not is_new:
+        try:
+            existing_lines = (supabase.table("cable_purchase_lines")
+                .select("id,item_code,description,material_type,quantity,purchase_rate,line_amount")
+                .eq("billing_invoice_id", row_data["id"]).order("id").execute().data or [])
+        except Exception as ex:
+            st.error(f"Material lines could not be loaded: {ex}")
+            return
+
+    with st.expander("📦 Material Items — Cable / Other Material", expanded=True):
+        st.caption("Add each material line. Cable enters FIFO purchase stock; Other remains normal Team Debit. "
+                   "GST/transport can remain in the invoice total, outside material lines.")
+        seed = [{"Material Type": x["material_type"], "Item Code": x["item_code"],
+                 "Description": x.get("description") or "", "Qty": float(x["quantity"]),
+                 "Rate": float(x["purchase_rate"])} for x in existing_lines]
+        if not seed:
+            seed = [{"Material Type": "OTHER", "Item Code": "", "Description": "", "Qty": 0.0, "Rate": 0.0}]
+        edited_lines = st.data_editor(
+            pd.DataFrame(seed), num_rows="dynamic", hide_index=True, use_container_width=True,
+            key=f"vendor_material_lines_{row_data['id'] if not is_new else 'new'}",
+            column_config={
+                "Material Type": st.column_config.SelectboxColumn("Material Type", options=["CABLE", "OTHER"], required=True),
+                "Item Code": st.column_config.TextColumn("Item Code"),
+                "Description": st.column_config.TextColumn("Description"),
+                "Qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
+                "Rate": st.column_config.NumberColumn("Purchase Rate", min_value=0.0, step=1.0),
+            })
+        clean_lines = []
+        line_errors = []
+        for idx, rr in edited_lines.iterrows():
+            code = str(rr.get("Item Code") or "").strip()
+            desc = str(rr.get("Description") or "").strip()
+            kind = str(rr.get("Material Type") or "OTHER").strip().upper()
+            qty = pd.to_numeric(rr.get("Qty"), errors="coerce")
+            rate = pd.to_numeric(rr.get("Rate"), errors="coerce")
+            if not code and not desc and (pd.isna(qty) or qty == 0) and (pd.isna(rate) or rate == 0):
+                continue
+            if not code or kind not in ("CABLE", "OTHER") or pd.isna(qty) or qty <= 0 or pd.isna(rate) or rate < 0:
+                line_errors.append(idx + 1)
+                continue
+            clean_lines.append({"item_code": code, "description": desc, "material_type": kind,
+                                "quantity": float(qty), "purchase_rate": float(rate),
+                                "line_amount": round(float(qty) * float(rate), 2)})
+        lines_total = sum(x["line_amount"] for x in clean_lines)
+        st.caption(f"Material lines subtotal: ₹{lines_total:,.2f} | Invoice Basic: ₹{safe_basic:,.2f} | "
+                   f"Unallocated basic (e.g. transport): ₹{safe_basic-lines_total:,.2f}")
+
     if st.button("💾 Save Vendor Invoice", type="primary", use_container_width=True):
         if not inv_no:
             st.error("⚠️ Invoice No is required!")
         elif is_duplicate:
             st.error("⚠️ Cannot Save! This invoice number already exists in CRM.")
+        elif line_errors:
+            st.error(f"⚠️ Invalid material lines: {line_errors}. Enter Item Code, Qty > 0 and Rate >= 0.")
+        elif lines_total > safe_basic + 0.01:
+            st.error("⚠️ Material lines total cannot exceed Invoice Basic Amount.")
         else:
             payload = {
                 "workspace": active_billing_workspace(),
@@ -1171,12 +1224,43 @@ def vendor_invoice_dialog(row_data=None):
                 "remark": remark
             }
             try:
+                # Do not allow stock history to be silently rewritten after FIFO usage.
+                if not is_new and existing_lines:
+                    purchase_ids = [x["id"] for x in existing_lines]
+                    for purchase_id in purchase_ids:
+                        used = (supabase.table("cable_fifo_allocations").select("id")
+                                .eq("purchase_line_id", purchase_id).limit(1).execute().data or [])
+                        if used:
+                            raise ValueError("FIFO consumed from this invoice. Reverse MRN allocations before editing it.")
+
+                invoice_id = None
                 if is_new:
-                    supabase.table("billing_invoices").insert(payload).execute()
+                    inserted = supabase.table("billing_invoices").insert(payload).execute()
+                    invoice_id = inserted.data[0]["id"]
                 else:
-                    supabase.table("billing_invoices").update(payload).eq("id", row_data["id"]).execute()
-                
-                st.success("✅ Vendor Invoice Saved Successfully!")
+                    invoice_id = row_data["id"]
+
+                try:
+                    if not is_new:
+                        supabase.table("cable_purchase_lines").delete().eq("billing_invoice_id", invoice_id).execute()
+                    if clean_lines:
+                        detail_payload = [{**x, "billing_invoice_id": invoice_id,
+                                           "workspace": payload["workspace"], "team_name": team_val,
+                                           "invoice_no": inv_no, "invoice_date": str(inv_date)}
+                                          for x in clean_lines]
+                        supabase.table("cable_purchase_lines").insert(detail_payload).execute()
+                    if not is_new:
+                        supabase.table("billing_invoices").update(payload).eq("id", invoice_id).execute()
+                except Exception:
+                    # For new invoices, undo header if detail insert fails (no orphan debit).
+                    if is_new and invoice_id is not None:
+                        try:
+                            supabase.table("billing_invoices").delete().eq("id", invoice_id).execute()
+                        except Exception:
+                            pass
+                    raise
+
+                st.success("✅ Vendor Invoice and Material Lines Saved!")
                 fetch_billing_invoices_cached.clear()
                 st.rerun()
             except Exception as e:
@@ -1326,6 +1410,15 @@ def delete_invoice_dialog(row_dict):
     with c2:
         if st.button("Yes, Delete", key="bl_del_yes_inv", use_container_width=True):
             try:
+                if str(row_dict.get("invoice_type", "")).strip() == "Vendor":
+                    purchase_lines = (supabase.table("cable_purchase_lines").select("id")
+                                      .eq("billing_invoice_id", rid).execute().data or [])
+                    for pl in purchase_lines:
+                        used = (supabase.table("cable_fifo_allocations").select("id")
+                                .eq("purchase_line_id", pl["id"]).limit(1).execute().data or [])
+                        if used:
+                            raise ValueError("FIFO consumption exists. Reverse MRN allocations before deleting this invoice.")
+                    supabase.table("cable_purchase_lines").delete().eq("billing_invoice_id", rid).execute()
                 supabase.table("billing_invoices").delete().eq("id", rid).execute()
                 st.success("✅ Deleted successfully!")
                 fetch_billing_invoices_cached.clear()
