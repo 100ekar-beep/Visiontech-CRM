@@ -3288,8 +3288,117 @@ def check_project_ids_dialog():
             st.download_button("📥 Missing IDs (Excel)", _project_check_excel(missing), "Missing_Project_IDs.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="project_check_missing_download")
 
+# --- BULK ISQ STATUS UPDATE: ALL WORKSPACES ---
+@st.dialog("📥 Bulk ISQ Status Update", width="large")
+def bulk_isq_status_dialog():
+    st.caption("Excel columns: Project ID, ISQ Status. Updates site_data → RFAI Status in ALL matching workspaces.")
+    upload = st.file_uploader("Upload Excel / CSV", type=["xlsx", "xls", "csv"], key="isq_bulk_file")
+    if upload is None:
+        st.info("Please upload an Excel with Project ID and ISQ Status columns.")
+        return
+    try:
+        if upload.name.lower().endswith(".csv"):
+            df = pd.read_csv(upload, dtype=str, keep_default_na=False)
+        else:
+            df = pd.read_excel(upload, dtype=str, keep_default_na=False)
+        df.columns = [str(c).strip() for c in df.columns]
+        mapping = {c.casefold().replace("_", " "): c for c in df.columns}
+        pid_col = mapping.get("project id")
+        status_col = mapping.get("isq status") or mapping.get("rfai status")
+        if not pid_col or not status_col:
+            st.error("Excel must contain 'Project ID' and 'ISQ Status' columns.")
+            return
+        pairs = []
+        for _, row in df.iterrows():
+            pid = str(row[pid_col]).strip()
+            status = str(row[status_col]).strip()
+            if pid and status:
+                pairs.append((pid, status))
+        if not pairs:
+            st.warning("No rows with both Project ID and ISQ Status.")
+            return
+        grouped = {}
+        for pid, status in pairs:
+            grouped.setdefault(pid, set()).add(status)
+        conflicts = {pid: vals for pid, vals in grouped.items() if len(vals) > 1}
+        if conflicts:
+            st.error(f"{len(conflicts)} Project IDs have conflicting ISQ statuses in Excel. Please correct and re-upload.")
+            st.dataframe(pd.DataFrame([{"Project ID": k, "Statuses": ", ".join(sorted(v))} for k, v in conflicts.items()]), hide_index=True)
+            return
+        status_map = {pid: next(iter(vals)) for pid, vals in grouped.items()}
+        st.write(f"**{len(status_map)} unique Project IDs** ready for matching across all workspaces.")
+        st.dataframe(pd.DataFrame([{"Project ID": k, "ISQ Status": v} for k, v in status_map.items()]), hide_index=True, use_container_width=True, height=220)
+        file_signature = (upload.name, upload.size, tuple(sorted(status_map.items())))
+        if st.session_state.get("isq_bulk_signature") != file_signature:
+            st.session_state["isq_bulk_signature"] = file_signature
+            st.session_state.pop("isq_bulk_result", None)
+        if st.button("✅ Confirm & Update All Workspaces", type="primary", use_container_width=True, key="isq_bulk_confirm"):
+            if supabase is None:
+                st.error("Supabase connection unavailable.")
+                return
+            report = []
+            found_ids = set()
+            ids = list(status_map)
+            progress = st.progress(0, text="Checking project IDs across all workspaces...")
+            for start in range(0, len(ids), 100):
+                batch = ids[start:start + 100]
+                try:
+                    offset = 0
+                    while True:
+                        res = (supabase.table("site_data")
+                               .select('id,"Project ID",workspace,"RFAI Status"')
+                               .in_("Project ID", batch).range(offset, offset + 999).execute())
+                        records = res.data or []
+                        for record in records:
+                            pid = str(record.get("Project ID") or "").strip()
+                            if pid not in status_map:
+                                continue
+                            found_ids.add(pid)
+                            new_status = status_map[pid]
+                            old_status = record.get("RFAI Status")
+                            workspace = record.get("workspace") or "(blank)"
+                            try:
+                                if str(old_status or "").strip() == new_status:
+                                    outcome = "Already Same"
+                                else:
+                                    supabase.table("site_data").update({"RFAI Status": new_status}).eq("id", record["id"]).execute()
+                                    outcome = "Updated"
+                                error = ""
+                            except Exception as exc:
+                                outcome, error = "Failed", str(exc)
+                            report.append({"Project ID": pid, "Workspace": workspace, "Previous Status": old_status or "", "Excel ISQ Status": new_status, "Result": outcome, "Error": error})
+                        if len(records) < 1000:
+                            break
+                        offset += 1000
+                except Exception as exc:
+                    for pid in batch:
+                        report.append({"Project ID": pid, "Workspace": "", "Previous Status": "", "Excel ISQ Status": status_map[pid], "Result": "Lookup Failed", "Error": str(exc)})
+                progress.progress(min((start + len(batch)) / len(ids), 1.0))
+            for pid in ids:
+                if pid not in found_ids and not any(r["Project ID"] == pid and r["Result"] == "Lookup Failed" for r in report):
+                    report.append({"Project ID": pid, "Workspace": "", "Previous Status": "", "Excel ISQ Status": status_map[pid], "Result": "Not Found", "Error": ""})
+            result_df = pd.DataFrame(report)
+            st.session_state["isq_bulk_result"] = result_df
+            clear_site_data_cache()
+        result_df = st.session_state.get("isq_bulk_result")
+        if result_df is not None:
+            counts = result_df["Result"].value_counts()
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Updated", int(counts.get("Updated", 0)))
+            c2.metric("Already Same", int(counts.get("Already Same", 0)))
+            c3.metric("Not Found", int(counts.get("Not Found", 0)))
+            c4.metric("Failed", int(counts.get("Failed", 0) + counts.get("Lookup Failed", 0)))
+            st.dataframe(result_df, hide_index=True, use_container_width=True, height=280)
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                result_df.to_excel(writer, index=False, sheet_name="ISQ Update Result")
+            st.download_button("📥 Download Result Excel", output.getvalue(), "ISQ_Bulk_Update_Result.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="isq_bulk_download")
+    except Exception as exc:
+        st.error(f"Could not process Excel: {exc}")
+
+
 # --- 4. TOP ACTION BAR (RIGHT SIDE BUTTONS) ---
-col_title, col_ref, col_add, col_upload, col_update, col_sync, col_export = st.columns([2.2, 0.9, 1.3, 1.3, 1.3, 1.6, 1.3])
+col_title, col_ref, col_add, col_upload, col_update, col_isq, col_sync, col_export = st.columns([2.2, 0.9, 1.3, 1.3, 1.3, 1.5, 1.6, 1.3])
 with col_title:
     st.markdown("<h2 style='margin:0; color:#0f172a;'>🏗️ Site Data Master</h2>", unsafe_allow_html=True)
 with col_ref:
@@ -3308,6 +3417,9 @@ with col_update:
     if st.button("🔎 Check Project IDs", type="primary", use_container_width=True):
         st.session_state.pop("project_check_results", None)
         check_project_ids_dialog()
+with col_isq:
+    if st.button("📥 Bulk ISQ Update", use_container_width=True):
+        bulk_isq_status_dialog()
 with col_sync:
     if st.button("🔁 Bulk Sync PO/WCC", use_container_width=True):
         bulk_sync_dialog()
