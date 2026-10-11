@@ -358,6 +358,7 @@ def edit_dialog(row_data):
         new_val = st.text_input("Option Value", value=str(live_data.get('option_value', '') or ''))
         
         mob, p_num, g_num, perc, item_desc_val, stn_status_val, mat_of_val, rate_val = "", "", "", "", "", "", "Indus", None
+        cable_mode_val = None
         
         if new_cat == 'Team Name':
             c1, c2 = st.columns(2)
@@ -367,6 +368,11 @@ def edit_dialog(row_data):
             with c2:
                 g_num = st.text_input("GST Number", value=str(live_data.get('gst', '') or ''))
                 perc = st.text_input("Percentage", value=str(live_data.get('percentage', '') or ''))
+            cable_choices = ["Not Set", "With Cable", "Without Cable"]
+            cable_db = live_data.get("cable_mode")
+            cable_current = {"WITH_CABLE": "With Cable", "WITHOUT_CABLE": "Without Cable"}.get(cable_db, "Not Set")
+            cable_choice = st.selectbox("Cable Mode", cable_choices, index=cable_choices.index(cable_current))
+            cable_mode_val = {"With Cable": "WITH_CABLE", "Without Cable": "WITHOUT_CABLE"}.get(cable_choice)
         elif new_cat == 'Vendor Name':
             c1, c2 = st.columns(2)
             with c1:
@@ -409,6 +415,11 @@ def edit_dialog(row_data):
                     "item_description": item_desc_val, "stn_status": stn_status_val,
                     "material_of": mat_of_val, "rate": rate_val
                 }
+                if new_cat == "Team Name":
+                    update_data["cable_mode"] = cable_mode_val
+                elif live_data.get("category") == "Team Name":
+                    update_data["cable_mode"] = None
+
                 try:
                     supabase.table(master_table_name).update(update_data).eq("id", record_id).execute()
                     st.success("✅ Record updated!")
@@ -520,9 +531,9 @@ def _pct(v):
 def _details(row):
     """Compact extra details for the 'View All' table."""
     parts = []
-    for label, key in (("📱", "mobile"), ("PAN", "pan"), ("GST", "gst"), ("%", "percentage"), ("", "item_description"), ("STN", "stn_status"), ("Mat", "material_of")):
+    for label, key in (("📱", "mobile"), ("PAN", "pan"), ("GST", "gst"), ("%", "percentage"), ("", "item_description"), ("STN", "stn_status"), ("Mat", "material_of"), ("Cable", "cable_mode")):
         val = _clean(row.get(key))
-        if val and not (key in ("stn_status", "material_of") and row.get("category") != "Item Code"):
+        if val and not (key in ("stn_status", "material_of") and row.get("category") != "Item Code") and not (key == "cable_mode" and row.get("category") != "Team Name"):
             parts.append(f"{label} {val}".strip())
     rate_n = pd.to_numeric(row.get("rate"), errors="coerce")
     if pd.notna(rate_n):
@@ -586,6 +597,7 @@ with tab_add:
 
         with st.form("add_master_form", clear_on_submit=True):
             mobile, pan, gst, percentage = "", "", "", ""
+            cable_mode_val = None
             item_desc, stn_status, material_of = "", "Required", "Indus"
             raw_rate_input = ""
 
@@ -598,6 +610,8 @@ with tab_add:
                 with col_t2:
                     gst = st.text_input("GST Number", placeholder="GSTIN, if applicable")
                     percentage = st.text_input("Percentage (%)", placeholder="e.g. 5")
+                cable_choice = st.selectbox("Cable Mode", ["Not Set", "With Cable", "Without Cable"])
+                cable_mode_val = {"With Cable": "WITH_CABLE", "Without Cable": "WITHOUT_CABLE"}.get(cable_choice)
             elif selected_category == "Vendor Name":
                 new_option_value = st.text_input("Vendor Name *", placeholder="Enter vendor/company name")
                 col_v1, col_v2 = st.columns(2)
@@ -643,6 +657,9 @@ with tab_add:
                         "percentage": percentage.strip(), "item_description": item_desc.strip(),
                         "stn_status": stn_status, "material_of": material_of, "rate": rate
                     }
+                    if selected_category == "Team Name":
+                        insert_data["cable_mode"] = cable_mode_val
+
                     try:
                         supabase.table(master_table_name).insert(insert_data).execute()
                         st.success(f"✅ {selected_category} added successfully: {clean_value}")
@@ -698,7 +715,7 @@ with tab_records:
 
         if data:
             df = pd.DataFrame(data)
-            expected_columns = ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage', 'item_description', 'stn_status', 'material_of', 'rate']
+            expected_columns = ['id', 'category', 'option_value', 'is_active', 'mobile', 'pan', 'gst', 'percentage', 'item_description', 'stn_status', 'material_of', 'rate', 'cable_mode']
             for col in expected_columns:
                 if col not in df.columns:
                     df[col] = ""
@@ -735,9 +752,9 @@ with tab_records:
             if not df.empty:
                 # --- Columns depend on the selected category ---
                 if filter_cat == "Team Name":
-                    COL_RATIOS = [0.55, 0.5, 2.2, 1.3, 1.3, 1.6, 0.8, 1.0]
-                    COL_LABELS = ["⚙️", "#", "TEAM NAME", "MOBILE", "PAN", "GST", "%", "STATUS"]
-                    center_idx, right_idx = (0, 1, 6, 7), ()
+                    COL_RATIOS = [0.55, 0.5, 2.2, 1.3, 1.3, 1.6, 0.8, 1.4, 1.0]
+                    COL_LABELS = ["⚙️", "#", "TEAM NAME", "MOBILE", "PAN", "GST", "%", "CABLE MODE", "STATUS"]
+                    center_idx, right_idx = (0, 1, 6, 7, 8), ()
                 elif filter_cat == "Vendor Name":
                     COL_RATIOS = [0.55, 0.5, 2.4, 1.3, 1.3, 1.7, 1.0]
                     COL_LABELS = ["⚙️", "#", "VENDOR NAME", "MOBILE", "PAN", "GST", "STATUS"]
@@ -823,7 +840,9 @@ with tab_records:
                                 rcols[4].markdown(_chip(row_to_edit.get('pan')), unsafe_allow_html=True)
                                 rcols[5].markdown(_chip(row_to_edit.get('gst')), unsafe_allow_html=True)
                                 rcols[6].markdown(_pct(row_to_edit.get('percentage')), unsafe_allow_html=True)
-                                rcols[7].markdown(f"<div style='text-align:center;'>{_active_badge(is_active)}</div>", unsafe_allow_html=True)
+                                cable_label = {"WITH_CABLE": "With Cable", "WITHOUT_CABLE": "Without Cable"}.get(row_to_edit.get("cable_mode"), "Not Set")
+                                rcols[7].markdown(_badge(cable_label, "green" if cable_label == "With Cable" else "yellow" if cable_label == "Without Cable" else "grey"), unsafe_allow_html=True)
+                                rcols[8].markdown(f"<div style='text-align:center;'>{_active_badge(is_active)}</div>", unsafe_allow_html=True)
                             elif filter_cat == "Vendor Name":
                                 rcols[2].markdown(_txt(f"🏭 {_clean(row_to_edit.get('option_value'))}", "slux-strong"), unsafe_allow_html=True)
                                 rcols[3].markdown(_chip(row_to_edit.get('mobile')), unsafe_allow_html=True)
