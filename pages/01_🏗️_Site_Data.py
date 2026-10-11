@@ -3291,10 +3291,10 @@ def check_project_ids_dialog():
 # --- BULK ISQ STATUS UPDATE: ALL WORKSPACES ---
 @st.dialog("📥 Bulk ISQ Status Update", width="large")
 def bulk_isq_status_dialog():
-    st.caption("Excel columns: Project ID, ISQ Status. Updates site_data → RFAI Status in ALL matching workspaces.")
+    st.caption("Accepts original report: Sr No | RL ID | Current ISQ Status, or Project ID | ISQ Status. Exact Project ID matching across ALL workspaces.")
     upload = st.file_uploader("Upload Excel / CSV", type=["xlsx", "xls", "csv"], key="isq_bulk_file")
     if upload is None:
-        st.info("Please upload an Excel with Project ID and ISQ Status columns.")
+        st.info("Upload your original ISQ report directly; no Excel formatting changes needed.")
         return
     try:
         if upload.name.lower().endswith(".csv"):
@@ -3302,12 +3302,16 @@ def bulk_isq_status_dialog():
         else:
             df = pd.read_excel(upload, dtype=str, keep_default_na=False)
         df.columns = [str(c).strip() for c in df.columns]
-        mapping = {c.casefold().replace("_", " "): c for c in df.columns}
-        pid_col = mapping.get("project id")
-        status_col = mapping.get("isq status") or mapping.get("rfai status")
+        mapping = {" ".join(c.casefold().replace("_", " ").split()): c for c in df.columns}
+        pid_col = mapping.get("project id") or mapping.get("rl id")
+        status_col = (mapping.get("current isq status") or mapping.get("isq status")
+                      or mapping.get("rfai status"))
+        original_report = bool(mapping.get("rl id") and pid_col == mapping.get("rl id"))
         if not pid_col or not status_col:
-            st.error("Excel must contain 'Project ID' and 'ISQ Status' columns.")
+            st.error("Required: 'RL ID' + 'Current ISQ Status', or 'Project ID' + 'ISQ Status'.")
             return
+        if original_report:
+            st.info("RL ID will be matched EXACTLY against site_data → Project ID in every workspace. Unmatched IDs will be reported; no approximate matching.")
         pairs = []
         for _, row in df.iterrows():
             pid = str(row[pid_col]).strip()
@@ -3315,7 +3319,7 @@ def bulk_isq_status_dialog():
             if pid and status:
                 pairs.append((pid, status))
         if not pairs:
-            st.warning("No rows with both Project ID and ISQ Status.")
+            st.warning("No valid RL/Project IDs with ISQ status found.")
             return
         grouped = {}
         for pid, status in pairs:
@@ -3326,13 +3330,14 @@ def bulk_isq_status_dialog():
             st.dataframe(pd.DataFrame([{"Project ID": k, "Statuses": ", ".join(sorted(v))} for k, v in conflicts.items()]), hide_index=True)
             return
         status_map = {pid: next(iter(vals)) for pid, vals in grouped.items()}
-        st.write(f"**{len(status_map)} unique Project IDs** ready for matching across all workspaces.")
+        st.write(f"**{len(status_map)} unique IDs** ready for matching across all workspaces.")
         st.dataframe(pd.DataFrame([{"Project ID": k, "ISQ Status": v} for k, v in status_map.items()]), hide_index=True, use_container_width=True, height=220)
         file_signature = (upload.name, upload.size, tuple(sorted(status_map.items())))
         if st.session_state.get("isq_bulk_signature") != file_signature:
             st.session_state["isq_bulk_signature"] = file_signature
             st.session_state.pop("isq_bulk_result", None)
-        if st.button("✅ Confirm & Update All Workspaces", type="primary", use_container_width=True, key="isq_bulk_confirm"):
+        confirmed = st.checkbox("I confirm these RL IDs are the same identifiers stored in site_data → Project ID. Update all exact matches only.", key="isq_bulk_mapping_confirm") if original_report else True
+        if st.button("✅ Confirm & Update All Workspaces", disabled=not confirmed, type="primary", use_container_width=True, key="isq_bulk_confirm"):
             if supabase is None:
                 st.error("Supabase connection unavailable.")
                 return
@@ -3373,7 +3378,7 @@ def bulk_isq_status_dialog():
                 except Exception as exc:
                     for pid in batch:
                         report.append({"Project ID": pid, "Workspace": "", "Previous Status": "", "Excel ISQ Status": status_map[pid], "Result": "Lookup Failed", "Error": str(exc)})
-                progress.progress(min((start + len(batch)) / len(ids), 1.0))
+                progress.progress(min((start + len(batch)) / len(ids), 1.0), text=f"Checked {min(start + len(batch), len(ids))}/{len(ids)} IDs")
             for pid in ids:
                 if pid not in found_ids and not any(r["Project ID"] == pid and r["Result"] == "Lookup Failed" for r in report):
                     report.append({"Project ID": pid, "Workspace": "", "Previous Status": "", "Excel ISQ Status": status_map[pid], "Result": "Not Found", "Error": ""})
