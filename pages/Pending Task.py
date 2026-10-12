@@ -5,7 +5,6 @@ import io
 import wave
 import base64
 import textwrap
-import html
 from datetime import datetime, date, time as dt_time, timedelta
 from supabase import create_client, Client
 
@@ -37,181 +36,20 @@ if 'pa_show_form_dialog' not in st.session_state:
 if 'pa_edit_row' not in st.session_state:
     st.session_state.pa_edit_row = None
 
-# --- 3. LAVISH CUSTOM CSS ---
-st.markdown("""
-    <style>
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #1a1035 100%); color: #f8fafc; font-family: 'Inter', sans-serif; }
-
-    div.stButton > button {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-        color: white !important;
-        border: none;
-        border-radius: 10px;
-        font-weight: 800 !important;
-        padding: 0.55rem 1.1rem;
-        transition: all 0.25s ease;
-        box-shadow: 0 4px 10px -2px rgba(139, 92, 246, 0.35);
-    }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 12px 20px -6px rgba(139, 92, 246, 0.55); }
-    div.stButton > button p, div.stButton > button span, div.stButton > button div { color: #ffffff !important; font-weight: 800 !important; }
-
-    div[data-testid="stDialog"] > div {
-        background: rgba(15, 23, 42, 0.97);
-        backdrop-filter: blur(18px);
-        border: 1px solid rgba(255,255,255,0.12);
-        border-radius: 18px;
-    }
-    div[data-testid="stDialog"] h1, div[data-testid="stDialog"] h2, div[data-testid="stDialog"] h3 { color:#ffffff !important; font-weight:800 !important; }
-    div[data-testid="stDialog"] p, div[data-testid="stDialog"] div[data-testid="stCaptionContainer"] p { color:#e2e8f0 !important; }
-    label p, label[data-testid="stWidgetLabel"] p { color:#ffffff !important; font-weight:600 !important; letter-spacing:0.4px; }
-
-    /* ---------- HERO HEADER ---------- */
-    .pa-hero {
-        background: linear-gradient(90deg, #f43f5e 0%, #8b5cf6 50%, #3b82f6 100%);
-        padding: 22px 28px;
-        border-radius: 18px;
-        margin-bottom: 22px;
-        box-shadow: 0 10px 30px -8px rgba(139,92,246,0.5);
-        border: 1px solid rgba(255,255,255,0.15);
-        position: relative;
-        overflow: hidden;
-    }
-    .pa-hero h1 { margin:0; color:#ffffff !important; font-weight:900 !important; letter-spacing:2px; font-size:2.1rem; text-transform:uppercase; }
-    .pa-hero p { margin:4px 0 0 0; color:rgba(255,255,255,0.9); font-weight:600; font-size:0.95rem; }
-
-    /* ---------- STAT CARDS ---------- */
-    .pa-stat {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 14px;
-        padding: 16px 18px;
-        text-align: center;
-        transition: all 0.25s ease;
-    }
-    .pa-stat:hover { transform: translateY(-3px); border-color: rgba(139,92,246,0.5); }
-    .pa-stat-num { font-size: 2rem; font-weight: 900; margin: 0; }
-    .pa-stat-label { font-size: 0.78rem; color: #94a3b8; font-weight:700; letter-spacing:0.6px; text-transform:uppercase; margin-top:4px; }
-
-    /* ---------- LAVISH ACTIVITY CARD (table replacement) ---------- */
-    .pa-card {
-        background: linear-gradient(135deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.015) 100%);
-        border: 1px solid rgba(255,255,255,0.10);
-        border-radius: 16px;
-        padding: 18px 20px;
-        margin-bottom: 14px;
-        transition: all 0.25s ease;
-        position: relative;
-    }
-    .pa-card:hover { border-color: rgba(139,92,246,0.55); box-shadow: 0 12px 26px -10px rgba(139,92,246,0.4); transform: translateY(-2px); }
-    .pa-card.important { border: 1px solid rgba(244,63,94,0.55); background: linear-gradient(135deg, rgba(244,63,94,0.10) 0%, rgba(255,255,255,0.02) 100%); }
-
-    .pa-title-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-    .pa-activity-name { font-size: 1.15rem; font-weight: 900; color:#ffffff; }
-
-    .pa-badge {
-        display:inline-block; padding: 3px 11px; border-radius: 20px;
-        font-size: 0.70rem; font-weight: 800; letter-spacing: 0.5px; text-transform:uppercase;
-    }
-    .pa-badge-important { background: rgba(244,63,94,0.20); color:#fb7185; border:1px solid rgba(244,63,94,0.4); animation: pa-pulse 1.6s infinite; }
-    .pa-badge-reminder { background: rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.35); }
-    .pa-badge-days-ok { background: rgba(34,197,94,0.18); color:#4ade80; }
-    .pa-badge-days-warn { background: rgba(234,179,8,0.18); color:#facc15; }
-    .pa-badge-days-late { background: rgba(239,68,68,0.18); color:#f87171; }
-
-    @keyframes pa-pulse { 0% { box-shadow: 0 0 0 0 rgba(244,63,94,0.55);} 70% { box-shadow: 0 0 0 8px rgba(244,63,94,0);} 100% { box-shadow: 0 0 0 0 rgba(244,63,94,0);} }
-
-    .pa-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 20px; margin-top: 6px; }
-    .pa-field-label { color:#94a3b8; font-size:0.70rem; font-weight:800; letter-spacing:0.6px; text-transform:uppercase; margin-bottom:2px; }
-    .pa-field-value { color:#e2e8f0; font-size:0.9rem; font-weight:600; word-break: break-word; }
-    .pa-remark-box { margin-top:10px; background: rgba(255,255,255,0.03); border-left: 3px solid #8b5cf6; padding: 8px 12px; border-radius: 6px; color:#cbd5e1; font-size:0.85rem; font-style: italic; }
-
-    /* ---------- CLOSED CARD ---------- */
-    .pa-card-closed { background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; opacity: 0.75; }
-    .pa-card-closed .pa-activity-name { text-decoration: line-through; color:#94a3b8; font-size:1.0rem; }
-
-    /* ---------- REMINDER ALARM POPUP ---------- */
-    .pa-alarm-wrap { text-align:center; padding: 10px 6px 6px 6px; }
-    .pa-alarm-icon { font-size: 3.2rem; animation: pa-shake 0.6s infinite; }
-    @keyframes pa-shake { 0%,100%{ transform: rotate(0deg);} 25%{ transform: rotate(-12deg);} 75%{ transform: rotate(12deg);} }
-    .pa-alarm-title { font-size: 1.6rem; font-weight: 900; letter-spacing: 1px; background: linear-gradient(90deg,#f43f5e,#facc15); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 8px 0 2px 0; text-transform: uppercase; }
-    .pa-alarm-activity { font-size: 2.1rem; font-weight: 900; color: #ffffff; margin: 10px 0; padding: 14px; border-radius: 14px; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.4); }
-    .pa-alarm-info-row { display:flex; justify-content:space-between; padding:6px 4px; border-bottom: 1px dashed rgba(255,255,255,0.08); font-size:0.95rem; }
-    .pa-alarm-info-row:last-child { border-bottom:none; }
-    .pa-alarm-label { color:#94a3b8; font-weight:700; }
-    .pa-alarm-value { color:#f1f5f9; font-weight:700; text-align:right; }
-
-    .pa-toolbar-note { color:#94a3b8; font-size:0.8rem; margin-top:4px; }
-
-    /* =========================================================
-       PREMIUM SIDEBAR NAVIGATION BUTTONS (same as other pages)
-       ========================================================= */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    [data-testid="stSidebarNav"] a {
-        padding: 0.85rem 1.2rem !important;
-        margin: 0.5rem 1rem !important;
-        border-radius: 12px !important;
-        background: rgba(255, 255, 255, 0.03) !important;
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.05rem !important;
-        transition: all 0.3s ease !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
-    }
-    [data-testid="stSidebarNav"] a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        transform: translateX(4px) !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
-        color: #ffffff !important;
-    }
-    [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: #ffffff !important;
-        border-color: transparent !important;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4) !important;
-    }
-    [data-testid="stSidebarNav"] a span {
-        color: inherit !important;
-    }
-
-    /* =========================================================
-       DATE & TIME PICKER — make Calendar/Clock icons clearly visible
-       ========================================================= */
-    div[data-testid="stDateInput"] input,
-    div[data-testid="stTimeInput"] input {
-        color: #ffffff !important;
-        font-weight: 700 !important;
-        cursor: pointer !important;
-        background: rgba(255,255,255,0.06) !important;
-        border: 1px solid rgba(139,92,246,0.45) !important;
-        border-radius: 8px !important;
-    }
-    div[data-testid="stDateInput"] svg,
-    div[data-testid="stTimeInput"] svg {
-        fill: #a78bfa !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
-    div[data-testid="stDateInput"] > div > div,
-    div[data-testid="stTimeInput"] > div > div {
-        background: rgba(255,255,255,0.06) !important;
-        border-radius: 8px !important;
-    }
-    /* The pop-up calendar / clock panel itself */
-    div[data-baseweb="popover"] div[data-baseweb="calendar"],
-    div[data-baseweb="popover"] ul {
-        background: #1e1b4b !important;
-        border: 1px solid rgba(139,92,246,0.5) !important;
-        border-radius: 12px !important;
-        box-shadow: 0 12px 30px -8px rgba(0,0,0,0.6) !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- CLEAN WHITE BUSINESS THEME ---
+st.markdown("""<style>
+.stApp, [data-testid="stAppViewContainer"] {background:#f7f9fc!important;color:#17243b!important;}
+.block-container {padding-top:1.15rem!important;max-width:1600px!important;}
+h1,h2,h3,h4,p,label,div[data-testid="stWidgetLabel"] p {color:#17243b;}
+[data-testid="stSidebar"] {background:#ffffff!important;}
+[data-testid="stSidebarNav"] a {color:#253451!important;}
+div.stButton>button[kind="primary"] {background:#2563eb!important;color:white!important;border:0!important;}
+div.stButton>button {border-radius:7px!important;font-weight:600!important;}
+div[data-testid="stMetric"] {background:white;border:1px solid #e2e8f0;border-radius:9px;padding:14px 18px;}
+[data-testid="stTabs"] button {font-weight:700!important;}
+[data-testid="stDataFrame"] {border:1px solid #e2e8f0;border-radius:9px;}
+[data-testid="stDialog"] {color:#17243b!important;}
+</style>""", unsafe_allow_html=True)
 
 # --- 4. SUPABASE CONNECTION ---
 # FIX: Ab hardcoded URL/Key ki jagah st.secrets se liya jaa raha hai — isse
@@ -691,305 +529,123 @@ def _snooze_reminder(row, minutes):
         st.rerun()
 
 
-# ==============================================================
-# --- TRIGGER OPEN DIALOG (ONLY ONE AT A TIME — Streamlit does not
-#     allow two @st.dialog popups to open in the same run, so the
-#     alarm reminder always takes priority over the Add/Edit form).
-# ==============================================================
+# ----------------- CLEAN TWO-TAB TASK DESK -----------------
+from html import escape
+
 if st.session_state.get("active_reminder"):
     reminder_popup_dialog(st.session_state["active_reminder"])
 elif st.session_state.get("pa_show_form_dialog"):
     add_activity_dialog(edit_row=st.session_state.get("pa_edit_row"))
 
-# --- HERO HEADER ---
-# This page is shared across ALL companies/workspaces — every login sees the same tasks.
-st.markdown("""
-    <div class="pa-hero">
-        <h1>🔔 Pending Activity Tracker</h1>
-        <p>🌐 Shared Across All Companies &nbsp;•&nbsp; Never miss a follow-up again</p>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown("## Daily Task & EOD Report Tool")
+st.caption("Task management  /  All companies  /  Live Supabase data")
 
-# --- TOP TOOLBAR ---
-tc1, tc2, tc3, tc4, tc5, tc6 = st.columns([1.8, 1.2, 1.2, 1.4, 1.2, 1.2])
-with tc1:
-    if st.button("➕ Add New Activity", use_container_width=True):
-        st.session_state.pa_edit_row = None
-        st.session_state.pa_show_form_dialog = True
+if st.session_state.pa_autocheck_enabled and AUTOREFRESH_AVAILABLE and not st.session_state.get("active_reminder") and not st.session_state.get("pa_show_form_dialog"):
+    st_autorefresh(interval=20000, key="white_task_refresh")
+
+all_records = fetch_activities() if supabase is not None else []
+pending = [r for r in all_records if str(r.get("status") or "Pending").lower() != "closed"]
+completed = [r for r in all_records if str(r.get("status") or "Pending").lower() == "closed"]
+if st.session_state.pa_autocheck_enabled and not st.session_state.get("active_reminder") and not st.session_state.get("pa_show_form_dialog"):
+    check_reminders_and_trigger(pending)
+
+today = datetime.now().strftime("%d/%m/%Y")
+counts = [len(all_records), len(completed), len(pending), sum(bool(r.get("important")) for r in pending)]
+metrics = st.columns(4)
+for col, title, count in zip(metrics,["Total Tasks","Completed","Pending","High Priority"],counts):
+    col.metric(title,count)
+
+b1,b2,b3,b4=st.columns([1.7,1.3,1.3,5])
+with b1:
+    if st.button("＋ Add New Task",type="primary",use_container_width=True):
+        st.session_state.pa_edit_row=None
+        st.session_state.pa_show_form_dialog=True
         st.rerun()
-with tc2:
-    sound_label = "🔊 Sound: ON" if st.session_state.pa_sound_enabled else "🔇 Sound: OFF"
-    if st.button(sound_label, use_container_width=True):
-        st.session_state.pa_sound_enabled = not st.session_state.pa_sound_enabled
-        st.rerun()
-with tc3:
-    autocheck_label = "🟢 Auto-Check: ON" if st.session_state.pa_autocheck_enabled else "⏸️ Auto-Check: OFF"
-    if st.button(autocheck_label, use_container_width=True):
-        st.session_state.pa_autocheck_enabled = not st.session_state.pa_autocheck_enabled
-        st.rerun()
-with tc4:
-    quiet_label = "🌙 Quiet Hrs: ON" if st.session_state.pa_quiet_hours_enabled else "🔔 Quiet Hrs: OFF"
-    if st.button(quiet_label, use_container_width=True, help="Jab ON hai: Raat 11 PM se subah 10 AM tak koi popup/sound nahi aayega."):
-        st.session_state.pa_quiet_hours_enabled = not st.session_state.pa_quiet_hours_enabled
-        st.rerun()
-with tc5:
-    if st.button("🧪 Test Sound", use_container_width=True, help="Sirf sound/popup check karne ke liye — ise time se koi lena dena nahi. Real reminders sirf unke set kiye gaye exact time par hi khulte hain."):
-        st.session_state["active_reminder"] = {
-            "id": "test",
-            "activity_name": "🔔 Manual Test (time-based nahi hai)",
-            "indus_responsible": "Demo Indus",
-            "vis_responsible": "Demo VIS",
-            "raise_date": datetime.now().strftime("%d/%m/%Y"),
-            "remark": "Yeh sirf ek MANUAL test hai — sound/popup check karne ke liye. Iska reminder time se koi lena dena nahi. Real activities sirf unke set kiye gaye exact time par hi khulti/bajti hain.",
-            "important": True,
-            "reminder_type": "Daily",
-            "reminder_time": datetime.now().strftime("%H:%M"),
-        }
-        st.rerun()
-with tc6:
-    if st.button("🔄 Refresh Now", use_container_width=True):
-        fetch_activities.clear()
+with b2:
+    if st.button("↻ Refresh",use_container_width=True):
+        fetch_activities.clear();st.rerun()
+with b3:
+    if st.button("🔔 Test Alarm",use_container_width=True):
+        st.session_state["active_reminder"]={"id":"test","activity_name":"Test Reminder","indus_responsible":"-","vis_responsible":"-","raise_date":today,"remark":"Test alarm","important":False,"reminder_type":"Daily","reminder_time":datetime.now().strftime("%H:%M")}
         st.rerun()
 
-st.markdown('<p class="pa-toolbar-note">💡 Pehli baar page open karte hi "Sound" ya koi bhi button ek baar click karein — isse browser is tab me audio alerts allow kar dega. &nbsp;•&nbsp; 🌙 Quiet Hours: Raat 11:00 PM – Subah 10:00 AM tak koi popup/sound nahi aayega.</p>', unsafe_allow_html=True)
+search=st.text_input("Search Tasks",placeholder="Search task, responsible person, remark...",label_visibility="collapsed")
 
-if st.session_state.pa_quiet_hours_enabled and is_quiet_hours():
-    st.markdown(
-        '<div style="background: rgba(139,92,246,0.12); border:1px solid rgba(139,92,246,0.4); '
-        'border-radius:10px; padding:10px 16px; margin-bottom:10px; color:#c4b5fd; font-weight:700;">'
-        '🌙 Abhi Quiet Hours chal rahe hain (11 PM – 10 AM) — koi bhi automatic reminder popup/sound nahi aayega.'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-# --- AUTO-REFRESH (so reminders fire even without manual interaction) ---
-# Only paused while a reminder alarm popup is already open (so it doesn't keep
-# re-opening / re-beeping every refresh cycle — it should ring ONCE and then
-# wait for you to Close/Snooze/Reschedule).
-# NOTE: it is intentionally NOT paused just because the Add/Edit form is open —
-# earlier it was, and that silently blocked reminders from ever firing if the
-# form happened to be left open when the scheduled time arrived.
-form_is_open = bool(st.session_state.get("pa_show_form_dialog"))
-reminder_is_open = bool(st.session_state.get("active_reminder"))
-pause_autocheck = reminder_is_open
-
-if st.session_state.pa_autocheck_enabled and not pause_autocheck:
-    if AUTOREFRESH_AVAILABLE:
-        st_autorefresh(interval=20000, key="pa_autorefresh")
-    else:
-        st.info("ℹ️ Live auto-check ke liye `pip install streamlit-autorefresh` karein. Abhi ke liye 'Refresh Now' button use karein.")
-elif form_is_open:
-    st.caption("⏸️ Form khula hone tak auto-check pause hai — aaram se bharo, koi disturbance nahi hoga.")
-elif reminder_is_open:
-    st.caption("🔔 Reminder popup khula hai — jab tak Close/Snooze na karo, dobara nahi bajega.")
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# --- FETCH DATA ---
-all_records = fetch_activities()
-pending_records = [r for r in all_records if str(r.get("status", "Pending")).strip() != "Closed"]
-closed_records = [r for r in all_records if str(r.get("status", "Pending")).strip() == "Closed"]
-
-# --- REMINDER CHECK (only when auto-check is on and nothing else is open) ---
-if st.session_state.pa_autocheck_enabled and not pause_autocheck:
-    check_reminders_and_trigger(pending_records)
-
-# --- STAT CARDS ---
-important_count = sum(1 for r in pending_records if r.get("important"))
-today_str = datetime.now().strftime("%d/%m/%Y")
-closed_today_count = sum(1 for r in closed_records if str(r.get("closed_at", "")).startswith(today_str))
-
-s1, s2, s3, s4 = st.columns(4)
-with s1:
-    st.markdown(f'<div class="pa-stat"><p class="pa-stat-num" style="color:#60a5fa;">{len(pending_records)}</p><p class="pa-stat-label">Pending Activities</p></div>', unsafe_allow_html=True)
-with s2:
-    st.markdown(f'<div class="pa-stat"><p class="pa-stat-num" style="color:#fb7185;">{important_count}</p><p class="pa-stat-label">Important</p></div>', unsafe_allow_html=True)
-with s3:
-    st.markdown(f'<div class="pa-stat"><p class="pa-stat-num" style="color:#4ade80;">{closed_today_count}</p><p class="pa-stat-label">Closed Today</p></div>', unsafe_allow_html=True)
-with s4:
-    st.markdown(f'<div class="pa-stat"><p class="pa-stat-num" style="color:#facc15;">{len(closed_records)}</p><p class="pa-stat-label">Total Closed</p></div>', unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# --- DAILY PLANNER / EOD WORKSPACE ---
-st.markdown("""<style>
-.pa-section{padding:17px 20px;border-radius:15px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.12);margin:10px 0 14px}
-.pa-section h3{color:#fff!important;margin:0 0 5px!important}
-.pa-mini{color:#a5b4fc;font-size:.84rem;font-weight:700}
-.pa-task{border:1px solid rgba(255,255,255,.13);border-radius:13px;padding:14px 17px;background:rgba(255,255,255,.045);margin:10px 0 4px}
-.pa-task strong{color:#fff;font-size:1.04rem}
-.pa-task small{color:#cbd5e1}
-</style>""", unsafe_allow_html=True)
-
-now_local = datetime.now()
-today_date = now_local.date()
-
-def pa_esc(v):
-    return html.escape(str(v or "-"))
-
-def pa_date(row):
-    d = parse_ddmmyyyy(row.get("raise_date", ""))
-    return d.date() if d != datetime.min else None
-
-def pa_reminder_date(row):
-    if row.get("reminder_type") == "Specific Date":
-        d = parse_ddmmyyyy(row.get("reminder_specific_date", ""))
-        return d.date() if d != datetime.min else None
-    return None
-
-def pa_is_today(row):
-    typ = str(row.get("reminder_type") or "")
-    if typ == "Daily": return True
-    if typ == "Weekly": return str(row.get("reminder_day")) == now_local.strftime("%A")
-    if typ == "Monthly":
-        try: return int(row.get("reminder_date_of_month") or 0) == today_date.day
-        except (ValueError, TypeError): return False
-    if typ == "Specific Date": return pa_reminder_date(row) == today_date
-    return False
-
-def pa_is_overdue(row):
-    rd = pa_reminder_date(row)
-    return rd is not None and rd < today_date
-
-def pa_update(row, changes, success):
+def save_row(row,changes):
     try:
-        supabase.table(TABLE_NAME).update(changes).eq("id", row["id"]).execute()
+        supabase.table(TABLE_NAME).update(changes).eq("id",row["id"]).execute()
         fetch_activities.clear()
-        st.toast(success, icon="✅")
         st.rerun()
-    except Exception as exc:
-        st.error(f"Update failed: {exc}")
+    except Exception as e:
+        st.error(f"Save failed: {e}")
 
-st.markdown('<div class="pa-section"><h3>🎯 My Daily Command Center</h3><span class="pa-mini">Focus on today • Follow up on time • Finish with an EOD report</span></div>', unsafe_allow_html=True)
-today_tasks = [r for r in pending_records if pa_is_today(r)]
-overdue_tasks = [r for r in pending_records if pa_is_overdue(r)]
-important_tasks = [r for r in pending_records if r.get("important")]
+def matches(row):
+    q=search.strip().lower()
+    return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","indus_responsible","vis_responsible","remark"])
 
-k1,k2,k3,k4 = st.columns(4)
-k1.metric("📅 Today's Plan", len(today_tasks))
-k2.metric("🚨 Overdue Reminders", len(overdue_tasks))
-k3.metric("⭐ Important Pending", len(important_tasks))
-k4.metric("🏁 Finished Today", closed_today_count)
+def task_sort(row):
+    return (0 if row.get("important") else 1, parse_ddmmyyyy(row.get("raise_date")))
 
-left, right = st.columns([3,1])
-with left:
-    quick_title = st.text_input("⚡ Quick Capture — new task", placeholder="Type a task and press Add...", key="pa_quick_title")
-with right:
-    st.write("")
-    st.write("")
-    if st.button("➕ Add to Inbox", use_container_width=True, type="primary"):
-        if not quick_title.strip():
-            st.warning("Task name likhiye.")
-        else:
-            try:
-                supabase.table(TABLE_NAME).insert({
-                    "activity_name":quick_title.strip(),
-                    "indus_responsible":"-", "vis_responsible":"Self",
-                    "raise_date":today_date.strftime("%d/%m/%Y"),
-                    "remark":"Quick Capture / Inbox", "important":False,
-                    "reminder_type":"Specific Date",
-                    "reminder_specific_date":today_date.strftime("%d/%m/%Y"),
-                    "reminder_day":"", "reminder_date_of_month":None,
-                    "reminder_time":"18:00", "last_notified":"", "status":"Pending"
-                }).execute()
-                fetch_activities.clear()
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Could not add task: {exc}")
-
-st.caption("Quick Capture defaults to today at 6 PM. Use Edit to change its details and reminder.")
-
-filter_col, search_col = st.columns([2,3])
-with filter_col:
-    view = st.segmented_control("Task View", ["Today", "Overdue", "Important", "All Pending", "Completed"], default="Today", key="pa_task_view")
-with search_col:
-    search_query = st.text_input("Search tasks", placeholder="🔍 Task / Indus / VIS responsible / remark", key="pa_new_search")
-
-if view == "Today": display_rows = today_tasks
-elif view == "Overdue": display_rows = overdue_tasks
-elif view == "Important": display_rows = important_tasks
-elif view == "Completed": display_rows = closed_records
-else: display_rows = pending_records
-
-if search_query.strip():
-    q=search_query.strip().lower()
-    display_rows=[r for r in display_rows if any(q in str(r.get(k,"")).lower() for k in ("activity_name","indus_responsible","vis_responsible","remark"))]
-
-display_rows=sorted(display_rows,key=lambda r:(not bool(r.get("important")), pa_date(r) or today_date))
-st.markdown(f"#### 📋 {view} ({len(display_rows)})")
-if not display_rows:
-    st.info("✨ Is view mein koi task nahi hai. All Pending mein baaki tasks check kar sakte hain.")
-
-for row in display_rows:
-    rid = str(row.get("id"))
-    done = str(row.get("status", "Pending")).strip() == "Closed"
-    age, age_class = days_pending_badge(row.get("raise_date", ""))
-    title = pa_esc(row.get("activity_name"))
-    badge = "⭐ Important • " if row.get("important") else ""
-    label = "Completed" if done else ("Overdue • " if pa_is_overdue(row) else "") + age + " pending"
-    st.markdown(f"""<div class="pa-task"><strong>{'✅' if done else '📌'} {title}</strong><div class="pa-mini">{badge}{pa_esc(label)} • ⏰ {pa_esc(reminder_summary_text(row))}</div><small>🏢 VIS: {pa_esc(row.get('vis_responsible'))} &nbsp; | &nbsp; 👷 Indus: {pa_esc(row.get('indus_responsible'))} &nbsp; | &nbsp; 📅 Raised: {pa_esc(row.get('raise_date'))}</small></div>""",unsafe_allow_html=True)
-    if row.get("remark"):
-        st.caption("📝 " + str(row["remark"]))
-    if done:
-        a,b,c=st.columns([1,1,5])
-        with a:
-            if st.button("↩️ Reopen",key=f"reopen_{rid}",use_container_width=True):
-                pa_update(row,{"status":"Pending","closed_at":""},"Task reopened")
-        with b:
-            if st.button("🗑️ Delete",key=f"delete_done_{rid}",use_container_width=True):
-                st.session_state[f"pa_delete_confirm_{rid}"]=True
-    else:
-        a,b,c,d=st.columns([1.15,1.1,1.2,4])
-        with a:
-            if st.button("✅ Complete",key=f"done_{rid}",use_container_width=True):
-                pa_update(row,{"status":"Closed","closed_at":datetime.now().strftime("%d/%m/%Y %H:%M")},"Task completed")
-        with b:
+# Render compact spreadsheet-like table with editable remark/status and per-row actions.
+def render_tasks(rows,done=False):
+    rows=[r for r in rows if matches(r)]
+    rows.sort(key=task_sort if not done else lambda r: str(r.get("closed_at") or ""),reverse=done)
+    if not rows:
+        st.info("No tasks found in this tab.")
+        return
+    header=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3])
+    for col,label in zip(header,["#","Task","Indus Resp.","VIS Resp.","Priority","Raised","Remark","Status","Edit","Delete"]):
+        col.markdown(f"**{label}**")
+    st.divider()
+    for i,row in enumerate(rows,1):
+        rid=str(row.get("id"))
+        cols=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3],vertical_alignment="center")
+        cols[0].write(str(i))
+        title=escape(str(row.get("activity_name") or "Untitled"))
+        cols[1].markdown(f"**{'🔴 ' if row.get('important') else ''}{title}**")
+        cols[2].caption(str(row.get("indus_responsible") or "—"))
+        cols[3].caption(str(row.get("vis_responsible") or "—"))
+        with cols[4]:
+            priority=st.selectbox("Priority",["High","Normal"],index=0 if row.get("important") else 1,key=f"priority_{rid}",label_visibility="collapsed")
+            if (priority=="High") != bool(row.get("important")):
+                save_row(row,{"important":priority=="High"})
+        cols[5].caption(str(row.get("raise_date") or "—"))
+        with cols[6]:
+            new_remark=st.text_input("Remark",value=str(row.get("remark") or ""),key=f"remark_{rid}",label_visibility="collapsed",placeholder="Add remark...")
+            if new_remark != str(row.get("remark") or ""):
+                if st.button("💾 Save remark",key=f"remark_save_{rid}"):
+                    save_row(row,{"remark":new_remark})
+        with cols[7]:
+            status=st.selectbox("Status",["Completed","Pending"] if done else ["Pending","Completed"],key=f"status_{rid}",label_visibility="collapsed")
+            if (done and status=="Pending") or (not done and status=="Completed"):
+                save_row(row,{"status":"Pending" if status=="Pending" else "Closed","closed_at":"" if status=="Pending" else datetime.now().strftime("%d/%m/%Y %H:%M")})
+        with cols[8]:
             if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
                 st.session_state.pa_edit_row=row
                 st.session_state.pa_show_form_dialog=True
                 st.rerun()
-        with c:
+        with cols[9]:
             if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
-                st.session_state[f"pa_delete_confirm_{rid}"]=True
-    if st.session_state.get(f"pa_delete_confirm_{rid}"):
-        st.warning(f"Delete '{row.get('activity_name')}' permanently?")
-        yes,no=st.columns([1,5])
-        with yes:
-            if st.button("Confirm",key=f"confirm_{rid}"):
-                try:
-                    supabase.table(TABLE_NAME).delete().eq("id",row["id"]).execute()
-                    fetch_activities.clear()
-                    st.session_state[f"pa_delete_confirm_{rid}"]=False
-                    st.rerun()
-                except Exception as exc: st.error(str(exc))
-        with no:
-            if st.button("Cancel",key=f"cancel_{rid}"):
-                st.session_state[f"pa_delete_confirm_{rid}"]=False
-                st.rerun()
+                st.session_state[f"confirm_{rid}"]=True
+        if st.session_state.get(f"confirm_{rid}"):
+            st.warning(f"Delete task '{row.get('activity_name','')}' permanently?")
+            yes,no=st.columns([1,7])
+            with yes:
+                if st.button("Yes, delete",key=f"yes_{rid}"):
+                    try:
+                        supabase.table(TABLE_NAME).delete().eq("id",row["id"]).execute()
+                        fetch_activities.clear();st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+            with no:
+                if st.button("Cancel",key=f"no_{rid}"):
+                    st.session_state[f"confirm_{rid}"]=False;st.rerun()
+        st.markdown("<hr style='margin:4px 0;border:0;border-top:1px solid #edf0f5'>",unsafe_allow_html=True)
 
-st.divider()
-st.markdown("#### 📊 Daily EOD Report")
-report_date=st.date_input("Report date",value=today_date,key="pa_eod_date")
-report_date_str=report_date.strftime("%d/%m/%Y")
-finished=[r for r in closed_records if str(r.get("closed_at", "")).startswith(report_date_str)]
-remaining=[r for r in pending_records if (pa_date(r) or today_date) <= report_date]
-report_rows=[]
-for r in finished:
-    report_rows.append({"Task":r.get("activity_name"),"Status":"Completed","VIS Responsible":r.get("vis_responsible"),"Indus Responsible":r.get("indus_responsible"),"Raised":r.get("raise_date"),"Closed":r.get("closed_at"),"Remark":r.get("remark")})
-for r in remaining:
-    report_rows.append({"Task":r.get("activity_name"),"Status":"Pending","VIS Responsible":r.get("vis_responsible"),"Indus Responsible":r.get("indus_responsible"),"Raised":r.get("raise_date"),"Closed":"","Remark":r.get("remark")})
-q1,q2,q3=st.columns(3)
-q1.metric("Completed on date",len(finished))
-q2.metric("Still pending",len(remaining))
-q3.metric("Total in report",len(report_rows))
-if report_rows:
-    report_df=pd.DataFrame(report_rows)
-    with st.expander("👁️ Preview EOD",expanded=False):
-        st.dataframe(report_df,use_container_width=True,hide_index=True)
-    out=io.BytesIO()
-    with pd.ExcelWriter(out,engine="openpyxl") as writer:
-        report_df.to_excel(writer,index=False,sheet_name="EOD Report")
-    st.download_button("📥 Download EOD Excel",data=out.getvalue(),file_name=f"EOD_Report_{report_date.isoformat()}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-else:
-    st.caption("No records for this report date.")
-st.caption("Note: EOD uses current pending tasks and recorded close dates. Historical snapshots are not stored yet. Browser must keep this page open for its existing alarm popups.")
+tab1,tab2=st.tabs([f"📋 All Tasks ({len(pending)})",f"✅ Completed Tasks ({len(completed)})"])
+with tab1:
+    st.caption("High priority tasks appear first. Change status to Completed to move a task to the second tab.")
+    render_tasks(pending)
+with tab2:
+    st.caption("Completed tasks are stored here. Change status to Pending to reopen.")
+    render_tasks(completed,done=True)
