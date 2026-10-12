@@ -325,6 +325,18 @@ def add_activity_dialog(edit_row=None):
 
     activity_name = st.text_input("ACTIVITY NAME *", value=edit_row.get('activity_name', '') if is_edit else "", placeholder="e.g. SMPS Commissioning Follow-up")
 
+    # Company selection is saved on the task itself (not used as a workspace filter).
+    company_options = ["VISPL", "BHAGYASHREE", "SAI TELE SERVICES"]
+    existing_company = str(edit_row.get("company_name") or "").strip() if is_edit else ""
+    if existing_company and existing_company not in company_options:
+        company_options.append(existing_company)
+    company_name = st.selectbox(
+        "COMPANY NAME *", [""] + company_options,
+        index=([""] + company_options).index(existing_company) if existing_company else 0,
+        format_func=lambda x: x if x else "Select Company",
+        key=f"pa_company_{edit_row.get('id') if is_edit else 'new'}"
+    )
+
     # Project and Cluster are stored in the existing pending_activity table.
     project_name = st.text_input(
         "PROJECT NAME", value=str(edit_row.get("project_name") or "") if is_edit else "",
@@ -350,7 +362,7 @@ def add_activity_dialog(edit_row=None):
     with c1:
         indus_resp = responsible_picker("INDUS RESPONSIBLE *", "indus_responsible", edit_row.get("indus_responsible", "") if is_edit else "", "pa_indus_person")
     with c2:
-        vis_resp = responsible_picker("VIS RESPONSIBLE *", "vis_responsible", edit_row.get("vis_responsible", "") if is_edit else "", "pa_vis_person")
+        approval = st.selectbox("APPROVAL *", ["Not Approved", "Approved"], index=1 if is_edit and edit_row.get("approval") == "Approved" else 0, key=f"pa_approval_{edit_row.get('id') if is_edit else 'new'}")
 
     c3, c4 = st.columns(2)
     with c3:
@@ -413,11 +425,14 @@ def add_activity_dialog(edit_row=None):
 
     if submitted:
         has_error = False
+        if not company_name:
+            st.error("⚠️ Company select karein!")
+            has_error = True
         if not activity_name.strip():
             st.error("⚠️ Activity Name dalna compulsory hai!")
             has_error = True
-        if not indus_resp.strip() or not vis_resp.strip():
-            st.error("⚠️ Indus Responsible aur VIS Responsible dono dalna compulsory hai!")
+        if not indus_resp.strip():
+            st.error("⚠️ Indus Responsible dalna compulsory hai!")
             has_error = True
         if r_type == "Weekly" and not reminder_day:
             st.error("⚠️ Weekly reminder ke liye Day of Week select karein!")
@@ -429,10 +444,11 @@ def add_activity_dialog(edit_row=None):
         if not has_error:
             payload = {
                 "activity_name": activity_name.strip(),
+                "company_name": company_name,
                 "project_name": project_name.strip(),
                 "cluster": cluster,
                 "indus_responsible": indus_resp.strip(),
-                "vis_responsible": vis_resp.strip(),
+                "approval": approval,
                 "raise_date": raise_date.strftime("%d/%m/%Y"),
                 "remark": remark,
                 "important": bool(important),
@@ -472,7 +488,7 @@ def reminder_popup_dialog(row):
         '<div class="pa-alarm-title">It\'s Time! Don\'t Forget This Task</div>'
         f'<div class="pa-alarm-activity">{row.get("activity_name", "")}</div>'
         f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">👷 Indus Responsible</span><span class="pa-alarm-value">{row.get("indus_responsible","") or "-"}</span></div>'
-        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">🏢 VIS Responsible</span><span class="pa-alarm-value">{row.get("vis_responsible","") or "-"}</span></div>'
+        f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">Approval</span><span class="pa-alarm-value">{row.get("approval", "Not Approved") or "Not Approved"}</span></div>'
         f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">📅 Raised On</span><span class="pa-alarm-value">{row.get("raise_date","") or "-"} ({days_txt} ago)</span></div>'
         f'<div class="pa-alarm-info-row"><span class="pa-alarm-label">⭐ Important</span><span class="pa-alarm-value">{"YES 🔥" if row.get("important") else "No"}</span></div>'
         '</div>'
@@ -626,7 +642,7 @@ with b2:
         st.rerun()
 with b3:
     if st.button("🔔 Test Alarm",use_container_width=True,key="test_alarm"):
-        st.session_state["active_reminder"]={"id":"test","activity_name":"Test Reminder","indus_responsible":"-","vis_responsible":"-","raise_date":today,"remark":"Test alarm","important":False,"reminder_type":"Daily","reminder_time":datetime.now().strftime("%H:%M")}
+        st.session_state["active_reminder"]={"id":"test","activity_name":"Test Reminder","indus_responsible":"-","approval":"Not Approved","raise_date":today,"remark":"Test alarm","important":False,"reminder_type":"Daily","reminder_time":datetime.now().strftime("%H:%M")}
         st.rerun()
 
 search=st.text_input("Search Tasks",placeholder="Search task, responsible person, remark...",label_visibility="collapsed")
@@ -641,7 +657,7 @@ def save_row(row,changes):
 
 def matches(row):
     q=search.strip().lower()
-    return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","project_name","cluster","indus_responsible","vis_responsible","remark"])
+    return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","company_name","project_name","cluster","indus_responsible","approval","remark"])
 
 def task_sort(row):
     return ({"High":0,"Medium":1,"Normal":2}.get(str(row.get("priority") or ("High" if row.get("important") else "Normal")),2), parse_ddmmyyyy(row.get("raise_date")))
@@ -653,8 +669,8 @@ def render_tasks(rows,done=False):
     if not rows:
         st.info("No tasks found in this tab.")
         return
-    header=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3])
-    for col,label in zip(header,["#","Task","Indus Resp.","VIS Resp.","Priority","Raised","Remark","Status","Edit","Delete"]):
+    header=st.columns([0.4,1.3,2.4,1.25,1.1,1.35,1.35,1.0,1.05,2.1,1.1,0.95,0.95])
+    for col,label in zip(header,["#","Company","Task","Project","Cluster","Indus Resp.","Approval","Priority","Raised","Remark","Status","Edit","Delete"]):
         col.markdown(f"**{label}**")
     st.divider()
     for i,row in enumerate(rows,1):
@@ -663,22 +679,25 @@ def render_tasks(rows,done=False):
         if current_priority not in ["High","Medium","Normal"]: current_priority="Normal"
         row_color="completed" if done else current_priority.lower()
         with st.container(key=f"task_{row_color}_{rid}"):
-            cols=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3],vertical_alignment="center")
+            cols=st.columns([0.4,1.3,2.4,1.25,1.1,1.35,1.35,1.0,1.05,2.1,1.1,0.95,0.95],vertical_alignment="center")
             cols[0].markdown(f"**{i}**")
             title=escape(str(row.get("activity_name") or "Untitled"))
-            cols[1].markdown(f"**{title}**")
-            project_display = escape(str(row.get("project_name") or "").strip())
-            cluster_display = escape(str(row.get("cluster") or "").strip())
-            if project_display or cluster_display:
-                cols[1].caption(" | ".join(v for v in [project_display, cluster_display] if v))
-            cols[2].markdown(f"**{escape(str(row.get('indus_responsible') or '—'))}**")
-            cols[3].markdown(f"**{escape(str(row.get('vis_responsible') or '—'))}**")
-            with cols[4]:
+            cols[1].markdown(f"**{escape(str(row.get('company_name') or '—'))}**")
+            cols[2].markdown(f"**{title}**")
+            cols[3].markdown(f"**{escape(str(row.get('project_name') or '—'))}**")
+            cols[4].markdown(f"**{escape(str(row.get('cluster') or '—'))}**")
+            cols[5].markdown(f"**{escape(str(row.get('indus_responsible') or '—'))}**")
+            with cols[6]:
+                current_approval = row.get("approval") if row.get("approval") in ("Approved", "Not Approved") else "Not Approved"
+                selected_approval = st.selectbox("Approval", ["Not Approved", "Approved"], index=0 if current_approval == "Not Approved" else 1, key=f"approval_row_{rid}", label_visibility="collapsed")
+                if selected_approval != current_approval:
+                    save_row(row, {"approval": selected_approval})
+            with cols[7]:
                 priority=st.selectbox("Priority",["High","Medium","Normal"],index=["High","Medium","Normal"].index(current_priority),key=f"priority_{rid}",label_visibility="collapsed")
                 if priority != current_priority:
                     save_row(row,{"priority":priority,"important":priority=="High"})
-            cols[5].markdown(f"**{escape(str(row.get('raise_date') or '—'))}**")
-            with cols[6]:
+            cols[8].markdown(f"**{escape(str(row.get('raise_date') or '—'))}**")
+            with cols[9]:
                 # Blank on first display; old remark is preserved until a new one is saved.
                 new_remark=st.text_input("New remark",value="",key=f"remark_entry_{rid}",label_visibility="collapsed",placeholder="Write remark...")
                 if new_remark.strip():
@@ -687,14 +706,14 @@ def render_tasks(rows,done=False):
                 old_remark=str(row.get("remark") or "").strip()
                 if old_remark:
                     st.caption("Saved: " + old_remark)
-            with cols[7]:
+            with cols[10]:
                 status=st.selectbox("Status",["Completed","Pending"] if done else ["Pending","Completed"],key=f"status_{rid}",label_visibility="collapsed")
                 if (done and status=="Pending") or (not done and status=="Completed"):
                     save_row(row,{"status":"Pending" if status=="Pending" else "Closed","closed_at":"" if status=="Pending" else datetime.now().strftime("%d/%m/%Y %H:%M")})
-            with cols[8]:
+            with cols[11]:
                 if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
                     add_activity_dialog(edit_row=row)
-            with cols[9]:
+            with cols[12]:
                 if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
                     st.session_state[f"confirm_{rid}"]=True
             if st.session_state.get(f"confirm_{rid}"):
