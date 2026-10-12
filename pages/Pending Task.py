@@ -549,8 +549,10 @@ from html import escape
 
 if st.session_state.get("active_reminder"):
     reminder_popup_dialog(st.session_state["active_reminder"])
-elif st.session_state.get("pa_show_form_dialog"):
-    add_activity_dialog(edit_row=st.session_state.get("pa_edit_row"))
+# Add/Edit dialogs are opened ONLY by their own buttons.
+# A dismissed dialog must not reopen on the next Streamlit rerun.
+st.session_state.pa_show_form_dialog = False
+st.session_state.pa_edit_row = None
 
 st.markdown("## Daily Task & EOD Report Tool")
 st.caption("Task management  /  All companies  /  Live Supabase data")
@@ -573,9 +575,7 @@ for col, title, count in zip(metrics,["Total Tasks","Completed","Pending","High 
 b1,b2,b3,b4=st.columns([1.7,1.3,1.3,5])
 with b1:
     if st.button("＋ Add New Task",type="primary",use_container_width=True,key="add_task"):
-        st.session_state.pa_edit_row=None
-        st.session_state.pa_show_form_dialog=True
-        st.rerun()
+        add_activity_dialog(edit_row=None)
 with b2:
     if st.button("↻ Refresh",use_container_width=True,key="refresh_tasks"):
         fetch_activities.clear();st.rerun()
@@ -644,9 +644,7 @@ def render_tasks(rows,done=False):
                     save_row(row,{"status":"Pending" if status=="Pending" else "Closed","closed_at":"" if status=="Pending" else datetime.now().strftime("%d/%m/%Y %H:%M")})
             with cols[8]:
                 if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
-                    st.session_state.pa_edit_row=row
-                    st.session_state.pa_show_form_dialog=True
-                    st.rerun()
+                    add_activity_dialog(edit_row=row)
             with cols[9]:
                 if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
                     st.session_state[f"confirm_{rid}"]=True
