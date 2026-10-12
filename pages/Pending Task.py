@@ -44,7 +44,22 @@ h1,h2,h3,h4,p,label,div[data-testid="stWidgetLabel"] p {color:#17243b;}
 [data-testid="stSidebar"] {background:#ffffff!important;}
 [data-testid="stSidebarNav"] a {color:#253451!important;}
 div.stButton>button[kind="primary"] {background:#2563eb!important;color:white!important;border:0!important;}
-div.stButton>button {border-radius:7px!important;font-weight:600!important;}
+div.stButton>button {border-radius:8px!important;font-weight:800!important; color:#14243b!important; border:1px solid #b9c7d9!important;}
+div.stButton>button p, div.stButton>button span {font-weight:800!important;}
+[data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] [data-baseweb="select"] {font-weight:700!important;color:#15243a!important;}
+[data-testid="stMetricLabel"] p, [data-testid="stMetricValue"] {font-weight:800!important;}
+[class*="st-key-task_high_"] {background:#ffe0e1!important;border:1px solid #f7a5a9!important;border-left:6px solid #e11d48!important; border-radius:9px!important;padding:7px 10px!important;margin-bottom:5px!important;}
+[class*="st-key-task_medium_"] {background:#ffedd5!important;border:1px solid #fdba74!important;border-left:6px solid #f97316!important;border-radius:9px!important;padding:7px 10px!important;margin-bottom:5px!important;}
+[class*="st-key-task_normal_"] {background:#dbeafe!important;border:1px solid #93c5fd!important;border-left:6px solid #2563eb!important;border-radius:9px!important;padding:7px 10px!important;margin-bottom:5px!important;}
+[class*="st-key-task_completed_"] {background:#e2f7e9!important;border:1px solid #86efac!important;border-left:6px solid #16a34a!important;border-radius:9px!important;padding:7px 10px!important;margin-bottom:5px!important;}
+.st-key-tab_all button {background:#2563eb!important;color:white!important;border:0!important;border-radius:9px!important;font-weight:900!important;padding:12px!important;}
+.st-key-tab_done button {background:#16a34a!important;color:white!important;border:0!important;border-radius:9px!important;font-weight:900!important;padding:12px!important;}
+.st-key-tab_all button p,.st-key-tab_done button p {color:white!important;font-weight:900!important;}
+.st-key-add_task button {background:#2563eb!important;color:white!important;}
+.st-key-refresh_tasks button {background:#0d9488!important;color:white!important;}
+.st-key-test_alarm button {background:#d97706!important;color:white!important;}
+.st-key-add_task button p,.st-key-refresh_tasks button p,.st-key-test_alarm button p {color:white!important;}
+
 div[data-testid="stMetric"] {background:white;border:1px solid #e2e8f0;border-radius:9px;padding:14px 18px;}
 [data-testid="stTabs"] button {font-weight:700!important;}
 [data-testid="stDataFrame"] {border:1px solid #e2e8f0;border-radius:9px;}
@@ -557,15 +572,15 @@ for col, title, count in zip(metrics,["Total Tasks","Completed","Pending","High 
 
 b1,b2,b3,b4=st.columns([1.7,1.3,1.3,5])
 with b1:
-    if st.button("＋ Add New Task",type="primary",use_container_width=True):
+    if st.button("＋ Add New Task",type="primary",use_container_width=True,key="add_task"):
         st.session_state.pa_edit_row=None
         st.session_state.pa_show_form_dialog=True
         st.rerun()
 with b2:
-    if st.button("↻ Refresh",use_container_width=True):
+    if st.button("↻ Refresh",use_container_width=True,key="refresh_tasks"):
         fetch_activities.clear();st.rerun()
 with b3:
-    if st.button("🔔 Test Alarm",use_container_width=True):
+    if st.button("🔔 Test Alarm",use_container_width=True,key="test_alarm"):
         st.session_state["active_reminder"]={"id":"test","activity_name":"Test Reminder","indus_responsible":"-","vis_responsible":"-","raise_date":today,"remark":"Test alarm","important":False,"reminder_type":"Daily","reminder_time":datetime.now().strftime("%H:%M")}
         st.rerun()
 
@@ -584,7 +599,7 @@ def matches(row):
     return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","indus_responsible","vis_responsible","remark"])
 
 def task_sort(row):
-    return (0 if row.get("important") else 1, parse_ddmmyyyy(row.get("raise_date")))
+    return ({"High":0,"Medium":1,"Normal":2}.get(str(row.get("priority") or ("High" if row.get("important") else "Normal")),2), parse_ddmmyyyy(row.get("raise_date")))
 
 # Render compact spreadsheet-like table with editable remark/status and per-row actions.
 def render_tasks(rows,done=False):
@@ -599,53 +614,67 @@ def render_tasks(rows,done=False):
     st.divider()
     for i,row in enumerate(rows,1):
         rid=str(row.get("id"))
-        cols=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3],vertical_alignment="center")
-        cols[0].write(str(i))
-        title=escape(str(row.get("activity_name") or "Untitled"))
-        cols[1].markdown(f"**{'🔴 ' if row.get('important') else ''}{title}**")
-        cols[2].caption(str(row.get("indus_responsible") or "—"))
-        cols[3].caption(str(row.get("vis_responsible") or "—"))
-        with cols[4]:
-            priority=st.selectbox("Priority",["High","Normal"],index=0 if row.get("important") else 1,key=f"priority_{rid}",label_visibility="collapsed")
-            if (priority=="High") != bool(row.get("important")):
-                save_row(row,{"important":priority=="High"})
-        cols[5].caption(str(row.get("raise_date") or "—"))
-        with cols[6]:
-            new_remark=st.text_input("Remark",value=str(row.get("remark") or ""),key=f"remark_{rid}",label_visibility="collapsed",placeholder="Add remark...")
-            if new_remark != str(row.get("remark") or ""):
-                if st.button("💾 Save remark",key=f"remark_save_{rid}"):
-                    save_row(row,{"remark":new_remark})
-        with cols[7]:
-            status=st.selectbox("Status",["Completed","Pending"] if done else ["Pending","Completed"],key=f"status_{rid}",label_visibility="collapsed")
-            if (done and status=="Pending") or (not done and status=="Completed"):
-                save_row(row,{"status":"Pending" if status=="Pending" else "Closed","closed_at":"" if status=="Pending" else datetime.now().strftime("%d/%m/%Y %H:%M")})
-        with cols[8]:
-            if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
-                st.session_state.pa_edit_row=row
-                st.session_state.pa_show_form_dialog=True
-                st.rerun()
-        with cols[9]:
-            if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
-                st.session_state[f"confirm_{rid}"]=True
-        if st.session_state.get(f"confirm_{rid}"):
-            st.warning(f"Delete task '{row.get('activity_name','')}' permanently?")
-            yes,no=st.columns([1,7])
-            with yes:
-                if st.button("Yes, delete",key=f"yes_{rid}"):
-                    try:
-                        supabase.table(TABLE_NAME).delete().eq("id",row["id"]).execute()
-                        fetch_activities.clear();st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-            with no:
-                if st.button("Cancel",key=f"no_{rid}"):
-                    st.session_state[f"confirm_{rid}"]=False;st.rerun()
-        st.markdown("<hr style='margin:4px 0;border:0;border-top:1px solid #edf0f5'>",unsafe_allow_html=True)
+        current_priority=str(row.get("priority") or ("High" if row.get("important") else "Normal"))
+        if current_priority not in ["High","Medium","Normal"]: current_priority="Normal"
+        row_color="completed" if done else current_priority.lower()
+        with st.container(key=f"task_{row_color}_{rid}"):
+            cols=st.columns([0.5,3.3,1.5,1.5,1.3,1.3,3,1.5,1.3,1.3],vertical_alignment="center")
+            cols[0].markdown(f"**{i}**")
+            title=escape(str(row.get("activity_name") or "Untitled"))
+            cols[1].markdown(f"**{title}**")
+            cols[2].markdown(f"**{escape(str(row.get('indus_responsible') or '—'))}**")
+            cols[3].markdown(f"**{escape(str(row.get('vis_responsible') or '—'))}**")
+            with cols[4]:
+                priority=st.selectbox("Priority",["High","Medium","Normal"],index=["High","Medium","Normal"].index(current_priority),key=f"priority_{rid}",label_visibility="collapsed")
+                if priority != current_priority:
+                    save_row(row,{"priority":priority,"important":priority=="High"})
+            cols[5].markdown(f"**{escape(str(row.get('raise_date') or '—'))}**")
+            with cols[6]:
+                # Blank on first display; old remark is preserved until a new one is saved.
+                new_remark=st.text_input("New remark",value="",key=f"remark_entry_{rid}",label_visibility="collapsed",placeholder="Write remark...")
+                if new_remark.strip():
+                    if st.button("💾 Save",key=f"remark_save_{rid}"):
+                        save_row(row,{"remark":new_remark.strip()})
+                old_remark=str(row.get("remark") or "").strip()
+                if old_remark:
+                    st.caption("Saved: " + old_remark)
+            with cols[7]:
+                status=st.selectbox("Status",["Completed","Pending"] if done else ["Pending","Completed"],key=f"status_{rid}",label_visibility="collapsed")
+                if (done and status=="Pending") or (not done and status=="Completed"):
+                    save_row(row,{"status":"Pending" if status=="Pending" else "Closed","closed_at":"" if status=="Pending" else datetime.now().strftime("%d/%m/%Y %H:%M")})
+            with cols[8]:
+                if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
+                    st.session_state.pa_edit_row=row
+                    st.session_state.pa_show_form_dialog=True
+                    st.rerun()
+            with cols[9]:
+                if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
+                    st.session_state[f"confirm_{rid}"]=True
+            if st.session_state.get(f"confirm_{rid}"):
+                st.warning(f"Delete task '{row.get('activity_name','')}' permanently?")
+                yes,no=st.columns([1,7])
+                with yes:
+                    if st.button("Yes, delete",key=f"yes_{rid}"):
+                        try:
+                            supabase.table(TABLE_NAME).delete().eq("id",row["id"]).execute()
+                            fetch_activities.clear();st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+                with no:
+                    if st.button("Cancel",key=f"no_{rid}"):
+                        st.session_state[f"confirm_{rid}"]=False;st.rerun()
 
-tab1,tab2=st.tabs([f"📋 All Tasks ({len(pending)})",f"✅ Completed Tasks ({len(completed)})"])
-with tab1:
+nav1,nav2,_=st.columns([1.4,1.7,6])
+with nav1:
+    if st.button(f"📋 All Tasks ({len(pending)})",key="tab_all",use_container_width=True):
+        st.session_state["task_tab"]="all"
+with nav2:
+    if st.button(f"✅ Completed Tasks ({len(completed)})",key="tab_done",use_container_width=True):
+        st.session_state["task_tab"]="done"
+if "task_tab" not in st.session_state: st.session_state["task_tab"]="all"
+if st.session_state["task_tab"]=="all":
     st.caption("High priority tasks appear first. Change status to Completed to move a task to the second tab.")
     render_tasks(pending)
-with tab2:
+else:
     st.caption("Completed tasks are stored here. Change status to Pending to reopen.")
     render_tasks(completed,done=True)
