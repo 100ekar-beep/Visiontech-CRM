@@ -192,7 +192,7 @@ def reminder_summary_text(row):
     return r_type
 
 
-def time_picker(label, key_prefix, default_time=dt_time(9, 0)):
+def time_picker(label, key_prefix, default_time=dt_time(11, 0)):
     """
     A reliable, always-visible 12-hour Hour/Minute/AM-PM clock picker built
     from plain Streamlit selectboxes — guaranteed to render and open the
