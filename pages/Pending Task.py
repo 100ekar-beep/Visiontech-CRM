@@ -299,6 +299,24 @@ def check_reminders_and_trigger(pending_records):
             break
 
 
+# Responsible-person dropdowns are populated from existing tasks; no new table.
+def responsible_options(field, current=""):
+    names = {str(r.get(field) or "").strip() for r in fetch_activities()}
+    names.discard("")
+    if current and str(current).strip():
+        names.add(str(current).strip())
+    return ["— Select name —"] + sorted(names, key=str.casefold) + ["➕ Add New Name"]
+
+
+def responsible_picker(label, field, current, widget_key):
+    options = responsible_options(field, current)
+    default = current if current in options else "— Select name —"
+    chosen = st.selectbox(label, options, index=options.index(default), key=widget_key)
+    if chosen == "➕ Add New Name":
+        return st.text_input("New " + label.replace(" *", "") + " name", key=widget_key + "_new", placeholder="Enter full name").strip()
+    return "" if chosen == "— Select name —" else chosen
+
+
 # --- 8. ADD / EDIT ACTIVITY DIALOG ---
 @st.dialog("➕ Add New Pending Activity", width="large")
 def add_activity_dialog(edit_row=None):
@@ -309,9 +327,9 @@ def add_activity_dialog(edit_row=None):
 
     c1, c2 = st.columns(2)
     with c1:
-        indus_resp = st.text_input("INDUS RESPONSIBLE *", value=edit_row.get('indus_responsible', '') if is_edit else "")
+        indus_resp = responsible_picker("INDUS RESPONSIBLE *", "indus_responsible", edit_row.get("indus_responsible", "") if is_edit else "", "pa_indus_person")
     with c2:
-        vis_resp = st.text_input("VIS RESPONSIBLE *", value=edit_row.get('vis_responsible', '') if is_edit else "")
+        vis_resp = responsible_picker("VIS RESPONSIBLE *", "vis_responsible", edit_row.get("vis_responsible", "") if is_edit else "", "pa_vis_person")
 
     c3, c4 = st.columns(2)
     with c3:
