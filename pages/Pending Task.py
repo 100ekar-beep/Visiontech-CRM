@@ -342,21 +342,46 @@ def add_activity_dialog(edit_row=None):
         "PROJECT NAME", value=str(edit_row.get("project_name") or "") if is_edit else "",
         placeholder="Enter project name manually", key=f"pa_project_{edit_row.get('id') if is_edit else 'new'}"
     )
+    # Cluster master without a new table: combine fixed list with names already
+    # saved in pending_activity, so user-added names appear on future tasks.
     cluster_options = [
-        "Ahmednagar", "Amravati", "Beed", "Bhiwandi", "Buldhana", "Dhule",
-        "Goa", "Gondia", "Jalgaon", "Kolhapur", "Latur", "Nagpur",
-        "Nanded", "Nashik", "Pune City", "Pune East", "Raigad",
+        "Ahmednagar", "Amravati", "Baramati", "Beed", "Bhiwandi", "Buldhana",
+        "Dhule", "Goa", "Gondia", "Jalgaon", "Kolhapur", "Latur",
+        "Nagpur", "Nanded", "Nashik", "Pune City", "Pune East", "Raigad",
         "Sambhaji nagar", "Satara", "Solapur", "Vasai", "Yavatmal"
     ]
+    try:
+        # Query only distinct-like cluster values from existing tasks; no new table.
+        saved_clusters = supabase.table(TABLE_NAME).select("cluster").not_.is_("cluster", "null").execute().data or []
+        for saved in saved_clusters:
+            name = str(saved.get("cluster") or "").strip()
+            if name and name.casefold() not in {v.casefold() for v in cluster_options}:
+                cluster_options.append(name)
+    except Exception:
+        pass
     existing_cluster = str(edit_row.get("cluster") or "").strip() if is_edit else ""
-    if existing_cluster and existing_cluster not in cluster_options:
+    if existing_cluster and existing_cluster.casefold() not in {v.casefold() for v in cluster_options}:
         cluster_options.append(existing_cluster)
-    cluster = st.selectbox(
-        "CLUSTER", [""] + cluster_options,
-        index=([""] + cluster_options).index(existing_cluster) if existing_cluster else 0,
+    cluster_options = sorted(cluster_options, key=str.casefold)
+    cluster_key = f"pa_cluster_{edit_row.get('id') if is_edit else 'new'}"
+    add_option = "➕ Add New Cluster"
+    cluster_choice = st.selectbox(
+        "CLUSTER", [""] + cluster_options + [add_option],
+        index=([""] + cluster_options + [add_option]).index(existing_cluster) if existing_cluster else 0,
         format_func=lambda x: x if x else "Select Cluster",
-        key=f"pa_cluster_{edit_row.get('id') if is_edit else 'new'}"
+        key=cluster_key,
     )
+    if cluster_choice == add_option:
+        new_cluster = st.text_input(
+            "NEW CLUSTER NAME", placeholder="Type new cluster name here",
+            key=f"{cluster_key}_custom",
+        ).strip()
+        matched = next((v for v in cluster_options if v.casefold() == new_cluster.casefold()), None)
+        cluster = matched or new_cluster
+        if not cluster:
+            st.info("New Cluster ka naam likhein. Task Save karne par ye agle tasks ke dropdown mein aa jayega.")
+    else:
+        cluster = cluster_choice
 
     c1, c2 = st.columns(2)
     with c1:
@@ -425,6 +450,9 @@ def add_activity_dialog(edit_row=None):
 
     if submitted:
         has_error = False
+        if cluster_choice == add_option and not cluster:
+            st.error("⚠️ New Cluster ka naam likhein!")
+            has_error = True
         if not company_name:
             st.error("⚠️ Company select karein!")
             has_error = True
@@ -689,9 +717,13 @@ def render_tasks(rows,done=False):
             cols[5].markdown(f"**{escape(str(row.get('indus_responsible') or '—'))}**")
             with cols[6]:
                 current_approval = row.get("approval") if row.get("approval") in ("Approved", "Not Approved") else "Not Approved"
-                selected_approval = st.selectbox("Approval", ["Not Approved", "Approved"], index=0 if current_approval == "Not Approved" else 1, key=f"approval_row_{rid}", label_visibility="collapsed")
-                if selected_approval != current_approval:
-                    save_row(row, {"approval": selected_approval})
+                approval_color = "#15803d" if current_approval == "Approved" else "#b91c1c"
+                approval_bg = "#dcfce7" if current_approval == "Approved" else "#fee2e2"
+                cols[6].markdown(
+                    f'<div style="background:{approval_bg};color:{approval_color};font-weight:900;'
+                    f'padding:9px 5px;border-radius:7px;text-align:center;white-space:nowrap">'
+                    f'{current_approval}</div>', unsafe_allow_html=True
+                )
             with cols[7]:
                 priority=st.selectbox("Priority",["High","Medium","Normal"],index=["High","Medium","Normal"].index(current_priority),key=f"priority_{rid}",label_visibility="collapsed")
                 if priority != current_priority:
