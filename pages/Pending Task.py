@@ -5,6 +5,7 @@ import io
 import wave
 import base64
 import textwrap
+import html
 from datetime import datetime, date, time as dt_time, timedelta
 from supabase import create_client, Client
 
@@ -810,137 +811,185 @@ with s4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- SEARCH ---
-search_query = st.text_input("Search", placeholder="🔍 Search by Activity Name / Indus / VIS Responsible...", label_visibility="collapsed")
+# --- DAILY PLANNER / EOD WORKSPACE ---
+st.markdown("""<style>
+.pa-section{padding:17px 20px;border-radius:15px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.12);margin:10px 0 14px}
+.pa-section h3{color:#fff!important;margin:0 0 5px!important}
+.pa-mini{color:#a5b4fc;font-size:.84rem;font-weight:700}
+.pa-task{border:1px solid rgba(255,255,255,.13);border-radius:13px;padding:14px 17px;background:rgba(255,255,255,.045);margin:10px 0 4px}
+.pa-task strong{color:#fff;font-size:1.04rem}
+.pa-task small{color:#cbd5e1}
+</style>""", unsafe_allow_html=True)
 
-if search_query:
-    q = search_query.strip().lower()
-    pending_records = [
-        r for r in pending_records
-        if q in str(r.get("activity_name", "")).lower()
-        or q in str(r.get("indus_responsible", "")).lower()
-        or q in str(r.get("vis_responsible", "")).lower()
-    ]
+now_local = datetime.now()
+today_date = now_local.date()
 
-# --- SORT: Important first, then oldest raise date first ---
-pending_records.sort(key=lambda r: (not bool(r.get("important")), parse_ddmmyyyy(r.get("raise_date"))))
+def pa_esc(v):
+    return html.escape(str(v or "-"))
 
-# --- PENDING ACTIVITIES LIST ---
-st.markdown("##### 🗂️ Pending Activities")
+def pa_date(row):
+    d = parse_ddmmyyyy(row.get("raise_date", ""))
+    return d.date() if d != datetime.min else None
 
-if not pending_records:
-    st.info("🎉 Koi pending activity nahi hai! Sab kuch caught up hai.")
-else:
-    for row in pending_records:
-        rid = row.get("id")
-        is_important = bool(row.get("important"))
-        days_txt, days_cls = days_pending_badge(row.get("raise_date", ""))
-        card_class = "pa-card important" if is_important else "pa-card"
+def pa_reminder_date(row):
+    if row.get("reminder_type") == "Specific Date":
+        d = parse_ddmmyyyy(row.get("reminder_specific_date", ""))
+        return d.date() if d != datetime.min else None
+    return None
 
-        important_badge_html = '<span class="pa-badge pa-badge-important">⭐ Important</span>' if is_important else ''
-        remark_html = f'<div class="pa-remark-box">📝 {row.get("remark","")}</div>' if str(row.get('remark', '')).strip() else ''
+def pa_is_today(row):
+    typ = str(row.get("reminder_type") or "")
+    if typ == "Daily": return True
+    if typ == "Weekly": return str(row.get("reminder_day")) == now_local.strftime("%A")
+    if typ == "Monthly":
+        try: return int(row.get("reminder_date_of_month") or 0) == today_date.day
+        except (ValueError, TypeError): return False
+    if typ == "Specific Date": return pa_reminder_date(row) == today_date
+    return False
 
-        card_html = (
-            f'<div class="{card_class}">'
-            '<div class="pa-title-row">'
-            f'<span class="pa-activity-name">📌 {row.get("activity_name","") or "-"}</span>'
-            f'{important_badge_html}'
-            f'<span class="pa-badge {days_cls}">{days_txt} pending</span>'
-            f'<span class="pa-badge pa-badge-reminder">⏰ {reminder_summary_text(row)}</span>'
-            '</div>'
-            '<div class="pa-grid">'
-            f'<div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get("indus_responsible","") or "-"}</div></div>'
-            f'<div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get("vis_responsible","") or "-"}</div></div>'
-            f'<div><div class="pa-field-label">Raise Date</div><div class="pa-field-value">{row.get("raise_date","") or "-"}</div></div>'
-            '</div>'
-            f'{remark_html}'
-            '</div>'
-        )
-        st.markdown(card_html, unsafe_allow_html=True)
+def pa_is_overdue(row):
+    rd = pa_reminder_date(row)
+    return rd is not None and rd < today_date
 
-        bc1, bc2, bc3, _ = st.columns([1.3, 1.3, 1.3, 5])
-        with bc1:
-            if st.button("✏️ Edit", key=f"pa_edit_{rid}", use_container_width=True):
-                st.session_state.pa_edit_row = row
-                st.session_state.pa_show_form_dialog = True
+def pa_update(row, changes, success):
+    try:
+        supabase.table(TABLE_NAME).update(changes).eq("id", row["id"]).execute()
+        fetch_activities.clear()
+        st.toast(success, icon="✅")
+        st.rerun()
+    except Exception as exc:
+        st.error(f"Update failed: {exc}")
+
+st.markdown('<div class="pa-section"><h3>🎯 My Daily Command Center</h3><span class="pa-mini">Focus on today • Follow up on time • Finish with an EOD report</span></div>', unsafe_allow_html=True)
+today_tasks = [r for r in pending_records if pa_is_today(r)]
+overdue_tasks = [r for r in pending_records if pa_is_overdue(r)]
+important_tasks = [r for r in pending_records if r.get("important")]
+
+k1,k2,k3,k4 = st.columns(4)
+k1.metric("📅 Today's Plan", len(today_tasks))
+k2.metric("🚨 Overdue Reminders", len(overdue_tasks))
+k3.metric("⭐ Important Pending", len(important_tasks))
+k4.metric("🏁 Finished Today", closed_today_count)
+
+left, right = st.columns([3,1])
+with left:
+    quick_title = st.text_input("⚡ Quick Capture — new task", placeholder="Type a task and press Add...", key="pa_quick_title")
+with right:
+    st.write("")
+    st.write("")
+    if st.button("➕ Add to Inbox", use_container_width=True, type="primary"):
+        if not quick_title.strip():
+            st.warning("Task name likhiye.")
+        else:
+            try:
+                supabase.table(TABLE_NAME).insert({
+                    "activity_name":quick_title.strip(),
+                    "indus_responsible":"-", "vis_responsible":"Self",
+                    "raise_date":today_date.strftime("%d/%m/%Y"),
+                    "remark":"Quick Capture / Inbox", "important":False,
+                    "reminder_type":"Specific Date",
+                    "reminder_specific_date":today_date.strftime("%d/%m/%Y"),
+                    "reminder_day":"", "reminder_date_of_month":None,
+                    "reminder_time":"18:00", "last_notified":"", "status":"Pending"
+                }).execute()
+                fetch_activities.clear()
                 st.rerun()
-        with bc2:
-            if st.button("✅ Close", key=f"pa_close_{rid}", use_container_width=True):
-                try:
-                    supabase.table(TABLE_NAME).update({
-                        "status": "Closed",
-                        "closed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    }).eq("id", rid).execute()
-                    st.success("✅ Activity Closed!")
-                    fetch_activities.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error Closing Activity: {e}")
-        with bc3:
-            if st.button("🗑️ Delete", key=f"pa_del_{rid}", use_container_width=True):
-                st.session_state[f"pa_confirm_del_{rid}"] = True
+            except Exception as exc:
+                st.error(f"Could not add task: {exc}")
 
-        if st.session_state.get(f"pa_confirm_del_{rid}"):
-            wc1, wc2, wc3 = st.columns([6, 1, 1])
-            with wc1:
-                st.warning(f"Delete '{row.get('activity_name','')}'? Yeh undo nahi ho sakta.")
-            with wc2:
-                if st.button("✅ Yes", key=f"pa_del_yes_{rid}", use_container_width=True):
-                    try:
-                        supabase.table(TABLE_NAME).delete().eq("id", rid).execute()
-                        st.session_state[f"pa_confirm_del_{rid}"] = False
-                        st.success("✅ Deleted!")
-                        fetch_activities.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {e}")
-            with wc3:
-                if st.button("❌ No", key=f"pa_del_no_{rid}", use_container_width=True):
-                    st.session_state[f"pa_confirm_del_{rid}"] = False
-                    st.rerun()
+st.caption("Quick Capture defaults to today at 6 PM. Use Edit to change its details and reminder.")
 
-        st.markdown("<div style='margin-bottom:6px;'></div>", unsafe_allow_html=True)
+filter_col, search_col = st.columns([2,3])
+with filter_col:
+    view = st.segmented_control("Task View", ["Today", "Overdue", "Important", "All Pending", "Completed"], default="Today", key="pa_task_view")
+with search_col:
+    search_query = st.text_input("Search tasks", placeholder="🔍 Task / Indus / VIS responsible / remark", key="pa_new_search")
 
-st.markdown("<br>", unsafe_allow_html=True)
+if view == "Today": display_rows = today_tasks
+elif view == "Overdue": display_rows = overdue_tasks
+elif view == "Important": display_rows = important_tasks
+elif view == "Completed": display_rows = closed_records
+else: display_rows = pending_records
 
-# --- CLOSED ACTIVITIES SECTION ---
-with st.expander(f"✅ Closed Activities ({len(closed_records)})", expanded=False):
-    if not closed_records:
-        st.caption("Koi closed activity nahi hai abhi tak.")
+if search_query.strip():
+    q=search_query.strip().lower()
+    display_rows=[r for r in display_rows if any(q in str(r.get(k,"")).lower() for k in ("activity_name","indus_responsible","vis_responsible","remark"))]
+
+display_rows=sorted(display_rows,key=lambda r:(not bool(r.get("important")), pa_date(r) or today_date))
+st.markdown(f"#### 📋 {view} ({len(display_rows)})")
+if not display_rows:
+    st.info("✨ Is view mein koi task nahi hai. All Pending mein baaki tasks check kar sakte hain.")
+
+for row in display_rows:
+    rid = str(row.get("id"))
+    done = str(row.get("status", "Pending")).strip() == "Closed"
+    age, age_class = days_pending_badge(row.get("raise_date", ""))
+    title = pa_esc(row.get("activity_name"))
+    badge = "⭐ Important • " if row.get("important") else ""
+    label = "Completed" if done else ("Overdue • " if pa_is_overdue(row) else "") + age + " pending"
+    st.markdown(f"""<div class="pa-task"><strong>{'✅' if done else '📌'} {title}</strong><div class="pa-mini">{badge}{pa_esc(label)} • ⏰ {pa_esc(reminder_summary_text(row))}</div><small>🏢 VIS: {pa_esc(row.get('vis_responsible'))} &nbsp; | &nbsp; 👷 Indus: {pa_esc(row.get('indus_responsible'))} &nbsp; | &nbsp; 📅 Raised: {pa_esc(row.get('raise_date'))}</small></div>""",unsafe_allow_html=True)
+    if row.get("remark"):
+        st.caption("📝 " + str(row["remark"]))
+    if done:
+        a,b,c=st.columns([1,1,5])
+        with a:
+            if st.button("↩️ Reopen",key=f"reopen_{rid}",use_container_width=True):
+                pa_update(row,{"status":"Pending","closed_at":""},"Task reopened")
+        with b:
+            if st.button("🗑️ Delete",key=f"delete_done_{rid}",use_container_width=True):
+                st.session_state[f"pa_delete_confirm_{rid}"]=True
     else:
-        closed_records.sort(key=lambda r: parse_ddmmyyyy(r.get("raise_date")), reverse=True)
-        for row in closed_records:
-            rid = row.get("id")
-            closed_html = (
-                '<div class="pa-card-closed">'
-                '<div class="pa-title-row">'
-                f'<span class="pa-activity-name">✅ {row.get("activity_name","") or "-"}</span>'
-                '</div>'
-                '<div class="pa-grid">'
-                f'<div><div class="pa-field-label">Indus Responsible</div><div class="pa-field-value">{row.get("indus_responsible","") or "-"}</div></div>'
-                f'<div><div class="pa-field-label">VIS Responsible</div><div class="pa-field-value">{row.get("vis_responsible","") or "-"}</div></div>'
-                f'<div><div class="pa-field-label">Raised</div><div class="pa-field-value">{row.get("raise_date","") or "-"}</div></div>'
-                f'<div><div class="pa-field-label">Closed On</div><div class="pa-field-value">{row.get("closed_at","") or "-"}</div></div>'
-                '</div>'
-                '</div>'
-            )
-            st.markdown(closed_html, unsafe_allow_html=True)
-            rc1, rc2, _ = st.columns([1.3, 1.3, 6])
-            with rc1:
-                if st.button("↩️ Reopen", key=f"pa_reopen_{rid}", use_container_width=True):
-                    try:
-                        supabase.table(TABLE_NAME).update({"status": "Pending", "closed_at": ""}).eq("id", rid).execute()
-                        st.success("✅ Reopened!")
-                        fetch_activities.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {e}")
-            with rc2:
-                if st.button("🗑️ Delete", key=f"pa_del_closed_{rid}", use_container_width=True):
-                    try:
-                        supabase.table(TABLE_NAME).delete().eq("id", rid).execute()
-                        st.success("✅ Deleted!")
-                        fetch_activities.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {e}")
+        a,b,c,d=st.columns([1.15,1.1,1.2,4])
+        with a:
+            if st.button("✅ Complete",key=f"done_{rid}",use_container_width=True):
+                pa_update(row,{"status":"Closed","closed_at":datetime.now().strftime("%d/%m/%Y %H:%M")},"Task completed")
+        with b:
+            if st.button("✏️ Edit",key=f"edit_{rid}",use_container_width=True):
+                st.session_state.pa_edit_row=row
+                st.session_state.pa_show_form_dialog=True
+                st.rerun()
+        with c:
+            if st.button("🗑️ Delete",key=f"delete_{rid}",use_container_width=True):
+                st.session_state[f"pa_delete_confirm_{rid}"]=True
+    if st.session_state.get(f"pa_delete_confirm_{rid}"):
+        st.warning(f"Delete '{row.get('activity_name')}' permanently?")
+        yes,no=st.columns([1,5])
+        with yes:
+            if st.button("Confirm",key=f"confirm_{rid}"):
+                try:
+                    supabase.table(TABLE_NAME).delete().eq("id",row["id"]).execute()
+                    fetch_activities.clear()
+                    st.session_state[f"pa_delete_confirm_{rid}"]=False
+                    st.rerun()
+                except Exception as exc: st.error(str(exc))
+        with no:
+            if st.button("Cancel",key=f"cancel_{rid}"):
+                st.session_state[f"pa_delete_confirm_{rid}"]=False
+                st.rerun()
+
+st.divider()
+st.markdown("#### 📊 Daily EOD Report")
+report_date=st.date_input("Report date",value=today_date,key="pa_eod_date")
+report_date_str=report_date.strftime("%d/%m/%Y")
+finished=[r for r in closed_records if str(r.get("closed_at", "")).startswith(report_date_str)]
+remaining=[r for r in pending_records if (pa_date(r) or today_date) <= report_date]
+report_rows=[]
+for r in finished:
+    report_rows.append({"Task":r.get("activity_name"),"Status":"Completed","VIS Responsible":r.get("vis_responsible"),"Indus Responsible":r.get("indus_responsible"),"Raised":r.get("raise_date"),"Closed":r.get("closed_at"),"Remark":r.get("remark")})
+for r in remaining:
+    report_rows.append({"Task":r.get("activity_name"),"Status":"Pending","VIS Responsible":r.get("vis_responsible"),"Indus Responsible":r.get("indus_responsible"),"Raised":r.get("raise_date"),"Closed":"","Remark":r.get("remark")})
+q1,q2,q3=st.columns(3)
+q1.metric("Completed on date",len(finished))
+q2.metric("Still pending",len(remaining))
+q3.metric("Total in report",len(report_rows))
+if report_rows:
+    report_df=pd.DataFrame(report_rows)
+    with st.expander("👁️ Preview EOD",expanded=False):
+        st.dataframe(report_df,use_container_width=True,hide_index=True)
+    out=io.BytesIO()
+    with pd.ExcelWriter(out,engine="openpyxl") as writer:
+        report_df.to_excel(writer,index=False,sheet_name="EOD Report")
+    st.download_button("📥 Download EOD Excel",data=out.getvalue(),file_name=f"EOD_Report_{report_date.isoformat()}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+else:
+    st.caption("No records for this report date.")
+st.caption("Note: EOD uses current pending tasks and recorded close dates. Historical snapshots are not stored yet. Browser must keep this page open for its existing alarm popups.")
