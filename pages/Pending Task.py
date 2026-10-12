@@ -325,6 +325,27 @@ def add_activity_dialog(edit_row=None):
 
     activity_name = st.text_input("ACTIVITY NAME *", value=edit_row.get('activity_name', '') if is_edit else "", placeholder="e.g. SMPS Commissioning Follow-up")
 
+    # Project and Cluster are stored in the existing pending_activity table.
+    project_name = st.text_input(
+        "PROJECT NAME", value=str(edit_row.get("project_name") or "") if is_edit else "",
+        placeholder="Enter project name manually", key=f"pa_project_{edit_row.get('id') if is_edit else 'new'}"
+    )
+    cluster_options = [
+        "Ahmednagar", "Amravati", "Beed", "Bhiwandi", "Buldhana", "Dhule",
+        "Goa", "Gondia", "Jalgaon", "Kolhapur", "Latur", "Nagpur",
+        "Nanded", "Nashik", "Pune City", "Pune East", "Raigad",
+        "Sambhaji nagar", "Satara", "Solapur", "Vasai", "Yavatmal"
+    ]
+    existing_cluster = str(edit_row.get("cluster") or "").strip() if is_edit else ""
+    if existing_cluster and existing_cluster not in cluster_options:
+        cluster_options.append(existing_cluster)
+    cluster = st.selectbox(
+        "CLUSTER", [""] + cluster_options,
+        index=([""] + cluster_options).index(existing_cluster) if existing_cluster else 0,
+        format_func=lambda x: x if x else "Select Cluster",
+        key=f"pa_cluster_{edit_row.get('id') if is_edit else 'new'}"
+    )
+
     c1, c2 = st.columns(2)
     with c1:
         indus_resp = responsible_picker("INDUS RESPONSIBLE *", "indus_responsible", edit_row.get("indus_responsible", "") if is_edit else "", "pa_indus_person")
@@ -369,7 +390,7 @@ def add_activity_dialog(edit_row=None):
             sdate = st.date_input("SPECIFIC DATE * 📅", value=default_sdate.date())
             reminder_sdate = sdate.strftime("%d/%m/%Y")
 
-    default_time = dt_time(9, 0)
+    default_time = dt_time(11, 0)
     if is_edit and edit_row.get('reminder_time'):
         try:
             default_time = datetime.strptime(edit_row.get('reminder_time'), "%H:%M").time()
@@ -408,6 +429,8 @@ def add_activity_dialog(edit_row=None):
         if not has_error:
             payload = {
                 "activity_name": activity_name.strip(),
+                "project_name": project_name.strip(),
+                "cluster": cluster,
                 "indus_responsible": indus_resp.strip(),
                 "vis_responsible": vis_resp.strip(),
                 "raise_date": raise_date.strftime("%d/%m/%Y"),
@@ -618,7 +641,7 @@ def save_row(row,changes):
 
 def matches(row):
     q=search.strip().lower()
-    return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","indus_responsible","vis_responsible","remark"])
+    return not q or any(q in str(row.get(k) or "").lower() for k in ["activity_name","project_name","cluster","indus_responsible","vis_responsible","remark"])
 
 def task_sort(row):
     return ({"High":0,"Medium":1,"Normal":2}.get(str(row.get("priority") or ("High" if row.get("important") else "Normal")),2), parse_ddmmyyyy(row.get("raise_date")))
@@ -644,6 +667,10 @@ def render_tasks(rows,done=False):
             cols[0].markdown(f"**{i}**")
             title=escape(str(row.get("activity_name") or "Untitled"))
             cols[1].markdown(f"**{title}**")
+            project_display = escape(str(row.get("project_name") or "").strip())
+            cluster_display = escape(str(row.get("cluster") or "").strip())
+            if project_display or cluster_display:
+                cols[1].caption(" | ".join(v for v in [project_display, cluster_display] if v))
             cols[2].markdown(f"**{escape(str(row.get('indus_responsible') or '—'))}**")
             cols[3].markdown(f"**{escape(str(row.get('vis_responsible') or '—'))}**")
             with cols[4]:
