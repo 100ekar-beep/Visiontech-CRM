@@ -557,13 +557,15 @@ st.session_state.pa_edit_row = None
 st.markdown("## Daily Task & EOD Report Tool")
 st.caption("Task management  /  All companies  /  Live Supabase data")
 
-if st.session_state.pa_autocheck_enabled and AUTOREFRESH_AVAILABLE and not st.session_state.get("active_reminder") and not st.session_state.get("pa_show_form_dialog"):
-    st_autorefresh(interval=20000, key="white_task_refresh")
+# IMPORTANT: Do not auto-refresh the entire page. It dismisses an open
+# st.dialog while a user is typing or changing fields. Manual Refresh remains.
+# A future background notification service can check reminders independently.
 
 all_records = fetch_activities() if supabase is not None else []
 pending = [r for r in all_records if str(r.get("status") or "Pending").lower() != "closed"]
 completed = [r for r in all_records if str(r.get("status") or "Pending").lower() == "closed"]
-if st.session_state.pa_autocheck_enabled and not st.session_state.get("active_reminder") and not st.session_state.get("pa_show_form_dialog"):
+# Check reminders only on explicit Refresh; never interrupt Add/Edit typing.
+if st.session_state.pop("pa_check_reminders_once", False):
     check_reminders_and_trigger(pending)
 
 today = datetime.now().strftime("%d/%m/%Y")
@@ -578,7 +580,9 @@ with b1:
         add_activity_dialog(edit_row=None)
 with b2:
     if st.button("↻ Refresh",use_container_width=True,key="refresh_tasks"):
-        fetch_activities.clear();st.rerun()
+        fetch_activities.clear()
+        st.session_state["pa_check_reminders_once"] = True
+        st.rerun()
 with b3:
     if st.button("🔔 Test Alarm",use_container_width=True,key="test_alarm"):
         st.session_state["active_reminder"]={"id":"test","activity_name":"Test Reminder","indus_responsible":"-","vis_responsible":"-","raise_date":today,"remark":"Test alarm","important":False,"reminder_type":"Daily","reminder_time":datetime.now().strftime("%H:%M")}
