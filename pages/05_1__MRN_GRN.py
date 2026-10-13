@@ -1383,8 +1383,86 @@ if st.session_state.get('mrn_items_error_banner'):
         st.session_state.mrn_items_error_banner = None
         st.rerun()
 
+# --- CABLE MASTER (separate register; does not change MRN billing/FIFO) ---
+@st.dialog("🔌 Cable Master", width="large")
+def cable_master_dialog():
+    st.caption("Cable Item Code register / edit karein. FIFO and payment adjustment are separate steps.")
+    try:
+        response = supabase.table("cable_master").select("*").order("item_code").execute()
+        cable_rows = response.data or []
+    except Exception as exc:
+        st.error(f"Cable Master load failed: {exc}")
+        return
+
+    with st.form("cable_master_add", clear_on_submit=True):
+        st.markdown("**➕ Register Cable**")
+        a, b = st.columns(2)
+        with a:
+            code = st.text_input("Item Code *")
+            size = st.text_input("Cable Size", placeholder="e.g. 25 sq mm")
+        with b:
+            description = st.text_input("Description")
+            unit = st.selectbox("Unit", ["Meter", "Roll", "Nos", "Kg"])
+        if st.form_submit_button("💾 Save Cable", use_container_width=True):
+            if not code.strip():
+                st.error("Item Code required")
+            else:
+                try:
+                    supabase.table("cable_master").insert({
+                        "item_code": code.strip(), "cable_size": size.strip(),
+                        "description": description.strip(), "unit": unit,
+                        "is_active": True
+                    }).execute()
+                    st.success("Cable registered successfully")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Save failed (duplicate Item Code?): {exc}")
+
+    st.markdown("**📋 Registered Cable Items**")
+    if not cable_rows:
+        st.info("No cables registered yet.")
+        return
+    search = st.text_input("Search Cable", key="cable_master_search")
+    filtered = [r for r in cable_rows if search.casefold() in
+                (str(r.get("item_code") or "") + " " + str(r.get("cable_size") or "") +
+                 " " + str(r.get("description") or "")).casefold()]
+    st.dataframe(pd.DataFrame(filtered)[["item_code", "cable_size", "description", "unit", "is_active"]]
+                 if filtered else pd.DataFrame(), hide_index=True, use_container_width=True)
+    if filtered:
+        selected_id = st.selectbox("Select Cable to Edit", [r["id"] for r in filtered],
+                                   format_func=lambda cid: next((str(r["item_code"]) for r in filtered if r["id"] == cid), str(cid)))
+        selected = next(r for r in filtered if r["id"] == selected_id)
+        with st.form(f"cable_master_edit_{selected_id}"):
+            st.markdown("**✏️ Edit Cable**")
+            x, y = st.columns(2)
+            with x:
+                new_code = st.text_input("Item Code", value=str(selected.get("item_code") or ""))
+                new_size = st.text_input("Cable Size", value=str(selected.get("cable_size") or ""))
+            with y:
+                new_description = st.text_input("Description", value=str(selected.get("description") or ""))
+                units = ["Meter", "Roll", "Nos", "Kg"]
+                current_unit = str(selected.get("unit") or "Meter")
+                if current_unit not in units:
+                    units.append(current_unit)
+                new_unit = st.selectbox("Unit", units, index=units.index(current_unit))
+            active = st.checkbox("Active", value=bool(selected.get("is_active", True)))
+            if st.form_submit_button("💾 Update Cable", use_container_width=True):
+                if not new_code.strip():
+                    st.error("Item Code required")
+                else:
+                    try:
+                        supabase.table("cable_master").update({
+                            "item_code": new_code.strip(), "cable_size": new_size.strip(),
+                            "description": new_description.strip(), "unit": new_unit,
+                            "is_active": active
+                        }).eq("id", selected_id).execute()
+                        st.success("Cable updated")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Update failed: {exc}")
+
 # --- 6. TOP ACTION BAR ---
-col_title, col_ref, col_add, col_export = st.columns([4, 1, 2, 2])
+col_title, col_ref, col_cable, col_add, col_export = st.columns([3, 1, 1.6, 2, 2])
 with col_title:
     st.markdown("<h2 style='margin:0; color:#0f172a;'>📦 MRN / GRN Desk</h2>", unsafe_allow_html=True)
 with col_ref:
@@ -1394,6 +1472,9 @@ with col_ref:
         fetch_project_ids.clear()
         fetch_mrn_used_qty_map.clear()
         st.rerun() 
+with col_cable:
+    if st.button("🔌 Cable Master", use_container_width=True):
+        cable_master_dialog()
 with col_add:
     if st.button("➕ Add New MRN", type="primary", use_container_width=True):
         add_mrn_dialog() 
