@@ -52,10 +52,6 @@ if 'mat_count' not in st.session_state:
 if 'add_mat_count' not in st.session_state:
     st.session_state.add_mat_count = 1
 
-if 'pending_comm_email' not in st.session_state:
-    st.session_state.pending_comm_email = False
-if 'comm_site_data' not in st.session_state:
-    st.session_state.comm_site_data = {}
 
 if 'site_view_mode' not in st.session_state:
     st.session_state.site_view_mode = "table"
@@ -1915,22 +1911,6 @@ def add_record_dialog():
                     st.success("✅ Record Successfully Added!")
                     st.session_state.current_page = 1 # <--- NEW: Switch to page 1
                     
-                    # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed":
-                        st.session_state.pending_comm_email = True
-                        st.session_state.comm_site_data = {
-                            "db_id": new_id,
-                            "proj_name": proj_name,
-                            "proj_id": proj_id,
-                            "site_id": site_id,
-                            "site_name": site_name,
-                            "cluster": cluster,
-                            "team_name": team_name,
-                            "tech_val": tech_val,
-                            "fse_val": fse_val,
-                            "lat_val": lat_val,
-                            "long_val": long_val,
-                        }
                     
                     clear_site_data_cache()
                     st.rerun() 
@@ -2507,37 +2487,6 @@ def edit_record_dialog(row_data):
                     
                     st.success("✅ Record Successfully Updated!")
                     
-                    # --- TRIGGER POST-SAVE EMAIL POPUP LOGIC ---
-                    # Strictly fetch fresh flag status from Supabase handling both case variations safely
-                    try:
-                        fresh_check = supabase.table("site_data").select("*").eq("id", row_data['id']).execute()
-                        if fresh_check.data:
-                            row_fetched = fresh_check.data[0]
-                            val = row_fetched.get("Commissioning Email Sent")
-                            if val is None:
-                                val = row_fetched.get("commissioning_email_sent", "")
-                            already_sent_flag = str(val).strip().lower() if val else ""
-                        else:
-                            already_sent_flag = ""
-                    except Exception as e:
-                        already_sent_flag = ""
-                    
-                    if proj_name in ["Battery Bank", "SMPS", "SPS"] and site_status == "Completed" and already_sent_flag != "yes":
-                        st.session_state.pending_comm_email = True
-                        st.session_state.comm_site_data = {
-                            "db_id": row_data['id'],
-                            "proj_name": proj_name,
-                            "proj_id": proj_id,
-                            "site_id": site_id,
-                            "site_name": site_name,
-                            "cluster": cluster,
-                            "team_name": team_name,
-                            "tech_val": tech_val,
-                            "fse_val": fse_val,
-                            "lat_val": lat_val,
-                            "long_val": long_val,
-                        }
-                    # -------------------------------------------------
 
                     if 'edit_po_count' in st.session_state:
                         del st.session_state['edit_po_count']
@@ -2761,172 +2710,6 @@ def material_movement_dialog(row_data):
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error Saving Material: {e}")
-
-# --- 3.78 NEW: EXCLUSIVE COMMISSIONING EMAIL POPUP DIALOG ---
-@st.dialog("📧 Commissioning Email Notification", width="large")
-def commissioning_email_dialog():
-    st.markdown("<p style='color:#334155; font-size:1rem;'>Please configure the commissioning email action for this completed site.</p>", unsafe_allow_html=True)
-    
-    data = st.session_state.get("comm_site_data", {})
-    db_id = data.get("db_id")
-    proj_name = data.get("proj_name", "")
-    proj_id = data.get("proj_id", "")
-    site_id = data.get("site_id", "")
-    site_name = data.get("site_name", "")
-    cluster = data.get("cluster", "")
-    tech_val = data.get("tech_val", "N/A")
-    fse_val = data.get("fse_val", "N/A")
-    team_name = data.get("team_name", "N/A")
-    lat_val = data.get("lat_val", "N/A")
-    long_val = data.get("long_val", "N/A")
-    
-    # Fetch Team Mobile
-    team_mobile = "N/A"
-    if team_name and team_name != "Select":
-        try:
-            t_res = supabase.table("dropdown_master").select("mobile").eq("category", "Team Name").eq("option_value", team_name).execute()
-            if t_res.data:
-                mob = t_res.data[0].get("mobile", "")
-                if mob and str(mob).upper() != "EMPTY":
-                    team_mobile = str(mob).strip()
-        except:
-            pass
-    
-    all_dd = get_all_dropdowns()
-    
-    comm_req = st.radio("Email For Commissioning Action:", ["Not Required", "Required"], horizontal=True, key="comm_popup_radio")
-    
-    if comm_req == "Required":
-        st.markdown("<hr style='border:1px solid rgba(255,255,255,0.1); margin: 15px 0;'>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            make_opts = get_opts("Make", all_dd)
-            if len(make_opts) <= 1:
-                make_opts = ["Select", "Amraraja", "Vertiv", "Exide", "HBL", "Other"]
-            comm_make = st.selectbox("Make *", make_opts, key="comm_popup_make")
-            comm_desc = st.text_area("Description *", placeholder="Enter description details here...", height=110, key="comm_popup_desc")
-            
-        auto_to = ""
-        auto_cc = ""
-        if comm_make != "Select":
-            try:
-                to_list = []
-                cc_list = []
-                
-                # 1. Fetch from Make_Email_Master (Filters by Project Name AND Make)
-                res_make = supabase.table("Make_Email_Master").select("*").eq("Project Name", proj_name).ilike("Make", comm_make).execute()
-                if res_make.data:
-                    for row in res_make.data:
-                        m_to = str(row.get("Make_TO", "")).strip()
-                        m_cc = str(row.get("Make_CC", "")).strip()
-                        
-                        if m_to and m_to.lower() != "nan":
-                            to_list.extend([e.strip() for e in m_to.split(',') if e.strip()])
-                        if m_cc and m_cc.lower() != "nan":
-                            cc_list.extend([e.strip() for e in m_cc.split(',') if e.strip()])
-                                
-                # 2. Fetch Cluster FSE & AOM Emails from Cluster_Email_Master
-                res_cluster = supabase.table("Cluster_Email_Master").select("*").ilike("Cluster", cluster).execute()
-                if res_cluster.data:
-                    for row in res_cluster.data:
-                        fse_email = str(row.get("FSE Email", "")).strip()
-                        aom_email = str(row.get("AOM Email", "")).strip()
-                        
-                        if fse_email and fse_email.lower() != "nan":
-                            cc_list.extend([e.strip() for e in fse_email.split(',') if e.strip()])
-                        if aom_email and aom_email.lower() != "nan":
-                            cc_list.extend([e.strip() for e in aom_email.split(',') if e.strip()])
-                            
-                # Remove duplicates while preserving order
-                auto_to = ", ".join(list(dict.fromkeys(to_list)))
-                auto_cc = ", ".join(list(dict.fromkeys(cc_list)))
-            except Exception as e:
-                pass 
-                
-        with c2:
-            to_email = st.text_input("To Email *", value=auto_to, placeholder="Auto-fetched from DB or enter manually")
-            cc_email = st.text_input("CC Email", value=auto_cc, placeholder="Auto-fetched from DB or enter manually")
-            
-        # DYNAMIC EMAIL BODY GENERATION (HTML for Bold Support)
-        proj_type = "Battery Bank" if proj_name == "Battery Bank" else "SMPS/SPS"
-        subject = f"Request for {proj_type} Commissioning – {proj_id}_{site_id}_{site_name}"
-        
-        body = f"""<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333;">
-<p>Dear Sir,</p>
-
-<p>We are pleased to inform you that the {proj_type} installation work at the below-mentioned site has been completed successfully.</p>
-
-<p>Kindly arrange to depute your commissioning engineer at the earliest to carry out the {proj_type} commissioning.</p>
-
-<p><b>Site Details:</b><br>
-<b>Project ID:</b> {proj_id}<br>
-<b>Site ID:</b> {site_id}<br>
-<b>Site Name:</b> {site_name}<br>
-<b>Cluster:</b> {cluster}<br>
-<b>Lat Long :-</b> ({lat_val} / {long_val})<br>
-<b>Product Detial :-</b> {comm_desc}<br>
-<b>Technician Detail :</b> {tech_val}<br>
-<b>FSE Detail :</b> {fse_val}<br>
-<b>Team Name :</b> {team_name}<br>
-<b>Team Number :</b> {team_mobile}</p>
-
-<p>Kindly confirm the engineer's visit schedule so that the necessary arrangements can be made at the site.</p>
-
-<p>If any issue regarding PO of commissioning Kindly confirm from Indus team. and share Commissioning report ASAP so we can claim our billing.</p>
-
-<p>Looking forward to your confirmation.</p>
-
-<p>Regards,<br>
-Visiontech Infra</p>
-</div>"""
-
-        with st.expander("👁️ Preview Email Template"):
-            st.markdown(f"**Subject:** {subject}")
-            st.markdown(body, unsafe_allow_html=True)
-            
-    st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 1])
-    
-    with col1:
-        if st.button("❌ Close / Ignore", use_container_width=True):
-            st.session_state.pending_comm_email = False
-            st.rerun()
-            
-    with col3:
-        if st.button("🚀 Send Email & Complete", type="primary", use_container_width=True):
-            if comm_req == "Required":
-                if comm_make == "Select":
-                    st.error("⚠️ Please select a Make.")
-                    return
-                if not comm_desc.strip():
-                    st.error("⚠️ Please enter a Description.")
-                    return
-                if not to_email.strip():
-                    st.error("⚠️ To Email address is required.")
-                    return
-                
-                success, err_msg = send_commissioning_email(to_email, cc_email, subject, body)
-                if success:
-                    st.toast("✅ Commissioning Email Sent Successfully!", icon="📨")
-                    if db_id:
-                        try:
-                            # SUPABASE ME SAVE KAREGA YAHAN
-                            try:
-                                supabase.table("site_data").update({"Commissioning Email Sent": "Yes"}).eq("id", db_id).execute()
-                            except:
-                                supabase.table("site_data").update({"commissioning_email_sent": "Yes"}).eq("id", db_id).execute()
-                        except Exception as e:
-                            pass # Silently ignore so user isn't stuck
-                else:
-                    st.error(f"❌ Failed to send email: {err_msg}")
-                    return
-            else:
-                st.toast("✅ Commissioning marked as Not Required. Action closed.", icon="✅")
-                
-            st.session_state.pending_comm_email = False
-            clear_site_data_cache()
-            st.rerun()
 
 # --- 3.8 BULK UPLOAD DIALOG FUNCTION (FIXED: proper error reporting + summary popup) ---
 @st.dialog("📤 Bulk Upload Site Data", width="large")
@@ -3176,12 +2959,6 @@ def build_site_export_excel(df_export):
         
     return buffer.getvalue()
 
-# ==============================================================
-# --- TRIGGER FOR COMMISSIONING POPUP AFTER MAIN MODAL CLOSES
-# ==============================================================
-if st.session_state.get('pending_comm_email'):
-    commissioning_email_dialog()
-# ==============================================================
 
 # --- TOP SINGLE WORKSPACE BANNER ---
 active_ws_display = st.session_state.get('site_active_company', 'VISPL')
