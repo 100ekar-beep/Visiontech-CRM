@@ -1974,8 +1974,26 @@ def edit_record_dialog(row_data):
             except:
                 pass
 
+        # Fill a missing Site Name from the same Excalation Matrix record.
+        # Do not overwrite an existing name or the user's manual edits.
+        master_site_name = ""
+        if site_id:
+            try:
+                if master_res.data:
+                    master_site_name = str(master_res.data[0].get("Site Name") or "").strip()
+            except (NameError, AttributeError, IndexError, TypeError):
+                pass
+        name_key = f"ed_sname_{rid}"
+        tracked_sid_key = f"ed_sname_tracked_sid_{rid}"
+        original_site_name = str(row_data.get("Site Name") or "").strip()
+        if name_key not in st.session_state:
+            st.session_state[name_key] = original_site_name or master_site_name
+        elif (not str(st.session_state[name_key] or "").strip()
+              and master_site_name):
+            st.session_state[name_key] = master_site_name
+        st.session_state[tracked_sid_key] = str(site_id or "").strip()
         with c6:
-            site_name = st.text_input("SITE NAME", value=row_data.get('Site Name', ''), key=f"ed_sname_{rid}")
+            site_name = st.text_input("SITE NAME", key=name_key)
         with c7:
             cluster = st.text_input("CLUSTER", value=row_data.get('Cluster', ''), key=f"ed_clu_{rid}")
         with c8:
