@@ -1477,7 +1477,7 @@ def ptw_fields(key_prefix, field_slots, row_data=None):
 # --- HELPER: FETCH ITEM MASTER DETAILS FOR AUTO-FILL IN MATERIAL MODAL ---
 def get_item_master_details():
     mapping = {}
-    table_names_to_try = ["Item Code", "item_code"]
+    table_names_to_try = ["item_master"]
     
     for t_name in table_names_to_try:
         try:
@@ -1738,9 +1738,7 @@ def add_record_dialog():
             code_val = i_code.strip()
             if code_val:
                 try:
-                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
-                    if not item_res.data:
-                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
+                    item_res = supabase.table("item_master").select("item_code,item_description,unit,rate").eq("item_code", code_val).limit(1).execute()
                         
                     if item_res.data:
                         fetched_desc = str(item_res.data[0].get("item_description", ""))
@@ -2599,9 +2597,7 @@ def material_movement_dialog(row_data):
             code_val = i_code.strip()
             if code_val:
                 try:
-                    item_res = supabase.table("Item Code").select("*").eq("item_code", code_val).execute()
-                    if not item_res.data:
-                        item_res = supabase.table("item_code").select("*").eq("item_code", code_val).execute()
+                    item_res = supabase.table("item_master").select("item_code,item_description,unit,rate").eq("item_code", code_val).limit(1).execute()
                         
                     if item_res.data:
                         fetched_desc = str(item_res.data[0].get("item_description", ""))
