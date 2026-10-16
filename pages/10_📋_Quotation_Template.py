@@ -230,24 +230,118 @@ supabase: Client = init_connection()
 
 @st.cache_data(ttl=60)
 def fetch_item_master():
-    tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
-    for t in tables_to_try:
-        try:
-            res = supabase.table(t).select("*").limit(10000).execute()
-            if res.data and len(res.data) > 0:
-                df = pd.DataFrame(res.data)
-                col_map = {}
-                for c in df.columns:
-                    cl = str(c).strip().lower()
-                    if cl in ['item code', 'item_code', 'itemcode', 'code', 'material item']: col_map[c] = 'Item Code'
-                    if cl in ['description', 'desc', 'item description', 'item_description']: col_map[c] = 'Description'
-                    if cl in ['price', 'rate', 'amount', 'unit price']: col_map[c] = 'Price'
-                df = df.rename(columns=col_map)
-                if 'Item Code' in df.columns:
-                    return df
-        except Exception:
-            continue
-    return pd.DataFrame(columns=["Item Code", "Description", "Price"])
+    """Single source of truth for all NEW item selections."""
+    try:
+        rows = []
+        start = 0
+        while True:
+            result = (supabase.table("gbpa_item_master")
+                      .select("item_code,description,uom,rate")
+                      .eq("is_active", True)
+                      .order("item_code").range(start, start + 999).execute())
+            batch = result.data or []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            start += 1000
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return pd.DataFrame(columns=["Item Code", "Description", "Price"])
+        return df.rename(columns={"item_code": "Item Code", "description": "Description", "rate": "Price"})
+    except Exception as exc:
+        st.warning(f"GBPA item master read failed: {exc}")
+        return pd.DataFrame(columns=["Item Code", "Description", "Price"])
+
+
+def gbpa_excel_to_dataframe(file):
+    raw = pd.read_excel(file, dtype={"Item": str})
+    raw.columns = [str(c).strip() for c in raw.columns]
+    needed = {"Item", "Description", "UOM", "Price"}
+    if not needed.issubset(raw.columns):
+        raise ValueError("Excel columns required: Item, Description, UOM, Price")
+    data = raw[["Item", "Description", "UOM", "Price"]].copy()
+    data["Item"] = data["Item"].fillna("").astype(str).str.strip()
+    data = data[data["Item"] != ""].copy()
+    data["Description"] = data["Description"].fillna("").astype(str).str.strip().str.slice(0, 80)
+    data["UOM"] = data["UOM"].fillna("").astype(str).str.strip()
+    data["Price"] = pd.to_numeric(data["Price"], errors="coerce")
+    if data["Price"].isna().any() or (data["Price"] < 0).any():
+        raise ValueError("GBPA contains blank, invalid or negative prices. Correct the Excel before upload.")
+    if data["Item"].duplicated().any():
+        duplicates = data.loc[data["Item"].duplicated(), "Item"].head(5).tolist()
+        raise ValueError(f"Duplicate Item Codes in Excel: {duplicates}")
+    if data.empty:
+        raise ValueError("No valid item rows in the uploaded Excel.")
+    return data
+
+
+@st.dialog("📤 Upload / Update Indus GBPA", width="large")
+def gbpa_upload_dialog():
+    st.caption("Upload latest GBPA Excel. Existing codes are updated, new codes added. Historical quotations remain unchanged.")
+    uploaded = st.file_uploader("GBPA Excel (.xlsx)", type=["xlsx"], key="gbpa_file_upload")
+    effective = st.date_input("GBPA Effective Date", key="gbpa_effective_date")
+    if uploaded is None:
+        return
+    try:
+        data = gbpa_excel_to_dataframe(uploaded)
+        existing = {}
+        offset = 0
+        while True:
+            result = (supabase.table("gbpa_item_master")
+                      .select("item_code,description,uom,rate,is_active")
+                      .order("item_code").range(offset, offset + 999).execute())
+            batch = result.data or []
+            for item in batch:
+                existing[str(item["item_code"])] = item
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        records = []
+        new_count = changed_count = unchanged_count = 0
+        for _, row in data.iterrows():
+            code = row["Item"]
+            record = {"item_code": code, "description": row["Description"],
+                      "uom": row["UOM"], "rate": float(row["Price"]),
+                      "effective_date": effective.isoformat(), "is_active": True}
+            old = existing.get(code)
+            if old is None:
+                new_count += 1
+            elif (str(old.get("description") or "") != record["description"]
+                  or str(old.get("uom") or "") != record["uom"]
+                  or abs(float(old.get("rate") or 0) - record["rate"]) > 0.00001
+                  or not old.get("is_active", True)):
+                changed_count += 1
+            else:
+                unchanged_count += 1
+            records.append(record)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total", len(records))
+        c2.metric("New", new_count)
+        c3.metric("Changed", changed_count)
+        c4.metric("Unchanged", unchanged_count)
+        st.dataframe(data.head(25), use_container_width=True, hide_index=True)
+        st.info("Items absent from the new Excel will remain in the master (no automatic deletion).")
+        confirmed = st.checkbox("I have checked the GBPA and want to update the central master", key="gbpa_confirm")
+        if st.button("✅ Confirm GBPA Upload", type="primary", disabled=not confirmed, use_container_width=True):
+            progress = st.progress(0)
+            for i in range(0, len(records), 200):
+                batch = records[i:i+200]
+                (supabase.table("gbpa_item_master")
+                 .upsert(batch, on_conflict="item_code").execute())
+                progress.progress(min(1.0, (i + len(batch)) / len(records)))
+            try:
+                supabase.table("gbpa_upload_history").insert({
+                    "filename": uploaded.name, "effective_date": effective.isoformat(),
+                    "total_items": len(records), "new_items": new_count,
+                    "changed_items": changed_count, "unchanged_items": unchanged_count
+                }).execute()
+            except Exception as log_exc:
+                st.warning(f"GBPA updated, but upload history could not be saved: {log_exc}")
+            fetch_item_master.clear()
+            st.success(f"GBPA uploaded: {new_count} new, {changed_count} updated, {unchanged_count} unchanged.")
+            st.rerun()
+    except Exception as exc:
+        st.error(f"GBPA upload/preview error: {exc}")
 
 # FIX: pehle templates sirf EK BAAR session_state me load hote the — workspace
 # badalne par bhi PURANI company ke templates dikhte rehte the (jab tak page
@@ -279,9 +373,14 @@ def fetch_templates():
     return _fetch_templates_cached(st.session_state.get('active_workspace', 'VISPL'))
 fetch_templates.clear = _fetch_templates_cached.clear
 
+# Central GBPA management button (within Quotation Templates page)
+if st.button("📤 Upload / Update GBPA", key="gbpa_open_upload"):
+    gbpa_upload_dialog()
+
 df_items = fetch_item_master()
 if not df_items.empty:
     df_items["Description"] = df_items["Description"].fillna("")
+    df_items["Price"] = pd.to_numeric(df_items["Price"], errors="coerce").fillna(0)
     # --- Description first, Code inside brackets for dropdown search view ---
     df_items["Display"] = df_items["Description"].astype(str) + "  [" + df_items["Item Code"].astype(str) + "]"
     
