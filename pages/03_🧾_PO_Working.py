@@ -518,44 +518,34 @@ def fetch_po_detail_site_info_cached(site_id, workspace):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_po_item_master_cached():
-    """Quotation page jaisa searchable item master PO popup ke liye."""
-    tables_to_try = ["Item Code", "item_master", "items", "Item_Code"]
-    for table_name in tables_to_try:
-        try:
-            rows = fetch_all_rows(
-                lambda start, end, t=table_name: supabase.table(t).select("*").range(start, end).execute()
-            )
-            if not rows:
-                continue
-            items_df = pd.DataFrame(rows)
-            rename_map = {}
-            for col in items_df.columns:
-                clean_col = str(col).strip().lower()
-                if clean_col in ["item code", "item_code", "itemcode", "code", "material item"]:
-                    rename_map[col] = "Item Code"
-                elif clean_col in ["description", "desc", "item description", "item_description"]:
-                    rename_map[col] = "Description"
-                elif clean_col in ["price", "rate", "amount", "unit price"]:
-                    rename_map[col] = "Price"
-                elif clean_col in ["uom", "unit", "unit of measure", "unit_of_measure"]:
-                    rename_map[col] = "UOM"
-            items_df = items_df.rename(columns=rename_map)
-            if "Item Code" not in items_df.columns:
-                continue
-            for required_col, default_value in {"Description": "", "Price": 0, "UOM": ""}.items():
-                if required_col not in items_df.columns:
-                    items_df[required_col] = default_value
-            items_df = items_df[["Item Code", "Description", "UOM", "Price"]].copy()
-            items_df["Item Code"] = items_df["Item Code"].fillna("").astype(str).str.strip()
-            items_df["Description"] = items_df["Description"].fillna("").astype(str).str.strip()
-            items_df["UOM"] = items_df["UOM"].fillna("").astype(str).str.strip()
-            items_df["Price"] = pd.to_numeric(items_df["Price"], errors="coerce").fillna(0).astype(int)
-            items_df = items_df[items_df["Item Code"] != ""].drop_duplicates("Item Code", keep="first")
-            items_df["Display"] = items_df["Item Code"] + " | " + items_df["Description"]
-            return items_df.reset_index(drop=True)
-        except Exception:
-            continue
-    return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
+    """Load searchable PO items exclusively from public.item_master."""
+    try:
+        rows = fetch_all_rows(
+            lambda start, end: supabase.table("item_master")
+            .select("item_code,item_description,unit,rate")
+            .range(start, end).execute()
+        )
+        if not rows:
+            return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
+        items_df = pd.DataFrame(rows).rename(columns={
+            "item_code": "Item Code",
+            "item_description": "Description",
+            "unit": "UOM",
+            "rate": "Price",
+        })
+        for col, default in {"Description": "", "UOM": "", "Price": 0}.items():
+            if col not in items_df.columns:
+                items_df[col] = default
+        items_df = items_df[["Item Code", "Description", "UOM", "Price"]].copy()
+        for col in ["Item Code", "Description", "UOM"]:
+            items_df[col] = items_df[col].fillna("").astype(str).str.strip()
+        items_df["Price"] = pd.to_numeric(items_df["Price"], errors="coerce").fillna(0).astype(int)
+        items_df = items_df[items_df["Item Code"] != ""].drop_duplicates("Item Code", keep="first")
+        items_df["Display"] = items_df["Item Code"] + " | " + items_df["Description"]
+        return items_df.reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"item_master se items load nahi hue: {e}")
+        return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
 
 
 # --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
@@ -908,7 +898,7 @@ def view_po_details_dialog(row_data):
     item_master_df = fetch_po_item_master_cached()
     with st.expander("➕ Add New PO Line", expanded=False):
         if item_master_df.empty:
-            st.warning("Item master me koi item nahi mila. Item Code/item_master table check karein.")
+            st.warning("Item master me koi item nahi mila. item_master table check karein.")
         else:
             item_options = [""] + item_master_df["Display"].tolist()
             add_form_version_key = f"po_add_form_version_{safe_po_file}_{proj_name}"
