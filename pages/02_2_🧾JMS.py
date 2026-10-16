@@ -610,31 +610,31 @@ def fetch_team_names_cached():
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_item_master_details():
-    """
-    JMS Item source is ONLY Supabase table: "Item Code".
-    Function name is retained to avoid changing the rest of the existing JMS logic.
-    """
+    """Read JMS item descriptions and rates exclusively from public.item_master."""
     mapping = {}
     try:
-        rows = supabase.table("Item Code").select("*").execute().data or []
-        for item in rows:
-            item_code = _clean_text(item.get("item_code"))
-            if not item_code:
-                continue
-            candidates = [
-                _clean_text(item.get(column))
-                for column in ("item_description", "Item Description", "description", "Description")
-            ]
-            description = max(candidates, key=len, default="")[:80]
-            mapping[item_code] = {
-                "description": description,
-                "stn_status": str(item.get("stn_status", "Required") or "Required"),
-                "material_of": str(item.get("material_of", "Indus") or "Indus"),
-                "rate": item.get("rate"),
-            }
+        offset = 0
+        batch_size = 1000
+        while True:
+            rows = (supabase.table("item_master")
+                    .select("item_code,item_description,unit,rate")
+                    .range(offset, offset + batch_size - 1).execute().data or [])
+            for item in rows:
+                code = _clean_text(item.get("item_code"))
+                if not code:
+                    continue
+                mapping[code] = {
+                    "description": _clean_text(item.get("item_description"))[:80],
+                    "unit": _clean_text(item.get("unit")),
+                    "rate": item.get("rate"),
+                }
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
     except Exception as exc:
-        st.error(f'Item Code table load nahi hua: {exc}')
+        st.error(f"item_master table load nahi hua: {exc}")
     return mapping
 
 
@@ -1404,74 +1404,44 @@ def template_manager_dialog():
 
     st.session_state["jmspage_popup_items"] = changed_rows
 
-    # New Item Code can be created directly in the SAME "Item Code" table
-    # used by JMS. item_master is intentionally not used anywhere here.
-    with st.expander("➕ Item Code table me nahi hai? Yahin Add karein", expanded=False):
+    # All newly created JMS item codes are saved to the shared item_master.
+    with st.expander("➕ Item master me nahi hai? Yahin Add karein", expanded=False):
         nm1, nm2 = st.columns([1.2, 2.8])
         with nm1:
             new_master_code = st.text_input(
-                "NEW ITEM CODE",
-                key=f"jmspage_new_itemcode_{workspace}",
+                "NEW ITEM CODE", key=f"jmspage_new_itemcode_{workspace}",
                 placeholder="Item Code"
             )
         with nm2:
             new_master_desc = st.text_input(
-                "ITEM DESCRIPTION",
-                key=f"jmspage_new_itemdesc_{workspace}",
-                placeholder="Item Description"
+                "ITEM DESCRIPTION", key=f"jmspage_new_itemdesc_{workspace}",
+                placeholder="Item Description", max_chars=80
             )
 
         if st.button(
-            "➕ Save Item to Item Code Table",
-            type="primary",
-            use_container_width=True,
-            key=f"jmspage_save_itemcode_{workspace}",
+            "➕ Save Item to item_master", type="primary",
+            use_container_width=True, key=f"jmspage_save_itemcode_{workspace}",
         ):
             clean_code = _clean_text(new_master_code)
-            clean_desc = _clean_text(new_master_desc)
+            clean_desc = _clean_text(new_master_desc)[:80]
             if not clean_code or not clean_desc:
                 st.error("Item Code aur Item Description dono required hain.")
             else:
                 try:
                     existing_rows = (
-                        supabase.table("Item Code")
-                        .select("*")
-                        .eq("item_code", clean_code)
-                        .limit(1)
-                        .execute().data or []
+                        supabase.table("item_master").select("item_code")
+                        .eq("item_code", clean_code).limit(1).execute().data or []
                     )
                     if existing_rows:
-                        st.warning(f"{clean_code} Item Code table me already available hai.")
+                        st.warning(f"{clean_code} item_master me already available hai.")
                     else:
-                        # Detect the actual description column from the real Item Code table.
-                        sample_rows = (
-                            supabase.table("Item Code")
-                            .select("*")
-                            .limit(1)
-                            .execute().data or []
-                        )
-                        columns = set(sample_rows[0].keys()) if sample_rows else set()
-
-                        desc_col = None
-                        for candidate in ("item_description", "Item Description", "description", "Description"):
-                            if candidate in columns:
-                                desc_col = candidate
-                                break
-                        if not desc_col:
-                            raise RuntimeError(
-                                "Item Code table ka description column detect nahi hua. "
-                                f"Available columns: {', '.join(sorted(columns))}"
-                            )
-
-                        payload = {"item_code": clean_code, desc_col: clean_desc}
-                        if "stn_status" in columns:
-                            payload["stn_status"] = "Required"
-                        if "material_of" in columns:
-                            payload["material_of"] = "Indus"
-
-                        supabase.table("Item Code").insert(payload).execute()
+                        supabase.table("item_master").insert({
+                            "item_code": clean_code,
+                            "item_description": clean_desc,
+                        }).execute()
                         get_item_master_details.clear()
-
+                        fetch_jms_templates_cached.clear()
+                        _jms_item_description_code_map.clear()
                         rows = changed.to_dict("records")
                         present = {_clean_text(r.get("item_code")).casefold() for r in rows}
                         if clean_code.casefold() not in present:
@@ -1481,12 +1451,11 @@ def template_manager_dialog():
                                 "qty": "",
                             })
                             st.session_state["jmspage_popup_items"] = rows
-
                         st.session_state["jmspage_popup_gen"] = gen + 1
-                        st.success(f"✅ {clean_code} Item Code table me save ho gaya aur template me add ho gaya.")
+                        st.success(f"✅ {clean_code} item_master me save ho gaya aur template me add ho gaya.")
                         st.rerun()
                 except Exception as exc:
-                    st.error(f"Item Code table me save nahi hua: {exc}")
+                    st.error(f"item_master me save nahi hua: {exc}")
 
     add1, add2 = st.columns([4, 1])
     with add1:
