@@ -452,9 +452,8 @@ def fetch_item_master():
         rows = []
         start = 0
         while True:
-            result = (supabase.table("gbpa_item_master")
-                      .select("item_code,description,uom,rate")
-                      .eq("is_active", True)
+            result = (supabase.table("item_master")
+                      .select("item_code,item_description,unit,rate")
                       .order("item_code").range(start, start + 999).execute())
             batch = result.data or []
             rows.extend(batch)
@@ -464,9 +463,9 @@ def fetch_item_master():
         df = pd.DataFrame(rows)
         if df.empty:
             return pd.DataFrame(columns=["Item Code", "Description", "Price"])
-        return df.rename(columns={"item_code": "Item Code", "description": "Description", "rate": "Price"})
+        return df.rename(columns={"item_code": "Item Code", "item_description": "Description", "rate": "Price"})
     except Exception as exc:
-        st.warning(f"GBPA item master read failed: {exc}")
+        st.warning(f"Item master read failed: {exc}")
         return pd.DataFrame(columns=["Item Code", "Description", "Price"])
 
 
@@ -494,7 +493,7 @@ def gbpa_excel_to_dataframe(file):
 
 @st.dialog("📤 Upload / Update Indus GBPA", width="large")
 def gbpa_upload_dialog():
-    st.caption("Upload latest GBPA Excel. Existing codes are updated, new codes added. Historical quotations remain unchanged.")
+    st.caption("Upload latest GBPA Excel to existing item_master. Historical quotations remain unchanged.")
     uploaded = st.file_uploader("GBPA Excel (.xlsx)", type=["xlsx"], key="gbpa_file_upload")
     effective = st.date_input("GBPA Effective Date", key="gbpa_effective_date")
     if uploaded is None:
@@ -504,8 +503,8 @@ def gbpa_upload_dialog():
         existing = {}
         offset = 0
         while True:
-            result = (supabase.table("gbpa_item_master")
-                      .select("item_code,description,uom,rate,is_active")
+            result = (supabase.table("item_master")
+                      .select("item_code,item_description,unit,rate")
                       .order("item_code").range(offset, offset + 999).execute())
             batch = result.data or []
             for item in batch:
@@ -517,16 +516,15 @@ def gbpa_upload_dialog():
         new_count = changed_count = unchanged_count = 0
         for _, row in data.iterrows():
             code = row["Item"]
-            record = {"item_code": code, "description": row["Description"],
-                      "uom": row["UOM"], "rate": float(row["Price"]),
-                      "effective_date": effective.isoformat(), "is_active": True}
+            record = {"item_code": code, "item_description": row["Description"],
+                      "unit": row["UOM"], "rate": float(row["Price"])}
             old = existing.get(code)
             if old is None:
                 new_count += 1
-            elif (str(old.get("description") or "") != record["description"]
-                  or str(old.get("uom") or "") != record["uom"]
+            elif (str(old.get("item_description") or "") != record["item_description"]
+                  or str(old.get("unit") or "") != record["unit"]
                   or abs(float(old.get("rate") or 0) - record["rate"]) > 0.00001
-                  or not old.get("is_active", True)):
+):
                 changed_count += 1
             else:
                 unchanged_count += 1
@@ -537,13 +535,13 @@ def gbpa_upload_dialog():
         c3.metric("Changed", changed_count)
         c4.metric("Unchanged", unchanged_count)
         st.dataframe(data.head(25), use_container_width=True, hide_index=True)
-        st.info("Items absent from the new Excel will remain in the master (no automatic deletion).")
+        st.info("Items absent from the new Excel will remain in item_master (no automatic deletion).")
         confirmed = st.checkbox("I have checked the GBPA and want to update the central master", key="gbpa_confirm")
         if st.button("✅ Confirm GBPA Upload", type="primary", disabled=not confirmed, use_container_width=True):
             progress = st.progress(0)
             for i in range(0, len(records), 200):
                 batch = records[i:i+200]
-                (supabase.table("gbpa_item_master")
+                (supabase.table("item_master")
                  .upsert(batch, on_conflict="item_code").execute())
                 progress.progress(min(1.0, (i + len(batch)) / len(records)))
             try:
@@ -553,7 +551,7 @@ def gbpa_upload_dialog():
                     "changed_items": changed_count, "unchanged_items": unchanged_count
                 }).execute()
             except Exception as log_exc:
-                st.warning(f"GBPA updated, but upload history could not be saved: {log_exc}")
+                st.caption(f"Upload history not saved (optional): {log_exc}")
             fetch_item_master.clear()
             st.success(f"GBPA uploaded: {new_count} new, {changed_count} updated, {unchanged_count} unchanged.")
             st.rerun()
@@ -1390,13 +1388,13 @@ def save_new_master_item(item_code, description, price, master_data):
         raise ValueError("Item Code and Description are required.")
     if price < 0:
         raise ValueError("Price cannot be negative.")
-    payload = {"item_code": item_code, "description": description[:80],
-               "rate": float(price), "is_active": True}
-    existing = (supabase.table("gbpa_item_master").select("item_code")
+    payload = {"item_code": item_code, "item_description": description[:80],
+               "rate": float(price)}
+    existing = (supabase.table("item_master").select("item_code")
                 .eq("item_code", item_code).limit(1).execute())
     if existing.data:
         raise ValueError("This Item Code already exists. Use the existing item from the dropdown.")
-    supabase.table("gbpa_item_master").insert(payload).execute()
+    supabase.table("item_master").insert(payload).execute()
     fetch_item_master.clear()
 
 
