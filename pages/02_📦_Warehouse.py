@@ -388,27 +388,23 @@ def search_item_master(term, limit=25):
     """
     Search the Item Code master table for any row where item_code OR item_description
     contains the given term (case-insensitive, partial match anywhere in the string).
-    Tries both possible table name variants used elsewhere in the app.
+    Uses public.item_master as the single source of item codes and descriptions.
     """
     term_clean = str(term).strip()
     if not term_clean:
         return []
-    # Escape characters that could break the PostgREST filter mini-language
     safe_term = term_clean.replace(",", " ").replace("(", " ").replace(")", " ")
-    for t_name in ["Item Code", "item_code"]:
-        try:
-            res = (
-                supabase.table(t_name)
-                .select("*")
-                .or_(f"item_code.ilike.*{safe_term}*,item_description.ilike.*{safe_term}*")
-                .limit(limit)
-                .execute()
-            )
-            if res.data:
-                return res.data
-        except Exception:
-            continue
-    return []
+    try:
+        res = (
+            supabase.table("item_master")
+            .select("item_code,item_description,unit,rate")
+            .or_(f"item_code.ilike.*{safe_term}*,item_description.ilike.*{safe_term}*")
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
 
 def render_item_code_search(search_key, match_key, stn_status_opts, on_select_keys):
     """
