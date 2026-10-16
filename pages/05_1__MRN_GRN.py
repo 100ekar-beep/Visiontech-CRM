@@ -443,34 +443,35 @@ def get_unlimited_po_working(ws):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_item_lookup(ws):
-    """Create an item-code lookup from all PO Working rows in this workspace."""
+    """Fetch item choices only from public.item_master; ws kept for existing callers."""
     lookup = {}
-    for row in get_unlimited_po_working(ws):
-        code = _clean_code_for_db(
-            row.get("Item Num") or row.get("Item Code") or row.get("item_code") or ""
-        )
-        if not code or str(code).lower() in ("nan", "none"):
-            continue
-        key = str(code).strip().lower()
-        description = str(
-            row.get("Description")
-            or row.get("Item Description")
-            or row.get("Item Desc")
-            or row.get("description")
-            or ""
-        ).strip()
-        price = pd.to_numeric(
-            row.get("Price") or row.get("Unit Price") or row.get("Rate") or 0,
-            errors="coerce"
-        )
-        price = 0.0 if pd.isna(price) else float(price)
-        if key not in lookup:
-            lookup[key] = {"code": str(code), "description": description, "price": price}
-        else:
-            if not lookup[key]["description"] and description:
-                lookup[key]["description"] = description
-            if lookup[key]["price"] <= 0 and price > 0:
-                lookup[key]["price"] = price
+    offset = 0
+    page_size = 500
+    try:
+        while True:
+            response = (
+                supabase.table("item_master")
+                .select("item_code,item_description,unit,rate")
+                .order("item_code")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            rows = response.data or []
+            for row in rows:
+                code = _clean_code_for_db(row.get("item_code") or "")
+                if not code or code.lower() in ("nan", "none", "null"):
+                    continue
+                key = code.strip().lower()
+                description = str(row.get("item_description") or "").strip()[:80]
+                price = pd.to_numeric(row.get("rate"), errors="coerce")
+                price = 0.0 if pd.isna(price) else float(price)
+                if key not in lookup:
+                    lookup[key] = {"code": code, "description": description, "price": price}
+            if len(rows) < page_size:
+                break
+            offset += page_size
+    except Exception as exc:
+        st.error(f"Item Master load failed: {exc}")
     return lookup
 
 
@@ -1025,7 +1026,7 @@ def add_mrn_dialog():
 
     # Extra payable items which are not part of this site's selected PO(s).
     st.markdown('<div class="modal-section-title">➕ ADD ITEM NOT AVAILABLE IN PO</div>', unsafe_allow_html=True)
-    st.caption("Item Code type karein. Description PO Working se automatic aayega; Qty aur Price editable hain.")
+    st.caption("Item Code select karein. Description Item Master se automatic aayega; Qty aur Price editable hain.")
 
     extra_rows_key = f"mrn_extra_rows_{selected_proj}"
     if extra_rows_key not in st.session_state:
