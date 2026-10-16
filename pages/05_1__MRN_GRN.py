@@ -475,6 +475,16 @@ def fetch_item_lookup(ws):
     return lookup
 
 
+def item_code_description_label(code, lookup):
+    """Display code and item_master description without changing the saved code."""
+    if code is None or str(code).strip() == "":
+        return ""
+    raw_code = str(code).strip()
+    details = lookup.get(raw_code.lower(), {})
+    description = str(details.get("description") or "").strip()
+    return f"{raw_code} — {description}" if description else raw_code
+
+
 # ---> HELPER: find a column regardless of case / leading-trailing spaces <---
 def _find_col(df, target_name):
     target_clean = target_name.strip().lower()
@@ -715,12 +725,17 @@ def edit_mrn_dialog(row_data):
             st.caption(f"New line {n+1}")
             cc1, cc2 = st.columns([2, 1])
             with cc1:
-                code = st.selectbox("Item Code", [""] + choices, key=keybase+f"code_{n}")
+                code = st.selectbox(
+                    "Item Code", [""] + choices,
+                    key=keybase+f"code_{n}",
+                    format_func=lambda value: item_code_description_label(value, lookup),
+                    help="Search by Item Code or Item Description."
+                )
             with cc2:
                 po = st.text_input("PO Number (NON-PO if extra)", value="NON-PO", key=keybase+f"po_{n}")
             info = lookup.get(str(code).strip().lower(), {})
             desc = st.text_input("Description", value=str(info.get("description", "")),
-                                 key=keybase+f"desc_{n}")
+                                 key=keybase+f"desc_{n}_{str(code).strip().lower()}")
             nc1, nc2 = st.columns(2)
             with nc1:
                 qty = st.number_input("New Qty", min_value=0.0, step=0.01,
@@ -1067,9 +1082,9 @@ def add_mrn_dialog():
                 options=[None] + searchable_item_codes,
                 index=0,
                 key=code_key,
-                placeholder="Type to search Item Code...",
-                format_func=lambda x: "" if x is None else str(x),
-                help="Box par click karke Item Code ke starting numbers type karein. Matching codes turant filter honge."
+                placeholder="Search Item Code or Description...",
+                format_func=lambda x: item_code_description_label(x, item_lookup),
+                help="Item Code ya Description type karke matching item select karein."
             )
             entered_code = "" if entered_code is None else str(entered_code).strip()
         clean_entered_code = _clean_code_for_db(entered_code)
