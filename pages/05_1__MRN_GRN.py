@@ -289,6 +289,48 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- Item Code + Description: wrap options like the Quotation item picker ---
+st.markdown("""
+<style>
+/* Selectbox menus are mounted outside the MRN dialog in Streamlit. */
+[data-baseweb="popover"]:has([role="listbox"]),
+[data-baseweb="popover"]:has([data-baseweb="menu"]),
+[data-baseweb="popover"]:has([role="option"]) {
+    min-width: 420px !important;
+    width: min(600px, calc(100vw - 36px)) !important;
+    max-width: calc(100vw - 36px) !important;
+}
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="popover"] [data-baseweb="menu"],
+[data-baseweb="popover"] ul {
+    min-width: 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+}
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] > div,
+[data-baseweb="popover"] [role="option"] span,
+[data-baseweb="popover"] [data-baseweb="menu"] li,
+[data-baseweb="popover"] [data-baseweb="menu"] li > div,
+[data-baseweb="popover"] [data-baseweb="menu"] li span {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    text-overflow: clip !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    line-height: 1.45 !important;
+}
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [data-baseweb="menu"] li {
+    padding-top: 9px !important;
+    padding-bottom: 9px !important;
+    min-height: 44px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # --- Same MRN / GRN desk for three separate companies ---
 MRN_COMPANIES = ("VISPL", "BHAGYASHREE", "SAI TELE")
 MRN_COMPANY_LABELS = {"VISPL": "VISPL", "BHAGYASHREE": "Bhagyashree", "SAI TELE": "Sai Tele"}
@@ -1075,7 +1117,7 @@ def add_mrn_dialog():
 
     for row_id in st.session_state[extra_rows_key]:
         code_key = f"extra_item_code_{selected_proj}_{row_id}"
-        ec1, ec2, ec3, ec4, ec5 = st.columns([1.6, 3.8, 1.2, 1.4, 0.55])
+        ec1, ec2, ec3, ec4, ec5 = st.columns([3.0, 3.0, 1.2, 1.4, 0.55])
         with ec1:
             entered_code = st.selectbox(
                 "Item Code *",
@@ -1090,6 +1132,8 @@ def add_mrn_dialog():
         clean_entered_code = _clean_code_for_db(entered_code)
         master_item = item_lookup.get(str(clean_entered_code).strip().lower(), {})
         auto_description = master_item.get("description", "")
+        if clean_entered_code and auto_description:
+            st.caption(f"📦 {clean_entered_code} — {auto_description}")
         default_adjusted_price = float(master_item.get("price", 0) or 0) * (team_percent / 100.0)
 
         with ec2:
