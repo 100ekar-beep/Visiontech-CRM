@@ -5,6 +5,8 @@ import hmac
 import io
 import math
 import re
+import time
+import random
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -2288,6 +2290,23 @@ def indus_recalculate_invoice(invoice_no):
     }).eq("id", row["id"]).execute()
 
 
+def indus_retry_request(make_query, max_attempts=6):
+    """Retry transient Supabase HTTP/2 disconnects with a fresh request."""
+    for attempt in range(max_attempts):
+        try:
+            return make_query().execute()
+        except Exception as exc:
+            message = str(exc).lower()
+            transient = any(x in message for x in (
+                "connectionterminated", "connection terminated", "connection reset",
+                "remotedisconnected", "remoteprotocolerror", "stream_id", "timeout",
+                "temporarily unavailable", "server disconnected", "502", "503", "504",
+            ))
+            if not transient or attempt == max_attempts - 1:
+                raise
+            time.sleep(min(12, (1.5 ** attempt) + random.uniform(0.1, 0.5)))
+
+
 def indus_import_tsv(df, file_name, progress_callback=None):
     counts = {
         "total": len(df),
@@ -2359,11 +2378,11 @@ def indus_import_tsv(df, file_name, progress_callback=None):
                 "updated_by": current_user(),
             }
             if existing:
-                supabase.table("indus_invoices").update(payload).eq("id", existing["id"]).execute()
+                indus_retry_request(lambda: supabase.table("indus_invoices").update(payload).eq("id", existing["id"]))
                 counts["updated"] += 1
             else:
                 payload["created_by"] = current_user()
-                supabase.table("indus_invoices").insert(payload).execute()
+                indus_retry_request(lambda: supabase.table("indus_invoices").upsert(payload, on_conflict="workspace,receipt_no"))
                 counts["inserted"] += 1
 
             if invoice_no:
@@ -2386,10 +2405,10 @@ def indus_import_tsv(df, file_name, progress_callback=None):
                 "source_file_name": file_name,
                 "created_by": current_user(),
             }
-            supabase.table("indus_credit_memos").upsert(
+            indus_retry_request(lambda: supabase.table("indus_credit_memos").upsert(
                 payload,
                 on_conflict="workspace,credit_memo_no",
-            ).execute()
+            ))
             touched_invoices.add(original_invoice)
 
         elif row_type == "Prepayment":
@@ -2409,10 +2428,10 @@ def indus_import_tsv(df, file_name, progress_callback=None):
                 "source_file_name": file_name,
                 "created_by": current_user(),
             }
-            supabase.table("indus_prepayments").upsert(
+            indus_retry_request(lambda: supabase.table("indus_prepayments").upsert(
                 payload,
                 on_conflict="workspace,prepayment_ref",
-            ).execute()
+            ))
 
         elif row_type == "Debit Memo":
             counts["debit"] += 1
@@ -2430,10 +2449,10 @@ def indus_import_tsv(df, file_name, progress_callback=None):
                 "source_file_name": file_name,
                 "created_by": current_user(),
             }
-            supabase.table("indus_debit_memos").upsert(
+            indus_retry_request(lambda: supabase.table("indus_debit_memos").upsert(
                 payload,
                 on_conflict="workspace,debit_memo_no",
-            ).execute()
+            ))
         else:
             counts["skipped"] += 1
 
@@ -2444,7 +2463,7 @@ def indus_import_tsv(df, file_name, progress_callback=None):
     for invoice_no in touched_invoices:
         indus_recalculate_invoice(invoice_no)
 
-    supabase.table("indus_import_history").insert({
+    indus_retry_request(lambda: supabase.table("indus_import_history").insert({
         "workspace": ALLOWED_WORKSPACE,
         "file_name": file_name,
         "total_rows": counts["total"],
@@ -2456,7 +2475,7 @@ def indus_import_tsv(df, file_name, progress_callback=None):
         "updated_rows": counts["updated"],
         "skipped_rows": counts["skipped"],
         "uploaded_by": current_user(),
-    }).execute()
+    }))
 
     return counts
 
@@ -2700,7 +2719,7 @@ def indus_current_user_value():
         )
     return str(value or "").strip() or "System"
 
-def indus_import_payment_tsv(df, file_name, progress_callback=None):
+def indus_import_payment_tsv(df, file_name, progress_callback=None, payment_number=""):
     """
     Import actual day-wise payment allocation.
 
@@ -2799,6 +2818,7 @@ def indus_import_payment_tsv(df, file_name, progress_callback=None):
             "receipt_no": receipt or None,
             "po_number": po_no or None,
             "payment_date": pdate_db,
+            "payment_number": str(payment_number or "").strip().upper() or None,
             "payment_amount": payment_amount,
             # Preserve actual payment-export invoice text.
             # TDS rows therefore retain the -TDS-CM- reference.
@@ -3046,7 +3066,7 @@ def indus_payment_upload_dialog():
             progress = indus_live_progress("Payment", len(preview))
             with st.spinner("Payment upload चल रहा है..."):
                 result = indus_import_payment_tsv(
-                    preview, payment_upload.name, progress_callback=progress
+                    preview, payment_upload.name, progress_callback=progress, payment_number=payment_number
                 )
             skipped = (
                 int(result.get("skipped", 0))
@@ -3719,6 +3739,7 @@ if is_indus:
                 {},
             )
             data.append({
+                "Payment Number": p.get("payment_number") or "",
                 "Payment Date": format_date(p.get("payment_date")),
                 "Invoice": source_invoice or original_invoice,
                 "Invoice Date": format_date(inv.get("invoice_date")),
@@ -3781,7 +3802,7 @@ if is_indus:
         with c1:
             q = st.text_input(
                 "Search",
-                placeholder="Search Payment Date / Invoice / PO / Receipt / Status...",
+                placeholder="Search Payment Number / Date / Invoice / PO / Receipt / Status...",
                 key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_search",
                 label_visibility="collapsed",
             )
@@ -3803,7 +3824,7 @@ if is_indus:
             fdf,
             money_cols={"Amount", "Payment Amount"},
             status_cols={"Status", "Payment Status"},
-            chip_cols={"Invoice", "PO Number", "Receipt"},
+            chip_cols={"Payment Number", "Invoice", "PO Number", "Receipt"},
         )
 
     elif st.session_state.indus_active_view == "Prepayment":
