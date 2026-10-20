@@ -2288,7 +2288,7 @@ def indus_recalculate_invoice(invoice_no):
     }).eq("id", row["id"]).execute()
 
 
-def indus_import_tsv(df, file_name):
+def indus_import_tsv(df, file_name, progress_callback=None):
     counts = {
         "total": len(df),
         "standard": 0,
@@ -2307,7 +2307,9 @@ def indus_import_tsv(df, file_name):
     work_df["_sort"] = work_df["Type"].map(type_order).fillna(99)
     work_df = work_df.sort_values("_sort")
 
-    for _, raw in work_df.iterrows():
+    for progress_index, (_, raw) in enumerate(work_df.iterrows(), start=1):
+        if progress_callback:
+            progress_callback(progress_index - 1, len(work_df), "Invoice", counts)
         row_type = indus_clean_text(raw.get("Type"))
         source_invoice = indus_clean_text(raw.get("Invoice"))
         amount = indus_number(raw.get("Amount"))
@@ -2435,6 +2437,9 @@ def indus_import_tsv(df, file_name):
         else:
             counts["skipped"] += 1
 
+    if progress_callback:
+        progress_callback(len(work_df), len(work_df), "Invoice", counts)
+
     # Recalculate TDS/payment after all credit memos are saved.
     for invoice_no in touched_invoices:
         indus_recalculate_invoice(invoice_no)
@@ -2455,6 +2460,33 @@ def indus_import_tsv(df, file_name):
 
     return counts
 
+
+
+def indus_live_progress(kind, total_rows):
+    """Live Streamlit progress for server-side Supabase row imports."""
+    st.markdown(f"#### ⏳ {kind} Upload — Live Progress")
+    bar = st.progress(0, text="Starting upload... 0%")
+    metrics = st.empty()
+    status = st.empty()
+    last_rendered = [-1]
+
+    def update(done, total, _kind, counts):
+        total = max(0, int(total))
+        done = max(0, min(int(done), total))
+        pct = int(done * 100 / total) if total else 100
+        # Reduce UI overhead for large TSV files while still showing progress.
+        if done != total and last_rendered[0] >= 0 and done - last_rendered[0] < max(1, total // 200):
+            return
+        last_rendered[0] = done
+        bar.progress(pct, text=f"{kind} Upload: {pct}% complete")
+        metrics.markdown(f"**Processed: {done:,} / {total:,}**  |  **Remaining: {total-done:,}**  |  **Progress: {pct}%**")
+        if kind == "Invoice":
+            status.caption(f"New: {counts.get('inserted',0):,} | Updated: {counts.get('updated',0):,} | Skipped: {counts.get('skipped',0):,}")
+        else:
+            status.caption(f"New Payments: {counts.get('inserted',0):,} | Duplicates: {counts.get('skipped',0):,} | Invoice Not Found: {counts.get('skipped_invoice_not_found',0):,} | Blank: {counts.get('blank_invoice',0):,}")
+
+    update(0, total_rows, kind, {})
+    return update
 
 
 def indus_show_upload_result(kind, result, filename, company):
@@ -2668,7 +2700,7 @@ def indus_current_user_value():
         )
     return str(value or "").strip() or "System"
 
-def indus_import_payment_tsv(df, file_name):
+def indus_import_payment_tsv(df, file_name, progress_callback=None):
     """
     Import actual day-wise payment allocation.
 
@@ -2699,7 +2731,9 @@ def indus_import_payment_tsv(df, file_name):
         if indus_clean_text(r.get("invoice_no")) and not indus_is_blocked(r)
     }
 
-    for _, row in df.iterrows():
+    for progress_index, (_, row) in enumerate(df.iterrows(), start=1):
+        if progress_callback:
+            progress_callback(progress_index - 1, len(df), "Payment", {"inserted": inserted, "skipped": skipped, "skipped_invoice_not_found": skipped_invoice_not_found, "blank_invoice": blank_invoice})
         invoice_text = indus_clean_text(row.get("Invoice"))
         if not invoice_text:
             blank_invoice += 1
@@ -2779,6 +2813,9 @@ def indus_import_payment_tsv(df, file_name):
         supabase.table("indus_payments").insert(payload).execute()
         inserted += 1
         touched_invoices.add(original_invoice)
+
+    if progress_callback:
+        progress_callback(len(df), len(df), "Payment", {"inserted": inserted, "skipped": skipped, "skipped_invoice_not_found": skipped_invoice_not_found, "blank_invoice": blank_invoice})
 
     # Recalculate only invoices that genuinely exist in our portal.
     for invoice_no in touched_invoices:
@@ -3216,8 +3253,9 @@ if is_indus:
                 )
                 if st.button("🚀 Import / Update Indus Data", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_import_update",
                              type="primary", use_container_width=True):
+                    live_update = indus_live_progress("Invoice", len(indus_preview))
                     with st.spinner("Indus data import/update ho raha hai..."):
-                        result = indus_import_tsv(indus_preview, indus_upload.name)
+                        result = indus_import_tsv(indus_preview, indus_upload.name, progress_callback=live_update)
                     st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Invoice"] = (result, indus_upload.name)
                     st.rerun()
             except Exception as exc:
@@ -3554,8 +3592,9 @@ if is_indus:
                     type="primary",
                     use_container_width=True,
                 ):
+                    live_update = indus_live_progress("Payment", len(pay_preview))
                     with st.spinner("Payment data import ho raha hai..."):
-                        result = indus_import_payment_tsv(pay_preview, payment_upload.name)
+                        result = indus_import_payment_tsv(pay_preview, payment_upload.name, progress_callback=live_update)
                     st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment"] = (result, payment_upload.name)
                     st.rerun()
             except Exception as exc:
