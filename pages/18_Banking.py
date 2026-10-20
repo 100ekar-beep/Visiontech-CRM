@@ -2457,6 +2457,44 @@ def indus_import_tsv(df, file_name):
 
 
 
+def indus_show_upload_result(kind, result, filename, company):
+    """Persistent, truthful upload summary after Streamlit reruns."""
+    st.markdown(f"### 📋 {kind} Upload Result — {company}")
+    st.caption(f"File: {filename}")
+    total = int(result.get("total", 0))
+    if kind == "Invoice":
+        saved = int(result.get("inserted", 0)) + int(result.get("updated", 0)) + int(result.get("credit", 0)) + int(result.get("debit", 0)) + int(result.get("prepayment", 0)) - int(result.get("skipped", 0))
+        # Standard is counted by insert/update; other types are counted by type totals.
+        skipped = int(result.get("skipped", 0))
+        saved = max(0, total - skipped)
+        duplicates = 0
+        columns = st.columns(4)
+        for col, label, value in zip(columns, ["Total Rows", "Processed", "Skipped", "New / Updated"], [total, saved, skipped, f"{result.get('inserted',0):,} / {result.get('updated',0):,}"]):
+            col.metric(label, value)
+        st.caption(f"Standard: {result.get('standard',0):,} | Credit Memo: {result.get('credit',0):,} | Debit Memo: {result.get('debit',0):,} | Prepayment: {result.get('prepayment',0):,}")
+    else:
+        saved = int(result.get("inserted", 0))
+        duplicates = int(result.get("skipped", 0))
+        missing = int(result.get("skipped_invoice_not_found", 0))
+        skipped = duplicates + missing + int(result.get("blank_invoice", 0))
+        columns = st.columns(4)
+        for col, label, value in zip(columns, ["Total Rows", "New Payments", "Already Exists", "Invoice Not Found"], [total, saved, duplicates, missing]):
+            col.metric(label, value)
+        st.caption(f"Blank invoice rows: {result.get('blank_invoice',0):,} | Invoices recalculated: {result.get('touched',0):,}")
+    if total and skipped == 0:
+        st.success(f"🎉 ALL {total:,} ROWS PROCESSED — कोई entry बाकी नहीं है!")
+        celebration_key = f"indus_celebrated_{company}_{kind}_{filename}_{total}_{saved}"
+        if not st.session_state.get(celebration_key):
+            st.balloons()
+            st.session_state[celebration_key] = True
+    elif total and saved + (duplicates if kind == "Payment" else 0) > 0:
+        st.warning(f"⚠️ PARTIAL UPLOAD — {skipped:,} row(s) skipped. सभी records upload नहीं हुए।")
+    else:
+        st.error("❌ कोई नया record save नहीं हुआ या सभी rows skip हुईं।")
+    if skipped:
+        st.info("Skipped records की वजह ऊपर दी गई है। Invoice import में invalid/unsupported rows skip होती हैं; payment import में duplicate, missing invoice या blank invoice skip होता है।")
+
+
 def get_indus_last_data_date():
     """
     Latest business-data date in INDUS tables.
@@ -2650,6 +2688,7 @@ def indus_import_payment_tsv(df, file_name):
     inserted = 0
     skipped = 0
     skipped_invoice_not_found = 0
+    blank_invoice = 0
     touched_invoices = set()
 
     # Load all portal invoice numbers once for fast & reliable matching.
@@ -2663,6 +2702,7 @@ def indus_import_payment_tsv(df, file_name):
     for _, row in df.iterrows():
         invoice_text = indus_clean_text(row.get("Invoice"))
         if not invoice_text:
+            blank_invoice += 1
             continue
 
         inv_type = indus_clean_text(row.get("Invoice Type"))
@@ -2745,6 +2785,8 @@ def indus_import_payment_tsv(df, file_name):
         indus_recalculate_invoice_from_payments(invoice_no)
 
     return {
+        "total": len(df),
+        "blank_invoice": blank_invoice,
         "inserted": inserted,
         "skipped": skipped,
         "skipped_invoice_not_found": skipped_invoice_not_found,
@@ -3176,14 +3218,15 @@ if is_indus:
                              type="primary", use_container_width=True):
                     with st.spinner("Indus data import/update ho raha hai..."):
                         result = indus_import_tsv(indus_preview, indus_upload.name)
-                    st.success(
-                        f"Import complete ✅ Standard {result['standard']:,} | Credit Memo {result['credit']:,} | "
-                        f"Debit Memo {result['debit']:,} | Prepayment {result['prepayment']:,} | "
-                        f"New {result['inserted']:,} | Updated {result['updated']:,}"
-                    )
+                    st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Invoice"] = (result, indus_upload.name)
                     st.rerun()
             except Exception as exc:
                 st.error(f"Indus TSV error: {exc}")
+
+    if st.session_state.indus_active_view == "Invoice":
+        last_upload = st.session_state.get(f"indus_upload_result_{ALLOWED_WORKSPACE}_Invoice")
+        if last_upload:
+            indus_show_upload_result("Invoice", last_upload[0], last_upload[1], st.session_state.get("indus_company_selection", "Visiontech"))
 
     try:
         invoice_rows = indus_fetch_all("indus_invoices", "invoice_date", True)
@@ -3513,15 +3556,14 @@ if is_indus:
                 ):
                     with st.spinner("Payment data import ho raha hai..."):
                         result = indus_import_payment_tsv(pay_preview, payment_upload.name)
-                    st.success(
-                        f"Payment import complete ✅ New: {result['inserted']:,} | "
-                        f"Duplicate skipped: {result['skipped']:,} | "
-                        f"Invoice not in portal skipped: {result['skipped_invoice_not_found']:,} | "
-                        f"Invoices recalculated: {result['touched']:,}"
-                    )
+                    st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment"] = (result, payment_upload.name)
                     st.rerun()
             except Exception as exc:
                 st.error(f"Payment TSV error: {exc}")
+
+        last_payment_upload = st.session_state.get(f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment")
+        if last_payment_upload:
+            indus_show_upload_result("Payment", last_payment_upload[0], last_payment_upload[1], st.session_state.get("indus_company_selection", "Visiontech"))
 
         # Reload after possible upload.
         payment_rows = indus_fetch_all("indus_payments", "payment_date", True)
