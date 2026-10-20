@@ -2956,6 +2956,127 @@ def indus_count_card(label, value, sub=""):
         unsafe_allow_html=True,
     )
 
+def indus_payment_number_exists(payment_number):
+    """Server-side check scoped to the currently selected INDUS company."""
+    response = (
+        supabase.table("indus_payment_uploads")
+        .select("payment_number, file_name, uploaded_at")
+        .eq("workspace", ALLOWED_WORKSPACE)
+        .eq("payment_number", payment_number.strip().upper())
+        .limit(1)
+        .execute()
+    )
+    return (response.data or [None])[0]
+
+
+@st.dialog("📤 INDUS Payment Upload")
+def indus_payment_upload_dialog():
+    company = st.session_state.get("indus_company_selection", "Visiontech")
+    st.caption(f"Company: {company}")
+    payment_number = st.text_input(
+        "Payment Number",
+        placeholder="Enter Payment Number",
+        key=f"indus_popup_payment_number_{ALLOWED_WORKSPACE}",
+    ).strip().upper()
+
+    if not payment_number:
+        st.info("पहले Payment Number डालें।")
+        return
+
+    try:
+        existing = indus_payment_number_exists(payment_number)
+    except Exception as exc:
+        st.error(f"Payment Number check नहीं हो सका: {exc}")
+        st.caption("Supabase में indus_payment_uploads table बनाने के लिए साथ दी गई SQL file run करें।")
+        return
+
+    if existing:
+        st.error(f"⛔ Payment Number {payment_number} ALREADY UPLOADED!")
+        st.caption(f"Existing file: {existing.get('file_name') or '-'} | Uploaded: {existing.get('uploaded_at') or '-'}")
+        return
+
+    st.success("✅ New Payment Number — upload कर सकते हैं।")
+    payment_upload = st.file_uploader(
+        "Payment TSV File",
+        type=["tsv", "txt"],
+        key=f"indus_popup_payment_file_{ALLOWED_WORKSPACE}",
+    )
+    if payment_upload is None:
+        return
+
+    try:
+        preview = indus_read_payment_tsv(payment_upload.getvalue())
+    except Exception as exc:
+        st.error(f"Invalid Payment TSV: {exc}")
+        return
+
+    std_count = int((preview["Invoice Type"].str.lower() == "standard").sum())
+    tds_count = int((preview["Invoice Type"].str.lower() == "credit memo").sum())
+    st.info(f"Total: {len(preview):,} rows | Invoice: {std_count:,} | TDS: {tds_count:,}")
+
+    if st.button(
+        "🚀 Upload Payment",
+        key=f"indus_popup_payment_submit_{ALLOWED_WORKSPACE}",
+        type="primary",
+        use_container_width=True,
+    ):
+        # Claim the number atomically. Unique(workspace, payment_number) prevents
+        # two users from uploading the same payment number concurrently.
+        try:
+            supabase.table("indus_payment_uploads").insert({
+                "workspace": ALLOWED_WORKSPACE,
+                "payment_number": payment_number,
+                "file_name": payment_upload.name,
+                "status": "processing",
+                "total_rows": len(preview),
+                "uploaded_by": indus_current_user_value(),
+            }).execute()
+        except Exception as exc:
+            try:
+                existing = indus_payment_number_exists(payment_number)
+            except Exception:
+                existing = None
+            if existing:
+                st.error(f"⛔ {payment_number} पहले से upload/processing में है।")
+            else:
+                st.error(f"Payment Number reserve नहीं हुआ: {exc}")
+            return
+
+        try:
+            progress = indus_live_progress("Payment", len(preview))
+            with st.spinner("Payment upload चल रहा है..."):
+                result = indus_import_payment_tsv(
+                    preview, payment_upload.name, progress_callback=progress
+                )
+            skipped = (
+                int(result.get("skipped", 0))
+                + int(result.get("skipped_invoice_not_found", 0))
+                + int(result.get("blank_invoice", 0))
+            )
+            status = "completed" if skipped == 0 else "partial"
+            supabase.table("indus_payment_uploads").update({
+                "status": status,
+                "inserted_rows": int(result.get("inserted", 0)),
+                "skipped_rows": skipped,
+            }).eq("workspace", ALLOWED_WORKSPACE).eq("payment_number", payment_number).execute()
+            st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment"] = (
+                result, f"{payment_upload.name} | Payment No: {payment_number}"
+            )
+            st.success(f"Payment Number {payment_number} का upload पूरा हुआ।")
+            indus_show_upload_result("Payment", result, payment_upload.name, company)
+        except Exception as exc:
+            # Keep the number reserved: partial row inserts may already exist.
+            try:
+                supabase.table("indus_payment_uploads").update({
+                    "status": "failed",
+                }).eq("workspace", ALLOWED_WORKSPACE).eq("payment_number", payment_number).execute()
+            except Exception:
+                pass
+            st.error(f"Upload interrupted: {exc}")
+            st.warning("कुछ rows save हुई हो सकती हैं। Payment Number reserved रहेगा ताकि accidental duplicate upload न हो।")
+
+
+
 if is_indus:
     # INDUS company selection. The original Visiontech workspace is unchanged.
     if "indus_company_selection" not in st.session_state:
@@ -3564,41 +3685,22 @@ if is_indus:
             unsafe_allow_html=True,
         )
 
-        up_col, refresh_col = st.columns([5, 1.2])
+        up_col, refresh_col = st.columns([2, 1])
         with up_col:
-            payment_upload = st.file_uploader(
-                "Upload Indus Payment TSV",
-                type=["tsv", "txt"],
-                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_tsv_upload",
-            )
+            if st.button(
+                "📤 Upload Payment",
+                key=f"indus_payment_popup_open_{ALLOWED_WORKSPACE}",
+                type="primary",
+                use_container_width=True,
+            ):
+                indus_payment_upload_dialog()
         with refresh_col:
-            st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
-            if st.button("Refresh", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_refresh", use_container_width=True):
+            if st.button(
+                "🔄 Refresh",
+                key=f"indus_payment_refresh_{ALLOWED_WORKSPACE}",
+                use_container_width=True,
+            ):
                 st.rerun()
-
-        if payment_upload is not None:
-            try:
-                pay_preview = indus_read_payment_tsv(payment_upload.getvalue())
-                std_count = int((pay_preview["Invoice Type"].str.lower() == "standard").sum())
-                tds_count = int((pay_preview["Invoice Type"].str.lower() == "credit memo").sum())
-                pay_total = pay_preview["Payment Amount"].apply(indus_number).abs().sum()
-                st.info(
-                    f"Rows: {len(pay_preview):,} | Invoice Payment rows: {std_count:,} | "
-                    f"TDS Payment rows: {tds_count:,} | Payment allocation: ₹ {pay_total:,.2f}"
-                )
-                if st.button(
-                    "Import / Update Payments",
-                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_import",
-                    type="primary",
-                    use_container_width=True,
-                ):
-                    live_update = indus_live_progress("Payment", len(pay_preview))
-                    with st.spinner("Payment data import ho raha hai..."):
-                        result = indus_import_payment_tsv(pay_preview, payment_upload.name, progress_callback=live_update)
-                    st.session_state[f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment"] = (result, payment_upload.name)
-                    st.rerun()
-            except Exception as exc:
-                st.error(f"Payment TSV error: {exc}")
 
         last_payment_upload = st.session_state.get(f"indus_upload_result_{ALLOWED_WORKSPACE}_Payment")
         if last_payment_upload:
