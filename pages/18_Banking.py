@@ -2878,6 +2878,35 @@ def indus_count_card(label, value, sub=""):
     )
 
 if is_indus:
+    # INDUS company selection. The original Visiontech workspace is unchanged.
+    if "indus_company_selection" not in st.session_state:
+        st.session_state["indus_company_selection"] = "Visiontech"
+
+    st.markdown("### INDUS — Company")
+    indus_company_columns = st.columns(2)
+    for indus_company_column, indus_company_name in zip(
+        indus_company_columns, ("Visiontech", "Bhagyshree")
+    ):
+        with indus_company_column:
+            if st.button(
+                indus_company_name,
+                key=f"indus_company_{indus_company_name.lower()}",
+                type=("primary" if st.session_state["indus_company_selection"] == indus_company_name else "secondary"),
+                use_container_width=True,
+            ):
+                if st.session_state["indus_company_selection"] != indus_company_name:
+                    st.session_state["indus_company_selection"] = indus_company_name
+                    st.session_state["indus_active_view"] = "Invoice"
+                    st.rerun()
+
+    # All existing INDUS database operations use workspace filtering.
+    # Keep VISPL for Visiontech; isolate Bhagyshree in its own workspace.
+    ALLOWED_WORKSPACE = (
+        "VISPL" if st.session_state["indus_company_selection"] == "Visiontech"
+        else "BHAGYSHREE"
+    )
+    st.caption(f"INDUS Receivables — {st.session_state['indus_company_selection']}")
+
     if "indus_active_view" not in st.session_state:
         st.session_state.indus_active_view = "Invoice"
 
@@ -3102,14 +3131,14 @@ if is_indus:
         ("Prepayment", "PREPAYMENT"),
         ("Credit Note", "CREDIT NOTE"),
     ]
-    with st.container(key="indus_view_nav"):
+    with st.container(key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_view_nav"):
         nav_cols = st.columns(len(indus_views))
         for col, (view_key, view_label) in zip(nav_cols, indus_views):
             with col:
                 active = st.session_state.indus_active_view == view_key
                 if st.button(
                     view_label,
-                    key=f"indus_view_{view_key}",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_view_{view_key}",
                     type="primary" if active else "secondary",
                     use_container_width=True,
                 ):
@@ -3125,12 +3154,12 @@ if is_indus:
             indus_upload = st.file_uploader(
                 "⬆️ Upload Latest Indus TSV Export",
                 type=["tsv", "txt"],
-                key="indus_receivable_tsv_upload",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_receivable_tsv_upload",
                 help="Same export repeat upload kar sakte hain. Receipt Number ke basis par Standard invoice update hoga.",
             )
         with refresh_col:
             st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
-            if st.button("🔄 Refresh", key="indus_refresh", use_container_width=True):
+            if st.button("🔄 Refresh", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_refresh", use_container_width=True):
                 st.rerun()
 
         if indus_upload is not None:
@@ -3143,7 +3172,7 @@ if is_indus:
                     f"Debit Memo: {type_counts.get('Debit Memo',0):,} | "
                     f"Prepayment: {type_counts.get('Prepayment',0):,}"
                 )
-                if st.button("🚀 Import / Update Indus Data", key="indus_import_update",
+                if st.button("🚀 Import / Update Indus Data", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_import_update",
                              type="primary", use_container_width=True):
                     with st.spinner("Indus data import/update ho raha hai..."):
                         result = indus_import_tsv(indus_preview, indus_upload.name)
@@ -3264,7 +3293,7 @@ if is_indus:
             q = st.text_input(
                 "Search",
                 placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status...",
-                key="indus_invoice_search",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_search",
                 label_visibility="collapsed",
             )
 
@@ -3277,7 +3306,7 @@ if is_indus:
             sf = st.selectbox(
                 "Payment Status",
                 payment_statuses,
-                key="indus_invoice_status_filter",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_status_filter",
                 label_visibility="collapsed",
             )
 
@@ -3286,7 +3315,7 @@ if is_indus:
             invoice_status_selected = st.selectbox(
                 "Invoice Status",
                 invoice_status_options,
-                key="indus_invoice_invoice_status_filter",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_invoice_status_filter",
                 format_func=lambda x: (
                     f"All Invoice Status ({len(df):,})"
                     if x == "All"
@@ -3309,7 +3338,7 @@ if is_indus:
                 indus_excel_bytes(fdf, "Invoices"),
                 f"Indus_Invoices_{today:%Y%m%d}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="indus_invoice_download",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_download",
                 use_container_width=True,
             )
 
@@ -3324,17 +3353,17 @@ if is_indus:
                 selected_block_label = st.selectbox(
                     "Select ERS / Invoice",
                     ["-- Select --"] + list(block_candidates.keys()),
-                    key="indus_block_select",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_block_select",
                 )
             with bc2:
                 block_reason = st.text_input(
                     "Block Remark",
                     placeholder="Reason for blocking...",
-                    key="indus_block_reason",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_block_reason",
                 )
             with bc3:
                 st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
-                if st.button("🚫 Block", key="indus_block_btn", type="primary", use_container_width=True):
+                if st.button("🚫 Block", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_block_btn", type="primary", use_container_width=True):
                     if selected_block_label == "-- Select --":
                         st.warning("ERS / Invoice select karo.")
                     else:
@@ -3383,7 +3412,7 @@ if is_indus:
             bq = st.text_input(
                 "Search blocked",
                 placeholder="Search ERS / Invoice / Receipt / PO / Remark...",
-                key="indus_blocked_search",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_blocked_search",
                 label_visibility="collapsed",
             )
 
@@ -3396,7 +3425,7 @@ if is_indus:
                 indus_excel_bytes(filtered_blocked_df, "Blocked ERS"),
                 f"Indus_Blocked_ERS_{today:%Y%m%d}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="indus_blocked_download",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_blocked_download",
                 use_container_width=True,
             )
 
@@ -3426,13 +3455,13 @@ if is_indus:
                 selected_unblock = st.selectbox(
                     "Select blocked ERS / Invoice",
                     ["-- Select --"] + list(unblock_map.keys()),
-                    key="indus_unblock_select",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_unblock_select",
                     label_visibility="collapsed",
                 )
             with uc2:
                 if st.button(
                     "UNBLOCK",
-                    key="indus_unblock_selected_btn",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_unblock_selected_btn",
                     use_container_width=True,
                 ):
                     if selected_unblock == "-- Select --":
@@ -3459,11 +3488,11 @@ if is_indus:
             payment_upload = st.file_uploader(
                 "Upload Indus Payment TSV",
                 type=["tsv", "txt"],
-                key="indus_payment_tsv_upload",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_tsv_upload",
             )
         with refresh_col:
             st.markdown("<div style='height:29px'></div>", unsafe_allow_html=True)
-            if st.button("Refresh", key="indus_payment_refresh", use_container_width=True):
+            if st.button("Refresh", key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_refresh", use_container_width=True):
                 st.rerun()
 
         if payment_upload is not None:
@@ -3478,7 +3507,7 @@ if is_indus:
                 )
                 if st.button(
                     "Import / Update Payments",
-                    key="indus_payment_import",
+                    key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_import",
                     type="primary",
                     use_container_width=True,
                 ):
@@ -3570,7 +3599,7 @@ if is_indus:
             q = st.text_input(
                 "Search",
                 placeholder="Search Payment Date / Invoice / PO / Receipt / Status...",
-                key="indus_payment_search",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_search",
                 label_visibility="collapsed",
             )
         fdf = indus_search_df(df, q)
@@ -3580,7 +3609,7 @@ if is_indus:
                 indus_excel_bytes(fdf, "Payments"),
                 f"Indus_Payments_{today:%Y%m%d}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="indus_payment_download",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_payment_download",
                 use_container_width=True,
             )
 
@@ -3608,13 +3637,13 @@ if is_indus:
         c1,c2=st.columns([5,1.6])
         with c1:
             q=st.text_input("Search",placeholder="🔍 PO Number / Advance Ref / Status...",
-                            key="indus_prepayment_search",label_visibility="collapsed")
+                            key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_prepayment_search",label_visibility="collapsed")
         fdf=indus_search_df(df,q)
         with c2:
             st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"Prepayment"),
                                f"Indus_Prepayment_{today:%Y%m%d}.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="indus_prepayment_download",use_container_width=True)
+                               key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_prepayment_download",use_container_width=True)
         _indus_table("💵 Prepayment / Advance Register","PO wise advance tracking",
                      f"Balance ₹ {fdf['Balance Advance'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                      fdf,money_cols={"Advance Amount","Adjusted Amount","Balance Advance"},
@@ -3622,7 +3651,7 @@ if is_indus:
 
     elif st.session_state.indus_active_view == "Credit Note":
         credit_mode = st.radio("Credit Note Type",["TDS Credit Memo","Debit Memo"],
-                               horizontal=True,key="indus_credit_mode")
+                               horizontal=True,key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_credit_mode")
         if credit_mode == "TDS Credit Memo":
             lookup={str(r.get("invoice_no") or ""):r for r in invoice_rows}
             data=[]
@@ -3644,13 +3673,13 @@ if is_indus:
             c1,c2=st.columns([5,1.6])
             with c1:
                 q=st.text_input("Search",placeholder="🔍 Credit Memo / Original Invoice / Status...",
-                                key="indus_credit_search",label_visibility="collapsed")
+                                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_credit_search",label_visibility="collapsed")
             fdf=indus_search_df(df,q)
             with c2:
                 st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"TDS Credit Memo"),
                                    f"Indus_TDS_Credit_Memo_{today:%Y%m%d}.xlsx",
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                   key="indus_credit_download",use_container_width=True)
+                                   key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_credit_download",use_container_width=True)
             _indus_table("🧾 TDS Credit Memo","Invoice number based automatic mapping",
                          f"TDS ₹ {fdf['TDS Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                          fdf,money_cols={"Invoice Amount","TDS Amount"},status_cols={"Status"},
@@ -3668,13 +3697,13 @@ if is_indus:
             c1,c2=st.columns([5,1.6])
             with c1:
                 q=st.text_input("Search",placeholder="🔍 Debit Memo / Status / Description...",
-                                key="indus_debit_search",label_visibility="collapsed")
+                                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_debit_search",label_visibility="collapsed")
             fdf=indus_search_df(df,q)
             with c2:
                 st.download_button("📥 Download Excel",indus_excel_bytes(fdf,"Debit Memo"),
                                    f"Indus_Debit_Memo_{today:%Y%m%d}.xlsx",
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                   key="indus_debit_download",use_container_width=True)
+                                   key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_debit_download",use_container_width=True)
             _indus_table("🧾 Debit Memo","separate debit adjustment register",
                          f"Amount ₹ {fdf['Amount'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                          fdf,money_cols={"Amount","Due"},status_cols={"Status"},chip_cols={"Debit Memo No"})
