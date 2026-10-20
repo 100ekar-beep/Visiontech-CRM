@@ -3346,6 +3346,7 @@ if is_indus:
 
     indus_views = [
         ("Invoice", "INVOICE"),
+        ("Clear Invoice", "CLEAR INVOICE"),
         ("Blocked ERS", "BLOCKED ERS"),
         ("Payments", "PAYMENTS"),
         ("Prepayment", "PREPAYMENT"),
@@ -3478,7 +3479,8 @@ if is_indus:
 
     today = datetime.date.today()
 
-    if st.session_state.indus_active_view == "Invoice":
+    if st.session_state.indus_active_view in ("Invoice", "Clear Invoice"):
+        is_clear_invoice_view = st.session_state.indus_active_view == "Clear Invoice"
         data = [{
             "Receipt No": r.get("receipt_no") or "",
             "ERS No": r.get("ers_no") or "",
@@ -3503,6 +3505,12 @@ if is_indus:
             "UTR": r.get("payment_utr") or "",
         } for r in active_invoice_rows]
         df = pd.DataFrame(data)
+        # Clear Invoice is a dynamic view, not a destructive database move.
+        if not df.empty:
+            fully_settled = ((df["Invoice Amount"].abs() > 0.005) &
+                             (df["Total Settled"] + 0.005 >= df["Invoice Amount"].abs()))
+            df = df.loc[fully_settled if is_clear_invoice_view else ~fully_settled].copy()
+        view_key_suffix = "_clear" if is_clear_invoice_view else ""
         # Invoice Status counts for dropdown.
         invoice_status_counts = {}
         if not df.empty and "Invoice Status" in df.columns:
@@ -3515,20 +3523,20 @@ if is_indus:
             q = st.text_input(
                 "Search",
                 placeholder="🔍 Invoice / ERS / Receipt / PO / UTR / Status...",
-                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_search",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_{view_key_suffix}search",
                 label_visibility="collapsed",
             )
 
         with c2:
             payment_statuses = ["All"] + sorted({
-                str(r.get("payment_status") or "").strip()
-                for r in active_invoice_rows
-                if str(r.get("payment_status") or "").strip()
+                str(r.get("Payment Status") or "").strip()
+                for r in df.to_dict("records")
+                if str(r.get("Payment Status") or "").strip()
             })
             sf = st.selectbox(
                 "Payment Status",
                 payment_statuses,
-                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_status_filter",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_{view_key_suffix}status_filter",
                 label_visibility="collapsed",
             )
 
@@ -3537,7 +3545,7 @@ if is_indus:
             invoice_status_selected = st.selectbox(
                 "Invoice Status",
                 invoice_status_options,
-                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_invoice_status_filter",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_{view_key_suffix}invoice_status_filter",
                 format_func=lambda x: (
                     f"All Invoice Status ({len(df):,})"
                     if x == "All"
@@ -3557,10 +3565,10 @@ if is_indus:
         with c4:
             st.download_button(
                 "📥 Download Excel",
-                indus_excel_bytes(fdf, "Invoices"),
-                f"Indus_Invoices_{today:%Y%m%d}.xlsx",
+                indus_excel_bytes(fdf, "Clear Invoices" if is_clear_invoice_view else "Invoices"),
+                f"Indus_{'Clear_Invoices' if is_clear_invoice_view else 'Invoices'}_{today:%Y%m%d}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_download",
+                key=f"{'BHAGYSHREE_' if ALLOWED_WORKSPACE == 'BHAGYSHREE' else ''}indus_invoice_{view_key_suffix}download",
                 use_container_width=True,
             )
 
@@ -3569,7 +3577,7 @@ if is_indus:
             f"{(r.get('ers_no') or r.get('invoice_no') or '-') } | Receipt {r.get('receipt_no') or '-'} | ₹ {indus_number(r.get('invoice_amount')):,.2f}": r
             for r in active_invoice_rows
         }
-        if block_candidates:
+        if block_candidates and not is_clear_invoice_view:
             bc1, bc2, bc3 = st.columns([3.2, 3.2, 1.2])
             with bc1:
                 selected_block_label = st.selectbox(
@@ -3594,7 +3602,8 @@ if is_indus:
                         st.success("Blocked. Ye record ab financial calculation me include nahi hoga.")
                         st.rerun()
 
-        _indus_table("📄 Invoice Register", "Receipt based ERS → Invoice tracking",
+        _indus_table("✅ Clear Invoice Register" if is_clear_invoice_view else "📄 Invoice Register",
+                     "100% payment settled" if is_clear_invoice_view else "Receipt based ERS → Invoice tracking",
                      f"Outstanding ₹ {fdf['Outstanding'].sum():,.2f}" if not fdf.empty else "₹ 0.00",
                      fdf,
                      money_cols={"Invoice Amount","TDS","Net Receivable","Invoice Payment","TDS Payment","Total Settled","Outstanding"},
