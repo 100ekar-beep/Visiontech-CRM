@@ -1032,9 +1032,14 @@ def _build_jms_pdf(row_data, circle, lines):
         sig_w = (iw-gap)/2
         pdf.rect(ix, sig_y, sig_w, sig_h); pdf.rect(ix+sig_w+gap, sig_y, sig_w, sig_h)
 
-        # LEFT BOX: only the Team Name label.
+        # LEFT BOX: show the selected/saved Team Name below the label.
+        pdf.setFillColor(colors.black)
         pdf.setFont("Helvetica-Bold", 7.2)
         pdf.drawString(ix+5*mm, sig_y+19*mm, "Team Name")
+        selected_team_name = _clean_text(row_data.get("Team Name"))
+        if selected_team_name:
+            draw_cell_text(selected_team_name, ix+4*mm, sig_y+16*mm,
+                           sig_w-8*mm, 12*mm, size=8, bold=True, max_lines=2)
 
         # RIGHT BOX: existing auditor area unchanged.
         pdf.setFont("Helvetica-Bold", 6.5)
