@@ -139,7 +139,7 @@ def wk_source_rows(db):
             continue
 
         status = str(
-            wk_pick(row, "invoice_status", "status") or ""
+            wk_pick(row, "invoice_status", "Sub_status", "status") or ""
         ).upper()
 
         if "CANCEL" in status or "DRAFT" in status:
@@ -200,14 +200,19 @@ def wk_source_rows(db):
             **wk_calc(basic),
         })
 
-    unique = {
-        row["source_invoice_no"]: row
-        for row in output
-    }
+    # Keep every source database record. Invoice numbers are not unique.
+    seen_ids = set()
+    unique_rows = []
+    for entry in output:
+        record_id = entry["source_invoice_id"]
+        if not record_id:
+            raise ValueError("Source invoice has no database ID; billing stopped for safety.")
+        if record_id in seen_ids:
+            raise ValueError(f"Repeated source database ID: {record_id}")
+        seen_ids.add(record_id)
+        unique_rows.append(entry)
 
-    return list(unique.values()), (
-        f"{skipped} source records skipped."
-    )
+    return unique_rows, f"{skipped} source records skipped."
 
 
 def wk_pdf(header, items, settings=None):
@@ -559,19 +564,31 @@ def wk_invoice_screen(db):
         if h.get("status") != "CANCELLED"
     }
 
-    billed = {
-        (item["source_table"], item["source_invoice_no"])
-        for item in items
-        if item["consolidated_invoice_id"] in active
-    }
+    # Prefer exact source row ID, not the invoice number. Older billed items
+    # without IDs are handled conservatively so they cannot be rebilled blindly.
+    billed_ids = set()
+    legacy_billed_numbers = set()
+    for item in items:
+        if item.get("consolidated_invoice_id") not in active:
+            continue
+        if item.get("source_table") != "invoice_management":
+            continue
+        source_id = str(item.get("source_invoice_id") or "").strip()
+        if source_id:
+            billed_ids.add(source_id)
+        else:
+            legacy_billed_numbers.add(str(item.get("source_invoice_no") or "").strip())
 
     pending = [
         row for row in source
-        if (
-            row["source_table"],
-            row["source_invoice_no"]
-        ) not in billed
+        if row["source_invoice_id"] not in billed_ids
+        and row["source_invoice_no"] not in legacy_billed_numbers
     ]
+    if legacy_billed_numbers:
+        st.warning(
+            "Some older billed items have no source ID. Matching invoice numbers "
+            "are held back to prevent double billing until verified."
+        )
 
     pending.sort(
         key=lambda r: (
@@ -616,7 +633,7 @@ def wk_invoice_screen(db):
         st.session_state["wk_selected_keys"] = []
 
     valid_keys = {
-        row["source_invoice_no"]
+        row["source_invoice_id"]
         for row in pending
     }
 
@@ -626,7 +643,7 @@ def wk_invoice_screen(db):
 
     chosen = [
         row for row in pending
-        if row["source_invoice_no"] in selected_keys
+        if row["source_invoice_id"] in selected_keys
     ]
 
     m1, m2, m3, m4 = st.columns(4, gap="small")
@@ -702,7 +719,7 @@ def wk_invoice_screen(db):
             use_container_width=True
         ):
             selected_keys.update(
-                row["source_invoice_no"]
+                row["source_invoice_id"]
                 for row in visible
             )
             st.session_state["wk_editor_rev"] = (
@@ -766,6 +783,7 @@ def wk_invoice_screen(db):
 
         columns = [
             "source_invoice_no",
+            "source_invoice_id",
             "source_invoice_date",
             "project_id",
             "site_id",
@@ -782,7 +800,7 @@ def wk_invoice_screen(db):
             display = pd.DataFrame([
                 {
                     "Select": (
-                        row["source_invoice_no"] in selected_keys
+                        row["source_invoice_id"] in selected_keys
                     ),
                     **{
                         key: row.get(key)
@@ -830,18 +848,18 @@ def wk_invoice_screen(db):
             )
 
             for index, row in enumerate(page_rows):
-                invoice_no = row["source_invoice_no"]
+                source_id = row["source_invoice_id"]
 
                 if bool(edited.iloc[index]["Select"]):
-                    selected_keys.add(invoice_no)
+                    selected_keys.add(source_id)
                 else:
-                    selected_keys.discard(invoice_no)
+                    selected_keys.discard(source_id)
 
             st.session_state["wk_selected_keys"] = list(selected_keys)
 
         chosen = [
             row for row in pending
-            if row["source_invoice_no"] in selected_keys
+            if row["source_invoice_id"] in selected_keys
         ]
 
         st.markdown(
