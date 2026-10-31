@@ -9,7 +9,6 @@ from decimal import Decimal, ROUND_HALF_UP
 
 import pandas as pd
 import streamlit as st
-from fpdf import FPDF
 
 
 WK_COMPANY = {
@@ -249,8 +248,11 @@ def wk_pdf(header, items, settings=None):
     assets=Path(__file__).resolve().parent
     art=assets/'wk_royal_template.png'
     stamp=assets/'wk_stamp.png'
-    source=Image.open(art).convert('RGB') if art.exists() else None
-    if source and source.size != (1536,1024):
+    
+    if not art.exists():
+        raise FileNotFoundError('Royal PDF design missing: wk_royal_template.png. Keep this PNG in the same folder as wizhkey_module.py.')
+    source=Image.open(art).convert('RGB')
+    if source.size != (1536,1024):
         raise ValueError('wk_royal_template.png must be the supplied 1536x1024 approved design image')
     def rect(x,y,w,h,fill,stroke=None,r=0):
         c.setFillColor(fill)
@@ -279,16 +281,12 @@ def wk_pdf(header, items, settings=None):
         rect(0,0,768,1024,white)
         image_crop(page,0,210 if not annex else 195)
         # Approved banner art is used verbatim; lower body is vector text and tables.
-        if not source:
-            rect(0,0,768,198,navy)
-            tx(225,65,company['name'],25,gold,True)
-            tx(225,112,company['address'],11,white)
-            tx(225,146,'GSTIN: '+company['gstin'],12,gold,True)
+        # Royal artwork is required; no silent black-and-white fallback.
         rect(0,943,768,81,navy)
         rect(0,940,768,4,gold)
         rect(620,944,148,80,gold)
         tx(30,984,company['name'],12,white,True)
-        tx(744,986,(f'Annexure {page}/{total_annexure}' if annex else f'Page 1 of {total_annexure+1}'),12,navy,True,'right')
+        tx(744,986,(f'Page {page+1} of {total_annexure+1}' if annex else f'Page 1 of {total_annexure+1}'),12,navy,True,'right')
     def title(label,annex=False):
         rect(235 if not annex else 145,204,300 if not annex else 480,42,navy,gold,8)
         fit(384,232,label,450 if annex else 290,23,gold,True,'center')
@@ -375,7 +373,7 @@ def wk_pdf(header, items, settings=None):
         panel(30,251,708,65)
         tx(44,274,'Invoice No.:  '+number,11,ink,True)
         tx(44,299,'Invoice Date:  '+invdate,11)
-        tx(432,274,'Work Period:  Sep & Oct 2026',11)
+        tx(432,274,'Work Period:  '+str(settings.get('work_period') or 'Sep & Oct 2026'),11)
         tx(432,299,'Total Sites:  '+str(len(items)),11,ink,True)
         left=20
         rect(left,330,728,43,navy)
