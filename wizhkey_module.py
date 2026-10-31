@@ -216,206 +216,203 @@ def wk_source_rows(db):
 
 
 def wk_pdf(header, items, settings=None):
+    """Approved royal-design PDF: branded artwork + live, selectable invoice data."""
+    from pathlib import Path
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.lib.utils import ImageReader
+    from PIL import Image
+    import textwrap
+
     settings = settings or {}
+    navy = HexColor('#092657')
+    blue = HexColor('#073A7D')
+    gold = HexColor('#F2BC47')
+    ink = HexColor('#13244A')
+    pale = HexColor('#EAF3FD')
+    border = HexColor('#B9D2F0')
+    W, H = A4
+    sx, sy = W/768, H/1024
+    number = str(header.get('invoice_no') or 'PREVIEW')
+    invdate = str(header.get('invoice_date') or '')[:10]
+    company = WK_COMPANY
+    buyer = WK_BUYER
+    keys = ('original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount')
+    totals = {k:sum((money(r.get(k)) for r in items),Decimal('0.00')) for k in keys}
+    page_size=15
+    chunks=[items[i:i+page_size] for i in range(0,len(items),page_size)] or [[]]
+    total_annexure=len(chunks)
+    out=io.BytesIO()
+    c=canvas.Canvas(out,pagesize=A4,pageCompression=1)
+    c.setTitle(number+' | WHIZ KEY IOT PRIVATE LIMITED')
+    assets=Path(__file__).resolve().parent
+    art=assets/'wk_royal_template.png'
+    stamp=assets/'wk_stamp.png'
+    source=Image.open(art).convert('RGB') if art.exists() else None
+    if source and source.size != (1536,1024):
+        raise ValueError('wk_royal_template.png must be the supplied 1536x1024 approved design image')
+    def rect(x,y,w,h,fill,stroke=None,r=0):
+        c.setFillColor(fill)
+        if stroke:c.setStrokeColor(stroke)
+        if r:c.roundRect(x*sx,H-(y+h)*sy,w*sx,h*sy,r*sx,fill=1,stroke=int(bool(stroke)))
+        else:c.rect(x*sx,H-(y+h)*sy,w*sx,h*sy,fill=1,stroke=int(bool(stroke)))
+    def tx(x,y,value,size=12,color=ink,bold=False,align='left'):
+        c.setFillColor(color)
+        c.setFont('Helvetica-Bold' if bold else 'Helvetica',size*sx)
+        fn={'left':c.drawString,'right':c.drawRightString,'center':c.drawCentredString}[align]
+        fn(x*sx,H-y*sy,str(value))
+    def fit(x,y,value,max_width,size=12,color=ink,bold=False,align='left'):
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        value=str(value)
+        while size>6 and stringWidth(value,'Helvetica-Bold' if bold else 'Helvetica',size*sx)>max_width*sx:
+            size-=.4
+        tx(x,y,value,size,color,bold,align)
+    def money_fmt(value):return f'{money(value):,.2f}'
+    def panel(x,y,w,h):rect(x,y,w,h,white,border,6)
+    def image_crop(page,top,bottom,x=0,w=768):
+        if source:
+            start=0 if page==0 else 768
+            im=source.crop((start,top,start+768,bottom))
+            c.drawImage(ImageReader(im),x*sx,H-bottom*sy,w*sx,(bottom-top)*sy,mask='auto')
+    def base(page,annex=False):
+        rect(0,0,768,1024,white)
+        image_crop(page,0,210 if not annex else 195)
+        # Approved banner art is used verbatim; lower body is vector text and tables.
+        if not source:
+            rect(0,0,768,198,navy)
+            tx(225,65,company['name'],25,gold,True)
+            tx(225,112,company['address'],11,white)
+            tx(225,146,'GSTIN: '+company['gstin'],12,gold,True)
+        rect(0,943,768,81,navy)
+        rect(0,940,768,4,gold)
+        rect(620,944,148,80,gold)
+        tx(30,984,company['name'],12,white,True)
+        tx(744,986,(f'Annexure {page}/{total_annexure}' if annex else f'Page 1 of {total_annexure+1}'),12,navy,True,'right')
+    def title(label,annex=False):
+        rect(235 if not annex else 145,204,300 if not annex else 480,42,navy,gold,8)
+        fit(384,232,label,450 if annex else 290,23,gold,True,'center')
+    def amount_words(v):
+        units=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen']
+        tens=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety']
+        def small(n):
+            bits=[]
+            if n>=100:bits.append(units[n//100]+' Hundred');n%=100
+            if n>=20:bits.append(tens[n//10]);n%=10
+            if n:bits.append(units[n])
+            return ' '.join(bits)
+        amt=money(v);whole=int(amt);paise=int((amt-Decimal(whole))*100)
+        bits=[]
+        for div,name in [(10000000,'Crore'),(100000,'Lakh'),(1000,'Thousand'),(1,'')]:
+            if whole>=div:
+                q,whole=divmod(whole,div)
+                bits.append(small(q)+(' '+name if name else ''))
+        return 'INR '+(' '.join(bits) or 'Zero')+' Rupees'+(' and '+small(paise)+' Paise' if paise else '')+' Only'
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=13)
-    pdf.add_page()
+    # PAGE 1 - tax invoice
+    base(0)
+    title('TAX INVOICE')
+    panel(44,254,680,181)
+    tx(89,279,'BILL TO',15,blue,True)
+    fit(89,309,buyer['name'],315,18,ink,True)
+    for i,line in enumerate(textwrap.wrap(buyer['address'],45)[:3]):tx(89,334+i*20,line,12)
+    fit(89,413,'GSTIN: '+buyer['gstin'],300,13,ink,True)
+    rect(415,260,1,170,border)
+    tx(439,280,'INVOICE DETAILS',15,blue,True)
+    for i,(k,v) in enumerate([('Invoice No.',number),('Invoice Date',invdate),('Place of Supply','Maharashtra (27)'),('Original Sites',str(len(items)))]):
+        yy=312+i*31
+        tx(439,yy,k,11,ink)
+        fit(707,yy,v,140,12,ink,i==0,'right')
+    # Item table
+    xs=[44,100,336,417,497,610,724]
+    rect(44,446,680,39,navy)
+    for x,txt0 in [(70,'Sr.'),(215,'Particulars'),(377,'HSN/SAC'),(458,'Qty'),(553,'Rate (INR)'),(665,'Amount (INR)')]:
+        tx(x,471,txt0,11,white,True,'center')
+    panel(44,485,680,74)
+    tx(70,526,'1',13,ink,True,'center')
+    tx(112,516,'Mobile Tower Work',14,ink,True)
+    tx(112,540,'(Annexure Attached)',12)
+    tx(377,527,'998719',12,ink,False,'center')
+    tx(458,527,'1',13,ink,True,'center')
+    fit(603,527,money_fmt(totals['original_basic']),100,12,ink,True,'right')
+    fit(714,527,money_fmt(totals['original_basic']),105,12,ink,True,'right')
+    labels=[('Original Basic Amount','original_basic'),('Less: 2% Discount','discount_amount'),('Net Taxable Amount','taxable_amount'),('CGST @ 9%','cgst'),('SGST @ 9%','sgst')]
+    for i,(label,key) in enumerate(labels):
+        yy=569+i*35
+        rect(44,yy,680,35,HexColor('#DFF4E2') if i==1 else pale if i in (0,2) else white,border)
+        tx(65,yy+24,label,14,ink,i in (0,1,2))
+        tx(708,yy+24,'INR '+money_fmt(totals[key]),14,ink,True,'right')
+    rect(44,744,680,44,navy)
+    tx(65,773,'GRAND TOTAL',19,gold,True)
+    tx(708,773,'INR '+money_fmt(totals['total_amount']),18,gold,True,'right')
+    rect(44,800,680,53,pale)
+    tx(60,820,'Amount In Words:',12,blue,True)
+    for i,line in enumerate(textwrap.wrap(amount_words(totals['total_amount']),78)[:2]):tx(198,821+i*16,line,10,ink)
+    tx(46,876,'Terms & Conditions:',12,navy,True)
+    tx(46,894,'1. Payment as per agreed credit terms.',10)
+    tx(46,910,'2. Annexure is an integral part of this invoice.',10)
+    tx(46,925,'3. Please contact us for invoice queries.',10)
+    tx(716,869,'For '+company['name'],11,navy,True,'right')
+    if stamp.exists():
+        try:
+            im=Image.open(stamp).convert('RGB')
+            from PIL import ImageChops
+            diff=ImageChops.difference(im,Image.new('RGB',im.size,'white'))
+            bb=diff.getbbox()
+            if bb: im=im.crop(bb)
+            c.drawImage(ImageReader(im),510*sx,H-931*sy,190*sx,64*sy,mask='auto',preserveAspectRatio=True,anchor='c')
+        except Exception:pass
+    tx(705,933,'Authorised Signatory',10,navy,True,'right')
+    c.showPage()
 
-    pdf.set_font("Arial", "B", 15)
-    pdf.cell(
-        0, 10, WK_COMPANY["name"],
-        ln=1, align="C"
-    )
-
-    pdf.set_font("Arial", "", 9)
-    pdf.multi_cell(0, 5, WK_COMPANY["address"])
-    pdf.cell(
-        0, 6, "GSTIN: " + WK_COMPANY["gstin"],
-        ln=1
-    )
-
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 9, "TAX INVOICE", ln=1, align="C")
-
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(
-        0, 7,
-        "Invoice No: " + str(header.get("invoice_no") or "PREVIEW"),
-        ln=1
-    )
-    pdf.cell(
-        0, 7,
-        "Invoice Date: " + str(header.get("invoice_date") or ""),
-        ln=1
-    )
-
-    pdf.multi_cell(
-        0, 6,
-        "Bill To: " + WK_BUYER["name"]
-        + " | GSTIN: " + WK_BUYER["gstin"]
-        + "\n" + WK_BUYER["address"]
-    )
-
-    pdf.ln(5)
-    pdf.multi_cell(
-        0, 6,
-        "Description: Consolidated service charges "
-        "against Indus Towers invoices as per Annexure A."
-    )
-
-    keys = (
-        "original_basic",
-        "discount_amount",
-        "taxable_amount",
-        "cgst",
-        "sgst",
-        "total_amount",
-    )
-
-    totals = {
-        key: sum(
-            (money(row.get(key)) for row in items),
-            Decimal("0.00")
-        )
-        for key in keys
-    }
-
-    labels = [
-        ("Original Basic Amount", "original_basic"),
-        ("Less: 2% Deduction", "discount_amount"),
-        ("Net Taxable Amount", "taxable_amount"),
-        ("CGST @ 9%", "cgst"),
-        ("SGST @ 9%", "sgst"),
-        ("GRAND TOTAL", "total_amount"),
-    ]
-
-    pdf.ln(5)
-
-    for label, key in labels:
-        pdf.set_font(
-            "Arial",
-            "B" if key == "total_amount" else "",
-            10
-        )
-        pdf.cell(115, 9, label, border=1)
-        pdf.cell(
-            75, 9,
-            f"INR {totals[key]:,.2f}",
-            border=1, align="R", ln=1
-        )
-
-    if settings.get("bank_name"):
-        pdf.ln(7)
-        pdf.set_font("Arial", "", 9)
-        pdf.multi_cell(
-            0, 5,
-            f"Bank: {settings.get('bank_name')}\n"
-            f"Account: {settings.get('account_number') or ''}\n"
-            f"IFSC: {settings.get('ifsc') or ''}"
-        )
-
-    pdf.ln(10)
-    pdf.set_font("Arial", "", 9)
-    pdf.cell(
-        0, 7,
-        "For WHIZ KEY IOT PRIVATE LIMITED",
-        ln=1, align="R"
-    )
-    pdf.ln(9)
-    pdf.cell(
-        0, 7,
-        "Authorised Signatory",
-        ln=1, align="R"
-    )
-
-    # Annexure
-    pdf.add_page("L")
-    pdf.set_font("Arial", "B", 13)
-    pdf.cell(
-        0, 9,
-        "ANNEXURE A - SITE-WISE INVOICE DETAILS",
-        ln=1
-    )
-
-    columns = [
-        ("Project ID", 31),
-        ("Site ID", 26),
-        ("Site Name", 40),
-        ("Invoice No", 30),
-        ("Date", 22),
-        ("Basic", 20),
-        ("2%", 16),
-        ("Net", 20),
-        ("CGST", 18),
-        ("SGST", 18),
-        ("Total", 20),
-    ]
-
-    def draw_header():
-        pdf.set_font("Arial", "B", 7)
-        for label, width in columns:
-            pdf.cell(width, 8, label, border=1)
-        pdf.ln()
-
-    draw_header()
-
-    for row in items:
-        if pdf.get_y() > 180:
-            pdf.add_page("L")
-            draw_header()
-
-        pdf.set_font("Arial", "", 7)
-
-        values = [
-            row.get("project_id", ""),
-            row.get("site_id", ""),
-            row.get("site_name", ""),
-            row.get("source_invoice_no", ""),
-            row.get("source_invoice_date", ""),
-        ] + [
-            f"{money(row.get(key)):,.2f}"
-            for key in keys
-        ]
-
-        for (label, width), value in zip(columns, values):
-            text = str(value or "")
-            if len(text) > int(width / 1.6):
-                text = text[:int(width / 1.6)]
-
-            pdf.cell(
-                width, 7, text,
-                border=1,
-                align="R" if label in (
-                    "Basic", "2%", "Net", "CGST", "SGST", "Total"
-                ) else "L"
-            )
-        pdf.ln()
-
-    if pdf.get_y() > 180:
-        pdf.add_page("L")
-        draw_header()
-
-    pdf.set_font("Arial", "B", 7)
-
-    grand_values = [
-        "GRAND TOTAL", "", "", "", ""
-    ] + [
-        f"{totals[key]:,.2f}"
-        for key in keys
-    ]
-
-    for (_, width), value in zip(columns, grand_values):
-        pdf.cell(width, 8, str(value), border=1)
-
-    result = pdf.output(dest="S")
-
-    if isinstance(result, (bytes, bytearray)):
-        return bytes(result)
-
-    return result.encode("latin-1")
-
+    # Annexure pages - same approved header and footer, real dynamic rows
+    cols=[('Sr.',30),('Project ID',86),('Site ID',70),('Site Name',105),('Invoice No.',82),('Date',70),('Basic',65),('2% Discount',68),('Net',66),('CGST',61),('SGST',61),('Total',74)]
+    factor=728/sum(w for _,w in cols)
+    widths=[w*factor for _,w in cols]
+    for idx,chunk in enumerate(chunks):
+        base(idx+1,True)
+        title('ANNEXURE A - SITE-WISE INVOICE DETAILS',True)
+        panel(30,251,708,65)
+        tx(44,274,'Invoice No.:  '+number,11,ink,True)
+        tx(44,299,'Invoice Date:  '+invdate,11)
+        tx(432,274,'Work Period:  Sep & Oct 2026',11)
+        tx(432,299,'Total Sites:  '+str(len(items)),11,ink,True)
+        left=20
+        rect(left,330,728,43,navy)
+        x=left
+        for (name,_),w in zip(cols,widths):
+            parts=name.split(' ')
+            if name=='2% Discount':
+                tx(x+w/2,348,'2%',9,white,True,'center');tx(x+w/2,361,'Discount',8,white,True,'center')
+            else:fit(x+w/2,356,name,w-3,10,white,True,'center')
+            x+=w
+        page_tot={k:Decimal('0.00') for k in keys}
+        row_height=28
+        for j,row in enumerate(chunk):
+            y=373+j*row_height
+            rect(left,y,728,row_height,pale if j%2==0 else white,border)
+            values=[str(idx*page_size+j+1),str(row.get('project_id') or ''),str(row.get('site_id') or ''),str(row.get('site_name') or ''),str(row.get('source_invoice_no') or ''),str(row.get('source_invoice_date') or '')[:10]]+[money_fmt(row.get(k)) for k in keys]
+            x=left
+            for k,((name,_),w,value) in enumerate(zip(cols,widths,values)):
+                if k in (1,2,3,4,5):
+                    fit(x+3,y+18,value,w-5,9,ink,False)
+                else:fit(x+w-3,y+18,value,w-5,9,ink,False,'right')
+                x+=w
+            for key in keys:page_tot[key]+=money(row.get(key))
+        y=373+len(chunk)*row_height+8
+        rect(left,y,728,34,HexColor('#DCEBFB'),border)
+        tx(36,y+23,f'PAGE TOTAL ({len(chunk)} SITES)',12,navy,True)
+        tx(730,y+23,'INR '+money_fmt(page_tot['total_amount']),12,navy,True,'right')
+        y+=42
+        if idx==len(chunks)-1:
+            rect(left,y,728,36,HexColor('#FFF0D1'),gold)
+            tx(36,y+24,f'GRAND TOTAL ({len(items)} SITES)',13,navy,True)
+            tx(730,y+24,'INR '+money_fmt(totals['total_amount']),13,navy,True,'right')
+        tx(32,888,'Note: This annexure forms part of Invoice No. '+number,11,blue,True)
+        tx(32,907,'All amounts are in Indian Rupees. Discount and GST are shown site-wise.',10)
+        c.showPage()
+    c.save()
+    return out.getvalue()
 
 def wk_pager(df, key):
     c1, c2, c3 = st.columns([1, 3, 1])
