@@ -609,7 +609,7 @@ def wk_invoice_screen(db):
             "Site ID": item.get("site_id"),
             "Site Name": item.get("site_name"),
             "Original Basic": item.get("original_basic"),
-            "2% Deduction": item.get("discount_amount"),
+            "2% Discount": item.get("discount_amount"),
             "Taxable Amount": item.get("taxable_amount"),
             "CGST": item.get("cgst"),
             "SGST": item.get("sgst"),
@@ -829,7 +829,7 @@ def wk_invoice_screen(db):
                         "Original Basic", format="%.2f"
                     ),
                     "discount_amount": st.column_config.NumberColumn(
-                        "2% Deduction", format="%.2f"
+                        "2% Discount", format="%.2f"
                     ),
                     "taxable_amount": st.column_config.NumberColumn(
                         "Taxable Basic", format="%.2f"
@@ -877,7 +877,7 @@ def wk_invoice_screen(db):
             f"₹{sum(r['original_basic'] for r in chosen):,.2f}"
         )
         s3.metric(
-            "2% Deduction",
+            "2% Discount",
             f"₹{sum(r['discount_amount'] for r in chosen):,.2f}"
         )
         s4.metric(
@@ -1107,7 +1107,7 @@ def wk_invoice_screen(db):
                     st.download_button(
                         "⬇ Download Invoice + Annexure PDF",
                         pdf_bytes,
-                        f"{header.get('invoice_no')}.pdf",
+                        f"{str(header.get('invoice_no') or 'Invoice').replace('/', '_')}.pdf",
                         mime="application/pdf"
                     )
                 except Exception as error:
