@@ -77,7 +77,6 @@ def wk_pdf(header,items,settings=None):
     pdf.set_font('Arial','',10)
     pdf.cell(0,7,'Invoice No: '+str(header.get('invoice_no') or 'DRAFT'),ln=1)
     pdf.cell(0,7,'Invoice Date: '+str(header.get('invoice_date') or ''),ln=1)
-    pdf.cell(0,7,'Billing Month: '+str(header.get('billing_month') or '')[:7],ln=1)
     pdf.multi_cell(0,6,'Bill To: '+WK_BUYER['name']+' | GSTIN: '+WK_BUYER['gstin']+'\n'+WK_BUYER['address'])
     pdf.ln(5);pdf.multi_cell(0,6,'Description: Consolidated service charges against Indus Towers invoices, as detailed in Annexure A.')
     totals={k:money(sum(money(r.get(k)) for r in items)) for k in ('original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount')}
@@ -106,7 +105,8 @@ def wk_pdf(header,items,settings=None):
     vals=['GRAND TOTAL','','','','']+[f'{totals[k]:,.2f}' for k in ('original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount')]
     for (_,w),v in zip(cols,vals):pdf.cell(w,8,str(v),border=1)
     pdf.ln()
-    return bytes(pdf.output(dest='S').encode('latin-1'))
+    result = pdf.output(dest='S')
+    return bytes(result) if isinstance(result, (bytes, bytearray)) else result.encode('latin-1')
 
 def wk_pager(df,key):
     size=st.selectbox('Rows per page',[25,50,100,200],index=2,key=key+'_size')
@@ -151,76 +151,111 @@ def wk_show(db):
                 st.rerun()
     st.divider()
     if st.session_state['wk_active_section'] == 'invoices':
-        try: headers=wk_fetch_all(db,'wizhkey_invoices')
-        except Exception as e:st.error('Run the supplied Wizh Key SQL setup first: '+str(e));return
-        df=pd.DataFrame(headers)
-        st.markdown('### Created Monthly Invoices')
-        q=st.text_input('🔎 Search created invoice',key='wk_search')
-        if not df.empty:
-            if q:df=df[df.astype(str).apply(lambda c:c.str.contains(q,case=False,regex=False)).any(axis=1)]
-            st.dataframe(wk_pager(df.sort_values('id',ascending=False),'wk_inv'),use_container_width=True,hide_index=True)
-            b=io.BytesIO();df.to_excel(b,index=False);st.download_button('⬇ Export Invoice Register',b.getvalue(),'WizhKey_Invoices.xlsx')
-            choices={f"{r['invoice_no'] or 'DRAFT'} · {r['id']} · {r['status']}":r for r in headers}
-            picked=st.selectbox('View / Download Existing Invoice',['Select']+list(choices))
-            if picked!='Select':
-                h=choices[picked]; items=db.table('wizhkey_invoice_items').select('*').eq('consolidated_invoice_id',h['id']).execute().data or []
-                st.download_button('⬇ Download Invoice + Site Annexure PDF',wk_pdf(h,items),'WizhKey_'+str(h.get('invoice_no') or h['id'])+'.pdf',mime='application/pdf')
-                if h['status']=='DRAFT':
-                    if st.button('✅ Finalize Draft',key='wk_finalize'):
-                        if not items:st.error('Cannot finalize an empty invoice')
-                        else:
-                            db.table('wizhkey_invoices').update({'status':'FINAL','finalized_at':date.today().isoformat()}).eq('id',h['id']).eq('status','DRAFT').execute();st.rerun()
-                if h['status']=='FINAL':
-                    if st.checkbox('I confirm this bill must be cancelled',key='wk_cancel_check') and st.button('Cancel Final Invoice'):
-                        db.table('wizhkey_invoices').update({'status':'CANCELLED'}).eq('id',h['id']).execute();st.rerun()
-        else:st.info('No consolidated bills created yet.')
-        st.divider();st.markdown('### ➕ Create New Consolidated Invoice')
-        try:source,msg=wk_source_rows(db)
-        except Exception as e:st.error('Unable to load Bhagyashree Indus invoices: '+str(e));source=[];msg=''
-        if msg:st.caption(msg)
+        st.markdown("""<style>
+        .wk-hero{padding:18px 24px;border-radius:18px;background:linear-gradient(105deg,#eef2ff,#e0f2fe,#faf5ff);border:1px solid #c7d2fe;margin:12px 0 18px}
+        .wk-hero h3{margin:0;color:#312e81;font-weight:900}.wk-hero p{margin:6px 0 0;color:#475569}
+        div[data-testid="stMetric"]{background:white;border:1px solid #dbeafe;border-radius:16px;padding:12px 18px;box-shadow:0 5px 18px #c7d2fe55}
+        </style>""",unsafe_allow_html=True)
         try:
-            items=wk_fetch_all(db,'wizhkey_invoice_items');active_ids={h['id'] for h in headers if h['status']!='CANCELLED'}
-            billed={(i['source_table'],i['source_invoice_no']) for i in items if i['consolidated_invoice_id'] in active_ids}
-        except Exception as e:st.error(str(e));return
-        pending=[r for r in source if (r['source_table'],r['source_invoice_no']) not in billed]
-        st.metric('Unbilled Indus Invoices',len(pending))
-        month=st.date_input('Billing Month (select any date in month)',value=date.today(),key='wk_month')
-        inv_date=st.date_input('Wizh Key Invoice Date',value=date.today(),key='wk_date')
-        st.caption('All past unbilled source invoices remain eligible, even if their original date is in an earlier month.')
-        query=st.text_input('🔎 Search pending invoices by invoice / project / site',key='wk_pending_search')
-        visible=[r for r in pending if not query or query.lower() in ' '.join(str(v) for v in r.values()).lower()]
-        if visible:
-            pending_df=pd.DataFrame(visible)
-            st.dataframe(pending_df[['source_invoice_no','source_invoice_date','project_id','site_id','site_name','original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount']],hide_index=True,use_container_width=True)
-            choices={f"{r['source_invoice_no']} | {r['site_id']} | INR {r['original_basic']:,.2f}":r for r in visible}
-            all_select=st.checkbox('Select All displayed invoices',key='wk_all')
-            selected=st.multiselect('Select invoices for consolidated bill',list(choices),default=list(choices) if all_select else [],key='wk_select')
-            chosen=[choices[x] for x in selected]
+            headers=wk_fetch_all(db,'wizhkey_invoices')
+            items=wk_fetch_all(db,'wizhkey_invoice_items')
+            source,msg=wk_source_rows(db)
+        except Exception as e:
+            st.error('Could not load Wizh Key data: '+str(e));return
+        active={h['id']:h for h in headers if h['status']!='CANCELLED'}
+        billed={(i['source_table'],i['source_invoice_no']):i for i in items if i['consolidated_invoice_id'] in active}
+        pending=sorted([r for r in source if (r['source_table'],r['source_invoice_no']) not in billed], key=lambda r: (r.get('source_invoice_date') or '', r['source_invoice_no']), reverse=True)
+        created=[]
+        for i in items:
+            h=active.get(i['consolidated_invoice_id'])
+            if h:
+                created.append(dict(source_invoice_no=i['source_invoice_no'],source_invoice_date=i.get('source_invoice_date'),project_id=i.get('project_id'),site_id=i.get('site_id'),site_name=i.get('site_name'),original_basic=i.get('original_basic'),discount_amount=i.get('discount_amount'),taxable_amount=i.get('taxable_amount'),cgst=i.get('cgst'),sgst=i.get('sgst'),total_amount=i.get('total_amount'),wizhkey_invoice_no=h.get('invoice_no'),wizhkey_invoice_date=h.get('invoice_date'),status=h.get('status'),bill_id=h['id']))
+        st.markdown('<div class="wk-hero"><h3>🧾 Wizh Key · Consolidated Invoice Management</h3><p>Pending original invoices remain available until billed. Each source invoice is billed only once.</p></div>',unsafe_allow_html=True)
+        t1,t2,t3,t4=st.columns(4)
+        t1.metric('🟠 Pending Invoices',len(pending));t2.metric('🟢 Created Source Invoices',len(created))
+        t3.metric('📑 Consolidated Bills',len(active));t4.metric('💰 Pending Basic',f"₹{sum(r['original_basic'] for r in pending):,.2f}")
+        if st.session_state.pop('wk_last_created_invoice', None):
+            st.success('Consolidated Invoice created successfully. Check the Created tab.')
+        sub=st.radio('Invoice Register',['🟠 Pending','🟢 Created'],horizontal=True,key='wk_invoice_subtab',label_visibility='collapsed')
+        if sub=='🟠 Pending':
+            st.markdown('### 🟠 Pending Indus Invoices')
+            if msg:st.caption(msg)
+            inv_date=st.date_input('Wizh Key Invoice Date',value=date.today(),key='wk_date')
+            query=st.text_input('🔎 Search Invoice / Project ID / Site ID / Site Name',key='wk_pending_search')
+            visible=[r for r in pending if not query or query.lower() in ' '.join(str(v) for v in r.values()).lower()]
+            if not visible:st.info('No pending invoices match the search.');return
+            selected_keys=set(st.session_state.get('wk_selected_keys',[])) & {r['source_invoice_no'] for r in pending}
+            b1,b2,b3=st.columns([1,1,4])
+            if b1.button('☑ Select All Filtered',key='wk_all_filtered'):
+                selected_keys.update(r['source_invoice_no'] for r in visible)
+                st.session_state['wk_editor_rev']=st.session_state.get('wk_editor_rev',0)+1
+            if b2.button('✖ Clear Selection',key='wk_clear_selected'):
+                selected_keys.clear()
+                st.session_state['wk_editor_rev']=st.session_state.get('wk_editor_rev',0)+1
+            st.session_state['wk_selected_keys']=list(selected_keys)
+            cols=['source_invoice_no','source_invoice_date','project_id','site_id','site_name','original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount']
+            size=st.selectbox('Rows per page',[25,50,100,200],index=2,key='wk_pending_size')
+            pages=max(1,(len(visible)+size-1)//size)
+            page=min(st.session_state.get('wk_pending_page',1),pages)
+            pg1,pg2,pg3=st.columns([1,3,1])
+            if pg1.button('⬅ Previous',disabled=page<=1,key='wk_pending_prev'):page-=1
+            pg2.markdown(f'<p style="text-align:center;font-weight:800">Page {page} of {pages} · {len(visible)} matching</p>',unsafe_allow_html=True)
+            if pg3.button('Next ➡',disabled=page>=pages,key='wk_pending_next'):page+=1
+            st.session_state['wk_pending_page']=page
+            page_rows=visible[(page-1)*size:page*size]
+            display=pd.DataFrame([{'Select':r['source_invoice_no'] in selected_keys,**{k:r.get(k) for k in cols}} for r in page_rows])
+            edited=st.data_editor(display,hide_index=True,use_container_width=True,key='wk_editor_'+str(page)+'_'+str(st.session_state.get('wk_editor_rev',0)),disabled=cols,column_config={'Select':st.column_config.CheckboxColumn('Select',width='small')},height=min(560,40+35*len(display)))
+            for j,r in enumerate(page_rows):
+                if bool(edited.iloc[j]['Select']):selected_keys.add(r['source_invoice_no'])
+                else:selected_keys.discard(r['source_invoice_no'])
+            st.session_state['wk_selected_keys']=list(selected_keys)
+            chosen=[r for r in pending if r['source_invoice_no'] in selected_keys]
+            s1,s2,s3,s4=st.columns(4)
+            s1.metric('Selected',len(chosen));s2.metric('Original Basic',f"₹{sum(r['original_basic'] for r in chosen):,.2f}")
+            s3.metric('2% Deduction',f"₹{sum(r['discount_amount'] for r in chosen):,.2f}")
+            s4.metric('Final Amount incl. GST',f"₹{sum(r['total_amount'] for r in chosen):,.2f}")
             if chosen:
-                st.metric('Selected Invoices',len(chosen));st.metric('Final Total',f"₹{sum(r['total_amount'] for r in chosen):,.2f}")
-                draft_header={'invoice_no':'DRAFT','invoice_date':inv_date.isoformat(),'billing_month':month.replace(day=1).isoformat()}
-                st.download_button('👁 Preview Invoice PDF',wk_pdf(draft_header,chosen),'WizhKey_Preview.pdf',mime='application/pdf')
-                if st.button('💾 Create Draft Consolidated Invoice',type='primary'):
+                draft_header={'invoice_no':'PREVIEW','invoice_date':inv_date.isoformat()}
+                left,right=st.columns([1,2])
+                left.download_button('👁 Preview Selected PDF',wk_pdf(draft_header,chosen),'WizhKey_Preview.pdf',mime='application/pdf',use_container_width=True)
+                if right.button('💾 Create Consolidated Invoice',type='primary',use_container_width=True,key='wk_create'):
                     if any(not r['project_id'] or not r['site_id'] or not r['site_name'] for r in chosen):
-                        st.error('Missing Project ID / Site ID / Site Name. Complete source master before saving.')
+                        st.error('Some selected invoices are missing Project ID, Site ID or Site Name. Correct the master first.')
                     else:
                         totals={k:float(sum(money(r[k]) for r in chosen)) for k in ('original_basic','discount_amount','taxable_amount','cgst','sgst','total_amount')}
-                        payload={'invoice_date':inv_date.isoformat(),'billing_month':month.replace(day=1).isoformat(),'bill_to':WK_BUYER['name'],'discount_percent':2,'status':'DRAFT',**totals}
+                        payload={'invoice_date':inv_date.isoformat(),'billing_month':inv_date.replace(day=1).isoformat(),'bill_to':WK_BUYER['name'],'discount_percent':2,'status':'FINAL',**totals}
                         try:
-                            h=db.table('wizhkey_invoices').insert(payload).execute().data[0]
-                            # Sequence ID ensures uniqueness. Drafts get a number only on creation.
-                            number=f"WK/{inv_date.year % 100:02d}-{(inv_date.year+1)%100:02d}/{h['id']:05d}"
-                            db.table('wizhkey_invoices').update({'invoice_no':number}).eq('id',h['id']).execute()
-                            for r in chosen:
-                                try:db.table('wizhkey_invoice_items').insert({'consolidated_invoice_id':h['id'],**r}).execute()
-                                except Exception:raise
-                            st.success('Draft created: '+number);st.rerun()
-                        except Exception as e:
-                            if 'h' in locals():
-                                try:db.table('wizhkey_invoices').delete().eq('id',h['id']).eq('status','DRAFT').execute()
-                                except Exception:pass
-                            st.error('Draft not saved completely: '+str(e))
-        else:st.info('No matching unbilled invoices. Verify invoice_management workspace and source field mapping.')
+                            response=db.rpc('wk_create_consolidated_invoice',{'p_header':payload,'p_items':chosen}).execute()
+                            result=response.data or {}
+                            st.session_state['wk_selected_keys']=[]
+                            st.session_state['wk_last_created_invoice'] = str(result.get('invoice_no') if isinstance(result,dict) else result)
+                            st.session_state['wk_invoice_subtab'] = '🟢 Created'
+                            st.rerun()
+                        except Exception as e:st.error('Invoice not created. Check SQL upgrade and data: '+str(e))
+            else:st.info('Select invoice rows using the checkboxes to enable invoice creation.')
+        else:
+            st.markdown('### 🟢 Created · Original Invoice Register')
+            search=st.text_input('🔎 Search Wizh Key Invoice No / Indus Invoice No / Project / Site',key='wk_created_search')
+            rows=[r for r in created if not search or search.lower() in ' '.join(str(v) for v in r.values()).lower()]
+            if rows:
+                df=pd.DataFrame(rows).sort_values(['bill_id','source_invoice_no'],ascending=[False,True])
+                st.dataframe(wk_pager(df,'wk_created'),use_container_width=True,hide_index=True)
+                out=io.BytesIO();df.to_excel(out,index=False)
+                st.download_button('⬇ Export Created Register',out.getvalue(),'WizhKey_Created_Invoices.xlsx')
+            else:st.info('No created invoices yet.')
+            if active:
+                st.markdown('#### 📄 Download Consolidated Invoice + Annexure')
+                options={f"{h['invoice_no']} · {h['invoice_date']} · {h['status']}":h for h in sorted(active.values(),key=lambda x:x['id'],reverse=True)}
+                key=st.selectbox('Select Wizh Key Invoice',['Select']+list(options),key='wk_created_choose')
+                if key!='Select':
+                    h=options[key];rows_for_pdf=[i for i in items if i['consolidated_invoice_id']==h['id']]
+                    st.download_button('⬇ Download Invoice PDF',wk_pdf(h,rows_for_pdf),f"{h['invoice_no']}.pdf",mime='application/pdf')
+                    if h['status']=='DRAFT':
+                        if st.button('✅ Finalize Draft',key='wk_finalize'):
+                            db.table('wizhkey_invoices').update({'status':'FINAL','finalized_at':date.today().isoformat()}).eq('id',h['id']).eq('status','DRAFT').execute();st.rerun()
+                    if h['status']=='FINAL':
+                        if st.checkbox('I confirm this bill should be cancelled',key='wk_cancel_confirm') and st.button('Cancel Consolidated Invoice',key='wk_cancel'):
+                            db.table('wizhkey_invoices').update({'status':'CANCELLED'}).eq('id',h['id']).execute();st.rerun()
     if st.session_state['wk_active_section'] == 'payment':
         st.markdown('### 💳 Payment Received / Paid')
         try:payments=wk_fetch_all(db,'wizhkey_payments')
