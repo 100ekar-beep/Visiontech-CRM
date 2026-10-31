@@ -124,8 +124,33 @@ def wk_pager(df,key):
 def wk_show(db):
     st.markdown('## 💎 WHIZ KEY · Consolidated Billing & Ledger')
     st.caption('Seller: WHIZ KEY IOT PRIVATE LIMITED · GSTIN 27AADCW7297D1ZY · Buyer: Bhagyashree Enterprises')
-    invoices_tab,pay_tab,settings_tab=st.tabs(['🧾 Invoices','💳 Payment & Ledger','⚙️ Company Settings'])
-    with invoices_tab:
+    st.markdown('''
+    <style>
+    div[data-testid="stHorizontalBlock"] div.stButton > button[kind="primary"],
+    div[data-testid="stHorizontalBlock"] div.stButton > button[kind="secondary"] {
+        min-height: 78px;
+        border-radius: 16px;
+        font-size: 1.12rem;
+        font-weight: 850;
+        border: 1px solid #dbe2ee;
+        box-shadow: 0 5px 13px rgba(27, 39, 70, 0.10);
+        width: 100%;
+    }
+    </style>
+    ''', unsafe_allow_html=True)
+    options = [('invoices', '🧾 INVOICES'), ('payment', '💳 PAYMENT & LEDGER'), ('settings', '⚙️ COMPANY SETTINGS')]
+    if st.session_state.get('wk_active_section') not in dict(options):
+        st.session_state['wk_active_section'] = 'invoices'
+    nav_cols = st.columns(3, gap='medium')
+    for nav_col, (section_id, section_label) in zip(nav_cols, options):
+        with nav_col:
+            if st.button(section_label, key='wk_nav_' + section_id,
+                         type='primary' if st.session_state['wk_active_section'] == section_id else 'secondary',
+                         use_container_width=True):
+                st.session_state['wk_active_section'] = section_id
+                st.rerun()
+    st.divider()
+    if st.session_state['wk_active_section'] == 'invoices':
         try: headers=wk_fetch_all(db,'wizhkey_invoices')
         except Exception as e:st.error('Run the supplied Wizh Key SQL setup first: '+str(e));return
         df=pd.DataFrame(headers)
@@ -196,7 +221,7 @@ def wk_show(db):
                                 except Exception:pass
                             st.error('Draft not saved completely: '+str(e))
         else:st.info('No matching unbilled invoices. Verify invoice_management workspace and source field mapping.')
-    with pay_tab:
+    if st.session_state['wk_active_section'] == 'payment':
         st.markdown('### 💳 Payment Received / Paid')
         try:payments=wk_fetch_all(db,'wizhkey_payments')
         except Exception as e:st.error(str(e));return
@@ -217,7 +242,7 @@ def wk_show(db):
                     try:db.table('wizhkey_payments').insert({'payment_date':dt.isoformat(),'payment_type':typ,'party_name':party,'amount':amount,'payment_mode':mode,'bank_name':bank,'reference_no':ref,'remarks':remarks}).execute();st.success('Payment saved');st.rerun()
                     except Exception as e:st.error(str(e))
         st.caption('This is a date-wise cash ledger. Invoice-wise allocation and receivable aging require allocation entries.')
-    with settings_tab:
+    if st.session_state['wk_active_section'] == 'settings':
         st.markdown('### Company & Bank Master')
         st.write(WK_COMPANY)
         try:rows=db.table('wizhkey_company_settings').select('*').eq('company_code','WIZHKEY').execute().data or []
