@@ -659,6 +659,11 @@ def wk_invoice_screen(db):
         f"₹{sum(r['total_amount'] for r in chosen):,.2f}"
     )
 
+    # Apply tab navigation on the next rerun, BEFORE the radio widget exists.
+    next_tab = st.session_state.pop("wk_next_invoice_subtab", None)
+    if next_tab in ("🟠 Pending", "🟢 Created"):
+        st.session_state["wk_invoice_subtab"] = next_tab
+
     subtab = st.radio(
         "Invoice Register",
         ["🟠 Pending", "🟢 Created"],
@@ -996,9 +1001,9 @@ def wk_invoice_screen(db):
 
                             st.session_state["wk_selected_keys"] = []
                             st.session_state["wk_last_created"] = number
-                            st.session_state["wk_invoice_subtab"] = (
-                                "🟢 Created"
-                            )
+                            # Do not mutate a widget key after instantiation.
+                            # Schedule the tab switch for the next rerun instead.
+                            st.session_state["wk_next_invoice_subtab"] = "🟢 Created"
                             st.rerun()
 
                         except Exception as error:
