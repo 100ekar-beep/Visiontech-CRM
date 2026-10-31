@@ -2159,7 +2159,7 @@ def bhagya_bulk_hsn_dialog():
             st.error(f"❌ Error processing file: {e}")
 
 
-def render_bhagyashree_tab():
+def render_bhagyashree_legacy_tab():
     col_title, col_ref, col_hsn, col_add = st.columns([3, 1, 1.6, 1.5])
     with col_title:
         st.markdown("<h2 style='margin:0; color:#0f172a;'>🏢 Bhagyashree Invoice</h2>", unsafe_allow_html=True)
@@ -2827,6 +2827,17 @@ def render_invoice_master_tab(company_key, prefix, title):
     st.markdown("<br>", unsafe_allow_html=True)
     pager(page_key, total_pages, total_rows, f"{prefix}_inv")
 
+
+
+# New Wizh Key monthly billing and legacy invoices under the same Bhagyashree tab.
+from wizhkey_module import wk_show
+
+def render_bhagyashree_tab():
+    mode = st.radio('Bhagyashree Billing', ['💎 Wizh Key Monthly Billing', '📁 Previous Individual Invoices'], horizontal=True, key='wk_bhg_mode')
+    if mode.startswith('💎'):
+        wk_show(supabase)
+    else:
+        render_bhagyashree_legacy_tab()
 
 # =========================================================================
 # TOP BANNER
