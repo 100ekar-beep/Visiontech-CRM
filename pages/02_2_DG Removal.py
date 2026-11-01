@@ -236,17 +236,17 @@ div[data-testid="stDialog"] [data-testid="stPopover"] button { padding: 2px 8px 
     border: 1px solid #e0e7ff !important; border-top: none !important; border-bottom: none !important; border-radius: 0 !important;
 }
 .st-key-site_lux_wrap [data-testid="stVerticalBlock"] { gap: 0 !important; }
-.st-key-site_lux_wrap [data-testid="stHorizontalBlock"] { min-width: 2450px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important; }
+.st-key-site_lux_wrap [data-testid="stHorizontalBlock"] { min-width: 3100px !important; flex-wrap: nowrap !important; gap: 0 !important; align-items: center !important; }
 .st-key-site_lux_wrap [data-testid="stColumn"], .st-key-site_lux_wrap [data-testid="column"] { padding: 0 12px !important; min-width: 0 !important; border-right: 1px solid #f1f5f9; }
 .st-key-site_lux_wrap > .st-key-slux_head, .st-key-site_lux_wrap > div:has(.st-key-slux_head) { position: sticky !important; top: 0 !important; z-index: 20 !important; }
 .st-key-slux_head {
     background: linear-gradient(90deg, #312e81 0%, #4338ca 45%, #6d28d9 100%) !important; border-bottom: 3px solid #f59e0b !important;
-    box-shadow: 0 8px 14px -8px rgba(30,27,75,.55) !important; padding: 14px 0 !important; min-width: 2450px !important;
+    box-shadow: 0 8px 14px -8px rgba(30,27,75,.55) !important; padding: 14px 0 !important; min-width: 3100px !important;
 }
 .st-key-slux_head [data-testid="stColumn"], .st-key-slux_head [data-testid="column"] { border-right: 1px solid rgba(255,255,255,.18) !important; }
 .slux-th { color: #fff !important; font-size: .76rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
 .slux-th.c { text-align: center; }
-div[class*="st-key-sluxrow_"] { padding: 9px 0 !important; min-width: 2450px !important; background: #fff; border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease; }
+div[class*="st-key-sluxrow_"] { padding: 9px 0 !important; min-width: 3100px !important; background: #fff; border-bottom: 1px solid #f1f5f9; transition: background .15s ease, box-shadow .15s ease; }
 div[class*="st-key-sluxrow_odd"] { background: #fafaff; }
 div[class*="st-key-sluxrow_"]:hover { background: #eef2ff; box-shadow: inset 4px 0 0 #6366f1; }
 div[class*="st-key-sluxrow_"] p { margin: 0 !important; }
@@ -1106,6 +1106,17 @@ def dg_site_dialog(rec):
         with col:
             _render_doc(rec, doc)
 
+    st.markdown('<div class="modal-section-title">📋 PO & WCC DETAILS (SYNC WITH SITE DATA)</div>', unsafe_allow_html=True)
+    po_fields = ["PO No.", "PO Status", "WCC Number", "WCC Status"]
+    po_cols = st.columns(4)
+    for field, col in zip(po_fields, po_cols):
+        field_key = f"dg_powcc_{field}_{rid}"
+        if field_key not in ss:
+            ss[field_key] = _clean(rec.get(field))
+        with col:
+            st.text_input(field.upper(), key=field_key,
+                          help="Site Data ki isi field me seedha save hoga")
+
     st.markdown('<div class="modal-section-title">📝 SITE STATUS, TEAM & REMARK</div>', unsafe_allow_html=True)
     ss_key, rm_key, tm_key = f"dg_sitestatus_{rid}", f"dg_remark_{rid}", f"dg_team_{rid}"
     cur_ss = _clean(rec.get("Site Status"))
@@ -1132,6 +1143,8 @@ def dg_site_dialog(rec):
     with col_save:
         if st.button("💾 Update Data", type="primary", use_container_width=True, key=f"dg_save_{rid}"):
             payload = {"Site Status": ss[ss_key], "Team Name": ss[tm_key], REMARK_COL: ss[rm_key].strip()}
+            for field in ["PO No.", "PO Status", "WCC Number", "WCC Status"]:
+                payload[field] = ss[f"dg_powcc_{field}_{rid}"].strip()
             for doc in DOCS:
                 payload[doc["status"]] = ss[f"dg_st_{doc['folder']}_{rid}"]
             try:
@@ -1165,7 +1178,7 @@ except Exception as e:
 
 if rows:
     available_cols = set().union(*(r.keys() for r in rows))
-    missing = [c for c in NEW_COLS if c not in available_cols]
+    missing = [c for c in NEW_COLS + ["PO No.", "PO Status", "WCC Number", "WCC Status"] if c not in available_cols]
     if missing:
         st.error("site_data me ye columns abhi nahi hain. Supabase SQL Editor me `dg_project_setup.sql` run karein, "
                  "phir Refresh dabayein: " + ", ".join(missing))
@@ -1173,7 +1186,7 @@ if rows:
 
 raw_by_id = {r["id"]: r for r in rows}
 STATUS_COLS = [f"{d['label']} Status" for d in DOCS]
-DISPLAY_COLS = ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Team Name", "Site Status"] + STATUS_COLS + ["Remark"]
+DISPLAY_COLS = ["Project Name", "Site ID", "Project ID", "Site Name", "Cluster", "Team Name", "Site Status", "PO Number", "PO Status", "WCC Number", "WCC Status"] + STATUS_COLS + ["Remark"]
 
 records = []
 for r in rows:
@@ -1182,6 +1195,9 @@ for r in rows:
         rec[c] = _clean(r.get(c))
     for doc in DOCS:
         rec[f"{doc['label']} Status"] = effective_status(r.get(doc["status"]), parse_files(r.get(doc["files"])))
+    rec["PO Number"] = _clean(r.get("PO No."))
+    for field in ["PO Status", "WCC Number", "WCC Status"]:
+        rec[field] = _clean(r.get(field))
     rec["Remark"] = _clean(r.get(REMARK_COL))
     records.append(rec)
 
@@ -1311,6 +1327,10 @@ elif st.session_state.dg_view_mode == "cards":
                 <div class="site-card-sub">{escape(row['Project ID'] or '-')} • {escape(row['Cluster'] or '-')}</div>
                 <div class="site-card-row"><span class="site-card-label">Team Name</span><span class="site-card-value">{escape(row['Team Name'] or '-')}</span></div>
                 <div class="site-card-row"><span class="site-card-label">Site Status</span><span class="site-card-value">{status_badge(row['Site Status'])}</span></div>
+                <div class="site-card-row"><span class="site-card-label">PO Number</span><span class="site-card-value">{escape(row['PO Number'] or '-')}</span></div>
+                <div class="site-card-row"><span class="site-card-label">PO Status</span><span class="site-card-value">{status_badge(row['PO Status'])}</span></div>
+                <div class="site-card-row"><span class="site-card-label">WCC Number</span><span class="site-card-value">{escape(row['WCC Number'] or '-')}</span></div>
+                <div class="site-card-row"><span class="site-card-label">WCC Status</span><span class="site-card-value">{status_badge(row['WCC Status'])}</span></div>
                 {doc_rows}
                 <div class="site-card-row"><span class="site-card-label">Remark</span><span class="site-card-value">{escape(row['Remark'] or '-')}</span></div>
             """, unsafe_allow_html=True)
@@ -1318,9 +1338,9 @@ elif st.session_state.dg_view_mode == "cards":
                 open_site(row["id"])
 
 else:
-    COL_RATIOS = [0.45, 0.45, 1.4, 1.1, 1.4, 1.7, 1.1, 1.3, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 2.2]
+    COL_RATIOS = [0.45, 0.45, 1.4, 1.1, 1.4, 1.7, 1.1, 1.3, 1.2, 1.35, 1.1, 1.35, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 2.2]
     COL_LABELS = ["#", "⚙️", "PROJECT NAME", "SITE ID", "PROJECT ID", "SITE NAME", "CLUSTER", "TEAM NAME", "SITE STATUS",
-                  "SRC STATUS", "DC STATUS", "E-WAY STATUS", "PHOTO STATUS", "POD STATUS", "REMARK"]
+                  "PO NUMBER", "PO STATUS", "WCC NUMBER", "WCC STATUS", "SRC STATUS", "DC STATUS", "E-WAY STATUS", "PHOTO STATUS", "POD STATUS", "REMARK"]
 
     st.markdown(
         '<div class="slux-head-bar">'
@@ -1350,9 +1370,13 @@ else:
                 rc[6].markdown(_pill(row["Cluster"]), unsafe_allow_html=True)
                 rc[7].markdown(_txt(row["Team Name"], "slux-strong"), unsafe_allow_html=True)
                 rc[8].markdown(status_badge(row["Site Status"]), unsafe_allow_html=True)
+                rc[9].markdown(_chip(row["PO Number"]), unsafe_allow_html=True)
+                rc[10].markdown(status_badge(row["PO Status"]), unsafe_allow_html=True)
+                rc[11].markdown(_chip(row["WCC Number"]), unsafe_allow_html=True)
+                rc[12].markdown(status_badge(row["WCC Status"]), unsafe_allow_html=True)
                 for i, col in enumerate(STATUS_COLS):
-                    rc[9 + i].markdown(status_badge(row[col]), unsafe_allow_html=True)
-                rc[14].markdown(_txt(row["Remark"], "slux-soft"), unsafe_allow_html=True)
+                    rc[13 + i].markdown(status_badge(row[col]), unsafe_allow_html=True)
+                rc[18].markdown(_txt(row["Remark"], "slux-soft"), unsafe_allow_html=True)
 
     shown_from = start_idx + 1 if total_rows else 0
     shown_to = min(end_idx, total_rows)
