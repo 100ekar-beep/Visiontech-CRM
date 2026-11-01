@@ -16,6 +16,37 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# PREMIUM SIDEBAR — consistent navigation across Streamlit pages
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] {background:linear-gradient(180deg,#0f172a,#1e1b4b) !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {padding:0 !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {margin:0 !important; padding:0 !important; list-style:none !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li > div,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li > a,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a {
+  display:flex !important; align-items:center !important;
+  min-height:65px !important; box-sizing:border-box !important;
+  margin:9px 12px !important; padding:14px 18px !important;
+  background:rgba(255,255,255,.035) !important;
+  border:1px solid rgba(255,255,255,.065) !important;
+  border-radius:13px !important; color:#cbd5e1 !important;
+  font-size:15px !important; font-weight:700 !important;
+  text-decoration:none !important; transition:background .2s,transform .2s !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a span,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a p {color:inherit !important;opacity:1 !important;font-weight:700 !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {background:rgba(255,255,255,.11) !important;color:#fff !important;transform:translateX(3px);}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-selected="true"] {
+ background:linear-gradient(100deg,#3b82f6,#8b5cf6) !important;
+ border-color:transparent !important;color:#fff !important;
+ box-shadow:0 6px 18px rgba(59,130,246,.35) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ============================================================
 # 2. SUPABASE CONNECTION
 # ============================================================
@@ -1249,4 +1280,3 @@ with p2:
 with p3:
     if st.button("Next ➡️",disabled=st.session_state.srn_lux_page==total_pages,use_container_width=True):
         st.session_state.srn_lux_page+=1; st.rerun()
-
