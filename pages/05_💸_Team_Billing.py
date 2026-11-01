@@ -2104,103 +2104,226 @@ elif st.session_state.billing_active_page == "payment":
 # PAGE 3: TEAM MATERIAL TRANSFER
 # ==========================================
 elif st.session_state.billing_active_page == "transfer":
-    active_ws = active_billing_workspace()
-    c_add, c_search, c_download = st.columns([1.7, 4.5, 1.8])
-    with c_add:
-        if st.button("➕ New Transfer", type="primary", use_container_width=True, key="add_material_transfer"):
-            team_material_transfer_dialog()
-    with c_search:
-        transfer_search = st_keyup("Search Transfer", placeholder="🔍 Search team, material, reference...", label_visibility="collapsed", key="transfer_search")
+    ws = active_billing_workspace()
+    st.markdown("### 📦 Vendor Bapu — Material Management")
+    tab_dashboard, tab_pending, tab_approved, tab_ledger, tab_manual = st.tabs([
+        "📊 Material Dashboard", "⏳ Team Approval Pending",
+        "✅ Approved Material", "📒 Ledger", "🔄 Manual Transfer"
+    ])
+    # Invoice value is the warehouse stock-value basis; never count pending requests.
+    try:
+        _inv = (supabase.table("billing_invoices").select("*")
+                .eq("workspace", ws).eq("invoice_type", "Vendor")
+                .eq("team_name", "Vendor Bapu").execute()).data or []
+        _req = (supabase.table("bapu_material_requests").select("*")
+                .eq("workspace", ws).order("created_at", desc=True).execute()).data or []
+        _tr = fetch_team_material_transfers_cached(ws)
+    except Exception as e:
+        st.error(f"Material data load failed: {e}. Run supplied Supabase SQL first.")
+        st.stop()
 
-    transfer_rows = fetch_team_material_transfers_cached(active_ws)
-    df_transfer = pd.DataFrame(transfer_rows)
-    if not df_transfer.empty:
-        if transfer_search:
-            transfer_mask = df_transfer.astype(str).apply(lambda col: col.str.contains(transfer_search, case=False, na=False)).any(axis=1)
-            df_transfer = df_transfer[transfer_mask]
+    def _num(v):
+        try: return float(v or 0)
+        except (TypeError, ValueError): return 0.0
 
-        with c_download:
-            transfer_buffer = io.BytesIO()
-            export_cols = ["transfer_date", "from_team", "to_team", "reference_no", "material_description", "quantity", "amount", "remark", "status"]
-            transfer_export = df_transfer.reindex(columns=export_cols).rename(columns={
-                "transfer_date": "Date", "from_team": "From Team", "to_team": "To Team",
-                "reference_no": "Reference No.", "material_description": "Material",
-                "quantity": "Quantity", "amount": "Amount", "remark": "Remark", "status": "Status"
-            })
-            with pd.ExcelWriter(transfer_buffer, engine="openpyxl") as writer:
-                transfer_export.to_excel(writer, index=False, sheet_name="Material Transfers")
-            st.download_button("📥 Download Excel", transfer_buffer.getvalue(), "Team_Material_Transfers.xlsx", use_container_width=True, key="transfer_excel")
+    def _amt(v): return f"₹ {_num(v):,.2f}"
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    _received = sum(_num(x.get("amount")) for x in _inv)
+    # Include all historical and newly approved ACTIVE warehouse transfers.
+    # A request's approved transfer already exists in this table; never add it twice.
+    _approved = [x for x in _req if x.get("status") == "Approved"]
+    _pending = [x for x in _req if x.get("status") == "Pending"]
+    _active_approved = [x for x in _tr if
+        str(x.get("from_team") or "").strip().casefold() == "vendor bapu"
+        and str(x.get("status") or "").strip().casefold() == "active"]
+    _issued = sum(_num(x.get("amount")) for x in _active_approved)
+    _balance = _received - _issued
 
-        # --- KPI CARDS ---
-        _status = df_transfer["status"].astype(str) if "status" in df_transfer.columns else pd.Series([""] * len(df_transfer))
-        _active_df = df_transfer[_status.values == "Active"]
-        k_active = len(_active_df)
-        k_reversed = int((_status == "Reversed").sum())
-        k_value = _sum_col(_active_df, "amount")
-        kpi_grid(
-            kpi_card("🔄", "Transfers", f"{len(df_transfer):,}", "Filtered results" if transfer_search else "All records", *KPI_INDIGO),
-            kpi_card("✅", "Active", f"{k_active:,}", "Counted in ledgers", *KPI_GREEN, value_cls="green"),
-            kpi_card("↩️", "Reversed", f"{k_reversed:,}", "Not counted", *KPI_RED, value_cls="red" if k_reversed else ""),
-            kpi_card("💰", "Active Material Value", f"₹ {k_value:,.0f}", "Given ↔ Received", *KPI_AMBER),
-        )
+    with tab_dashboard:
+        st.markdown("#### Vendor → Vendor Bapu: Invoice Register")
+        x1,x2,x3 = st.columns(3)
+        x1.metric("Vendor Billed", _amt(_received))
+        x2.metric("Approved Material Out", _amt(_issued))
+        x3.metric("Warehouse Balance", _amt(_balance))
+        df = pd.DataFrame([{
+            "Vendor Name": x.get("vendor_name"), "Invoice Number": x.get("invoice_no"),
+            "Invoice Date": x.get("date"), "Total Amount": _num(x.get("amount")),
+            "Workspace": x.get("workspace")
+        } for x in _inv])
+        q = st.text_input("🔍 Search vendor invoices", key="bapu_invoice_search")
+        if not df.empty:
+            if q: df = df[df.astype(str).apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.download_button("📥 Download Invoices CSV", df.to_csv(index=False).encode('utf-8-sig'), "Bapu_Vendor_Invoices.csv", mime="text/csv")
+        else: st.info("इस workspace में Vendor Bapu के नाम की Vendor Invoice नहीं मिली।")
 
-        ratios = [0.55, 0.5, 1.0, 1.4, 1.4, 1.9, 0.8, 1.1, 1.7, 1.0]
-        labels = ["↩️", "#", "DATE", "FROM TEAM", "TO TEAM", "MATERIAL", "QTY", "AMOUNT", "REMARK / REF.", "STATUS"]
+    with tab_pending:
+        st.markdown("#### Bapu Mobile App — Pending Material Issues")
+        st.caption("Approve करने पर ही Material Transfer Active होगा और Team Ledger में जुड़ेगा।")
+        if st.button("🔄 Refresh Pending", key="bapu_refresh_pending"):
+            fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
+        if not _pending: st.success("कोई Pending Request नहीं है।")
+        for r in _pending:
+            with st.container(border=True):
+                st.markdown(f"**{html.escape(str(r.get('team_name') or ''))}** · {html.escape(str(r.get('material_description') or ''))}")
+                st.write(f"Date: {r.get('issue_date')} | Project: {r.get('project_id') or '-'} | Qty: {r.get('quantity') or '-'} | Amount: {_amt(r.get('amount'))}")
+                st.caption(f"Reference: {r.get('reference_no') or '-'} | Remark: {r.get('remark') or '-'}")
+                c1,c2=st.columns(2)
+                if c1.button("✅ Approve", key=f"bapu_approve_{r['id']}", type="primary", use_container_width=True):
+                    try:
+                        result=supabase.rpc("approve_bapu_material", {"p_request_id":r["id"],"p_workspace":ws}).execute()
+                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
+                        st.success("Approved! Team Ledger updated via Material Transfer."); st.rerun()
+                    except Exception as e: st.error(f"Approval failed: {e}")
+                if c2.button("❌ Reject", key=f"bapu_reject_{r['id']}", use_container_width=True):
+                    try:
+                        supabase.table("bapu_material_requests").update({"status":"Rejected"}).eq("id",r["id"]).eq("workspace",ws).eq("status","Pending").execute()
+                        st.rerun()
+                    except Exception as e: st.error(f"Reject failed: {e}")
 
-        table_min_width_css("transfer_table_wrap", 1500)
-        table_title_bar("🔄 Material Transfer Register", "↩️ = revoke an active transfer", f"₹ {k_value:,.0f}")
+    with tab_approved:
+        st.markdown("#### Approved Material Register")
+        rows=[]
+        tr_by_id={str(x.get('id')):x for x in _tr}
+        for r in _approved:
+            tr=tr_by_id.get(str(r.get('transfer_id')), {})
+            rows.append({"Issue Date":r.get('issue_date'),"Team":r.get('team_name'),"Project ID":r.get('project_id'),
+                "Material":r.get('material_description'),"Qty":r.get('quantity'),"Amount":_num(r.get('amount')),
+                "Reference":r.get('reference_no'),"Transfer Status":tr.get('status','Missing'),"Approved At":r.get('approved_at')})
+        _known_ids = {str(r.get("transfer_id")) for r in _approved if r.get("transfer_id") is not None}
+        for tr in _active_approved:
+            if str(tr.get("id")) not in _known_ids:
+                rows.append({"Issue Date": tr.get("transfer_date"), "Team": tr.get("to_team"),
+                    "Project ID": "", "Material": tr.get("material_description"),
+                    "Qty": tr.get("quantity"), "Amount": _num(tr.get("amount")),
+                    "Reference": tr.get("reference_no"), "Transfer Status": tr.get("status"),
+                    "Approved At": "Existing / Manual Transfer"})
+        df=pd.DataFrame(rows)
+        if df.empty: st.info("अभी कोई Approved Material नहीं है।")
+        else:
+            st.dataframe(df,use_container_width=True,hide_index=True)
+            st.download_button("📥 Download Approved CSV",df.to_csv(index=False).encode('utf-8-sig'),"Bapu_Approved_Material.csv",mime="text/csv")
 
-        with st.container(key="transfer_table_wrap"):
-            table_header_row("blhead_transfer", ratios, labels, center_idx=(0, 1, 6, 9), right_idx=(7,))
-            for pos, (_, transfer) in enumerate(df_transfer.reset_index(drop=True).iterrows()):
-                row = transfer.to_dict()
-                rid = row.get("id")
-                parity = "odd" if (pos + 1) % 2 else "even"
-                with st.container(key=f"blrow_{parity}_tr_{rid}"):
-                    row_cols = st.columns(ratios, vertical_alignment="center")
-                    with row_cols[0]:
-                        if row.get("status") == "Active":
-                            if st.button("↩️", key=f"reverse_transfer_{rid}", help="Revoke Transfer"):
-                                try:
-                                    supabase.table("team_material_transfers").update({
-                                        "status": "Reversed",
-                                        "reversed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-                                    }).eq("id", rid).execute()
-                                    fetch_team_material_transfers_cached.clear()
-                                    fetch_ledger_data_cached.clear()
-                                    st.success("✅ Transfer revoked. दोनों ledgers से adjustment हट गया।")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Revoke error: {e}")
-                        else:
-                            st.button("↩️", key=f"reversed_transfer_{rid}", disabled=True)
-                    transfer_date_display = pd.to_datetime(row.get("transfer_date"), errors="coerce")
-                    transfer_date_display = transfer_date_display.strftime("%d/%m/%Y") if pd.notna(transfer_date_display) else "-"
-                    row_cols[1].markdown(_serial(pos + 1), unsafe_allow_html=True)
-                    row_cols[2].markdown(_txt(transfer_date_display, "slux-soft"), unsafe_allow_html=True)
-                    row_cols[3].markdown(_entity(row.get('from_team'), "team"), unsafe_allow_html=True)
-                    row_cols[4].markdown(_entity(row.get('to_team'), "team"), unsafe_allow_html=True)
-                    row_cols[5].markdown(_wrap(row.get('material_description'), "slux-strong"), unsafe_allow_html=True)
-                    row_cols[6].markdown(f"<div style='text-align:center;'>{_txt(row.get('quantity'))}</div>", unsafe_allow_html=True)
-                    row_cols[7].markdown(_money(row.get("amount"), "strong"), unsafe_allow_html=True)
-                    ref_remark = " | ".join(v for v in [str(row.get("reference_no") or "").strip(), str(row.get("remark") or "").strip()] if v)
-                    row_cols[8].markdown(_wrap(ref_remark, "slux-soft"), unsafe_allow_html=True)
-                    is_active_tr = row.get("status") == "Active"
-                    row_cols[9].markdown(
-                        f"<div style='text-align:center;'>{_badge(cell(row.get('status')), 'green' if is_active_tr else 'red')}</div>",
-                        unsafe_allow_html=True,
-                    )
+    with tab_ledger:
+        st.markdown("#### Vendor Bapu — Warehouse Value Ledger")
+        ledger=[]
+        for x in _inv:
+            ledger.append({"Date":x.get('date'),"Particulars":f"Vendor Invoice {x.get('invoice_no')}","Received (+)":_num(x.get('amount')),"Issued (-)":0.0})
+        for x in _active_approved:
+            ledger.append({"Date":x.get('transfer_date'),"Particulars":f"Material to {x.get('to_team')} | {x.get('material_description')}","Received (+)":0.0,"Issued (-)":_num(x.get('amount'))})
+        df=pd.DataFrame(ledger)
+        if not df.empty:
+            df['Date']=pd.to_datetime(df['Date'],errors='coerce')
+            df=df.sort_values('Date',kind='stable')
+            df['Running Balance']=(df['Received (+)']-df['Issued (-)']).cumsum()
+            df['Date']=df['Date'].dt.strftime('%d/%m/%Y')
+            st.dataframe(df,use_container_width=True,hide_index=True)
+            st.download_button("📥 Download Ledger CSV",df.to_csv(index=False).encode('utf-8-sig'),"Bapu_Material_Ledger.csv",mime="text/csv")
+        else: st.info("अभी कोई Material Ledger Entry नहीं है।")
+        a,b,c=st.columns(3)
+        a.metric("Total Received",_amt(_received));b.metric("Total Issued",_amt(_issued));c.metric("Balance",_amt(_balance))
+        if _balance < 0: st.warning("⚠️ Material Issue Invoice Value से ज्यादा है। Verify invoices / old transfers.")
+        st.caption("यह value-based ledger है; item-wise physical stock नहीं। सभी पुराने और नए Active Vendor Bapu outgoing transfers शामिल हैं; Pending/Rejected और Reversed शामिल नहीं हैं।")
 
-        table_footer(
-            f'{len(df_transfer):,} transfer{"s" if len(df_transfer) != 1 else ""}',
-            f'<span>Active Value: <b style="color:#4f46e5;">₹ {k_value:,.0f}</b></span>',
-        )
-    else:
-        with c_download:
-            st.button("📥 Download Excel", disabled=True, use_container_width=True, key="transfer_excel_disabled")
-        empty_state("अभी कोई Team Material Transfer नहीं है। New Transfer से पहली entry जोड़ें।")
+    with tab_manual:
+        active_ws = active_billing_workspace()
+        c_add, c_search, c_download = st.columns([1.7, 4.5, 1.8])
+        with c_add:
+            if st.button("➕ New Transfer", type="primary", use_container_width=True, key="add_material_transfer"):
+                team_material_transfer_dialog()
+        with c_search:
+            transfer_search = st_keyup("Search Transfer", placeholder="🔍 Search team, material, reference...", label_visibility="collapsed", key="transfer_search")
+
+        transfer_rows = fetch_team_material_transfers_cached(active_ws)
+        df_transfer = pd.DataFrame(transfer_rows)
+        if not df_transfer.empty:
+            if transfer_search:
+                transfer_mask = df_transfer.astype(str).apply(lambda col: col.str.contains(transfer_search, case=False, na=False)).any(axis=1)
+                df_transfer = df_transfer[transfer_mask]
+
+            with c_download:
+                transfer_buffer = io.BytesIO()
+                export_cols = ["transfer_date", "from_team", "to_team", "reference_no", "material_description", "quantity", "amount", "remark", "status"]
+                transfer_export = df_transfer.reindex(columns=export_cols).rename(columns={
+                    "transfer_date": "Date", "from_team": "From Team", "to_team": "To Team",
+                    "reference_no": "Reference No.", "material_description": "Material",
+                    "quantity": "Quantity", "amount": "Amount", "remark": "Remark", "status": "Status"
+                })
+                with pd.ExcelWriter(transfer_buffer, engine="openpyxl") as writer:
+                    transfer_export.to_excel(writer, index=False, sheet_name="Material Transfers")
+                st.download_button("📥 Download Excel", transfer_buffer.getvalue(), "Team_Material_Transfers.xlsx", use_container_width=True, key="transfer_excel")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # --- KPI CARDS ---
+            _status = df_transfer["status"].astype(str) if "status" in df_transfer.columns else pd.Series([""] * len(df_transfer))
+            _active_df = df_transfer[_status.values == "Active"]
+            k_active = len(_active_df)
+            k_reversed = int((_status == "Reversed").sum())
+            k_value = _sum_col(_active_df, "amount")
+            kpi_grid(
+                kpi_card("🔄", "Transfers", f"{len(df_transfer):,}", "Filtered results" if transfer_search else "All records", *KPI_INDIGO),
+                kpi_card("✅", "Active", f"{k_active:,}", "Counted in ledgers", *KPI_GREEN, value_cls="green"),
+                kpi_card("↩️", "Reversed", f"{k_reversed:,}", "Not counted", *KPI_RED, value_cls="red" if k_reversed else ""),
+                kpi_card("💰", "Active Material Value", f"₹ {k_value:,.0f}", "Given ↔ Received", *KPI_AMBER),
+            )
+
+            ratios = [0.55, 0.5, 1.0, 1.4, 1.4, 1.9, 0.8, 1.1, 1.7, 1.0]
+            labels = ["↩️", "#", "DATE", "FROM TEAM", "TO TEAM", "MATERIAL", "QTY", "AMOUNT", "REMARK / REF.", "STATUS"]
+
+            table_min_width_css("transfer_table_wrap", 1500)
+            table_title_bar("🔄 Material Transfer Register", "↩️ = revoke an active transfer", f"₹ {k_value:,.0f}")
+
+            with st.container(key="transfer_table_wrap"):
+                table_header_row("blhead_transfer", ratios, labels, center_idx=(0, 1, 6, 9), right_idx=(7,))
+                for pos, (_, transfer) in enumerate(df_transfer.reset_index(drop=True).iterrows()):
+                    row = transfer.to_dict()
+                    rid = row.get("id")
+                    parity = "odd" if (pos + 1) % 2 else "even"
+                    with st.container(key=f"blrow_{parity}_tr_{rid}"):
+                        row_cols = st.columns(ratios, vertical_alignment="center")
+                        with row_cols[0]:
+                            if row.get("status") == "Active":
+                                if st.button("↩️", key=f"reverse_transfer_{rid}", help="Revoke Transfer"):
+                                    try:
+                                        supabase.table("team_material_transfers").update({
+                                            "status": "Reversed",
+                                            "reversed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                        }).eq("id", rid).execute()
+                                        fetch_team_material_transfers_cached.clear()
+                                        fetch_ledger_data_cached.clear()
+                                        st.success("✅ Transfer revoked. दोनों ledgers से adjustment हट गया।")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Revoke error: {e}")
+                            else:
+                                st.button("↩️", key=f"reversed_transfer_{rid}", disabled=True)
+                        transfer_date_display = pd.to_datetime(row.get("transfer_date"), errors="coerce")
+                        transfer_date_display = transfer_date_display.strftime("%d/%m/%Y") if pd.notna(transfer_date_display) else "-"
+                        row_cols[1].markdown(_serial(pos + 1), unsafe_allow_html=True)
+                        row_cols[2].markdown(_txt(transfer_date_display, "slux-soft"), unsafe_allow_html=True)
+                        row_cols[3].markdown(_entity(row.get('from_team'), "team"), unsafe_allow_html=True)
+                        row_cols[4].markdown(_entity(row.get('to_team'), "team"), unsafe_allow_html=True)
+                        row_cols[5].markdown(_wrap(row.get('material_description'), "slux-strong"), unsafe_allow_html=True)
+                        row_cols[6].markdown(f"<div style='text-align:center;'>{_txt(row.get('quantity'))}</div>", unsafe_allow_html=True)
+                        row_cols[7].markdown(_money(row.get("amount"), "strong"), unsafe_allow_html=True)
+                        ref_remark = " | ".join(v for v in [str(row.get("reference_no") or "").strip(), str(row.get("remark") or "").strip()] if v)
+                        row_cols[8].markdown(_wrap(ref_remark, "slux-soft"), unsafe_allow_html=True)
+                        is_active_tr = row.get("status") == "Active"
+                        row_cols[9].markdown(
+                            f"<div style='text-align:center;'>{_badge(cell(row.get('status')), 'green' if is_active_tr else 'red')}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+            table_footer(
+                f'{len(df_transfer):,} transfer{"s" if len(df_transfer) != 1 else ""}',
+                f'<span>Active Value: <b style="color:#4f46e5;">₹ {k_value:,.0f}</b></span>',
+            )
+        else:
+            with c_download:
+                st.button("📥 Download Excel", disabled=True, use_container_width=True, key="transfer_excel_disabled")
+            empty_state("अभी कोई Team Material Transfer नहीं है। New Transfer से पहली entry जोड़ें।")
+
 
 # ==========================================
 # PAGE 4: REPORTS & LEDGER
