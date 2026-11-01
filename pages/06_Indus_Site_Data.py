@@ -124,6 +124,35 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- PREMIUM SIDEBAR: consistent with Invoice Management ---
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] {background:linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%) !important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a,
+section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] {
+ display:flex !important; align-items:center !important; gap:12px !important;
+ padding:0.85rem 1.2rem !important; margin:0.5rem 1rem !important;
+ min-height:64px !important; border-radius:12px !important;
+ background:rgba(255,255,255,.035) !important;
+ border:1px solid rgba(255,255,255,.06) !important;
+ color:#cbd5e1 !important; font-weight:700 !important;
+ text-decoration:none !important; transition:all .2s ease !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {background:rgba(255,255,255,.12) !important; color:#fff !important; transform:translateX(2px);}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-selected="true"] {
+ background:linear-gradient(90deg,#3b82f6,#8b5cf6) !important;
+ border-color:transparent !important; color:white !important;
+ box-shadow:0 6px 18px rgba(59,130,246,.35) !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a *,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a p,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a span {color:inherit !important; opacity:1 !important; font-weight:700 !important;}
+</style>
+""", unsafe_allow_html=True)
+
+
+
 
 # =====================================================================
 # --- EGRESS OPTIMIZATION HELPERS ---
