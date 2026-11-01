@@ -2106,126 +2106,126 @@ elif st.session_state.billing_active_page == "payment":
 elif st.session_state.billing_active_page == "transfer":
     ws = active_billing_workspace()
     st.markdown("### 📦 Vendor Bapu — Material Management")
-    tab_dashboard, tab_pending, tab_approved, tab_ledger, tab_manual = st.tabs([
-        "📊 Material Dashboard", "⏳ Team Approval Pending",
-        "✅ Approved Material", "📒 Ledger", "🔄 Manual Transfer"
-    ])
-    # Invoice value is the warehouse stock-value basis; never count pending requests.
+    st.markdown("""<style>
+    .st-key-bapu_material_nav [data-testid="stHorizontalBlock"] {gap:12px!important;align-items:stretch!important;}
+    .st-key-bapu_material_nav button {min-height:76px!important;width:100%!important;padding:14px 8px!important;border-radius:15px!important;font-size:1.03rem!important;font-weight:900!important;white-space:normal!important;box-shadow:0 6px 15px rgba(30,41,59,.12)!important;}
+    .st-key-bapu_material_nav button[kind="primary"] {background:linear-gradient(90deg,#6366f1,#4f46e5)!important;color:white!important;box-shadow:0 8px 20px rgba(79,70,229,.35)!important;}
+    .st-key-bapu_material_nav button[kind="primary"] p {color:white!important;}
+    .st-key-bapu_material_nav button[kind="secondary"] {background:white!important;border:1px solid #dbe3f0!important;}
+    </style>""", unsafe_allow_html=True)
+    pages = [("dashboard","📊 Material Dashboard"),("pending","⏳ Team Approval Pending"),
+             ("approved","✅ Approved Material"),("ledger","📒 Ledger"),("manual","🔄 Manual Transfer")]
+    if st.session_state.get("bapu_material_page") not in dict(pages):
+        st.session_state["bapu_material_page"] = "dashboard"
+    with st.container(key="bapu_material_nav"):
+        nav_cols = st.columns(5)
+        for nav_col,(page_id,label) in zip(nav_cols,pages):
+            with nav_col:
+                if st.button(label,key="bapu_nav_"+page_id,use_container_width=True,
+                             type="primary" if st.session_state["bapu_material_page"]==page_id else "secondary"):
+                    st.session_state["bapu_material_page"] = page_id
+                    st.rerun()
+    current = st.session_state["bapu_material_page"]
+    def _bapu_num(value):
+        try: return float(value or 0)
+        except (TypeError, ValueError): return 0.0
+    def _bapu_amt(value): return f"₹ {_bapu_num(value):,.2f}"
     try:
-        _inv = (supabase.table("billing_invoices").select("*")
-                .eq("workspace", ws).eq("invoice_type", "Vendor")
-                .eq("team_name", "Vendor Bapu").execute()).data or []
-        _req = (supabase.table("bapu_material_requests").select("*")
-                .eq("workspace", ws).order("created_at", desc=True).execute()).data or []
+        _inv = (supabase.table("billing_invoices").select("*").eq("workspace",ws)
+                .eq("invoice_type","Vendor").eq("team_name","Vendor Bapu").execute()).data or []
         _tr = fetch_team_material_transfers_cached(ws)
     except Exception as e:
-        st.error(f"Material data load failed: {e}. Run supplied Supabase SQL first.")
+        st.error(f"Material records could not be loaded: {e}")
         st.stop()
+    _out = [r for r in _tr if str(r.get("from_team") or "").strip().casefold()=="vendor bapu"
+            and str(r.get("status") or "").strip().casefold()=="active"]
+    _pending = [r for r in _tr if str(r.get("from_team") or "").strip().casefold()=="vendor bapu"
+                and str(r.get("status") or "").strip().casefold()=="pending"]
+    _received=sum(_bapu_num(r.get("amount")) for r in _inv)
+    _issued=sum(_bapu_num(r.get("amount")) for r in _out)
+    _balance=_received-_issued
 
-    def _num(v):
-        try: return float(v or 0)
-        except (TypeError, ValueError): return 0.0
-
-    def _amt(v): return f"₹ {_num(v):,.2f}"
-
-    _received = sum(_num(x.get("amount")) for x in _inv)
-    # Include all historical and newly approved ACTIVE warehouse transfers.
-    # A request's approved transfer already exists in this table; never add it twice.
-    _approved = [x for x in _req if x.get("status") == "Approved"]
-    _pending = [x for x in _req if x.get("status") == "Pending"]
-    _active_approved = [x for x in _tr if
-        str(x.get("from_team") or "").strip().casefold() == "vendor bapu"
-        and str(x.get("status") or "").strip().casefold() == "active"]
-    _issued = sum(_num(x.get("amount")) for x in _active_approved)
-    _balance = _received - _issued
-
-    with tab_dashboard:
+    if current == "dashboard":
         st.markdown("#### Vendor → Vendor Bapu: Invoice Register")
-        x1,x2,x3 = st.columns(3)
-        x1.metric("Vendor Billed", _amt(_received))
-        x2.metric("Approved Material Out", _amt(_issued))
-        x3.metric("Warehouse Balance", _amt(_balance))
-        df = pd.DataFrame([{
-            "Vendor Name": x.get("vendor_name"), "Invoice Number": x.get("invoice_no"),
-            "Invoice Date": x.get("date"), "Total Amount": _num(x.get("amount")),
-            "Workspace": x.get("workspace")
-        } for x in _inv])
-        q = st.text_input("🔍 Search vendor invoices", key="bapu_invoice_search")
+        c1,c2,c3=st.columns(3)
+        c1.metric("Vendor Invoices",_bapu_amt(_received))
+        c2.metric("Approved Material Issued",_bapu_amt(_issued))
+        c3.metric("Warehouse Balance",_bapu_amt(_balance))
+        df=pd.DataFrame([{"Vendor Name":r.get("vendor_name"),"Invoice Number":r.get("invoice_no"),
+            "Invoice Date":r.get("date"),"Total Amount":_bapu_num(r.get("amount")),"Workspace":r.get("workspace")} for r in _inv])
+        q=st.text_input("🔍 Search vendor invoices",key="bapu_invoice_search")
         if not df.empty:
-            if q: df = df[df.astype(str).apply(lambda c: c.str.contains(q, case=False, regex=False)).any(axis=1)]
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            st.download_button("📥 Download Invoices CSV", df.to_csv(index=False).encode('utf-8-sig'), "Bapu_Vendor_Invoices.csv", mime="text/csv")
-        else: st.info("इस workspace में Vendor Bapu के नाम की Vendor Invoice नहीं मिली।")
+            if q: df=df[df.astype(str).apply(lambda col:col.str.contains(q,case=False,regex=False)).any(axis=1)]
+            st.dataframe(df,use_container_width=True,hide_index=True)
+            st.download_button("📥 Download Invoices CSV",df.to_csv(index=False).encode("utf-8-sig"),"Bapu_Vendor_Invoices.csv",mime="text/csv")
+        else: st.info("इस workspace में Vendor Bapu की Vendor Invoice नहीं मिली।")
 
-    with tab_pending:
-        st.markdown("#### Bapu Mobile App — Pending Material Issues")
-        st.caption("Approve करने पर ही Material Transfer Active होगा और Team Ledger में जुड़ेगा।")
-        if st.button("🔄 Refresh Pending", key="bapu_refresh_pending"):
+    elif current == "pending":
+        st.markdown("#### ⏳ Pending Material Approval")
+        st.caption("Existing team_material_transfers table में Pending requests; Approval के बाद ही Team Ledger बदलेगा।")
+        if st.button("🔄 Refresh Pending",key="bapu_refresh_pending"):
             fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
-        if not _pending: st.success("कोई Pending Request नहीं है।")
+        if not _pending: st.success("अभी कोई Pending Request नहीं है।")
         for r in _pending:
             with st.container(border=True):
-                st.markdown(f"**{html.escape(str(r.get('team_name') or ''))}** · {html.escape(str(r.get('material_description') or ''))}")
-                st.write(f"Date: {r.get('issue_date')} | Project: {r.get('project_id') or '-'} | Qty: {r.get('quantity') or '-'} | Amount: {_amt(r.get('amount'))}")
+                st.markdown(f"**#{r.get('id')} — {html.escape(str(r.get('to_team') or '-'))}**")
+                st.write(f"Date: {r.get('transfer_date')} | Material: {r.get('material_description') or '-'} | Qty: {r.get('quantity') or '-'} | Amount: {_bapu_amt(r.get('amount'))}")
                 st.caption(f"Reference: {r.get('reference_no') or '-'} | Remark: {r.get('remark') or '-'}")
-                c1,c2=st.columns(2)
-                if c1.button("✅ Approve", key=f"bapu_approve_{r['id']}", type="primary", use_container_width=True):
+                a,b=st.columns(2)
+                if a.button("✅ Approve",key=f"bapu_approve_{r['id']}",type="primary",use_container_width=True):
                     try:
-                        result=supabase.rpc("approve_bapu_material", {"p_request_id":r["id"],"p_workspace":ws}).execute()
+                        result=(supabase.table("team_material_transfers").update({"status":"Active"})
+                            .eq("id",r["id"]).eq("workspace",ws).eq("from_team","Vendor Bapu")
+                            .eq("status","Pending").execute())
+                        if not result.data: raise ValueError("Request already processed; refresh.")
                         fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
-                        st.success("Approved! Team Ledger updated via Material Transfer."); st.rerun()
+                        st.success("Approved — Team Ledger will include this active transfer."); st.rerun()
                     except Exception as e: st.error(f"Approval failed: {e}")
-                if c2.button("❌ Reject", key=f"bapu_reject_{r['id']}", use_container_width=True):
+                if b.button("❌ Reject",key=f"bapu_reject_{r['id']}",use_container_width=True):
                     try:
-                        supabase.table("bapu_material_requests").update({"status":"Rejected"}).eq("id",r["id"]).eq("workspace",ws).eq("status","Pending").execute()
-                        st.rerun()
-                    except Exception as e: st.error(f"Reject failed: {e}")
+                        result=(supabase.table("team_material_transfers").update({"status":"Rejected"})
+                            .eq("id",r["id"]).eq("workspace",ws).eq("from_team","Vendor Bapu")
+                            .eq("status","Pending").execute())
+                        if not result.data: raise ValueError("Request already processed; refresh.")
+                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
+                    except Exception as e: st.error(f"Rejection failed: {e}")
 
-    with tab_approved:
-        st.markdown("#### Approved Material Register")
-        rows=[]
-        tr_by_id={str(x.get('id')):x for x in _tr}
-        for r in _approved:
-            tr=tr_by_id.get(str(r.get('transfer_id')), {})
-            rows.append({"Issue Date":r.get('issue_date'),"Team":r.get('team_name'),"Project ID":r.get('project_id'),
-                "Material":r.get('material_description'),"Qty":r.get('quantity'),"Amount":_num(r.get('amount')),
-                "Reference":r.get('reference_no'),"Transfer Status":tr.get('status','Missing'),"Approved At":r.get('approved_at')})
-        _known_ids = {str(r.get("transfer_id")) for r in _approved if r.get("transfer_id") is not None}
-        for tr in _active_approved:
-            if str(tr.get("id")) not in _known_ids:
-                rows.append({"Issue Date": tr.get("transfer_date"), "Team": tr.get("to_team"),
-                    "Project ID": "", "Material": tr.get("material_description"),
-                    "Qty": tr.get("quantity"), "Amount": _num(tr.get("amount")),
-                    "Reference": tr.get("reference_no"), "Transfer Status": tr.get("status"),
-                    "Approved At": "Existing / Manual Transfer"})
-        df=pd.DataFrame(rows)
+    elif current == "approved":
+        st.markdown("#### ✅ Approved Material Register")
+        df=pd.DataFrame([{"Date":r.get("transfer_date"),"From":r.get("from_team"),"Team":r.get("to_team"),
+            "Material":r.get("material_description"),"Qty":r.get("quantity"),"Amount":_bapu_num(r.get("amount")),
+            "Reference":r.get("reference_no"),"Status":r.get("status")} for r in _out])
         if df.empty: st.info("अभी कोई Approved Material नहीं है।")
         else:
             st.dataframe(df,use_container_width=True,hide_index=True)
-            st.download_button("📥 Download Approved CSV",df.to_csv(index=False).encode('utf-8-sig'),"Bapu_Approved_Material.csv",mime="text/csv")
+            st.download_button("📥 Download Approved CSV",df.to_csv(index=False).encode("utf-8-sig"),"Bapu_Approved_Material.csv",mime="text/csv")
 
-    with tab_ledger:
-        st.markdown("#### Vendor Bapu — Warehouse Value Ledger")
-        ledger=[]
-        for x in _inv:
-            ledger.append({"Date":x.get('date'),"Particulars":f"Vendor Invoice {x.get('invoice_no')}","Received (+)":_num(x.get('amount')),"Issued (-)":0.0})
-        for x in _active_approved:
-            ledger.append({"Date":x.get('transfer_date'),"Particulars":f"Material to {x.get('to_team')} | {x.get('material_description')}","Received (+)":0.0,"Issued (-)":_num(x.get('amount'))})
-        df=pd.DataFrame(ledger)
+    elif current == "ledger":
+        st.markdown("#### 📒 Vendor Bapu — Warehouse Value Ledger")
+        rows=[]
+        for r in _inv:
+            rows.append({"Date":r.get("date"),"Particulars":f"Vendor Invoice {r.get('invoice_no')}",
+                         "Received (+)":_bapu_num(r.get("amount")),"Issued (-)":0.0})
+        for r in _out:
+            rows.append({"Date":r.get("transfer_date"),"Particulars":f"Material to {r.get('to_team')} | {r.get('material_description')}",
+                         "Received (+)":0.0,"Issued (-)":_bapu_num(r.get("amount"))})
+        df=pd.DataFrame(rows)
         if not df.empty:
-            df['Date']=pd.to_datetime(df['Date'],errors='coerce')
-            df=df.sort_values('Date',kind='stable')
-            df['Running Balance']=(df['Received (+)']-df['Issued (-)']).cumsum()
-            df['Date']=df['Date'].dt.strftime('%d/%m/%Y')
+            df["Date"]=pd.to_datetime(df["Date"],errors="coerce")
+            df=df.sort_values("Date",kind="stable")
+            df["Running Balance"]=(df["Received (+)"]-df["Issued (-)"]).cumsum()
+            df["Date"]=df["Date"].dt.strftime("%d/%m/%Y")
             st.dataframe(df,use_container_width=True,hide_index=True)
-            st.download_button("📥 Download Ledger CSV",df.to_csv(index=False).encode('utf-8-sig'),"Bapu_Material_Ledger.csv",mime="text/csv")
+            st.download_button("📥 Download Ledger CSV",df.to_csv(index=False).encode("utf-8-sig"),"Bapu_Material_Ledger.csv",mime="text/csv")
         else: st.info("अभी कोई Material Ledger Entry नहीं है।")
-        a,b,c=st.columns(3)
-        a.metric("Total Received",_amt(_received));b.metric("Total Issued",_amt(_issued));c.metric("Balance",_amt(_balance))
-        if _balance < 0: st.warning("⚠️ Material Issue Invoice Value से ज्यादा है। Verify invoices / old transfers.")
-        st.caption("यह value-based ledger है; item-wise physical stock नहीं। सभी पुराने और नए Active Vendor Bapu outgoing transfers शामिल हैं; Pending/Rejected और Reversed शामिल नहीं हैं।")
+        c1,c2,c3=st.columns(3)
+        c1.metric("Total Received",_bapu_amt(_received))
+        c2.metric("Total Issued",_bapu_amt(_issued))
+        c3.metric("Balance",_bapu_amt(_balance))
+        if _balance<0: st.warning("Material Issue Invoice Value से ज्यादा है।")
+        st.caption("यह value-based ledger है। Pending, Rejected और Reversed Transfers इसमें शामिल नहीं हैं।")
 
-    with tab_manual:
+    elif current == "manual":
         active_ws = active_billing_workspace()
         c_add, c_search, c_download = st.columns([1.7, 4.5, 1.8])
         with c_add:
