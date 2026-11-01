@@ -300,61 +300,6 @@ st.markdown("""
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
 
-    /* =========================================================
-       VISIONTECH PREMIUM SIDEBAR — CONTRAST / ACTIVE FIX
-       Scope only to native sidebar navigation; no page content changes.
-       ========================================================= */
-    [data-testid="stSidebar"],
-    [data-testid="stSidebar"] > div,
-    [data-testid="stSidebarContent"] {
-        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
-    }
-    [data-testid="stSidebarNav"] a,
-    [data-testid="stSidebarNav"] [data-testid="stPageLink"] a {
-        display: flex !important;
-        align-items: center !important;
-        gap: 12px !important;
-        margin: 5px 10px !important;
-        padding: 12px 14px !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(255,255,255,.08) !important;
-        background: rgba(255,255,255,.045) !important;
-        color: #e2e8f0 !important;
-        opacity: 1 !important;
-        text-decoration: none !important;
-        transition: background .2s ease, box-shadow .2s ease !important;
-    }
-    /* Streamlit versions render labels as p, span or nested div; override global light-theme text rules. */
-    [data-testid="stSidebarNav"] a *,
-    [data-testid="stSidebarNav"] a p,
-    [data-testid="stSidebarNav"] a span,
-    [data-testid="stSidebarNav"] a div,
-    [data-testid="stSidebarNav"] a svg {
-        color: #e2e8f0 !important;
-        fill: currentColor;
-        opacity: 1 !important;
-    }
-    [data-testid="stSidebarNav"] a:hover {
-        background: rgba(99,102,241,.22) !important;
-        border-color: rgba(165,180,252,.4) !important;
-        color: #fff !important;
-    }
-    [data-testid="stSidebarNav"] a:hover * { color: #fff !important; }
-    [data-testid="stSidebarNav"] a[aria-current="page"],
-    [data-testid="stSidebarNav"] a[aria-selected="true"],
-    [data-testid="stSidebarNav"] a[data-active="true"] {
-        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        border-color: rgba(255,255,255,.2) !important;
-        box-shadow: 0 4px 15px rgba(59,130,246,.35) !important;
-        color: #fff !important;
-    }
-    [data-testid="stSidebarNav"] a[aria-current="page"] *,
-    [data-testid="stSidebarNav"] a[aria-selected="true"] *,
-    [data-testid="stSidebarNav"] a[data-active="true"] * {
-        color: #fff !important;
-        opacity: 1 !important;
-    }
-
     /* ================= PAGE NAVIGATION BAR ================= */
     .st-key-billing_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-billing_nav_bar button {
@@ -2180,6 +2125,70 @@ elif st.session_state.billing_active_page == "transfer":
                              type="primary" if st.session_state["bapu_material_page"]==page_id else "secondary"):
                     st.session_state["bapu_material_page"] = page_id
                     st.rerun()
+    # Mobile Vendor Invoice approval — server-only RPC, no direct Android booking.
+    if active_billing_workspace() == "VISPL":
+        with st.expander("📥 Bapu Mobile Vendor Invoice Requests — Office Approval", expanded=True):
+            try:
+                vm_requests = (supabase.table("vm_vendor_invoice_requests").select("*")
+                    .eq("workspace", "VISPL").order("id", desc=True).execute()).data or []
+                vm_pending = [r for r in vm_requests if r.get("status") == "Pending"]
+                st.metric("Pending Vendor Invoices", len(vm_pending))
+                st.caption("Material descriptions use the common VisionMaterial Material Master. "
+                           "Invoice numbers are checked VISPL-wide, regardless of vendor.")
+                if not vm_pending:
+                    st.info("No vendor invoices waiting for approval.")
+                for vm in vm_pending:
+                    vid = vm["id"]
+                    cols = st.columns([2.2,1.3,1.1,1.2,1.1,0.9,0.9])
+                    cols[0].markdown(f"**{html.escape(str(vm.get('vendor_name') or ''))}**")
+                    cols[1].write(vm.get("invoice_no"))
+                    cols[2].write(vm.get("invoice_date"))
+                    cols[3].write(f"₹{float(vm.get('total_amount') or 0):,.2f}")
+                    with cols[4]:
+                        view = st.toggle("👁 View", key=f"vm_view_{vid}")
+                    with cols[5]:
+                        approve = st.button("✅ Approve",key=f"vm_approve_{vid}")
+                    with cols[6]:
+                        reject = st.button("❌ Reject",key=f"vm_reject_{vid}")
+                    if view or approve:
+                        items_data = (supabase.table("vm_vendor_invoice_request_items").select("*")
+                            .eq("request_id",vid).order("id").execute()).data or []
+                        st.dataframe(pd.DataFrame(items_data)[["material_type","item_code","description",
+                            "quantity","purchase_rate","line_amount"]] if items_data else pd.DataFrame(),
+                            hide_index=True,use_container_width=True)
+                        st.caption(f"Basic ₹{float(vm.get('basic_amount') or 0):,.2f} · "
+                            f"GST ₹{float(vm.get('gst_amount') or 0):,.2f} · "
+                            f"Total ₹{float(vm.get('total_amount') or 0):,.2f}")
+                    if approve or reject:
+                        action = "Approved" if approve else "Rejected"
+                        st.session_state["vm_confirm_action"] = (vid,action)
+                        st.rerun()
+                if st.session_state.get("vm_confirm_action"):
+                    vid,action = st.session_state["vm_confirm_action"]
+                    st.warning(f"Confirm {action} for Vendor Invoice Request #{vid}?")
+                    yes,no = st.columns(2)
+                    if yes.button(f"Confirm {action}",type="primary",key="vm_yes"):
+                        try:
+                            supabase.rpc("vm_review_vendor_invoice",{"p_id":vid,"p_action":action}).execute()
+                            st.session_state.pop("vm_confirm_action",None)
+                            fetch_billing_invoices_cached.clear()
+                            st.success(f"Request #{vid} {action} successfully")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Review failed (check server service_role permission): {exc}")
+                    if no.button("Cancel",key="vm_no"):
+                        st.session_state.pop("vm_confirm_action",None)
+                        st.rerun()
+                with st.expander("Approved / Rejected Vendor Invoice Requests"):
+                    history = [r for r in vm_requests if r.get("status") != "Pending"]
+                    if history:
+                        st.dataframe(pd.DataFrame(history)[["vendor_name","invoice_no","invoice_date",
+                            "basic_amount","gst_amount","total_amount","status","booked_invoice_id"]],
+                            hide_index=True,use_container_width=True)
+                    else: st.caption("No reviewed invoices yet")
+            except Exception as exc:
+                st.error(f"Vendor Invoice Approval cannot load: {exc}")
+
     current = st.session_state["bapu_material_page"]
     def _bapu_num(value):
         try: return float(value or 0)
