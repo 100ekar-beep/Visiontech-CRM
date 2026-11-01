@@ -41,8 +41,8 @@ st.markdown("""<style>
 .stApp, [data-testid="stAppViewContainer"] {background:#f7f9fc!important;color:#17243b!important;}
 .block-container {padding-top:1.15rem!important;max-width:1600px!important;}
 h1,h2,h3,h4,p,label,div[data-testid="stWidgetLabel"] p {color:#17243b;}
-[data-testid="stSidebar"] {background:#ffffff!important;}
-[data-testid="stSidebarNav"] a {color:#253451!important;}
+[data-testid="stSidebar"], section[data-testid="stSidebar"] > div {background:linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)!important;}
+[data-testid="stSidebarNav"] a, [data-testid="stSidebarNav"] a span, [data-testid="stSidebarNav"] a p {color:#e2e8f0!important;}
 div.stButton>button[kind="primary"] {background:#2563eb!important;color:white!important;border:0!important;}
 div.stButton>button {border-radius:8px!important;font-weight:800!important; color:#14243b!important; border:1px solid #b9c7d9!important;}
 div.stButton>button p, div.stButton>button span {font-weight:800!important;}
@@ -64,6 +64,27 @@ div[data-testid="stMetric"] {background:white;border:1px solid #e2e8f0;border-ra
 [data-testid="stTabs"] button {font-weight:700!important;}
 [data-testid="stDataFrame"] {border:1px solid #e2e8f0;border-radius:9px;}
 [data-testid="stDialog"] {color:#17243b!important;}
+/* INVOICE MANAGEMENT STYLE — SIDEBAR ONLY */
+section[data-testid="stSidebar"] {background:linear-gradient(180deg,#0f172a,#1e1b4b)!important;border-right:1px solid #334155!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a {
+ display:flex!important;align-items:center!important;margin:5px 10px!important;padding:11px 13px!important;
+ border-radius:12px!important;background:rgba(255,255,255,.045)!important;
+ border:1px solid rgba(255,255,255,.07)!important;color:#e2e8f0!important;
+ font-weight:700!important;text-decoration:none!important;transition:background .2s ease,transform .2s ease!important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {background:rgba(99,102,241,.24)!important;transform:translateX(3px)!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-selected="true"] {
+ background:linear-gradient(90deg,#2563eb,#7c3aed)!important;color:white!important;
+ box-shadow:0 4px 14px rgba(59,130,246,.25)!important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a *,
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] * {color:#fff!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {list-style:none!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {padding:0!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] svg {color:#e2e8f0!important;}
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {color:#e2e8f0;}
+
 </style>""", unsafe_allow_html=True)
 
 # --- 4. SUPABASE CONNECTION ---
