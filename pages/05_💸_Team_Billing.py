@@ -2161,10 +2161,27 @@ elif st.session_state.billing_active_page == "transfer":
         else: st.info("इस workspace में Vendor Bapu की Vendor Invoice नहीं मिली।")
 
     elif current == "pending":
-        st.markdown("#### ⏳ Material Issue Requests — Approval Pending")
-        st.caption("एक Reference = एक Request. खोलने पर सभी Material Items दिखेंगे; Approve/Reject पूरी Request का होगा।")
-        if st.button("🔄 Refresh Pending", key="bapu_refresh_pending"):
-            fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
+        st.markdown("""<style>
+        /* Premium Bapu request register — scoped to its own containers */
+        .st-key-bapu_pending_heading {background:linear-gradient(105deg,#172554,#4338ca 58%,#7c3aed);padding:23px 27px;border-radius:20px;box-shadow:0 14px 30px rgba(67,56,202,.23);margin:8px 0 17px}
+        .st-key-bapu_pending_heading h3,.st-key-bapu_pending_heading p {color:#fff!important}
+        .st-key-bapu_pending_heading p {opacity:.83}
+        .st-key-bapu_request_header {background:linear-gradient(90deg,#1e1b4b,#4338ca)!important;border-radius:12px 12px 0 0;padding:12px 13px!important}
+        .st-key-bapu_request_header p {color:white!important;font-size:.76rem!important;font-weight:900!important;letter-spacing:.3px}
+        div[class*="st-key-bapu_request_row_"] {background:#fff!important;border:1px solid #e0e7ff;border-top:0;padding:10px 13px!important;box-shadow:0 3px 10px rgba(30,41,59,.04)}
+        div[class*="st-key-bapu_request_row_"] p {font-size:.86rem!important;color:#1e293b;font-weight:650}
+        div[class*="st-key-bapu_request_row_"] button {min-height:35px!important;height:35px!important;border-radius:9px!important;padding:0 7px!important;font-size:.78rem!important;font-weight:850!important;white-space:nowrap!important}
+        div[class*="st-key-bapu_view_"] button {background:#eef2ff!important;border:1px solid #c7d2fe!important}
+        div[class*="st-key-bapu_view_"] button p {color:#4338ca!important}
+        div[class*="st-key-bapu_approve_"] button {background:#059669!important;border:1px solid #059669!important}
+        div[class*="st-key-bapu_approve_"] button p {color:white!important}
+        div[class*="st-key-bapu_reject_"] button {background:#fff1f2!important;border:1px solid #fecdd3!important}
+        div[class*="st-key-bapu_reject_"] button p {color:#be123c!important}
+        div[class*="st-key-bapu_detail_"] {background:linear-gradient(135deg,#f8faff,#f2f0ff);border:1px solid #c7d2fe;border-top:0;padding:16px 19px!important;border-radius:0 0 15px 15px;margin-bottom:12px}
+        </style>""", unsafe_allow_html=True)
+        with st.container(key="bapu_pending_heading"):
+            st.markdown("### ✨ Material Issue · Approval Center")
+            st.markdown("**One Request · Multiple Materials · One Approval** — Bapu की सभी Pending Requests")
 
         def _bapu_group_key(r):
             ref = str(r.get("reference_no") or "").strip()
@@ -2177,51 +2194,85 @@ elif st.session_state.billing_active_page == "transfer":
             return list(groups.values())
 
         pending_groups = _bapu_groups(_pending)
-        st.metric("Pending Requests", len(pending_groups))
-        pending_search = st.text_input("🔍 Search Team / Material / Reference", key="bapu_pending_search")
+        k1,k2,k3,k4 = st.columns([1.3,1.4,2.6,1.2])
+        k1.metric("⏳ Pending Requests",len(pending_groups))
+        k2.metric("📦 Material Lines",sum(len(g) for g in pending_groups))
+        k3.metric("💰 Pending Value",_bapu_amt(sum(_bapu_num(r.get("amount")) for g in pending_groups for r in g)))
+        with k4:
+            st.write("")
+            if st.button("🔄 Refresh", key="bapu_refresh_pending", use_container_width=True):
+                fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
+        pending_search = st.text_input("🔎 Search Team / Material / Reference", key="bapu_pending_search", placeholder="Type team name, material or reference...")
         pending_groups = [g for g in pending_groups if not pending_search or pending_search.casefold() in
                           " ".join(str(x) for r in g for x in [r.get("to_team"),r.get("material_description"),r.get("reference_no")]).casefold()]
-        if not pending_groups: st.success("अभी कोई Matching Pending Request नहीं है।")
-        for group in pending_groups:
-            first = group[0]
-            ref = str(first.get("reference_no") or "").strip()
-            total_amount = sum(_bapu_num(r.get("amount")) for r in group)
-            ids = sorted(int(r["id"]) for r in group)
-            group_key = "_".join(str(i) for i in ids)
-            title = f"📦 {first.get('to_team') or '-'}  |  {len(group)} Items  |  {_bapu_amt(total_amount)}"
-            with st.expander(title, expanded=False):
-                st.write(f"**Issue Date:** {first.get('transfer_date') or '-'}   |   **Reference:** {ref or '-'}")
-                st.dataframe(pd.DataFrame([{
-                    "Material Description":r.get("material_description") or "-",
-                    "Qty":_bapu_num(r.get("quantity")),
-                    "Rate ₹":round(_bapu_num(r.get("amount")) / _bapu_num(r.get("quantity")), 4) if _bapu_num(r.get("quantity")) else 0,
-                    "Amount ₹":_bapu_num(r.get("amount")),
-                    "Remark":r.get("remark") or ""
-                } for r in group]), use_container_width=True, hide_index=True)
-                st.markdown(f"**Grand Total: {_bapu_amt(total_amount)}**")
-                st.caption("Rate = Amount ÷ Qty (मौजूदा DB में Rate अलग से Save नहीं होता)")
-                a,b=st.columns(2)
-                if a.button("✅ Approve Entire Request", key=f"bapu_approve_group_{group_key}",type="primary",use_container_width=True):
-                    try:
-                        response=supabase.rpc("bapu_process_material_request",{
-                            "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Active"}).execute()
-                        if response.data != len(ids):
-                            raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
-                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
-                        st.success("पूरी Request Approved!"); st.rerun()
-                    except Exception as e:
-                        st.error(f"Approval failed: {e}. पहले साथ दी गई SQL Supabase SQL Editor में Run करें।")
-                if b.button("❌ Reject Entire Request", key=f"bapu_reject_group_{group_key}",use_container_width=True):
-                    try:
-                        response=supabase.rpc("bapu_process_material_request",{
-                            "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Rejected"}).execute()
-                        if response.data != len(ids):
-                            raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
-                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
-                        st.success("पूरी Request Rejected!"); st.rerun()
-                    except Exception as e:
-                        st.error(f"Rejection failed: {e}. पहले साथ दी गई SQL Supabase SQL Editor में Run करें।")
-
+        if not pending_groups:
+            st.info("अभी कोई Matching Pending Request नहीं है।")
+        else:
+            widths=[1.15,2.3,1.25,.7,1.35,1.05,.85,1.05,1.05]
+            with st.container(key="bapu_request_header"):
+                header=st.columns(widths, gap="small", vertical_alignment="center")
+                for c,label in zip(header,["ISSUE DATE","TEAM NAME","REFERENCE","ITEMS","TOTAL ₹","STATUS","VIEW","APPROVE","REJECT"]):
+                    c.markdown(label)
+            for group in pending_groups:
+                first=group[0]
+                ids=sorted(int(r["id"]) for r in group)
+                group_key="_".join(str(i) for i in ids)
+                ref=str(first.get("reference_no") or "").strip()
+                total_amount=sum(_bapu_num(r.get("amount")) for r in group)
+                state_key=f"bapu_detail_open_{group_key}"
+                with st.container(key=f"bapu_request_row_{group_key}"):
+                    cols=st.columns(widths,gap="small",vertical_alignment="center")
+                    cols[0].write(str(first.get("transfer_date") or "-"))
+                    cols[1].markdown(f"**{html.escape(str(first.get('to_team') or '-'))}**")
+                    cols[2].write(ref or "-")
+                    cols[3].write(f"**{len(group)}**")
+                    cols[4].markdown(f"**{_bapu_amt(total_amount)}**")
+                    cols[5].markdown("🟠 **Pending**")
+                    with cols[6]:
+                        with st.container(key=f"bapu_view_{group_key}"):
+                            if st.button("👁 View" if not st.session_state.get(state_key,False) else "▲ Hide",key=f"bapu_view_btn_{group_key}",use_container_width=True):
+                                st.session_state[state_key]=not st.session_state.get(state_key,False)
+                                st.rerun()
+                    with cols[7]:
+                        with st.container(key=f"bapu_approve_{group_key}"):
+                            if st.button("✓ Approve",key=f"bapu_approve_group_{group_key}",use_container_width=True):
+                                try:
+                                    response=supabase.rpc("bapu_process_material_request",{
+                                        "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Active"}).execute()
+                                    if response.data != len(ids):
+                                        raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
+                                    fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
+                                    st.success("पूरी Request Approved!"); st.rerun()
+                                except Exception as e:
+                                    st.error(f"Approval failed: {e}")
+                    with cols[8]:
+                        with st.container(key=f"bapu_reject_{group_key}"):
+                            if st.button("✕ Reject",key=f"bapu_reject_group_{group_key}",use_container_width=True):
+                                try:
+                                    response=supabase.rpc("bapu_process_material_request",{
+                                        "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Rejected"}).execute()
+                                    if response.data != len(ids):
+                                        raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
+                                    fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
+                                    st.success("पूरी Request Rejected!"); st.rerun()
+                                except Exception as e:
+                                    st.error(f"Rejection failed: {e}")
+                if st.session_state.get(state_key,False):
+                    with st.container(key=f"bapu_detail_{group_key}"):
+                        st.markdown(f"**📦 Material Details · {html.escape(str(first.get('to_team') or '-'))}** &nbsp; | &nbsp; **Reference:** {html.escape(ref or '-')} &nbsp; | &nbsp; **Issue Date:** {html.escape(str(first.get('transfer_date') or '-'))}",unsafe_allow_html=True)
+                        detail_df=pd.DataFrame([{
+                            "#":i+1,
+                            "Material Description":r.get("material_description") or "-",
+                            "Qty":_bapu_num(r.get("quantity")),
+                            "Rate ₹":round(_bapu_num(r.get("amount"))/_bapu_num(r.get("quantity")),4) if _bapu_num(r.get("quantity")) else 0,
+                            "Amount ₹":_bapu_num(r.get("amount")),
+                            "Remark":r.get("remark") or ""
+                        } for i,r in enumerate(group)])
+                        st.dataframe(detail_df,use_container_width=True,hide_index=True,
+                                     column_config={"Rate ₹":st.column_config.NumberColumn(format="₹ %.2f"),
+                                                    "Amount ₹":st.column_config.NumberColumn(format="₹ %.2f")})
+                        st.markdown(f"#### Grand Total: {_bapu_amt(total_amount)}")
+                        st.caption("Rate = Amount ÷ Qty; मौजूदा Database में Rate अलग से Save नहीं होता।")
     elif current == "approved":
         st.markdown("#### ✅ Approved Material Requests")
         approved_groups = {}
