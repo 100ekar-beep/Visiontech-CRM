@@ -300,6 +300,61 @@ st.markdown("""
     }
     div[data-testid="stSidebarNav"] a span { color: inherit !important; }
 
+    /* =========================================================
+       VISIONTECH PREMIUM SIDEBAR — CONTRAST / ACTIVE FIX
+       Scope only to native sidebar navigation; no page content changes.
+       ========================================================= */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebarContent"] {
+        background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+    }
+    [data-testid="stSidebarNav"] a,
+    [data-testid="stSidebarNav"] [data-testid="stPageLink"] a {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        margin: 5px 10px !important;
+        padding: 12px 14px !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255,255,255,.08) !important;
+        background: rgba(255,255,255,.045) !important;
+        color: #e2e8f0 !important;
+        opacity: 1 !important;
+        text-decoration: none !important;
+        transition: background .2s ease, box-shadow .2s ease !important;
+    }
+    /* Streamlit versions render labels as p, span or nested div; override global light-theme text rules. */
+    [data-testid="stSidebarNav"] a *,
+    [data-testid="stSidebarNav"] a p,
+    [data-testid="stSidebarNav"] a span,
+    [data-testid="stSidebarNav"] a div,
+    [data-testid="stSidebarNav"] a svg {
+        color: #e2e8f0 !important;
+        fill: currentColor;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(99,102,241,.22) !important;
+        border-color: rgba(165,180,252,.4) !important;
+        color: #fff !important;
+    }
+    [data-testid="stSidebarNav"] a:hover * { color: #fff !important; }
+    [data-testid="stSidebarNav"] a[aria-current="page"],
+    [data-testid="stSidebarNav"] a[aria-selected="true"],
+    [data-testid="stSidebarNav"] a[data-active="true"] {
+        background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%) !important;
+        border-color: rgba(255,255,255,.2) !important;
+        box-shadow: 0 4px 15px rgba(59,130,246,.35) !important;
+        color: #fff !important;
+    }
+    [data-testid="stSidebarNav"] a[aria-current="page"] *,
+    [data-testid="stSidebarNav"] a[aria-selected="true"] *,
+    [data-testid="stSidebarNav"] a[data-active="true"] * {
+        color: #fff !important;
+        opacity: 1 !important;
+    }
+
     /* ================= PAGE NAVIGATION BAR ================= */
     .st-key-billing_nav_bar div[data-testid="stHorizontalBlock"] { gap: 12px !important; flex-wrap: wrap !important; }
     .st-key-billing_nav_bar button {
