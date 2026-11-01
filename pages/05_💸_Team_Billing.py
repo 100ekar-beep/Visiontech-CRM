@@ -60,6 +60,47 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- PREMIUM SIDEBAR: Invoice Management matching theme ---
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+    border-right: 1px solid rgba(255,255,255,.05) !important;
+}
+[data-testid="stSidebarNav"] a {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: .85rem 1.2rem !important;
+    margin: .5rem 1rem !important;
+    border-radius: 12px !important;
+    background: rgba(255,255,255,.03) !important;
+    border: 1px solid rgba(255,255,255,.05) !important;
+    color: #cbd5e1 !important;
+    font-weight: 600 !important;
+    font-size: 1.05rem !important;
+    transition: all .3s ease !important;
+    text-decoration: none !important;
+}
+[data-testid="stSidebarNav"] a:hover {
+    background: rgba(255,255,255,.1) !important;
+    transform: translateX(4px) !important;
+    border-color: rgba(255,255,255,.2) !important;
+    color: white !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"],
+[data-testid="stSidebarNav"] a[aria-current="page"]:hover {
+    background: linear-gradient(90deg,#3b82f6 0%,#8b5cf6 100%) !important;
+    color: white !important;
+    border-color: transparent !important;
+    box-shadow: 0 4px 15px rgba(59,130,246,.4) !important;
+}
+[data-testid="stSidebarNav"] a span,
+[data-testid="stSidebarNav"] a p,
+[data-testid="stSidebarNav"] a svg { color: inherit !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # --- INIT SESSION STATE (nav) ---
 if 'billing_active_page' not in st.session_state:
     st.session_state.billing_active_page = "invoice"
