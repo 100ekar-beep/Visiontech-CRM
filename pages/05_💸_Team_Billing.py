@@ -2161,43 +2161,90 @@ elif st.session_state.billing_active_page == "transfer":
         else: st.info("इस workspace में Vendor Bapu की Vendor Invoice नहीं मिली।")
 
     elif current == "pending":
-        st.markdown("#### ⏳ Pending Material Approval")
-        st.caption("Existing team_material_transfers table में Pending requests; Approval के बाद ही Team Ledger बदलेगा।")
-        if st.button("🔄 Refresh Pending",key="bapu_refresh_pending"):
+        st.markdown("#### ⏳ Material Issue Requests — Approval Pending")
+        st.caption("एक Reference = एक Request. खोलने पर सभी Material Items दिखेंगे; Approve/Reject पूरी Request का होगा।")
+        if st.button("🔄 Refresh Pending", key="bapu_refresh_pending"):
             fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
-        if not _pending: st.success("अभी कोई Pending Request नहीं है।")
-        for r in _pending:
-            with st.container(border=True):
-                st.markdown(f"**#{r.get('id')} — {html.escape(str(r.get('to_team') or '-'))}**")
-                st.write(f"Date: {r.get('transfer_date')} | Material: {r.get('material_description') or '-'} | Qty: {r.get('quantity') or '-'} | Amount: {_bapu_amt(r.get('amount'))}")
-                st.caption(f"Reference: {r.get('reference_no') or '-'} | Remark: {r.get('remark') or '-'}")
+
+        def _bapu_group_key(r):
+            ref = str(r.get("reference_no") or "").strip()
+            return ("ref", ref, str(r.get("to_team") or "").strip(), str(r.get("transfer_date") or "")) if ref and ref.lower() != "null" else ("id", str(r.get("id")))
+
+        def _bapu_groups(rows):
+            groups = {}
+            for item in rows:
+                groups.setdefault(_bapu_group_key(item), []).append(item)
+            return list(groups.values())
+
+        pending_groups = _bapu_groups(_pending)
+        st.metric("Pending Requests", len(pending_groups))
+        pending_search = st.text_input("🔍 Search Team / Material / Reference", key="bapu_pending_search")
+        pending_groups = [g for g in pending_groups if not pending_search or pending_search.casefold() in
+                          " ".join(str(x) for r in g for x in [r.get("to_team"),r.get("material_description"),r.get("reference_no")]).casefold()]
+        if not pending_groups: st.success("अभी कोई Matching Pending Request नहीं है।")
+        for group in pending_groups:
+            first = group[0]
+            ref = str(first.get("reference_no") or "").strip()
+            total_amount = sum(_bapu_num(r.get("amount")) for r in group)
+            ids = sorted(int(r["id"]) for r in group)
+            group_key = "_".join(str(i) for i in ids)
+            title = f"📦 {first.get('to_team') or '-'}  |  {len(group)} Items  |  {_bapu_amt(total_amount)}"
+            with st.expander(title, expanded=False):
+                st.write(f"**Issue Date:** {first.get('transfer_date') or '-'}   |   **Reference:** {ref or '-'}")
+                st.dataframe(pd.DataFrame([{
+                    "Material Description":r.get("material_description") or "-",
+                    "Qty":_bapu_num(r.get("quantity")),
+                    "Rate ₹":round(_bapu_num(r.get("amount")) / _bapu_num(r.get("quantity")), 4) if _bapu_num(r.get("quantity")) else 0,
+                    "Amount ₹":_bapu_num(r.get("amount")),
+                    "Remark":r.get("remark") or ""
+                } for r in group]), use_container_width=True, hide_index=True)
+                st.markdown(f"**Grand Total: {_bapu_amt(total_amount)}**")
+                st.caption("Rate = Amount ÷ Qty (मौजूदा DB में Rate अलग से Save नहीं होता)")
                 a,b=st.columns(2)
-                if a.button("✅ Approve",key=f"bapu_approve_{r['id']}",type="primary",use_container_width=True):
+                if a.button("✅ Approve Entire Request", key=f"bapu_approve_group_{group_key}",type="primary",use_container_width=True):
                     try:
-                        result=(supabase.table("team_material_transfers").update({"status":"Active"})
-                            .eq("id",r["id"]).eq("workspace",ws).eq("from_team","Vendor Bapu")
-                            .eq("status","Pending").execute())
-                        if not result.data: raise ValueError("Request already processed; refresh.")
+                        response=supabase.rpc("bapu_process_material_request",{
+                            "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Active"}).execute()
+                        if response.data != len(ids):
+                            raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
                         fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
-                        st.success("Approved — Team Ledger will include this active transfer."); st.rerun()
-                    except Exception as e: st.error(f"Approval failed: {e}")
-                if b.button("❌ Reject",key=f"bapu_reject_{r['id']}",use_container_width=True):
+                        st.success("पूरी Request Approved!"); st.rerun()
+                    except Exception as e:
+                        st.error(f"Approval failed: {e}. पहले साथ दी गई SQL Supabase SQL Editor में Run करें।")
+                if b.button("❌ Reject Entire Request", key=f"bapu_reject_group_{group_key}",use_container_width=True):
                     try:
-                        result=(supabase.table("team_material_transfers").update({"status":"Rejected"})
-                            .eq("id",r["id"]).eq("workspace",ws).eq("from_team","Vendor Bapu")
-                            .eq("status","Pending").execute())
-                        if not result.data: raise ValueError("Request already processed; refresh.")
-                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear(); st.rerun()
-                    except Exception as e: st.error(f"Rejection failed: {e}")
+                        response=supabase.rpc("bapu_process_material_request",{
+                            "p_workspace":ws,"p_from_team":"Vendor Bapu","p_ids":ids,"p_action":"Rejected"}).execute()
+                        if response.data != len(ids):
+                            raise ValueError(f"Expected {len(ids)} items; processed {response.data}. Please refresh.")
+                        fetch_team_material_transfers_cached.clear(); fetch_ledger_data_cached.clear()
+                        st.success("पूरी Request Rejected!"); st.rerun()
+                    except Exception as e:
+                        st.error(f"Rejection failed: {e}. पहले साथ दी गई SQL Supabase SQL Editor में Run करें।")
 
     elif current == "approved":
-        st.markdown("#### ✅ Approved Material Register")
+        st.markdown("#### ✅ Approved Material Requests")
+        approved_groups = {}
+        for r in _out:
+            ref = str(r.get("reference_no") or "").strip()
+            key = ("ref",ref,str(r.get("to_team") or ""),str(r.get("transfer_date") or "")) if ref and ref.lower() != "null" else ("id",str(r.get("id")))
+            approved_groups.setdefault(key,[]).append(r)
+        st.metric("Approved Requests",len(approved_groups))
+        if not approved_groups: st.info("अभी कोई Approved Material नहीं है।")
+        for group in approved_groups.values():
+            first=group[0]
+            total_amount=sum(_bapu_num(r.get("amount")) for r in group)
+            with st.expander(f"✅ {first.get('to_team') or '-'} | {len(group)} Items | {_bapu_amt(total_amount)}"):
+                st.write(f"Date: {first.get('transfer_date')} | Reference: {first.get('reference_no') or '-'}")
+                st.dataframe(pd.DataFrame([{"Material Description":r.get("material_description"),
+                    "Qty":_bapu_num(r.get("quantity")),
+                    "Rate ₹":round(_bapu_num(r.get("amount"))/_bapu_num(r.get("quantity")),4) if _bapu_num(r.get("quantity")) else 0,
+                    "Amount ₹":_bapu_num(r.get("amount"))} for r in group]),use_container_width=True,hide_index=True)
+                st.markdown(f"**Grand Total: {_bapu_amt(total_amount)}**")
         df=pd.DataFrame([{"Date":r.get("transfer_date"),"From":r.get("from_team"),"Team":r.get("to_team"),
             "Material":r.get("material_description"),"Qty":r.get("quantity"),"Amount":_bapu_num(r.get("amount")),
             "Reference":r.get("reference_no"),"Status":r.get("status")} for r in _out])
-        if df.empty: st.info("अभी कोई Approved Material नहीं है।")
-        else:
-            st.dataframe(df,use_container_width=True,hide_index=True)
+        if not df.empty:
             st.download_button("📥 Download Approved CSV",df.to_csv(index=False).encode("utf-8-sig"),"Bapu_Approved_Material.csv",mime="text/csv")
 
     elif current == "ledger":
