@@ -60,47 +60,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- PREMIUM SIDEBAR: Invoice Management matching theme ---
-st.markdown("""
-<style>
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
-    border-right: 1px solid rgba(255,255,255,.05) !important;
-}
-[data-testid="stSidebarNav"] a {
-    display: flex !important;
-    align-items: center !important;
-    gap: 12px !important;
-    padding: .85rem 1.2rem !important;
-    margin: .5rem 1rem !important;
-    border-radius: 12px !important;
-    background: rgba(255,255,255,.03) !important;
-    border: 1px solid rgba(255,255,255,.05) !important;
-    color: #cbd5e1 !important;
-    font-weight: 600 !important;
-    font-size: 1.05rem !important;
-    transition: all .3s ease !important;
-    text-decoration: none !important;
-}
-[data-testid="stSidebarNav"] a:hover {
-    background: rgba(255,255,255,.1) !important;
-    transform: translateX(4px) !important;
-    border-color: rgba(255,255,255,.2) !important;
-    color: white !important;
-}
-[data-testid="stSidebarNav"] a[aria-current="page"],
-[data-testid="stSidebarNav"] a[aria-current="page"]:hover {
-    background: linear-gradient(90deg,#3b82f6 0%,#8b5cf6 100%) !important;
-    color: white !important;
-    border-color: transparent !important;
-    box-shadow: 0 4px 15px rgba(59,130,246,.4) !important;
-}
-[data-testid="stSidebarNav"] a span,
-[data-testid="stSidebarNav"] a p,
-[data-testid="stSidebarNav"] a svg { color: inherit !important; }
-</style>
-""", unsafe_allow_html=True)
-
 # --- INIT SESSION STATE (nav) ---
 if 'billing_active_page' not in st.session_state:
     st.session_state.billing_active_page = "invoice"
@@ -2315,27 +2274,79 @@ elif st.session_state.billing_active_page == "transfer":
                         st.markdown(f"#### Grand Total: {_bapu_amt(total_amount)}")
                         st.caption("Rate = Amount ÷ Qty; मौजूदा Database में Rate अलग से Save नहीं होता।")
     elif current == "approved":
-        st.markdown("#### ✅ Approved Material Requests")
+        st.markdown("""<style>
+        .st-key-bapu_approved_hero {background:linear-gradient(105deg,#0f244d,#3730a3 55%,#7c3aed);padding:22px 26px!important;border-radius:19px;box-shadow:0 14px 30px rgba(67,56,202,.2);margin:8px 0 18px}
+        .st-key-bapu_approved_hero h3,.st-key-bapu_approved_hero p {color:white!important}
+        .st-key-bapu_approved_head {background:linear-gradient(90deg,#1e1b4b,#4338ca)!important;border-radius:12px 12px 0 0;padding:13px 15px!important}
+        .st-key-bapu_approved_head p {color:white!important;font-size:.77rem!important;font-weight:900!important;letter-spacing:.35px}
+        div[class*="st-key-bapu_approved_row_"] {background:#fff!important;border:1px solid #e0e7ff;border-top:0;padding:11px 15px!important;box-shadow:0 3px 12px rgba(30,41,59,.05)}
+        div[class*="st-key-bapu_approved_row_"] p {font-size:.87rem!important;color:#1e293b;font-weight:650}
+        div[class*="st-key-bapu_approved_view_"] button {background:#eef2ff!important;border:1px solid #c7d2fe!important;border-radius:9px!important;min-height:36px!important;padding:3px 8px!important}
+        div[class*="st-key-bapu_approved_view_"] button p {color:#4338ca!important;font-weight:850!important}
+        div[class*="st-key-bapu_approved_detail_"] {background:linear-gradient(135deg,#f8faff,#f2f0ff)!important;border:1px solid #c7d2fe;border-top:0;border-radius:0 0 15px 15px;padding:16px 20px!important;margin-bottom:12px}
+        </style>""",unsafe_allow_html=True)
         approved_groups = {}
         for r in _out:
             ref = str(r.get("reference_no") or "").strip()
             key = ("ref",ref,str(r.get("to_team") or ""),str(r.get("transfer_date") or "")) if ref and ref.lower() != "null" else ("id",str(r.get("id")))
             approved_groups.setdefault(key,[]).append(r)
-        st.metric("Approved Requests",len(approved_groups))
-        if not approved_groups: st.info("अभी कोई Approved Material नहीं है।")
-        for group in approved_groups.values():
-            first=group[0]
-            total_amount=sum(_bapu_num(r.get("amount")) for r in group)
-            with st.expander(f"✅ {first.get('to_team') or '-'} | {len(group)} Items | {_bapu_amt(total_amount)}"):
-                st.write(f"Date: {first.get('transfer_date')} | Reference: {first.get('reference_no') or '-'}")
-                st.dataframe(pd.DataFrame([{"Material Description":r.get("material_description"),
-                    "Qty":_bapu_num(r.get("quantity")),
-                    "Rate ₹":round(_bapu_num(r.get("amount"))/_bapu_num(r.get("quantity")),4) if _bapu_num(r.get("quantity")) else 0,
-                    "Amount ₹":_bapu_num(r.get("amount"))} for r in group]),use_container_width=True,hide_index=True)
-                st.markdown(f"**Grand Total: {_bapu_amt(total_amount)}**")
+        groups=list(approved_groups.values())
+        with st.container(key="bapu_approved_hero"):
+            st.markdown("### ✨ Approved Material · Premium Register")
+            st.markdown("**One Request · Multiple Materials · Complete Approval History**")
+        k1,k2,k3=st.columns(3)
+        k1.metric("✅ Approved Requests",len(groups))
+        k2.metric("📦 Material Items",sum(len(g) for g in groups))
+        k3.metric("💰 Total Approved Value",_bapu_amt(sum(_bapu_num(r.get("amount")) for g in groups for r in g)))
+        approved_search=st.text_input("🔍 Search Team / Reference / Material / Date",key="bapu_approved_search",placeholder="Search approved requests...")
+        shown_groups=[g for g in groups if not approved_search or approved_search.casefold() in " ".join(str(x or "") for r in g for x in (r.get("to_team"),r.get("reference_no"),r.get("material_description"),r.get("transfer_date"))).casefold()]
+        if not shown_groups:
+            st.info("कोई Matching Approved Material Request नहीं मिली।")
+        else:
+            widths=[1.25,2.45,1.4,.7,1.5,1.25,1.1]
+            with st.container(key="bapu_approved_head"):
+                header=st.columns(widths,gap="small",vertical_alignment="center")
+                for c,label in zip(header,["ISSUE DATE","TEAM NAME","REFERENCE","ITEMS","TOTAL ₹","STATUS","DETAILS"]):
+                    c.markdown(label)
+            for group in shown_groups:
+                first=group[0]
+                ids=sorted(str(r.get("id")) for r in group)
+                row_id="_".join(ids)
+                ref=str(first.get("reference_no") or "").strip()
+                amount=sum(_bapu_num(r.get("amount")) for r in group)
+                state_key=f"bapu_approved_open_{row_id}"
+                with st.container(key=f"bapu_approved_row_{row_id}"):
+                    cols=st.columns(widths,gap="small",vertical_alignment="center")
+                    cols[0].write(str(first.get("transfer_date") or "-"))
+                    cols[1].markdown(f"**{html.escape(str(first.get('to_team') or '-'))}**")
+                    cols[2].write(ref if ref and ref.lower()!="null" else "-")
+                    cols[3].markdown(f"**{len(group)}**")
+                    cols[4].markdown(f"**{_bapu_amt(amount)}**")
+                    cols[5].markdown("🟢 **Approved**")
+                    with cols[6]:
+                        with st.container(key=f"bapu_approved_view_{row_id}"):
+                            if st.button("👁 View" if not st.session_state.get(state_key,False) else "▲ Hide",key=f"bapu_approved_btn_{row_id}",use_container_width=True):
+                                st.session_state[state_key]=not st.session_state.get(state_key,False)
+                                st.rerun()
+                if st.session_state.get(state_key,False):
+                    with st.container(key=f"bapu_approved_detail_{row_id}"):
+                        st.markdown(f"**📦 Material Details · {html.escape(str(first.get('to_team') or '-'))}** &nbsp; | &nbsp; **Reference:** {html.escape(ref or '-')} &nbsp; | &nbsp; **Issue Date:** {html.escape(str(first.get('transfer_date') or '-'))}",unsafe_allow_html=True)
+                        details=pd.DataFrame([{
+                            "#":i+1,
+                            "Material Description":r.get("material_description") or "-",
+                            "Qty":_bapu_num(r.get("quantity")),
+                            "Rate ₹":round(_bapu_num(r.get("amount"))/_bapu_num(r.get("quantity")),4) if _bapu_num(r.get("quantity")) else 0,
+                            "Amount ₹":_bapu_num(r.get("amount")),
+                            "Remark":r.get("remark") or ""
+                        } for i,r in enumerate(group)])
+                        st.dataframe(details,use_container_width=True,hide_index=True,column_config={
+                            "Rate ₹":st.column_config.NumberColumn(format="₹ %.2f"),
+                            "Amount ₹":st.column_config.NumberColumn(format="₹ %.2f")})
+                        st.markdown(f"#### Grand Total: {_bapu_amt(amount)}")
+                        st.caption("Rate = Amount ÷ Qty (derived from existing database fields).")
         df=pd.DataFrame([{"Date":r.get("transfer_date"),"From":r.get("from_team"),"Team":r.get("to_team"),
             "Material":r.get("material_description"),"Qty":r.get("quantity"),"Amount":_bapu_num(r.get("amount")),
-            "Reference":r.get("reference_no"),"Status":r.get("status")} for r in _out])
+            "Reference":r.get("reference_no"),"Status":r.get("status")} for g in shown_groups for r in g])
         if not df.empty:
             st.download_button("📥 Download Approved CSV",df.to_csv(index=False).encode("utf-8-sig"),"Bapu_Approved_Material.csv",mime="text/csv")
 
