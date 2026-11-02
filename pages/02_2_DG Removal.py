@@ -1322,6 +1322,29 @@ def inline_status(rid, doc, current):
         doc["label"], choices, key=key, label_visibility="collapsed",
         on_change=lambda: inline_save_status(rid, db_col, st.session_state[key]),
     )
+    # Status-based colors: Available = green; everything else = orange.
+    # CSS is scoped to this exact selectbox, keeping inline editing functional.
+    selected = st.session_state.get(key, current)
+    is_available = str(selected).strip().lower() == "available"
+    bg, border, fg = (("#dcfce7", "#86efac", "#166534") if is_available
+                      else ("#ffedd5", "#fdba74", "#9a3412"))
+    st.markdown(f"""
+    <style>
+    .st-key-{key} [data-baseweb="select"] > div {{
+        background: {bg} !important;
+        border: 1px solid {border} !important;
+        border-radius: 999px !important;
+        box-shadow: none !important;
+    }}
+    .st-key-{key} [data-baseweb="select"] span,
+    .st-key-{key} [data-baseweb="select"] svg,
+    .st-key-{key} [data-baseweb="select"] div {{
+        color: {fg} !important;
+        fill: {fg} !important;
+        font-weight: 800 !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def open_site(rid):
