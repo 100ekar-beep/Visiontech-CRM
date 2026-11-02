@@ -302,6 +302,26 @@ div[class*="st-key-sluxrow_"] p { margin: 0 !important; }
 .st-key-slux_pager .page-count { color: #4338ca !important; font-weight: 800 !important; font-size: .95rem !important; }
 .st-key-slux_pager [data-testid="stNumberInput"] input { text-align: center; font-weight: 800; color: #312e81; }
 
+/* INLINE STATUS DROPDOWNS: apply to visible selectbox surface, not just its text. */
+div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] > div,
+div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] > div[role="combobox"] {
+    background-color: #dcfce7 !important; border: 1.5px solid #86efac !important;
+    border-radius: 18px !important; box-shadow: none !important;
+}
+div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] > div,
+div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] > div[role="combobox"] {
+    background-color: #ffedd5 !important; border: 1.5px solid #fdba74 !important;
+    border-radius: 18px !important; box-shadow: none !important;
+}
+div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] *,
+div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] svg {
+    color: #166534 !important; fill: #166534 !important; font-weight: 800 !important;
+}
+div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] *,
+div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] svg {
+    color: #9a3412 !important; fill: #9a3412 !important; font-weight: 800 !important;
+}
+
 /* Mobile cards */
 .site-card-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
 .site-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
@@ -1315,36 +1335,17 @@ def inline_status(rid, doc, current):
     db_col = doc["status"]
     choices = list(dict.fromkeys([*STATUS_OPTS, current]))
     key = f"dg_inline_{doc['folder']}_{rid}"
-    # Existing value refresh ke saath synced rahe.
     if key not in st.session_state:
         st.session_state[key] = current
-    st.selectbox(
-        doc["label"], choices, key=key, label_visibility="collapsed",
-        on_change=lambda: inline_save_status(rid, db_col, st.session_state[key]),
-    )
-    # Status-based colors: Available = green; everything else = orange.
-    # CSS is scoped to this exact selectbox, keeping inline editing functional.
     selected = st.session_state.get(key, current)
-    is_available = str(selected).strip().lower() == "available"
-    bg, border, fg = (("#dcfce7", "#86efac", "#166534") if is_available
-                      else ("#ffedd5", "#fdba74", "#9a3412"))
-    st.markdown(f"""
-    <style>
-    .st-key-{key} [data-baseweb="select"] > div {{
-        background: {bg} !important;
-        border: 1px solid {border} !important;
-        border-radius: 999px !important;
-        box-shadow: none !important;
-    }}
-    .st-key-{key} [data-baseweb="select"] span,
-    .st-key-{key} [data-baseweb="select"] svg,
-    .st-key-{key} [data-baseweb="select"] div {{
-        color: {fg} !important;
-        fill: {fg} !important;
-        font-weight: 800 !important;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
+    color = "available" if str(selected).strip().lower() == "available" else "other"
+    # Color wrapper is a Streamlit container, not a CSS style inserted after a widget.
+    # It reliably scopes the background to the visible BaseWeb select control.
+    with st.container(key=f"dg_color_{color}_{doc['folder']}_{rid}"):
+        st.selectbox(
+            doc["label"], choices, key=key, label_visibility="collapsed",
+            on_change=lambda: inline_save_status(rid, db_col, st.session_state[key]),
+        )
 
 
 def open_site(rid):
