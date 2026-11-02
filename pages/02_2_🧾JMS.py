@@ -309,7 +309,10 @@ st.markdown("""
     .status-green { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
     .status-grey  { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
 
-    /* Inline row buttons: 🧾 Create (green) / ✏️ Edit (blue) / ⬇️ PDF (purple) */
+    /* Premium JMS actions: Edit / PDF / Delete */
+     div[class*="st-key-jmshistoryedit_"] button { background:linear-gradient(135deg,#2563eb,#7c3aed)!important; color:white!important; border-radius:10px!important; }
+     div[class*="st-key-jmshistorydelete_"] button { background:linear-gradient(135deg,#f97316,#dc2626)!important; color:white!important; border-radius:10px!important; }
+     /* Inline row buttons: 🧾 Create (green) / ✏️ Edit (blue) / ⬇️ PDF (purple) */
     div[class*="st-key-jmscreate_"] button, div[class*="st-key-jmsedit_"] button, div[class*="st-key-jmsrowdl_"] button {
         width: 38px !important; max-width: 38px !important; height: 34px !important; min-height: 34px !important;
         padding: 0 !important; margin: 0 auto !important; border-radius: 8px !important;
@@ -1083,15 +1086,15 @@ def jms_dialog(row_data):
     active_key = _jms_row_key(row_data)
     is_blank_jms = bool(row_data.get("_blank_jms"))
     if st.session_state.jmspage_loaded_key != active_key:
-        saved = None if is_blank_jms else _load_saved_jms(row_data)
+        saved = _load_saved_jms(row_data)
         saved_lines = saved.get("line_items") if saved else None
         po_lines = [] if is_blank_jms else _fetch_po_lines_for_site(row_data)
-        st.session_state.jmspage_lines = _merge_saved_lines_with_po(saved_lines, po_lines) if isinstance(saved_lines, list) else po_lines
+        st.session_state.jmspage_lines = [dict(x) for x in saved_lines] if isinstance(saved_lines, list) else po_lines
         st.session_state.jmspage_loaded_key = active_key
         st.session_state.jmspage_last_pdf = None
         st.session_state.jmspage_add_gen += 1
         st.session_state[f"jmspage_circle_{active_key}"] = (
-            "M&G" if is_blank_jms else (_clean_text(saved.get("circle")) if saved else "Maharashtra")
+            (_clean_text(saved.get("circle")) if saved else ("M&G" if is_blank_jms else "Maharashtra"))
         )
         if is_blank_jms:
             st.session_state[f"jmspage_blank_project_{active_key}"] = _clean_text(row_data.get("Project ID"))
@@ -1200,7 +1203,8 @@ def jms_dialog(row_data):
             else:
                 st.warning("Is Project ID / Site ID ke against po_working me koi line nahi mili.")
 
-    st.markdown("#### Manual JMS Line Items" if is_blank_jms else "#### PO / Saved JMS Line Items")
+    st.markdown("#### ✨ JMS Line Editor — Add / Remove / Change Qty")
+    st.caption("Table mein line select karke Delete key se remove karein, ya neeche Add New Item use karein. Save JMS dabane par hi changes database mein jayenge.")
     if st.session_state.jmspage_lines:
         editor_df = pd.DataFrame(st.session_state.jmspage_lines)
         for col, default in (("item_code", ""), ("item_description", ""), ("qty", 0.0), ("remarks", "")):
@@ -1300,7 +1304,7 @@ def jms_dialog(row_data):
                     st.session_state.jmspage_lines = clean_lines
                     st.session_state.jmspage_last_pdf = _build_jms_pdf(row_data, circle, clean_lines)
                     clear_jms_cache()
-                    st.success("JMS save ho gayi. Ab PDF download kar sakte hain.")
+                    st.success("JMS successfully updated. PDF mein bhi latest changes aa gaye hain.")
                 except Exception as exc:
                     st.error(f"JMS save nahi hui: {exc}")
     with c2:
@@ -1706,8 +1710,8 @@ def _history_date(value):
         return _clean_text(value) or "-"
 
 # No old site_data table here. Only saved/generated JMS detail + direct PDF download.
-COL_RATIOS = [0.45, 0.6, 0.6, 1.15, 1.05, 1.45, 0.95, 1.15, 1.0, 1.15]
-COL_LABELS = ["#", "DOWNLOAD", "DELETE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "CIRCLE", "UPDATED"]
+COL_RATIOS = [0.45, 0.65, 0.65, 0.65, 1.15, 1.05, 1.45, 0.95, 1.15, 1.0, 1.15]
+COL_LABELS = ["#", "EDIT", "PDF", "DELETE", "PROJECT ID", "SITE ID", "SITE NAME", "CLUSTER", "TEAM NAME", "CIRCLE", "UPDATED"]
 
 if history_df.empty:
     st.markdown(
@@ -1757,6 +1761,14 @@ else:
                 updated_at = _clean_text(draft.get("updated_at"))
 
                 with rcols[1]:
+                    if st.button("✏️", key=f"jmshistoryedit_{safe_key}_{pos}", help="Edit saved JMS: add/remove lines, change Qty", use_container_width=True):
+                        st.session_state.jmspage_open_row = pdf_row
+                        st.session_state.jmspage_loaded_key = None
+                        st.session_state.jmspage_last_pdf = None
+                        st.query_params["jms_ctx"] = "open"
+                        st.rerun()
+
+                with rcols[2]:
                     try:
                         pdf_bytes = _cached_jms_pdf_bytes(
                             active_ws, draft_id, updated_at,
@@ -1773,7 +1785,7 @@ else:
                     except Exception:
                         st.caption("PDF error")
 
-                with rcols[2]:
+                with rcols[3]:
                     if st.button(
                         "🗑️",
                         key=f"jmshistorydelete_{safe_key}_{pos}",
@@ -1788,13 +1800,13 @@ else:
                         }
                         st.rerun()
 
-                rcols[3].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
-                rcols[4].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
-                rcols[5].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[6].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
-                rcols[7].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[8].markdown(_pill(draft_circle), unsafe_allow_html=True)
-                rcols[9].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
+                rcols[10].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
+                rcols[10].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
+                rcols[10].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[10].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
+                rcols[10].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[10].markdown(_pill(draft_circle), unsafe_allow_html=True)
+                rcols[10].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
 
     pending_delete = st.session_state.get("jmspage_delete_confirm")
     if pending_delete and pending_delete.get("workspace") == active_ws:
