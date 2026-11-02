@@ -1800,12 +1800,12 @@ else:
                         }
                         st.rerun()
 
-                rcols[10].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
-                rcols[10].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
-                rcols[10].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[10].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
-                rcols[10].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
-                rcols[10].markdown(_pill(draft_circle), unsafe_allow_html=True)
+                rcols[4].markdown(_chip(draft.get("project_id"), "proj"), unsafe_allow_html=True)
+                rcols[5].markdown(_chip(draft.get("site_id")), unsafe_allow_html=True)
+                rcols[6].markdown(_txt(draft.get("site_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[7].markdown(_pill(draft.get("cluster")), unsafe_allow_html=True)
+                rcols[8].markdown(_txt(draft.get("team_name"), "slux-strong"), unsafe_allow_html=True)
+                rcols[9].markdown(_pill(draft_circle), unsafe_allow_html=True)
                 rcols[10].markdown(_txt(_history_date(updated_at)), unsafe_allow_html=True)
 
     pending_delete = st.session_state.get("jmspage_delete_confirm")
