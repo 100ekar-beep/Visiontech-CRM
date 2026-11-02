@@ -307,6 +307,19 @@ st.markdown("""
     }
     .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
 
+    /* Full-length searchable item choices: wrap text, never ellipsis */
+    div[class*="st-key-po_item_picker_"] button {
+        height: auto !important; min-height: 48px !important;
+        white-space: normal !important; text-align: left !important;
+        justify-content: flex-start !important; padding: 10px 12px !important;
+    }
+    div[class*="st-key-po_item_picker_"] button p,
+    div[class*="st-key-po_item_picker_"] button span {
+        white-space: normal !important; overflow: visible !important;
+        text-overflow: clip !important; overflow-wrap: anywhere !important;
+        word-break: break-word !important; line-height: 1.5 !important;
+        text-align: left !important;
+    }
     /* Full multi-line item descriptions in Streamlit select dropdown */
     div[data-baseweb="popover"] [role="option"],
     div[data-baseweb="popover"] [role="option"] *,
@@ -930,17 +943,44 @@ def view_po_details_dialog(row_data):
         if item_master_df.empty:
             st.warning("Item master me koi item nahi mila. item_master table check karein.")
         else:
-            item_options = [""] + item_master_df["Display"].tolist()
+            # Native selectbox truncates long BaseWeb options. Use a searchable,
+            # fully wrapped Streamlit button list instead.
             add_form_version_key = f"po_add_form_version_{safe_po_file}_{proj_name}"
             if add_form_version_key not in st.session_state:
                 st.session_state[add_form_version_key] = 0
             add_form_version = st.session_state[add_form_version_key]
+            picker_key = f"po_item_picker_{safe_po_file}_{proj_name}_{add_form_version}"
+            selected_key = f"{picker_key}_selected"
             add_col1, add_col2, add_col3, add_col4, add_col5 = st.columns([5, 1.5, 1.5, 1.5, 1.5])
             with add_col1:
-                selected_item_display = st.selectbox(
-                    "SEARCH ITEM CODE / DESCRIPTION", item_options,
-                    key=f"po_add_item_{safe_po_file}_{proj_name}_{add_form_version}"
+                search_text = st.text_input(
+                    "SEARCH ITEM CODE / DESCRIPTION",
+                    placeholder="Type item code or description to search...",
+                    key=f"{picker_key}_search",
                 )
+                selected_item_display = st.session_state.get(selected_key, "")
+                if search_text.strip():
+                    words = search_text.strip().casefold().split()
+                    filtered = item_master_df[
+                        item_master_df["Display"].apply(
+                            lambda item: all(word in str(item).casefold() for word in words)
+                        )
+                    ]
+                else:
+                    filtered = item_master_df.head(15)
+                st.caption(f"Showing {min(len(filtered), 40)} of {len(filtered)} matching items. Click an item to select.")
+                with st.container(height=280, border=True):
+                    for item_idx, item_row in filtered.head(40).iterrows():
+                        item_label = str(item_row["Display"])
+                        if st.button(
+                            item_label,
+                            key=f"{picker_key}_choice_{item_idx}",
+                            use_container_width=True,
+                            type="primary" if item_label == selected_item_display else "secondary",
+                        ):
+                            st.session_state[selected_key] = item_label
+                            selected_item_display = item_label
+                selected_item_display = st.session_state.get(selected_key, "")
             if selected_item_display:
                 st.markdown(
                     '<div style="background:#eef2ff;border:1px solid #c7d2fe;'
