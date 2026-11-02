@@ -701,20 +701,58 @@ def quotation_dialog(quotation_data=None):
         
     dynamic_options = [""] + available_opts
     
-    bulk_mode = is_new and st.checkbox("Multiple projects - same template", key="quo_bulk_mode")
+    bulk_mode = is_new and st.checkbox("📋 Bulk Quotation — Paste Multiple Project IDs", key="quo_bulk_mode")
     selected_projects = []
     if bulk_mode:
-        selected_projects = st.multiselect(
-            "SELECT PROJECT IDs *", options=available_opts, key="quo_bulk_projects",
-            help="One separate quotation will be created for each selected project using the same items and quantities."
+        st.markdown("#### 📋 Paste Project IDs from Excel / WhatsApp")
+        pasted = st.text_area(
+            "PROJECT IDs — one per line, or paste an Excel column",
+            height=185, key="quo_bulk_pasted_ids",
+            placeholder="IN-3192856-1\nIN-1092170-1\nIN-3206758-1",
+            help="Newline, comma, tab, pipe and Excel/Markdown tables are supported."
         )
+        import re
+        pasted_ids = []
+        seen_ids = set()
+        for token in re.split(r"[\s,;|]+", pasted.upper()):
+            token = token.strip().strip(chr(96) + chr(39) + chr(34) + " ")
+            if not token or token in {"PROJECT", "ID", "PROJECT ID", "---"} or set(token) == {"-"}:
+                continue
+            if token not in seen_ids:
+                seen_ids.add(token)
+                pasted_ids.append(token)
+        # Optional manual picker is useful when a few IDs need adding.
+        manually_selected = st.multiselect(
+            "Or select additional Project IDs", options=available_opts,
+            key="quo_bulk_projects"
+        )
+        selected_projects = list(dict.fromkeys(pasted_ids + manually_selected))
+        known_projects = set(str(p).strip().upper() for p in project_list)
+        used_project_set = set(str(p).strip().upper() for p in used_projs)
+        preview_rows = []
+        for pid in selected_projects:
+            match = df_projects[df_projects["Project ID"].astype(str).str.strip().str.upper() == pid]
+            if pid in used_project_set:
+                status = "⚠️ Already quoted — skip"
+            elif pid not in known_projects or match.empty:
+                status = "❌ Not found in quotation site list"
+            else:
+                status = "✅ Ready"
+            row = match.iloc[0] if not match.empty else {}
+            preview_rows.append({
+                "Project ID": pid, "Site ID": str(row.get("Site ID", "")),
+                "Site Name": str(row.get("Site Name", "")),
+                "Cluster": str(row.get("Cluster", "")), "Status": status
+            })
         if selected_projects:
-            st.caption(f"{len(selected_projects)} projects selected. Site details below preview the first project.")
-            st.dataframe(
-                df_projects[df_projects["Project ID"].isin(selected_projects)][
-                    ["Project ID", "Site ID", "Site Name", "Cluster", "Project Name"]
-                ], hide_index=True, use_container_width=True
-            )
+            ready = sum(r["Status"] == "✅ Ready" for r in preview_rows)
+            skipped = len(selected_projects) - ready
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Pasted / Selected", len(selected_projects))
+            m2.metric("Ready to Generate", ready)
+            m3.metric("Missing / Already Quoted", skipped)
+            st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True, height=260)
+            st.caption("Each ready Project ID gets its own quotation with the same template items. Missing or already quoted IDs are skipped.")
 
     # Top Section
     col1, col2, col3, col4 = st.columns(4)
@@ -785,15 +823,16 @@ def quotation_dialog(quotation_data=None):
             except:
                 st.session_state[editor_key] = pd.DataFrame(columns=["Item Code", "Description", "Qty", "Price", "Total"])
 
-    if selected_template and selected_template != "-- Select Template --":
+    if selected_template and selected_template != "-- Select Template --" and st.session_state.get(f"loaded_template_{editor_key}") != selected_template:
+        st.session_state[f"loaded_template_{editor_key}"] = selected_template
         for t in templates_data:
             if t is template_lookup.get(selected_template):
                 try:
                     raw_items = json.loads(t["Items Data"]) if isinstance(t["Items Data"], str) else t["Items Data"]
                     loaded_rows = []
                     for ri in raw_items:
-                        qty_val = int(ri.get("Qty", 1))
-                        price_val = int(ri.get("Price", 0))
+                        qty_val = float(ri.get("Qty", 1) or 0)
+                        price_val = float(ri.get("Price", 0) or 0)
                         loaded_rows.append({
                             "Item Code": ri.get("Item Code", ""),
                             "Description": ri.get("Description", ""),
