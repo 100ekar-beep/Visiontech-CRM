@@ -307,6 +307,26 @@ st.markdown("""
     }
     .slux-empty div { font-size: 2.4rem; margin-bottom: 8px; }
 
+    /* Full multi-line item descriptions in Streamlit select dropdown */
+    div[data-baseweb="popover"] [role="option"],
+    div[data-baseweb="popover"] [role="option"] *,
+    ul[role="listbox"] li, ul[role="listbox"] li * {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        text-overflow: clip !important;
+        max-height: none !important;
+        height: auto !important;
+        line-height: 1.5 !important;
+    }
+    div[data-baseweb="popover"] [role="option"], ul[role="listbox"] li {
+        padding-top: 10px !important; padding-bottom: 10px !important;
+        align-items: flex-start !important;
+    }
+    div[data-baseweb="select"] [data-testid="stMarkdownContainer"] {
+        white-space: normal !important;
+    }
+
     /* ================= MOBILE CARD VIEW (light) ================= */
     .po-card-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
     .po-card-sub { font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
@@ -564,7 +584,7 @@ if 'po_working_df' not in st.session_state:
             for col in num_cols:
                 if col in df_fetched.columns:
                     df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
-                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(float if col == 'User Qty' else int)
+                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(float if col in ('User Qty', 'VIS Qty', 'Diff', 'Amount') else int)
             st.session_state.po_working_df = df_fetched
         else:
             st.session_state.po_working_df = pd.DataFrame(columns=[
@@ -651,7 +671,7 @@ def po_upload_dialog():
                 for col in num_columns_to_int:
                     if col in df_proc.columns:
                         df_proc[col] = df_proc[col].astype(str).str.replace(',', '', regex=True)
-                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(float if col == 'User Qty' else int)
+                        df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0).astype(float if col in ('User Qty', 'VIS Qty', 'Diff', 'Amount') else int)
                 
                 df_proc['Diff'] = df_proc['PO Qty'] - df_proc['VIS Qty']
                 df_proc['Amount'] = df_proc['VIS Qty'] * df_proc['Price']
@@ -682,7 +702,7 @@ def po_upload_dialog():
                     clean_rec = {"workspace": st.session_state.get('active_workspace', 'VISPL')}
                     for k, v in rec.items():
                         if k in num_columns_to_int:
-                            clean_rec[k] = float(v) if k == 'User Qty' else int(v)
+                            clean_rec[k] = float(v) if k in ('User Qty', 'VIS Qty', 'Diff', 'Amount') else int(v)
                         else:
                             clean_rec[k] = str(v).strip() if pd.notna(v) else ""
                     records_to_insert.append(clean_rec)
@@ -799,7 +819,7 @@ def view_po_details_dialog(row_data):
     ]
     
     # Versioned key clears the old data-editor schema where PO Qty was locked.
-    editor_key = f"po_editor_v3_{po_no}_{proj_name}"
+    editor_key = f"po_editor_v4_decimal_{po_no}_{proj_name}"
     
     df_full = st.session_state.po_working_df
     po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
@@ -821,7 +841,7 @@ def view_po_details_dialog(row_data):
     df_temp['PO Qty'] = pd.to_numeric(df_temp['PO Qty'], errors='coerce').fillna(0).astype(int)
     
     df_temp['VIS Qty'] = df_temp['VIS Qty'].astype(str).str.replace(',', '', regex=True)
-    df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(int)
+    df_temp['VIS Qty'] = pd.to_numeric(df_temp['VIS Qty'], errors='coerce').fillna(0).astype(float)
     
     df_temp['Price'] = df_temp['Price'].astype(str).str.replace(',', '', regex=True)
     df_temp['Price'] = pd.to_numeric(df_temp['Price'], errors='coerce').fillna(0).astype(int)
@@ -911,6 +931,16 @@ def view_po_details_dialog(row_data):
                     "SEARCH ITEM CODE / DESCRIPTION", item_options,
                     key=f"po_add_item_{safe_po_file}_{proj_name}_{add_form_version}"
                 )
+            if selected_item_display:
+                st.markdown(
+                    '<div style="background:#eef2ff;border:1px solid #c7d2fe;'
+                    'border-radius:10px;padding:10px 14px;margin:6px 0 12px;'
+                    'white-space:normal;overflow-wrap:anywhere;line-height:1.6;'
+                    'color:#312e81;font-weight:650;">'
+                    '✅ <b>SELECTED ITEM — FULL CODE & DESCRIPTION</b><div>'
+                    + html.escape(str(selected_item_display)) + '</div></div>',
+                    unsafe_allow_html=True,
+                )
             selected_master_row = None
             default_price = 0
             default_uom = ""
@@ -935,7 +965,7 @@ def view_po_details_dialog(row_data):
                 )
             with add_col4:
                 new_vis_qty = st.number_input(
-                    "VIS QTY", min_value=0, value=0, step=1,
+                    "VIS QTY", min_value=0.0, value=0.0, step=0.01, format="%g",
                     key=f"po_add_vis_qty_{safe_po_file}_{proj_name}_{add_form_version}"
                 )
             with add_col5:
@@ -976,12 +1006,12 @@ def view_po_details_dialog(row_data):
                             "UOM": default_uom,
                             "PO Qty": int(new_po_qty),
                             "User Qty": float(new_user_qty),
-                            "VIS Qty": int(new_vis_qty),
-                            "Diff": int(new_po_qty) - int(new_vis_qty),
+                            "VIS Qty": float(new_vis_qty),
+                            "Diff": float(new_po_qty) - float(new_vis_qty),
                             "wcc_qty": 0, "wcc_status": "",
                             "Claim Qty": 0, "Receipt Qty": 0,
                             "Price": int(new_price),
-                            "Amount": int(new_vis_qty) * int(new_price)
+                            "Amount": float(new_vis_qty) * int(new_price)
                         }
                         try:
                             insert_result = supabase.table("po_working").insert(insert_payload).execute()
@@ -1020,14 +1050,14 @@ def view_po_details_dialog(row_data):
             "PO Number": st.column_config.TextColumn("PO Number", alignment="center"),
             "PO Qty": st.column_config.NumberColumn("PO Qty", min_value=0, alignment="center", format="%d", step=1),
             "User Qty": st.column_config.NumberColumn("USER QTY", alignment="center", format="%g", step=0.01),
-            "VIS Qty": st.column_config.NumberColumn("VIS QTY", alignment="center", format="%d", step=1),
-            "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%d"),
+            "VIS Qty": st.column_config.NumberColumn("VIS QTY", min_value=0.0, alignment="center", format="%g", step=0.01),
+            "Diff": st.column_config.NumberColumn("Diff", disabled=True, alignment="center", format="%g"),
             "wcc_qty": st.column_config.NumberColumn("WCC QTY", disabled=True, alignment="center", format="%d"),
             "wcc_status": st.column_config.TextColumn("WCC STATUS", disabled=True, alignment="center"),
             "Claim Qty": st.column_config.NumberColumn("CLAIM QTY", alignment="center", format="%d", step=1),
             "Receipt Qty": st.column_config.NumberColumn("RECEIPT QTY", alignment="center", format="%d", step=1),
             "Price": st.column_config.NumberColumn("Price", alignment="center", format="%d"),
-            "Amount": st.column_config.NumberColumn("Amount", disabled=True, alignment="center", format="%d")
+            "Amount": st.column_config.NumberColumn("Amount", disabled=True, alignment="center", format="%g")
         }
     )
 
@@ -1096,7 +1126,8 @@ def view_po_details_dialog(row_data):
                         po_qty_val = safe_int(row.get('PO Qty', 0))
                         user_qty_parsed = pd.to_numeric(row.get('User Qty', 0), errors="coerce")
                         user_qty_val = 0.0 if pd.isna(user_qty_parsed) else float(user_qty_parsed)
-                        vis_qty_val = safe_int(row.get('VIS Qty', 0))
+                        vis_qty_parsed = pd.to_numeric(row.get('VIS Qty', 0), errors='coerce')
+                        vis_qty_val = 0.0 if pd.isna(vis_qty_parsed) else float(vis_qty_parsed)
                         claim_qty_val = safe_int(row.get('Claim Qty', 0))
                         receipt_qty_val = safe_int(row.get('Receipt Qty', 0))
                         price_val = safe_int(row.get('Price', 0))
