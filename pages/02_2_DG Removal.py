@@ -302,25 +302,27 @@ div[class*="st-key-sluxrow_"] p { margin: 0 !important; }
 .st-key-slux_pager .page-count { color: #4338ca !important; font-weight: 800 !important; font-size: .95rem !important; }
 .st-key-slux_pager [data-testid="stNumberInput"] input { text-align: center; font-weight: 800; color: #312e81; }
 
-/* INLINE STATUS DROPDOWNS: apply to visible selectbox surface, not just its text. */
-div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] > div,
-div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] > div[role="combobox"] {
-    background-color: #dcfce7 !important; border: 1.5px solid #86efac !important;
-    border-radius: 18px !important; box-shadow: none !important;
+/* Inline dropdown: Streamlit BaseWeb puts the visible paint on nested elements.
+   Scope by each selectbox's own key, rather than relying on container nesting. */
+.st-key-dg_inline_src_ [data-baseweb="select"],
+.st-key-dg_inline_dc_ [data-baseweb="select"] { border-radius: 18px; }
+/* The color classes below are attached to a wrapper around each selectbox. */
+[class*="st-key-dg_color_available_"] [data-testid="stSelectbox"] [data-baseweb="select"],
+[class*="st-key-dg_color_available_"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[class*="st-key-dg_color_available_"] [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
+    background: #bbf7d0 !important; background-color: #bbf7d0 !important;
+    border-color: #4ade80 !important; border-radius: 12px !important;
 }
-div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] > div,
-div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] > div[role="combobox"] {
-    background-color: #ffedd5 !important; border: 1.5px solid #fdba74 !important;
-    border-radius: 18px !important; box-shadow: none !important;
+[class*="st-key-dg_color_other_"] [data-testid="stSelectbox"] [data-baseweb="select"],
+[class*="st-key-dg_color_other_"] [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[class*="st-key-dg_color_other_"] [data-testid="stSelectbox"] [data-baseweb="select"] > div > div {
+    background: #fed7aa !important; background-color: #fed7aa !important;
+    border-color: #fb923c !important; border-radius: 12px !important;
 }
-div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] *,
-div[class*="st-key-dg_color_available_"] div[data-baseweb="select"] svg {
-    color: #166534 !important; fill: #166534 !important; font-weight: 800 !important;
-}
-div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] *,
-div[class*="st-key-dg_color_other_"] div[data-baseweb="select"] svg {
-    color: #9a3412 !important; fill: #9a3412 !important; font-weight: 800 !important;
-}
+[class*="st-key-dg_color_available_"] [data-testid="stSelectbox"] *,
+[class*="st-key-dg_color_available_"] [data-testid="stSelectbox"] svg { color: #14532d !important; -webkit-text-fill-color: #14532d !important; fill: #14532d !important; font-weight: 800 !important; }
+[class*="st-key-dg_color_other_"] [data-testid="stSelectbox"] *,
+[class*="st-key-dg_color_other_"] [data-testid="stSelectbox"] svg { color: #9a3412 !important; -webkit-text-fill-color: #9a3412 !important; fill: #9a3412 !important; font-weight: 800 !important; }
 
 /* Mobile cards */
 .site-card-title { font-size: 1.05rem; font-weight: 800; color: #312e81; margin-bottom: 2px; }
@@ -1339,7 +1341,7 @@ def inline_status(rid, doc, current):
         st.session_state[key] = current
     selected = st.session_state.get(key, current)
     color = "available" if str(selected).strip().lower() == "available" else "other"
-    # Color wrapper is a Streamlit container, not a CSS style inserted after a widget.
+    # Color wrapper plus explicit selectbox key ensures CSS can target widget.
     # It reliably scopes the background to the visible BaseWeb select control.
     with st.container(key=f"dg_color_{color}_{doc['folder']}_{rid}"):
         st.selectbox(
