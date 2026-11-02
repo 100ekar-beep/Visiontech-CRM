@@ -1302,6 +1302,28 @@ end_idx = start_idx + rows_per_page
 df_page = df.iloc[start_idx:end_idx]
 
 
+def inline_save_status(rid, db_col, new_value):
+    try:
+        update_site(rid, {db_col: new_value})
+        flash("success", f"✅ {db_col}: {new_value} — saved in Site Data")
+    except Exception as exc:
+        flash("error", f"❌ Status save failed: {exc}")
+    st.rerun()
+
+
+def inline_status(rid, doc, current):
+    db_col = doc["status"]
+    choices = list(dict.fromkeys([*STATUS_OPTS, current]))
+    key = f"dg_inline_{doc['folder']}_{rid}"
+    # Existing value refresh ke saath synced rahe.
+    if key not in st.session_state:
+        st.session_state[key] = current
+    st.selectbox(
+        doc["label"], choices, key=key, label_visibility="collapsed",
+        on_change=lambda: inline_save_status(rid, db_col, st.session_state[key]),
+    )
+
+
 def open_site(rid):
     reset_dialog_state(rid)
     dg_site_dialog(raw_by_id[rid])
@@ -1374,8 +1396,9 @@ else:
                 rc[10].markdown(status_badge(row["PO Status"]), unsafe_allow_html=True)
                 rc[11].markdown(_chip(row["WCC Number"]), unsafe_allow_html=True)
                 rc[12].markdown(status_badge(row["WCC Status"]), unsafe_allow_html=True)
-                for i, col in enumerate(STATUS_COLS):
-                    rc[13 + i].markdown(status_badge(row[col]), unsafe_allow_html=True)
+                for i, doc in enumerate(DOCS):
+                    with rc[13 + i]:
+                        inline_status(rid, doc, row[f"{doc['label']} Status"])
                 rc[18].markdown(_txt(row["Remark"], "slux-soft"), unsafe_allow_html=True)
 
     shown_from = start_idx + 1 if total_rows else 0
