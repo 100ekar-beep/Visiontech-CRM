@@ -819,12 +819,22 @@ def view_po_details_dialog(row_data):
     ]
     
     # Versioned key clears the old data-editor schema where PO Qty was locked.
-    editor_key = f"po_editor_v4_decimal_{po_no}_{proj_name}"
+    editor_key = f"po_editor_v5_decimal_safe_{po_no}_{proj_name}"
     
     df_full = st.session_state.po_working_df
     po_specific_mask = (df_full['PO Number'] == po_no) & (df_full['Project Name'] == proj_name)
     real_indices = df_full[po_specific_mask].index.tolist()
     
+    # Pandas 2.x/3.x rejects fractional edits into integer-typed columns.
+    # Normalize editable numeric columns before replaying Streamlit editor changes.
+    decimal_columns = ('User Qty', 'VIS Qty', 'Diff', 'Amount')
+    for numeric_col in decimal_columns:
+        if numeric_col in st.session_state.po_working_df.columns:
+            st.session_state.po_working_df[numeric_col] = pd.to_numeric(
+                st.session_state.po_working_df[numeric_col].astype(str).str.replace(',', '', regex=False),
+                errors='coerce'
+            ).fillna(0.0).astype('float64')
+
     if editor_key in st.session_state:
         edits = st.session_state[editor_key].get("edited_rows", {})
         if edits:
