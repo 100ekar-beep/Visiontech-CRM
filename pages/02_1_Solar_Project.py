@@ -784,47 +784,91 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# --- 6. FETCH SOLAR SITES (Project Name = Solar) FROM site_data ---
+# --- 6. FETCH SOLAR SITES FROM site_data ---
+# Match the selected workspace using common display-name aliases.
+# Never silently treat a database error as zero sites.
+def solar_workspace_aliases(workspace):
+    w = str(workspace or "").strip()
+    norm = " ".join(w.lower().replace("_", " ").split())
+    if norm in ("sai tele", "sai tele services", "saitele"):
+        return ["Sai Tele", "SAI TELE", "Sai Tele Services", "SAI TELE SERVICES", "Sai Tele Services Pvt Ltd", w]
+    if norm in ("vispl", "visiontech", "visiontech infra solution", "visiontech infra solution pvt. ltd."):
+        return ["VISPL", "Visiontech", "VISIONTECH", w]
+    if norm in ("bhagyashree",):
+        return ["BHAGYASHREE", "Bhagyashree", w]
+    return [w]
+
+
+def solar_fetch_all(query_factory, batch=1000):
+    output = []
+    offset = 0
+    while True:
+        chunk = query_factory().range(offset, offset + batch - 1).execute().data or []
+        output.extend(chunk)
+        if len(chunk) < batch:
+            break
+        offset += batch
+    return output
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_solar_data_cached(workspace):
-    """Bundles the 3 core Solar Project queries into one cached call.
-    Previously these ran unconditionally on EVERY rerun (every search
-    keystroke, every tab switch, every dialog interaction) — now they're
-    reused for 30s. Call fetch_solar_data_cached.clear() before st.rerun()
-    after saving/deleting a team allocation or a payment."""
+    if supabase is None:
+        return [], [], [], ["Supabase connection unavailable"]
+    errors = []
+    aliases = list(dict.fromkeys(solar_workspace_aliases(workspace)))
     try:
-        site_res = supabase.table("site_data").select("*").eq("workspace", workspace).ilike("Project Name", "%solar%").execute()
-        site_data_ = site_res.data if site_res.data else []
-        site_data_ = [r for r in site_data_ if str(r.get("Project Name", "")).strip().lower() == "solar"]
-    except Exception:
+        # Fetch by project name first, then match workspace in Python so spelling,
+        # capitalization and display-name aliases do not hide existing sites.
+        candidates = solar_fetch_all(lambda: supabase.table("site_data").select("*").ilike("Project Name", "%solar%"))
+        allowed = {" ".join(str(v).strip().lower().replace("_", " ").split()) for v in aliases}
+        site_data_ = [r for r in candidates
+                      if "solar" in str(r.get("Project Name") or "").strip().lower()
+                      and " ".join(str(r.get("workspace") or "").strip().lower().replace("_", " ").split()) in allowed]
+        # If no workspace match, leave the result empty rather than leaking sites
+        # from unrelated workspaces; diagnostics below show available workspaces.
+    except Exception as e:
         site_data_ = []
+        errors.append(f"site_data query failed: {e}")
 
     try:
-        alloc_res = supabase.table("solar_team_allocation").select("*").eq("workspace", workspace).execute()
-        alloc_data_ = alloc_res.data if alloc_res.data else []
-    except Exception:
+        alloc_data_ = solar_fetch_all(lambda: supabase.table("solar_team_allocation").select("*").in_("workspace", aliases))
+    except Exception as e:
         alloc_data_ = []
+        errors.append(f"solar_team_allocation query failed: {e}")
 
     try:
-        pay_res = supabase.table("solar_payments").select("*").eq("workspace", workspace).order("id", desc=True).execute()
-        solar_payments_data_ = pay_res.data if pay_res.data else []
-    except Exception:
+        solar_payments_data_ = solar_fetch_all(lambda: supabase.table("solar_payments").select("*").in_("workspace", aliases).order("id", desc=True))
+    except Exception as e:
         solar_payments_data_ = []
+        errors.append(f"solar_payments query failed: {e}")
 
-    return site_data_, alloc_data_, solar_payments_data_
+    return site_data_, alloc_data_, solar_payments_data_, errors
 
 
 active_ws = st.session_state.get('active_workspace', 'VISPL')
-site_data, alloc_data, solar_payments_data = fetch_solar_data_cached(active_ws)
+site_data, alloc_data, solar_payments_data, solar_fetch_errors = fetch_solar_data_cached(active_ws)
+for error in solar_fetch_errors:
+    st.error(f"❌ Solar database: {error}")
 
 if not site_data:
-    try:
-        all_ws_res = supabase.table("site_data").select("Project Name").eq("workspace", active_ws).execute()
-        distinct_pn = sorted(set(str(r.get("Project Name", "")).strip() for r in (all_ws_res.data or []) if str(r.get("Project Name", "")).strip()))
-        if distinct_pn:
-            st.info(f"ℹ️ Koi 'Solar' site nahi mili. Aapke workspace mein 'Project Name' column ki actual values hain: {', '.join(distinct_pn)}")
-    except Exception:
-        pass
+    st.warning(f"No Solar sites matched workspace '{active_ws}'. Check the details below before adding duplicate sites.")
+    with st.expander("🔎 Solar Site Data Diagnostics", expanded=True):
+        try:
+            samples = solar_fetch_all(lambda: supabase.table("site_data").select("workspace,Project Name").ilike("Project Name", "%solar%"))
+            breakdown = {}
+            for row in samples:
+                key = (str(row.get("workspace") or "(blank)"), str(row.get("Project Name") or "(blank)"))
+                breakdown[key] = breakdown.get(key, 0) + 1
+            st.write("Current workspace:", active_ws)
+            st.write("Workspace aliases checked:", ", ".join(solar_workspace_aliases(active_ws)))
+            st.write("Solar records found across workspaces:", len(samples))
+            if breakdown:
+                st.dataframe(pd.DataFrame([{"Workspace": k[0], "Project Name": k[1], "Sites": v} for k,v in sorted(breakdown.items())]), hide_index=True, use_container_width=True)
+            else:
+                st.info("No project names containing 'solar' were returned by site_data. Check the actual Project Name and Supabase access policy.")
+        except Exception as e:
+            st.error(f"Diagnostics query failed: {e}")
 
 alloc_map = {row.get("Project ID", ""): row for row in alloc_data}
 
