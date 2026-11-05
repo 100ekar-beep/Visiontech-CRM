@@ -392,8 +392,10 @@ with st.container(key="po_company_nav_bar"):
                 # reusing whatever was already loaded for the previous one.
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
+                    invalidate_po_fast_cache()
                 st.session_state.po_current_page = 1
                 st.session_state.po_last_search = ""
+                st.session_state.po_committed_search = ""
                 st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -581,39 +583,67 @@ def fetch_po_item_master_cached():
         return pd.DataFrame(columns=["Item Code", "Description", "UOM", "Price", "Display"])
 
 
-# --- INITIALIZE SESSION STATE DIRECTLY FROM SUPABASE WITH WORKSPACE FILTER ---
-# NOTE: iska already accha pattern hai — poori po_working table sirf EK BAAR
-# session_state me load hoti hai (jab tak explicitly delete na ho, jaise
-# upload/edit/delete/company-switch ke baad), baar baar Supabase se re-fetch nahi hoti.
+# --- FAST MODE: only load PO line items when a specific PO is opened ---
+# The register itself uses a database-side grouped search and pagination RPC.
 if 'po_working_df' not in st.session_state:
-    try:
-        active_ws = st.session_state.get('active_workspace', 'VISPL')
-        all_data = fetch_all_rows(
-            lambda start, end: supabase.table("po_working").select("*").eq("workspace", active_ws).range(start, end).execute()
-        )
-        if all_data and len(all_data) > 0:
-            df_fetched = pd.DataFrame(all_data)
-            num_cols = ['Line Number', 'PO Qty', 'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount']
-            for col in num_cols:
-                if col in df_fetched.columns:
-                    df_fetched[col] = df_fetched[col].astype(str).str.replace(',', '', regex=True)
-                    df_fetched[col] = pd.to_numeric(df_fetched[col], errors='coerce').fillna(0).astype(float if col in ('User Qty', 'VIS Qty', 'Diff', 'Amount') else int)
-            st.session_state.po_working_df = df_fetched
-        else:
-            st.session_state.po_working_df = pd.DataFrame(columns=[
-                'id', 'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-                'Item Num', 'Description', 'UOM', 'PO Qty', 
-                'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
-            ])
-    except Exception:
-        st.session_state.po_working_df = pd.DataFrame(columns=[
-            'PO Number', 'Site ID', 'Site Name', 'Project Name', 'Line Number', 
-            'Item Num', 'Description', 'UOM', 'PO Qty', 
-            'User Qty', 'VIS Qty', 'Diff', 'wcc_qty', 'wcc_status', 'Claim Qty', 'Receipt Qty', 'Price', 'Amount'
-        ])
+    st.session_state.po_working_df = pd.DataFrame()
 
-if 'id' not in st.session_state.po_working_df.columns:
-    st.session_state.po_working_df['id'] = None
+
+def load_selected_po_lines(po_no, project_id, workspace):
+    """Only one PO's lines, never the entire workspace."""
+    rows = fetch_all_rows(
+        lambda a, b: supabase.table('po_working').select('*')
+        .eq('workspace', workspace).eq('PO Number', str(po_no))
+        .eq('Project Name', str(project_id)).range(a, b).execute()
+    )
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    for col in ('User Qty', 'VIS Qty', 'Diff', 'Amount'):
+        if col in frame:
+            frame[col] = pd.to_numeric(frame[col].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0).astype(float)
+    return frame
+
+
+def open_po_details(row):
+    ws = st.session_state.get('active_workspace', 'VISPL')
+    po, project = str(row.get('PO Number', '')), str(row.get('Project Name', ''))
+    marker = (ws, po, project)
+    if st.session_state.get('po_detail_marker') != marker or st.session_state.po_working_df.empty:
+        st.session_state.po_working_df = load_selected_po_lines(po, project, ws)
+        st.session_state.po_detail_marker = marker
+    if st.session_state.po_working_df.empty:
+        st.warning('Is PO ki lines Supabase me nahi mili. Refresh karke check karein.')
+        return
+    view_po_details_dialog(row)
+
+
+def open_po_delete(row):
+    ws = st.session_state.get('active_workspace', 'VISPL')
+    po, project = str(row.get('PO Number', '')), str(row.get('Project Name', ''))
+    marker = (ws, po, project)
+    if st.session_state.get('po_detail_marker') != marker or st.session_state.po_working_df.empty:
+        st.session_state.po_working_df = load_selected_po_lines(po, project, ws)
+        st.session_state.po_detail_marker = marker
+    delete_po_dialog(row)
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def fetch_po_register_fast(workspace, search, page, page_size):
+    """Entire-workspace global search; only the selected page crosses the network."""
+    result = supabase.rpc('po_working_fast_register', {
+        'p_workspace': workspace, 'p_search': search or '',
+        'p_page': int(page), 'p_page_size': int(page_size),
+    }).execute()
+    payload = result.data or {}
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    return payload
+
+
+def invalidate_po_fast_cache():
+    fetch_po_register_fast.clear()
+    st.session_state.pop('po_detail_marker', None)
 
 # --- 3. UPLOAD ORACLE PO DIALOG FUNCTION ---
 @st.dialog("📄 Upload PO (Notepad)")
@@ -731,6 +761,7 @@ def po_upload_dialog():
 
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
+                    invalidate_po_fast_cache()
 
                 fetch_site_data_lookup_cached.clear()
                 fetch_po_detail_site_info_cached.clear()
@@ -1066,6 +1097,7 @@ def view_po_details_dialog(row_data):
                         try:
                             insert_result = supabase.table("po_working").insert(insert_payload).execute()
                             saved_row = insert_result.data[0] if insert_result.data else insert_payload
+                            invalidate_po_fast_cache()
                             st.session_state.po_working_df = pd.concat(
                                 [st.session_state.po_working_df, pd.DataFrame([saved_row])],
                                 ignore_index=True
@@ -1206,6 +1238,7 @@ def view_po_details_dialog(row_data):
                 
             if 'po_working_df' in st.session_state:
                 del st.session_state['po_working_df']
+                invalidate_po_fast_cache()
                 
             st.success("✅ PO Lines Submitted Successfully to DB!")
             st.rerun()
@@ -1249,6 +1282,7 @@ def delete_po_dialog(row_data):
                 q.execute()
                 if 'po_working_df' in st.session_state:
                     del st.session_state['po_working_df']
+                    invalidate_po_fast_cache()
                 st.success(f"✅ PO {po_num} Deleted Successfully!")
                 st.rerun()
             except Exception as e:
@@ -1262,6 +1296,7 @@ with col_ref:
     if st.button("🔄 Refresh", use_container_width=True):
         if 'po_working_df' in st.session_state:
             del st.session_state['po_working_df']
+            invalidate_po_fast_cache()
         fetch_site_data_lookup_cached.clear()
         fetch_po_detail_site_info_cached.clear()
         st.rerun() 
@@ -1298,99 +1333,67 @@ if st.session_state.get('po_upload_success_msg'):
     if 'po_upload_summary' in st.session_state:
         del st.session_state['po_upload_summary']
 
-# --- FETCH DATA FROM SESSION ---
-df = st.session_state.po_working_df.copy()
-
-if st.session_state.get('action') == "export":
-    export_dialog(df)
-    st.session_state.action = "" 
+# --- FAST REGISTER: no full po_working/site_data downloads on page open ---
+if st.session_state.get('action') == 'export':
+    # Export is explicitly on demand. Never transfer all rows on normal page open.
+    with st.spinner('Preparing full Excel export (on demand)...'):
+        active_ws = st.session_state.get('active_workspace', 'VISPL')
+        export_rows = fetch_all_rows(
+            lambda a, b: supabase.table('po_working').select('*')
+            .eq('workspace', active_ws).range(a, b).execute()
+        )
+        export_df = pd.DataFrame(export_rows)
+    export_dialog(export_df)
+    st.session_state.action = ''
 
 # --- 6. SEARCH BOX + VIEW MODE TOGGLE ---
 col_table_title, col_search, col_viewtoggle = st.columns([5, 3, 2])
 with col_table_title:
     st.markdown("<h5 style='margin:0; color:#0f172a;'>🗄️ Uploaded PO Summary</h5>", unsafe_allow_html=True)
 with col_search:
-    if HAS_KEYUP:
-        search_query = st_keyup("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed", debounce=300)
-    else:
-        search_query = st.text_input("Search", placeholder="🔍 Search PO, Project, Site...", label_visibility="collapsed")
-        st.caption("Auto-search requires `streamlit-keyup`. Run: `pip install streamlit-keyup`")
+    # Submit avoids a database request for every keystroke.
+    with st.form('po_global_search_form', clear_on_submit=False, border=False):
+        typed_search = st.text_input('Search entire workspace',
+            value=st.session_state.get('po_committed_search', ''),
+            placeholder='🔍 PO, Project, Site, Item, Description...',
+            label_visibility='collapsed')
+        search_submitted = st.form_submit_button('🔍 Global Search', use_container_width=True)
+    if search_submitted:
+        st.session_state.po_committed_search = typed_search.strip()
+        st.session_state.po_current_page = 1
 with col_viewtoggle:
-    toggle_label = "📱 Mobile View" if st.session_state.po_view_mode == "table" else "🖥️ Table View"
-    if st.button(toggle_label, use_container_width=True, key="po_view_mode_toggle"):
-        st.session_state.po_view_mode = "cards" if st.session_state.po_view_mode == "table" else "table"
+    toggle_label = '📱 Mobile View' if st.session_state.po_view_mode == 'table' else '🖥️ Table View'
+    if st.button(toggle_label, use_container_width=True, key='po_view_mode_toggle'):
+        st.session_state.po_view_mode = 'cards' if st.session_state.po_view_mode == 'table' else 'table'
         st.rerun()
 
-if 'po_last_search' not in st.session_state:
-    st.session_state.po_last_search = ""
-
-# Jab bhi search text change ho, page ko 1 par reset kar do - warna filtered
-# results kam hone par purane page number ki wajah se list khali dikhti hai.
-if search_query != st.session_state.po_last_search:
-    st.session_state.po_current_page = 1
-    st.session_state.po_last_search = search_query
-
-if search_query:
-    # fillna('') taaki blank/None values 'nan' text na ban jayein,
-    # regex=False taaki PO/Item text me mojood special characters (jaise ( ) + . /)
-    # se koi match error ya galat filtering na ho.
-    search_df = df.fillna('').astype(str)
-    mask = search_df.apply(lambda x: x.str.contains(search_query, case=False, na=False, regex=False)).any(axis=1)
-    df = df[mask]
-
-# --- CREATE UNIQUE PO SUMMARY LIST (+ line count & PO value per PO/Project) ---
-SUMMARY_KEYS = ['Project Name', 'Site ID', 'Site Name', 'PO Number']
-if not df.empty:
-    _calc = df.copy()
-    for _c in SUMMARY_KEYS:
-        if _c not in _calc.columns:
-            _calc[_c] = ""
-        _calc[_c] = _calc[_c].fillna("").astype(str)
-    _calc['_value'] = (pd.to_numeric(_calc.get('PO Qty', 0), errors='coerce').fillna(0)
-                       * pd.to_numeric(_calc.get('Price', 0), errors='coerce').fillna(0))
-    summary_df = (_calc.groupby(SUMMARY_KEYS, sort=False)
-                  .agg(_lines=('_value', 'size'), _po_value=('_value', 'sum'))
-                  .reset_index())
-    summary_df = summary_df.iloc[::-1].reset_index(drop=True)
-else:
-    summary_df = pd.DataFrame(columns=SUMMARY_KEYS + ['_lines', '_po_value'])
-
-# --- SITE AVAILABILITY LOOKUP (cached) ---
+search_query = st.session_state.get('po_committed_search', '')
 active_ws = st.session_state.get('active_workspace', 'VISPL')
-available_sites = set()
-available_projects = set()
-project_name_lookup = {}   # Project ID -> actual Project Name (from site_data)
-for item in fetch_site_data_lookup_cached(active_ws):
-    sid_val = str(item.get("Site ID", "")).strip()
-    pid_val = str(item.get("Project ID", "")).strip()
-    pname_val = str(item.get("Project Name", "")).strip()
-    if sid_val:
-        available_sites.add(sid_val)
-    if pid_val:
-        available_projects.add(pid_val)
-        if pname_val:
-            project_name_lookup[pid_val] = pname_val
-            project_name_lookup[pid_val.upper()] = pname_val
-    if pname_val:
-        available_projects.add(pname_val)
+if 'po_current_page' not in st.session_state:
+    st.session_state.po_current_page = 1
+rows_per_page = rows_per_page_picker('po_rows_per_page', 'po_current_page')
 
-def _is_available(site_id_val, proj_name_val):
-    return bool((site_id_val and site_id_val in available_sites) or (proj_name_val and proj_name_val in available_projects))
+try:
+    register = fetch_po_register_fast(active_ws, search_query,
+                                      st.session_state.po_current_page, rows_per_page)
+except Exception as fast_error:
+    st.error('Fast PO register RPC available nahi hai. Saath di hui SQL file ko Supabase SQL Editor mein RUN karein.')
+    st.code(str(fast_error))
+    st.stop()
 
-if not summary_df.empty:
-    summary_df['_avail'] = [
-        _is_available(str(s).strip(), str(p).strip())
-        for s, p in zip(summary_df['Site ID'], summary_df['Project Name'])
-    ]
-else:
-    summary_df['_avail'] = []
-
-# --- KPI CARDS (search ke hisaab se) ---
-k_entries = len(summary_df)
-k_unique_po = summary_df['PO Number'].replace("", pd.NA).dropna().nunique() if k_entries else 0
-k_avail = int(summary_df['_avail'].sum()) if k_entries else 0
-k_not_avail = k_entries - k_avail
-k_value = float(summary_df['_po_value'].sum()) if k_entries else 0.0
+summary_df = pd.DataFrame(register.get('rows') or [])
+for col in ['Project Name', 'Site ID', 'Site Name', 'PO Number', '_lines', '_po_value', '_avail', '_project_name']:
+    if col not in summary_df:
+        summary_df[col] = pd.Series(dtype='object')
+project_name_lookup = {
+    str(r['Project Name']): str(r.get('_project_name') or '')
+    for _, r in summary_df.iterrows()
+}
+k_entries = int(register.get('total_rows') or 0)
+k_unique_po = int(register.get('unique_po') or 0)
+k_avail = int(register.get('available') or 0)
+k_not_avail = int(register.get('not_available') or 0)
+k_value = float(register.get('total_value') or 0)
 
 def _kpi(icon, label, value, foot, accent, soft, value_cls=""):
     return (
@@ -1409,24 +1412,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- 7. PAGINATION LOGIC ---
-if 'po_current_page' not in st.session_state:
-    st.session_state.po_current_page = 1
-
-rows_per_page = rows_per_page_picker("po_rows_per_page", "po_current_page")
-total_rows = len(summary_df)
-total_pages = math.ceil(total_rows / rows_per_page) if total_rows > 0 else 1
-
+# --- 7. SERVER-SIDE PAGINATION: search is NOT limited to the displayed page ---
+total_rows = k_entries
+total_pages = max(1, math.ceil(total_rows / rows_per_page))
 if st.session_state.po_current_page > total_pages:
     st.session_state.po_current_page = total_pages
-elif st.session_state.po_current_page < 1:
-    st.session_state.po_current_page = 1
-
+    st.rerun()
 start_idx = (st.session_state.po_current_page - 1) * rows_per_page
 end_idx = start_idx + rows_per_page
 
 # --- 8. ✨ LAVISH SUMMARY TABLE (or mobile cards) ---
-df_page = summary_df.iloc[start_idx:end_idx].copy()
+df_page = summary_df.copy()
 
 _MUTED = "<div class='slux-cell'><span class='slux-muted'>—</span></div>"
 
@@ -1494,10 +1490,10 @@ elif st.session_state.po_view_mode == "cards":
             bc1, bc2 = st.columns(2)
             with bc1:
                 if st.button("✏️ Edit", key=f"card_edit_{safe_po_key}", use_container_width=True):
-                    view_po_details_dialog(row_dict)
+                    open_po_details(row_dict)
             with bc2:
                 if st.button("🗑️ Delete", key=f"card_del_{safe_po_key}", use_container_width=True):
-                    delete_po_dialog(row_dict)
+                    open_po_delete(row_dict)
 
 else:
     # ---------------------------------------------------------------
@@ -1541,9 +1537,9 @@ else:
                     with st.container(key=f"popop_{row_css_key}"):
                         with st.popover("⚙️"):
                             if st.button("✏️ Edit Details", key=f"edit_{safe_po_key}", use_container_width=True):
-                                view_po_details_dialog(row_dict)
+                                open_po_details(row_dict)
                             if st.button("🗑️ Delete PO", key=f"del_{safe_po_key}", use_container_width=True):
-                                delete_po_dialog(row_dict)
+                                open_po_delete(row_dict)
 
                 rcols[1].markdown(f"<div style='text-align:center;'><span class='slux-num'>{serial_no}</span></div>", unsafe_allow_html=True)
                 rcols[2].markdown(_chip(proj_name_val, "proj"), unsafe_allow_html=True)
