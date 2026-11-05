@@ -2162,7 +2162,37 @@ def edit_record_dialog(row_data):
             # older bug) and anything that isn't actually a URL.
             return [u for u in items if u.lower() not in ("nan", "none", "null") and u.startswith("http")]
 
-        MAX_PHOTOS = 15
+        MAX_PHOTOS = 50
+        MAX_ZIP_BYTES = 100 * 1024 * 1024
+        MAX_EXTRACTED_BYTES = 250 * 1024 * 1024
+
+        def extract_zip_photos(zip_data):
+            """Read a WhatsApp ZIP in memory; accept only valid JPG/PNG images."""
+            if len(zip_data) > MAX_ZIP_BYTES:
+                raise ValueError("ZIP file 100 MB se badi hai.")
+            photos = []
+            total_bytes = 0
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as archive:
+                entries = [i for i in archive.infolist() if not i.is_dir()
+                           and not i.filename.startswith("__MACOSX/")
+                           and not os.path.basename(i.filename).startswith(".")]
+                image_entries = [i for i in entries if i.filename.lower().endswith(IMAGE_EXT)]
+                if not image_entries:
+                    raise ValueError("ZIP ke andar JPG/JPEG/PNG photos nahi mili.")
+                if len(image_entries) > MAX_PHOTOS:
+                    raise ValueError(f"ZIP me {len(image_entries)} photos hain. Maximum {MAX_PHOTOS} allowed.")
+                for info in sorted(image_entries, key=lambda i: i.filename.lower()):
+                    total_bytes += info.file_size
+                    if total_bytes > MAX_EXTRACTED_BYTES:
+                        raise ValueError("ZIP ki extracted photos 250 MB se zyada hain.")
+                    data = archive.read(info)
+                    with Image.open(io.BytesIO(data)) as im:
+                        im.verify()
+                    name = os.path.basename(info.filename)
+                    mime = "image/png" if name.lower().endswith(".png") else "image/jpeg"
+                    photos.append({"id": uuid.uuid4().hex[:8], "name": name,
+                                   "type": mime, "data": data})
+            return photos
         rid = row_data['id']
 
         # Row 1: fields that also have a manual status dropdown above (Photos/JMS/Commissioning Report)
@@ -2227,21 +2257,41 @@ def edit_record_dialog(row_data):
                 count_suffix = f" ({len(files_here)}/{MAX_PHOTOS})" if is_photos_field else (f" ({len(files_here)})" if files_here else "")
                 st.markdown(f"<p style='text-align:center; font-weight:800; color:#334155; font-size:0.85rem; margin-bottom:4px;'>{icon} {field_label}{count_suffix}</p>", unsafe_allow_html=True)
 
+                if is_photos_field:
+                    st.caption("📦 WhatsApp ZIP ya JPG/PNG photos select karein — ZIP automatically extract hogi (max 50 photos).")
                 make_pdf = st.toggle("Photos ko 1 PDF banao", key=pdf_key,
                                      help="On: jitni photos ek saath upload karoge, sab milkar ek PDF banegi (pehla page cover + har photo ek page).")
 
                 # --- 1) File chuno -> pehle "taiyar" list me aati hai (abhi upload nahi) ---
                 with st.container(key=css_key):
                     picked_files = st.file_uploader(
-                        f"Upload {field_label}", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True,
+                        f"Upload {field_label}", type=(["jpg", "jpeg", "png", "pdf", "zip"] if is_photos_field else ["jpg", "jpeg", "png", "pdf"]), accept_multiple_files=True,
                         key=f"uploader_{key_prefix}_{rid}_{ss[ver_key]}", label_visibility="collapsed"
                     )
                 if picked_files:
+                    incoming = []
+                    zip_errors = []
                     for u in picked_files:
-                        staged.append({"id": uuid.uuid4().hex[:8], "name": u.name,
-                                       "type": u.type or "application/octet-stream", "data": u.getvalue()})
+                        if is_photos_field and u.name.lower().endswith(".zip"):
+                            try:
+                                incoming.extend(extract_zip_photos(u.getvalue()))
+                            except Exception as e:
+                                zip_errors.append(f"{u.name}: {e}")
+                        else:
+                            incoming.append({"id": uuid.uuid4().hex[:8], "name": u.name,
+                                             "type": u.type or "application/octet-stream", "data": u.getvalue()})
+                    if is_photos_field:
+                        photo_count = sum(x["name"].lower().endswith(IMAGE_EXT) for x in staged + incoming)
+                        if photo_count > MAX_PHOTOS:
+                            zip_errors.append(f"Selected photos {photo_count} hain. Maximum {MAX_PHOTOS} photos ek batch me allowed.")
+                            incoming = []
+                    staged.extend(incoming)
                     ss[ver_key] += 1
+                    if zip_errors:
+                        ss[f"zip_errors_{rid}_{key_prefix}"] = zip_errors
                     st.rerun(scope="fragment")
+                for zip_error in ss.pop(f"zip_errors_{rid}_{key_prefix}", []):
+                    st.error(f"❌ ZIP upload: {zip_error}")
 
                 # --- 2) Taiyar list: har file ke saath ✕ ---
                 if staged:
