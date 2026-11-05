@@ -1200,118 +1200,123 @@ def _split_list_field(raw):
     return items
 
 
-def run_bulk_sync_po_wcc(workspace):
-    """
-    Returns a summary dict: {po_filled, wcc_filled, date_status_filled,
-    already_ok, no_site_row, errors}.
+def _po_cells(raw):
+    """Keep empty positions: PO, Date, Status and WCC columns share an index."""
+    if raw is None:
+        return []
+    value = str(raw).replace("|", ",")
+    if not value.strip() or value.strip().lower() in ("nan", "none", "null"):
+        return []
+    return [x.strip() if x.strip().lower() not in ("nan", "none", "null", "select") else ""
+            for x in value.split(",")]
 
-    "PO No." and "WCC Number"/"WCC Status" are backfilled from po_working.
-    "PO Date" and "PO Status" aren't stored on po_working at all — but they
-    ARE already sitting in Supabase, just on a DIFFERENT site_data row: the
-    project that existed in Site Data at the moment the PO was originally
-    uploaded got its Date/Status written directly. So here we also scan
-    every OTHER site_data row for a matching PO Number and copy its Date/
-    Status across to any row that's missing them for that same PO.
+
+def _po_join(values):
+    # Do not drop internal empty slots, otherwise WCC shifts to another PO.
+    values = list(values)
+    while values and not values[-1]:
+        values.pop()
+    return ", ".join(values)
+
+
+def run_bulk_sync_po_wcc(workspace, only_project=None):
+    """Merge ALL unique PO numbers by workspace + Project ID, keeping each WCC aligned.
+    No new tables. Existing nonblank manually entered values take precedence.
     """
     summary = {"po_filled": 0, "wcc_filled": 0, "date_status_filled": 0,
                "already_ok": 0, "no_site_row": 0, "errors": 0}
     try:
-        po_rows = _fetch_all_rows_paginated("po_working", workspace)
+        if only_project:
+            site_rows = (supabase.table("site_data").select("*")
+                         .eq("workspace", workspace).eq("Project ID", only_project).execute()).data or []
+            po_rows = (supabase.table("po_working").select("*")
+                       .eq("workspace", workspace).eq("Project Name", only_project).execute()).data or []
+        else:
+            site_rows = _fetch_all_rows_paginated("site_data", workspace)
+            po_rows = _fetch_all_rows_paginated("po_working", workspace)
 
-        # One summary entry per Project Name (= Project ID) — a project can
-        # span many PO lines, so keep the LAST non-empty value seen for
-        # each field.
-        project_info = {}
+        by_project = {}
         for r in po_rows:
-            proj = str(r.get("Project Name", "")).strip()
-            if not proj or proj.lower() == "nan":
+            project = str(r.get("Project Name") or "").strip()
+            number = str(r.get("PO Number") or "").strip()
+            if not project or not number or number.lower() in ("nan", "none"):
                 continue
-            info = project_info.setdefault(proj, {"po_number": "", "wcc_number": "", "wcc_status": ""})
-            po_num = str(r.get("PO Number", "")).strip()
-            if po_num and po_num.lower() != "nan":
-                info["po_number"] = po_num
-            wcc_num = str(r.get("wcc_number", "") or "").strip()
-            if wcc_num and wcc_num.lower() != "nan":
-                info["wcc_number"] = wcc_num
-            wcc_stat = str(r.get("wcc_status", "") or "").strip()
-            if wcc_stat and wcc_stat.lower() != "nan":
-                info["wcc_status"] = wcc_stat
+            entry = by_project.setdefault(project, {}).setdefault(number, {"wcc": "", "status": ""})
+            for field, dest in (("wcc_number", "wcc"), ("wcc_status", "status")):
+                val = str(r.get(field) or "").strip()
+                if val and val.lower() not in ("nan", "none", "null"):
+                    entry[dest] = val
 
-        site_rows = _fetch_all_rows_paginated("site_data", workspace)
+        # Copy known dates/statuses by PO number without mixing their positions.
+        known = {}
+        for row in site_rows:
+            nums = _po_cells(row.get("PO No."))
+            dates = _po_cells(row.get("PO Date"))
+            statuses = _po_cells(row.get("PO Status"))
+            for i, number in enumerate(nums):
+                if not number:
+                    continue
+                e = known.setdefault(number, {"date": "", "status": ""})
+                if i < len(dates) and dates[i] and not e["date"]:
+                    e["date"] = dates[i]
+                if i < len(statuses) and statuses[i] and not e["status"]:
+                    e["status"] = statuses[i]
 
-        # 🟢 Build PO Number -> (date, status) from whichever site_data row(s)
-        # already have it recorded. A project can list multiple PO Numbers,
-        # each with its own date/status at the same list position.
-        po_date_status_map = {}
-        for srow in site_rows:
-            po_list = _split_list_field(srow.get("PO No.", ""))
-            date_list = _split_list_field(srow.get("PO Date", ""))
-            status_list = _split_list_field(srow.get("PO Status", ""))
-            for idx, pono in enumerate(po_list):
-                entry = po_date_status_map.setdefault(pono, {"date": "", "status": ""})
-                if not entry["date"] and idx < len(date_list):
-                    entry["date"] = date_list[idx]
-                if not entry["status"] and idx < len(status_list):
-                    entry["status"] = status_list[idx]
-
-        for srow in site_rows:
-            proj_id = str(srow.get("Project ID", "")).strip()
-            if not proj_id or proj_id.lower() == "nan":
+        matched = set()
+        for row in site_rows:
+            project = str(row.get("Project ID") or "").strip()
+            incoming = by_project.get(project)
+            if not incoming:
                 continue
-            info = project_info.get(proj_id)
-            if not info:
-                continue  # this project has no PO/WCC data uploaded at all yet
+            matched.add(project)
+            fields = {key: _po_cells(row.get(key)) for key in
+                      ("PO No.", "PO Date", "PO Status", "WCC Number", "WCC Status")}
+            old = {key: list(value) for key, value in fields.items()}
+            count = max([len(v) for v in fields.values()] + [0])
+            for values in fields.values():
+                values.extend([""] * (count - len(values)))
+            numbers = fields["PO No."]
+            # Duplicate PO in stored fields is not added again.
+            for number, info in incoming.items():
+                if number in numbers:
+                    idx = numbers.index(number)
+                else:
+                    idx = len(numbers)
+                    for values in fields.values():
+                        values.append("")
+                    numbers[idx] = number
+                if not fields["WCC Number"][idx] and info["wcc"]:
+                    fields["WCC Number"][idx] = info["wcc"]
+                if not fields["WCC Status"][idx] and info["status"]:
+                    fields["WCC Status"][idx] = info["status"]
+                if not fields["PO Date"][idx]:
+                    fields["PO Date"][idx] = known.get(number, {}).get("date", "")
+                if not fields["PO Status"][idx]:
+                    fields["PO Status"][idx] = known.get(number, {}).get("status", "")
 
-            update_payload = {}
-            cur_po_no = str(srow.get("PO No.", "") or "").strip()
-            if not cur_po_no and info["po_number"]:
-                update_payload["PO No."] = info["po_number"]
-
-            cur_wcc_no = str(srow.get("WCC Number", "") or "").strip()
-            if not cur_wcc_no and info["wcc_number"]:
-                update_payload["WCC Number"] = info["wcc_number"]
-                if info["wcc_status"]:
-                    update_payload["WCC Status"] = info["wcc_status"]
-
-            # 🟢 Backfill PO Date / PO Status by matching each PO Number this
-            # row will end up having (existing + whatever we just filled in
-            # above) against po_date_status_map.
-            effective_po_list = _split_list_field(update_payload.get("PO No.", cur_po_no))
-            cur_date = str(srow.get("PO Date", "") or "").strip()
-            cur_status = str(srow.get("PO Status", "") or "").strip()
-            if effective_po_list and (not cur_date or not cur_status):
-                found_dates = [po_date_status_map.get(p, {}).get("date", "") for p in effective_po_list]
-                found_statuses = [po_date_status_map.get(p, {}).get("status", "") for p in effective_po_list]
-                if not cur_date and any(found_dates):
-                    update_payload["PO Date"] = ", ".join([d for d in found_dates if d])
-                if not cur_status and any(found_statuses):
-                    update_payload["PO Status"] = ", ".join([s for s in found_statuses if s])
-
-            if not update_payload:
+            payload = {key: _po_join(value) for key, value in fields.items()
+                       if _po_join(value) != _po_join(old[key])}
+            if not payload:
                 summary["already_ok"] += 1
                 continue
-
-            row_id = srow.get("id")
-            if row_id is None:
-                summary["errors"] += 1
-                continue
             try:
-                supabase.table("site_data").update(update_payload).eq("id", row_id).execute()
-                if "PO No." in update_payload:
+                supabase.table("site_data").update(payload).eq("id", row["id"]).eq("workspace", workspace).execute()
+                if "PO No." in payload:
                     summary["po_filled"] += 1
-                if "WCC Number" in update_payload:
+                if "WCC Number" in payload or "WCC Status" in payload:
                     summary["wcc_filled"] += 1
-                if "PO Date" in update_payload or "PO Status" in update_payload:
+                if "PO Date" in payload or "PO Status" in payload:
                     summary["date_status_filled"] += 1
-            except Exception:
+            except Exception as ex:
                 summary["errors"] += 1
-
-        matched_projects = {str(s.get("Project ID", "")).strip() for s in site_rows}
-        summary["no_site_row"] = len([p for p in project_info if p not in matched_projects])
+                summary.setdefault("error_details", []).append(str(ex))
+        summary["no_site_row"] = len(set(by_project) - matched)
+        if summary["po_filled"] or summary["wcc_filled"] or summary["date_status_filled"]:
+            clear_site_data_cache()
         return summary
-    except Exception as e:
+    except Exception as ex:
         summary["errors"] += 1
-        summary["fatal_error"] = str(e)
+        summary["fatal_error"] = str(ex)
         return summary
 
 
@@ -1846,9 +1851,9 @@ def add_record_dialog():
                     "Work Description": work_desc,
                     "Product": product if product != "Select" else "",
                     
-                    "PO No.": ", ".join([p for p in po_nos if p]),
-                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
-                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
+                    "PO No.": _po_join(po_nos),
+                    "PO Date": _po_join(po_dates),
+                    "PO Status": _po_join(po_statuses),
                     
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
@@ -1862,8 +1867,8 @@ def add_record_dialog():
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     
-                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
+                    "WCC Number": _po_join(wcc_nums),
+                    "WCC Status": _po_join(wcc_statuses),
                     "Auditor Name": auditor_name,
                     "Auditor Number": auditor_number,
                     "Remark": site_remark,
@@ -1918,6 +1923,20 @@ def add_record_dialog():
 # --- 3.6 EDIT RECORD DIALOG FUNCTION (NOW: VIEW + EDIT + DELETE COMBINED "MANAGE") ---
 @st.dialog("⚙️ Manage Site Data (View / Edit / Delete)", width="large")
 def edit_record_dialog(row_data):
+    # Fetch the current PO/WCC mapping immediately on opening Manage.
+    _ws = st.session_state.get("active_workspace", "VISPL")
+    _project = str(row_data.get("Project ID") or "").strip()
+    if _project:
+        _result = run_bulk_sync_po_wcc(_ws, only_project=_project)
+        if _result.get("errors"):
+            st.warning("PO/WCC sync failed; existing data is shown.")
+        try:
+            _fresh = (supabase.table("site_data").select("*")
+                      .eq("id", row_data["id"]).eq("workspace", _ws).limit(1).execute()).data
+            if _fresh:
+                row_data = _fresh[0]
+        except Exception:
+            pass
     st.caption("Update comprehensive site metrics and procurement status")
     all_dd = get_all_dropdowns() 
     # Every widget key below includes this record's id so that switching between
@@ -2072,15 +2091,7 @@ def edit_record_dialog(row_data):
         st.markdown('<div class="modal-section-title">💰 PURCHASE ORDERS & WCC FINALIZATION</div>', unsafe_allow_html=True)
         
         def _clean_stored_list(raw_value):
-            """Split a comma-joined DB field into a list, dropping empty and
-            'nan'/'none'/'null' junk values so they never pre-fill a text box."""
-            items = []
-            normalized = str(raw_value if raw_value is not None else "").replace("|", ",")
-            for x in normalized.split(","):
-                x = x.strip()
-                if x and x.lower() not in ("nan", "none", "null"):
-                    items.append(x)
-            return items
+            return _po_cells(raw_value)
 
         po_no_list = _clean_stored_list(row_data.get("PO No.", ""))
         po_date_list = _clean_stored_list(row_data.get("PO Date", ""))
@@ -2088,13 +2099,25 @@ def edit_record_dialog(row_data):
         wcc_num_list = _clean_stored_list(row_data.get("WCC Number", ""))
         wcc_status_list = _clean_stored_list(row_data.get("WCC Status", ""))
         
-        max_boxes = max(1, len(po_no_list), len(wcc_num_list))
-        if 'edit_po_count' not in st.session_state:
-            st.session_state.edit_po_count = max_boxes
+        max_boxes = max(1, len(po_no_list), len(wcc_num_list), len(po_date_list), len(po_status_list), len(wcc_status_list))
+        # Each site owns its own row count. A previous site's PO count must not leak.
+        po_count_key = f"edit_po_count_{rid}"
+        po_source_key = f"edit_po_source_{rid}"
+        po_source = tuple(str(row_data.get(k) or "") for k in
+                          ("PO No.", "PO Date", "PO Status", "WCC Number", "WCC Status"))
+        if st.session_state.get(po_source_key) != po_source:
+            st.session_state[po_source_key] = po_source
+            st.session_state[po_count_key] = max_boxes
+            # Streamlit retains keyed widget values across dialog reopenings.
+            # Invalidate them when Supabase has new PO/WCC values.
+            for key in list(st.session_state.keys()):
+                if key.startswith(("e_po_no_", "e_po_date_", "e_po_status_", "e_wcc_no_", "e_wcc_status_")) and key.endswith(f"_{rid}"):
+                    del st.session_state[key]
+        st.session_state[po_count_key] = max(st.session_state.get(po_count_key, max_boxes), max_boxes)
             
         po_nos, po_dates, po_statuses, wcc_nums, wcc_statuses = [], [], [], [], []
         
-        for i in range(st.session_state.edit_po_count):
+        for i in range(st.session_state[po_count_key]):
             if i > 0:
                 st.markdown(f"<p style='color:#334155; font-size:0.85rem; margin-top:10px; margin-bottom:5px; font-weight:700;'>➕ Additional PO & WCC {i+1}</p>", unsafe_allow_html=True)
             
@@ -2136,12 +2159,12 @@ def edit_record_dialog(row_data):
         # --- FIXED ADD/REMOVE PO BUTTONS ---
         col_btn_add, col_btn_rem, _ = st.columns([3, 3, 4])
         with col_btn_add:
-            if st.button("➕ Add Additional PO", key="e_add_po", use_container_width=True):
-                st.session_state.edit_po_count += 1
+            if st.button("➕ Add Additional PO", key=f"e_add_po_{rid}", use_container_width=True):
+                st.session_state[po_count_key] += 1
         with col_btn_rem:
-            if st.session_state.edit_po_count > 1:
-                if st.button("➖ Remove PO", key="e_rem_po", use_container_width=True):
-                    st.session_state.edit_po_count -= 1
+            if st.session_state[po_count_key] > 1:
+                if st.button("➖ Remove PO", key=f"e_rem_po_{rid}", use_container_width=True):
+                    st.session_state[po_count_key] -= 1
 
         auditor_name, auditor_number, detail_slots = auditor_fields(all_dd, f"edit_site_{rid}", row_data)
         ptw_values = ptw_fields(f"edit_site_{rid}", detail_slots, row_data)
@@ -2522,9 +2545,9 @@ def edit_record_dialog(row_data):
                     "Work Description": work_desc,
                     "Product": product if product != "Select" else "",
                     
-                    "PO No.": ", ".join([p for p in po_nos if p]),
-                    "PO Date": ", ".join([str(d) for d in po_dates if d]),
-                    "PO Status": ", ".join([ps if ps != "Select" else "" for ps in po_statuses]),
+                    "PO No.": _po_join(po_nos),
+                    "PO Date": _po_join(po_dates),
+                    "PO Status": _po_join(po_statuses),
                     
                     "RFAI Status": rfai_status if rfai_status != "Select" else "",
                     "WH Material": wh_material if wh_material != "Select" else "",
@@ -2538,8 +2561,8 @@ def edit_record_dialog(row_data):
                     "Extra Approval": extra_approval if extra_approval != "Select" else "",
                     "Vision Billing Status": vision_billing if vision_billing != "Select" else "",
                     
-                    "WCC Number": ", ".join([w for w in wcc_nums if w]),
-                    "WCC Status": ", ".join([ws if ws != "Select" else "" for ws in wcc_statuses]),
+                    "WCC Number": _po_join(wcc_nums),
+                    "WCC Status": _po_join(wcc_statuses),
                     "Auditor Name": auditor_name,
                     "Auditor Number": auditor_number,
                     "Remark": site_remark,
@@ -3277,6 +3300,14 @@ st.markdown("<br>", unsafe_allow_html=True)
 # --- 5. FETCH & PREPARE DATA (cached — see fetch_site_data_cached above) ---
 table_name = "site_data"
 active_ws = st.session_state.get('active_workspace', 'VISPL')
+# Auto-map uploaded PO/WCC even when Site Data was created after PO upload.
+# Limit database-wide scans to once per 30 seconds per workspace/session.
+_sync_key = f"site_po_autosync_{active_ws}"
+if time.monotonic() - st.session_state.get(_sync_key, -1e12) > 30:
+    _sync_result = run_bulk_sync_po_wcc(active_ws)
+    st.session_state[_sync_key] = time.monotonic()
+    if _sync_result.get("errors"):
+        st.warning("PO/WCC Auto Sync: kuch records update nahi hue. Bulk Sync me error check karein.")
 data = fetch_site_data_cached(active_ws)
 
 columns_list = [
